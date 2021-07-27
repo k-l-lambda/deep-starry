@@ -2,6 +2,8 @@
 
 2021.7.27
 
+	+	score_connection/data.py created.
+
 	+	transformer folder (from jadore801120/attention-is-all-you-need-pytorch) imported.
 
 	+	changelog.txt created.

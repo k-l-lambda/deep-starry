@@ -7,7 +7,7 @@ from .semantic_element import SemanticElementType
 
 
 
-STAFF_MAX = 32
+STAFF_MAX = 8
 
 
 #ANGLE_CYCLE = 1000	# should be comparable with (but larger than) value's up limit
