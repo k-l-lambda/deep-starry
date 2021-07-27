@@ -1,0 +1,10 @@
+
+
+2021.7.27
+
+	+	transformer folder (from jadore801120/attention-is-all-you-need-pytorch) imported.
+
+	+	changelog.txt created.
+
+
+------------------------------------------------------- deep-starry ChangeLog -------------------------------------------------------
