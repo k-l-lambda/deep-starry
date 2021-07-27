@@ -1,50 +1,42 @@
 
-from enum import Enum
 import torch.nn as nn
+import numpy as np
 
-from transformer.Layers import EncoderLayer
+from ..transformer.Layers import EncoderLayer
+from .semantic_element import SemanticElementType
 
 
 
-class SemanticElementType(Enum):
-	BOS					= 0,
-	PAD					= 1,
+STAFF_MAX = 32
 
-	NoteheadS0			= 2,
-	NoteheadS1			= 3,
-	NoteheadS2			= 4,
-	GraceNoteheadS0		= 5,
-	vline_Stem			= 6,
-	Flag3				= 7,
-	BeamLeft			= 8,
-	BeamContinue		= 9,
-	BeamRight			= 10,
-	Dot					= 11,
-	Rest0				= 12,
-	Rest1				= 13,
-	Rest2				= 14,
-	Rest3				= 15,
-	Rest4				= 16,
-	Rest5				= 17,
-	Rest6				= 18,
+
+#ANGLE_CYCLE = 1000	# should be comparable with (but larger than) value's up limit
+
+#def get_angle_vec(x, d_hid):
+#	return [x / np.power(ANGLE_CYCLE * 2 * np.pi, 2 * (hid_j // 2) / d_hid) for hid_j in range(d_hid)]
 
 
 class Embedder(nn.Module):
-	def __init__ (self, n_vocab, d_word_vec, padding_idx = SemanticElementType.PAD):
+	def __init__ (self, d_word_vec):
 		super().__init__()
 
-	def forward (self):
-		pass
+		self.type_emb = nn.Embedding(SemanticElementType.MAX, d_word_vec, padding_idx = SemanticElementType.PAD)
+		self.staff_emb = nn.Embedding(STAFF_MAX, d_word_vec)
+
+	def forward (self, src_seq):
+		types = src_seq[:, 0]
+		staves = src_seq[:, 1]
+		positions = src_seq[:, 2:]
+
+		return self.type_emb(types) + self.staff_emb(staves) + positions
 
 
 class Encoder(nn.Module):
-	def __init__ (
-			self, n_src_vocab, d_word_vec, n_layers, n_head, d_k, d_v,
-			d_model, d_inner, dropout=0.1, n_position=200, scale_emb=False):
-
+	def __init__ (self, d_word_vec, n_layers, n_head, d_k, d_v,
+			d_model, d_inner, dropout=0.1, scale_emb=False):
 		super().__init__()
 
-		self.src_word_emb = Embedder(n_src_vocab, d_word_vec)
+		self.src_word_emb = Embedder(d_word_vec)
 
 		self.dropout = nn.Dropout(p=dropout)
 
@@ -58,7 +50,6 @@ class Encoder(nn.Module):
 		self.d_model = d_model
 
 	def forward (self, src_seq, src_mask, return_attns=False):
-
 		enc_slf_attn_list = []
 
 		# -- Forward
