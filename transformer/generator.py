@@ -4,11 +4,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from transformer.models import Transformer, get_pad_mask, get_subsequent_mask
 
 
 
-class Generator(nn.Module):
+class Generator (nn.Module):
 	''' Load a trained model and generate sentences by multinomial sampling. '''
 
 	def __init__ (self, model, max_seq_len, trg_bos_idx, trg_eos_idx):
@@ -22,7 +23,7 @@ class Generator(nn.Module):
 		self.model.eval()
 
 
-	def _model_decode(self, seq):
+	def _model_decode (self, seq):
 		mask = get_subsequent_mask(seq)
 		dec_output, *_ = self.model.decoder(seq, mask)
 		vocab_vec = self.model.trg_word_prj(dec_output)[:, -1, :]

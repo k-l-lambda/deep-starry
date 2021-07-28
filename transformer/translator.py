@@ -4,6 +4,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from transformer.models import Transformer, get_pad_mask, get_subsequent_mask
 
 
@@ -41,6 +42,7 @@ class Translator(nn.Module):
 	def _model_decode(self, trg_seq, enc_output, src_mask):
 		trg_mask = get_subsequent_mask(trg_seq)
 		dec_output, *_ = self.model.decoder(trg_seq, trg_mask, enc_output, src_mask)
+
 		return F.softmax(self.model.trg_word_prj(dec_output), dim=-1)
 
 
@@ -56,6 +58,7 @@ class Translator(nn.Module):
 		gen_seq = self.blank_seqs.clone().detach()
 		gen_seq[:, 1] = best_k_idx[0]
 		enc_output = enc_output.repeat(beam_size, 1, 1)
+
 		return enc_output, gen_seq, scores
 
 
@@ -113,4 +116,5 @@ class Translator(nn.Module):
 					_, ans_idx = scores.div(seq_lens.float() ** alpha).max(0)
 					ans_idx = ans_idx.item()
 					break
+
 		return gen_seq[ans_idx][:seq_lens[ans_idx]].tolist()

@@ -1,5 +1,6 @@
 
 '''A wrapper class for scheduled optimizer '''
+
 import numpy as np
 
 
