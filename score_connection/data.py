@@ -29,15 +29,18 @@ def elementToVector (elem, d_word):
 
 	pos_vec = np.concatenate((x_vec, y1_vec + y2_vec))	# d_word
 
-	return np.concatenate(([elem['type'], elem['staff']], pos_vec))	# d_word + 2
+	return (elem['type'], elem['staff']), pos_vec
 
 
 def exampleToTensors (example, n_seq_max, d_word):
 	elements = example['elements']
-	seq = np.ones((n_seq_max, d_word + 2), dtype=np.float32)
+
+	seq_id = np.ones((n_seq_max, 2), dtype=np.int16)
+	seq_position = np.zeros((n_seq_max, d_word), dtype=np.float32)
 	for i, elem in enumerate(elements):
-		word = elementToVector(elem, d_word)
-		seq[i, :len(word)] = word
+		ids, position = elementToVector(elem, d_word)
+		seq_id[i, :] = ids
+		seq_position[i, :] = position
 
 	masks = (
 		[i < len(elements) and elements[i]['type'] in JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES for i in range(n_seq_max)],
@@ -50,9 +53,12 @@ def exampleToTensors (example, n_seq_max, d_word):
 	]
 	matrixH = np.array(matrixH, dtype=np.float32).flatten()
 
-	return (seq,	# (n_seq_max, d_word + 2)
-		matrixH,	# n_source_joints * n_target_joints
-		masks)		# (2, n_seq_max)
+	return (
+		seq_id,			# (n_seq_max, 2)
+		seq_position,	# (n_seq_max, d_word)
+		matrixH,		# n_source_joints * n_target_joints
+		masks,			# (2, n_seq_max)
+	)
 
 
 def batchizeTensorExamples (examples, batch_size, device = 'cpu'):
@@ -61,10 +67,11 @@ def batchizeTensorExamples (examples, batch_size, device = 'cpu'):
 	for i in range(0, len(examples), batch_size):
 		ex = examples[i:min(len(examples), i + batch_size)]
 
-		seqs = torch.tensor(list(map(lambda x: x[0], ex))).to(device)
-		masks = torch.tensor(list(map(lambda x: x[2], ex))).to(device)
+		seq_id = torch.tensor(list(map(lambda x: x[0], ex))).to(device)
+		seq_position = torch.tensor(list(map(lambda x: x[1], ex))).to(device)
+		masks = torch.tensor(list(map(lambda x: x[3], ex))).to(device)
 
-		matrixHs = list(map(lambda x: x[1], ex))
+		matrixHs = list(map(lambda x: x[2], ex))
 		matrixLen = max(*[len(mtx) for mtx in matrixHs])
 		matrixHsFixed = np.zeros((len(matrixHs), matrixLen), dtype=np.float32)
 		for i, mtx in enumerate(matrixHs):
@@ -72,7 +79,8 @@ def batchizeTensorExamples (examples, batch_size, device = 'cpu'):
 		matrixHsFixed = torch.tensor(matrixHsFixed).to(device)
 
 		batches.append({
-			'seq': seqs,
+			'seq_id': seq_id,
+			'seq_position': seq_position,
 			'mask': masks,
 			'matrixH': matrixHsFixed,
 		})
