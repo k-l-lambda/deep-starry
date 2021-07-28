@@ -4,7 +4,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformer.Models import Transformer, get_pad_mask, get_subsequent_mask
+from transformer.models import Transformer, get_pad_mask, get_subsequent_mask
 
 
 
