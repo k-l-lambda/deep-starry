@@ -27,8 +27,11 @@ class SemanticElementType(Enum):
 
 	MAX					= 19,
 
+	def __int__(self):
+		return self.value[0]
 
-JOINT_SEMANTIC_ELEMENT_TYPES = [
+
+JOINT_SEMANTIC_ELEMENT_TYPES = list(map(int, [
 	SemanticElementType.BOS,
 	SemanticElementType.NoteheadS0,
 	SemanticElementType.NoteheadS1,
@@ -41,4 +44,33 @@ JOINT_SEMANTIC_ELEMENT_TYPES = [
 	SemanticElementType.Rest5,
 	SemanticElementType.Rest6,
 	SemanticElementType.vline_Stem,
-]
+]))
+
+
+JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES = list(map(int, [
+	SemanticElementType.NoteheadS0,
+	SemanticElementType.NoteheadS1,
+	SemanticElementType.NoteheadS2,
+	SemanticElementType.Rest0,
+	SemanticElementType.Rest1,
+	SemanticElementType.Rest2,
+	SemanticElementType.Rest3,
+	SemanticElementType.Rest4,
+	SemanticElementType.Rest5,
+	SemanticElementType.Rest6,
+	SemanticElementType.vline_Stem,
+]))
+
+
+JOINT_TARGET_SEMANTIC_ELEMENT_TYPES = list(map(int, [
+	SemanticElementType.BOS,
+	SemanticElementType.NoteheadS0,
+	SemanticElementType.Rest0,
+	SemanticElementType.Rest1,
+	SemanticElementType.Rest2,
+	SemanticElementType.Rest3,
+	SemanticElementType.Rest4,
+	SemanticElementType.Rest5,
+	SemanticElementType.Rest6,
+	SemanticElementType.vline_Stem,
+]))
