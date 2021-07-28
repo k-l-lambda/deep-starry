@@ -74,3 +74,6 @@ JOINT_TARGET_SEMANTIC_ELEMENT_TYPES = list(map(int, [
 	SemanticElementType.Rest6,
 	SemanticElementType.vline_Stem,
 ]))
+
+
+STAFF_MAX = 8

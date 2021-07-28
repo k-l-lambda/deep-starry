@@ -3,11 +3,8 @@ import torch.nn as nn
 import numpy as np
 
 from ..transformer.Layers import EncoderLayer
-from .semantic_element import SemanticElementType
+from .semantic_element import SemanticElementType, STAFF_MAX
 
-
-
-STAFF_MAX = 8
 
 
 class Embedder(nn.Module):

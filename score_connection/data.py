@@ -3,7 +3,7 @@ import json
 import numpy as np
 import torch
 
-from .semantic_element import JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES, JOINT_TARGET_SEMANTIC_ELEMENT_TYPES
+from .semantic_element import JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES, JOINT_TARGET_SEMANTIC_ELEMENT_TYPES, STAFF_MAX
 
 
 
@@ -29,7 +29,11 @@ def elementToVector (elem, d_word):
 
 	pos_vec = np.concatenate((x_vec, y1_vec + y2_vec))	# d_word
 
-	return (elem['type'], elem['staff']), pos_vec
+	se_type = elem['type']
+	staff = elem['staff']
+	staff = STAFF_MAX + staff if staff < 0 else staff
+
+	return (se_type, staff), pos_vec
 
 
 def exampleToTensors (example, n_seq_max, d_word):
