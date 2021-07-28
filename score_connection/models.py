@@ -10,12 +10,6 @@ from .semantic_element import SemanticElementType
 STAFF_MAX = 8
 
 
-#ANGLE_CYCLE = 1000	# should be comparable with (but larger than) value's up limit
-
-#def get_angle_vec(x, d_hid):
-#	return [x / np.power(ANGLE_CYCLE * 2 * np.pi, 2 * (hid_j // 2) / d_hid) for hid_j in range(d_hid)]
-
-
 class Embedder(nn.Module):
 	def __init__ (self, d_word_vec):
 		super().__init__()

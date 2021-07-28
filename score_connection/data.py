@@ -11,8 +11,25 @@ def loadConnectionSet (file):
 	return json.load(file)
 
 
+ANGLE_CYCLE = 1000	# should be comparable with (but larger than) value's up limit
+
+def get_sinusoid_vec(x, d_hid):
+	vec = np.array([x / np.power(ANGLE_CYCLE * 2 * np.pi, 2 * (hid_j // 2) / d_hid) for hid_j in range(d_hid)], dtype=np.float32)
+	vec[0::2] = np.sin(vec[0::2])
+	vec[1::2] = np.cos(vec[1::2])
+
+	return vec
+
+
 def elementToVector (elem, d_word):
-	return [elem['type'], elem['staff']] # TODO: position sinusoid embed
+	d_pos = d_word // 2
+	x_vec = get_sinusoid_vec(elem['x'], d_pos)
+	y1_vec = get_sinusoid_vec(elem['y1'], d_pos)
+	y2_vec = get_sinusoid_vec(elem['y2'], d_pos)
+
+	pos_vec = np.concatenate((x_vec, y1_vec + y2_vec))	# d_word
+
+	return np.concatenate(([elem['type'], elem['staff']], pos_vec))	# d_word + 2
 
 
 def exampleToTensors (example, n_seq_max, d_word):
