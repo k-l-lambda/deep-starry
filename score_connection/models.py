@@ -60,6 +60,9 @@ class Encoder (nn.Module):
 			enc_output, enc_slf_attn = enc_layer(enc_output, slf_attn_mask=mask)
 			enc_slf_attn_list += [enc_slf_attn] if return_attns else []
 
+		# normalize for inner product
+		enc_output = nn.functional.normalize(enc_output, dim=-1)
+
 		if return_attns:
 			return enc_output, enc_slf_attn_list
 
@@ -71,6 +74,8 @@ class TransformJointer (nn.Module):
 			n_source_layers=6, n_target_layers=1,
 			n_head=8, d_k=64, d_v=64, dropout=0.1, scale_emb=False):
 		super().__init__()
+
+		self.d_model = d_model
 
 		self.source_encoder = Encoder(d_word_vec, n_source_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
 		self.target_encoder = Encoder(d_word_vec, n_target_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
@@ -92,9 +97,25 @@ class TransformJointer (nn.Module):
 		source_code, = self.source_encoder(seq_id, seq_position, seq_mask)
 		target_code, = self.target_encoder(seq_id, seq_position, seq_mask)
 
-		print('source_code:', source_code.shape)
-		print('target_code:', target_code.shape)
-		# TODO:
+		results = []
+		for i, (code_src, code_tar) in enumerate(zip(source_code, target_code)):
+			msk_src, msk_tar = mask[i, 0].unsqueeze(-1), mask[i, 1].unsqueeze(-1)
+			code_src = code_src.masked_select(msk_src).reshape(-1, self.d_model)	# (src_joint, d_model)
+			code_tar = code_tar.masked_select(msk_tar).reshape(-1, self.d_model)	# (tar_joint, d_model)
+
+			code_src = code_src.unsqueeze(-2)			# (src_joint, 1, d_model)
+			code_tar = code_tar.unsqueeze(-1)			# (tar_joint, d_model, 1)
+
+			src_joints = code_src.shape[0]
+			tar_joints = code_tar.shape[0]
+
+			code_src = code_src.unsqueeze(1).repeat(1, tar_joints, 1, 1)	# (src_joint, tar_joints, 1, d_model)
+			code_tar = code_tar.repeat(src_joints, 1, 1, 1)					# (src_joint, tar_joint, d_model, 1)
+
+			result = code_src.matmul(code_tar).flatten()					# (src_joint * tar_joint)
+			results.append(result)
+
+		return results
 
 
 	def train (self, batch):

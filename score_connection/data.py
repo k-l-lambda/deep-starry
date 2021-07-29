@@ -83,10 +83,10 @@ def batchizeTensorExamples (examples, batch_size, device = 'cpu'):
 		matrixHsFixed = torch.tensor(matrixHsFixed).to(device)
 
 		batches.append({
-			'seq_id': seq_id,				# (n, seq, 2)
-			'seq_position': seq_position,	# (n, seq, d_word)
-			'mask': masks,					# (n, 2, seq)
-			'matrixH': matrixHsFixed,		# (n, n_source_joints * n_target_joints)
+			'seq_id': seq_id,				# int32		(n, seq, 2)
+			'seq_position': seq_position,	# float32	(n, seq, d_word)
+			'mask': masks,					# bool		(n, 2, seq)
+			'matrixH': matrixHsFixed,		# float32	(n, max_batch_matrices)
 		})
 
 	return batches
