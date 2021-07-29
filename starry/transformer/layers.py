@@ -4,7 +4,7 @@
 import torch.nn as nn
 import torch
 
-from transformer.sub_layers import MultiHeadAttention, PositionwiseFeedForward
+from .sub_layers import MultiHeadAttention, PositionwiseFeedForward
 
 
 

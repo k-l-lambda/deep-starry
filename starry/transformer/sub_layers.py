@@ -5,7 +5,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
-from transformer.modules import ScaledDotProductAttention
+from .modules import ScaledDotProductAttention
 
 
 

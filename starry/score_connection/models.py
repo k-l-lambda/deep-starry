@@ -2,8 +2,8 @@
 import torch.nn as nn
 import numpy as np
 
-from transformer.layers import EncoderLayer
-from transformer.models import get_pad_mask, get_subsequent_mask
+from ..transformer.layers import EncoderLayer
+from ..transformer.models import get_pad_mask, get_subsequent_mask
 from .semantic_element import SemanticElementType, STAFF_MAX
 
 
