@@ -1,9 +1,9 @@
 
-from enum import Enum
+from enum import IntEnum
 
 
 
-class SemanticElementType(Enum):
+class SemanticElementType(IntEnum):
 	BOS					= 0,
 	PAD					= 1,
 
@@ -27,11 +27,8 @@ class SemanticElementType(Enum):
 
 	MAX					= 19,
 
-	def __int__(self):
-		return self.value[0]
 
-
-JOINT_SEMANTIC_ELEMENT_TYPES = list(map(int, [
+JOINT_SEMANTIC_ELEMENT_TYPES = [
 	SemanticElementType.BOS,
 	SemanticElementType.NoteheadS0,
 	SemanticElementType.NoteheadS1,
@@ -44,10 +41,10 @@ JOINT_SEMANTIC_ELEMENT_TYPES = list(map(int, [
 	SemanticElementType.Rest5,
 	SemanticElementType.Rest6,
 	SemanticElementType.vline_Stem,
-]))
+]
 
 
-JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES = list(map(int, [
+JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES = [
 	SemanticElementType.NoteheadS0,
 	SemanticElementType.NoteheadS1,
 	SemanticElementType.NoteheadS2,
@@ -59,10 +56,10 @@ JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES = list(map(int, [
 	SemanticElementType.Rest5,
 	SemanticElementType.Rest6,
 	SemanticElementType.vline_Stem,
-]))
+]
 
 
-JOINT_TARGET_SEMANTIC_ELEMENT_TYPES = list(map(int, [
+JOINT_TARGET_SEMANTIC_ELEMENT_TYPES = [
 	SemanticElementType.BOS,
 	SemanticElementType.NoteheadS0,
 	SemanticElementType.Rest0,
@@ -73,7 +70,7 @@ JOINT_TARGET_SEMANTIC_ELEMENT_TYPES = list(map(int, [
 	SemanticElementType.Rest5,
 	SemanticElementType.Rest6,
 	SemanticElementType.vline_Stem,
-]))
+]
 
 
 STAFF_MAX = 8

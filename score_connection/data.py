@@ -39,7 +39,7 @@ def elementToVector (elem, d_word):
 def exampleToTensors (example, n_seq_max, d_word):
 	elements = example['elements']
 
-	seq_id = np.ones((n_seq_max, 2), dtype=np.int16)
+	seq_id = np.ones((n_seq_max, 2), dtype=np.int32)
 	seq_position = np.zeros((n_seq_max, d_word), dtype=np.float32)
 	for i, elem in enumerate(elements):
 		ids, position = elementToVector(elem, d_word)
@@ -83,10 +83,10 @@ def batchizeTensorExamples (examples, batch_size, device = 'cpu'):
 		matrixHsFixed = torch.tensor(matrixHsFixed).to(device)
 
 		batches.append({
-			'seq_id': seq_id,
-			'seq_position': seq_position,
-			'mask': masks,
-			'matrixH': matrixHsFixed,
+			'seq_id': seq_id,				# (n, seq, 2)
+			'seq_position': seq_position,	# (n, seq, d_word)
+			'mask': masks,					# (n, 2, seq)
+			'matrixH': matrixHsFixed,		# (n, n_source_joints * n_target_joints)
 		})
 
 	return batches
