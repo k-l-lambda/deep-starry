@@ -9,11 +9,11 @@ from transformer.layers import EncoderLayer, DecoderLayer
 
 
 
-def get_pad_mask(seq, pad_idx):
+def get_pad_mask(seq, pad_idx):	# (n, 1, seq)
 	return (seq != pad_idx).unsqueeze(-2)
 
 
-def get_subsequent_mask(seq):
+def get_subsequent_mask(seq):	# (1, seq, seq)
 	''' For masking out the subsequent info. '''
 	sz_b, len_s = seq.size()
 	subsequent_mask = (1 - torch.triu(

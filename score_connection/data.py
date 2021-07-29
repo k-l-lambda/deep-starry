@@ -14,7 +14,7 @@ def loadConnectionSet (file):
 ANGLE_CYCLE = 1000	# should be comparable with (but larger than) value's up limit
 
 def get_sinusoid_vec(x, d_hid):
-	vec = np.array([x / np.power(ANGLE_CYCLE * 2 * np.pi, 2 * (hid_j // 2) / d_hid) for hid_j in range(d_hid)], dtype=np.float32)
+	vec = np.array([x / np.power(ANGLE_CYCLE / 2 * np.pi, 2 * (hid_j // 2) / d_hid) for hid_j in range(d_hid)], dtype=np.float32)
 	vec[0::2] = np.sin(vec[0::2])
 	vec[1::2] = np.cos(vec[1::2])
 
