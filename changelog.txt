@@ -2,6 +2,8 @@
 
 2021.7.29
 
+	+	score_connection/trainer.py created.
+
 	+	score_connection/models.py: class of TransformJointer created.
 
 
