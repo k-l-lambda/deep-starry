@@ -112,7 +112,7 @@ class TransformJointer (nn.Module):
 			code_src = code_src.unsqueeze(1).repeat(1, tar_joints, 1, 1)	# (src_joint, tar_joints, 1, d_model)
 			code_tar = code_tar.repeat(src_joints, 1, 1, 1)					# (src_joint, tar_joint, d_model, 1)
 
-			result = code_src.matmul(code_tar).flatten()					# (src_joint * tar_joint)
+			result = code_src.matmul(code_tar).clamp(min=0).flatten()					# (src_joint * tar_joint)
 			results.append(result)
 
 		return results
@@ -122,4 +122,10 @@ class TransformJointer (nn.Module):
 		pred = self.forward(batch['seq_id'], batch['seq_position'], batch['mask'])
 		matrixH = batch['matrixH']
 
-		# TODO: compute loss
+		loss = 0
+		for i, (pred_i, truth) in enumerate(zip(pred, matrixH)):
+			loss += nn.functional.binary_cross_entropy(pred_i, truth[:len(pred_i)])
+
+		loss /= len(pred)
+
+		return loss
