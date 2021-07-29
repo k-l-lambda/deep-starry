@@ -118,7 +118,7 @@ class TransformJointer (nn.Module):
 		return results
 
 
-	def train (self, batch):
+	def forwardLoss (self, batch):
 		pred = self.forward(batch['seq_id'], batch['seq_position'], batch['mask'])
 		matrixH = batch['matrixH']
 

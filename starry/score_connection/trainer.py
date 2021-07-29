@@ -76,7 +76,8 @@ class Trainer:
 
 			# forward
 			self.optimizer.zero_grad()
-			loss, acc = model.train(batch)
+			loss = model.forwardLoss(batch)
+			acc = 1 - loss # TODO
 
 			# backward and update parameters
 			loss.backward()
@@ -101,7 +102,8 @@ class Trainer:
 					batch[k] = v.to(device)
 
 				# forward
-				loss, acc = model.train(batch)	# TODO: refined train by eval
+				loss = model.forwardLoss(batch)
+				acc = 1 - loss # TODO
 
 				# note keeping
 				n_batch += 1
