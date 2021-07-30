@@ -2,6 +2,10 @@
 import json
 import numpy as np
 import torch
+import os
+import platform
+from fs import open_fs
+import re
 
 from .semantic_element import JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES, JOINT_TARGET_SEMANTIC_ELEMENT_TYPES, STAFF_MAX
 
@@ -90,3 +94,40 @@ def batchizeTensorExamples (examples, batch_size):
 		})
 
 	return batches
+
+
+# workaround fs path seperator issue
+_S = (lambda path: path.replace(os.path.sep, '/')) if platform.system() == 'Windows' else (lambda p: p)
+
+
+def loadDataset (data_dir, splits = ('1,2,3,4,5,6,7,8/10', '9/10'), name_id = re.compile(r'(.+)\.\w+$'),
+	batch_size=1, n_seq_max=256, d_word=512):
+	fs = open_fs(data_dir)
+	file_list = list(filter(lambda name: fs.isfile(name), fs.listdir('/')))
+	#print('file_list:', file_list)
+
+	identifier = lambda name: name_id.match(name).group(1)
+
+	id_map = dict(map(lambda name: (identifier(name), name), file_list))
+	ids = list(id_map.keys())
+	ids.sort()
+	id_indices = dict(zip(ids, range(len(ids))))
+
+	def loadData (split):
+		phases, cycle = split.split('/')
+		phases = list(map(int, phases.split(',')))
+		cycle = int(cycle)
+
+		filenames = [name for id, name in id_map.items() if id_indices[id] % cycle in phases]
+
+		examples = []
+		for filename in filenames:
+			with fs.open(filename, 'r') as file:
+				data = loadConnectionSet(file)
+				examples += data['connections']
+
+		examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), examples))
+
+		return batchizeTensorExamples(examples, batch_size)
+
+	return tuple(map(loadData, splits))

@@ -1,5 +1,10 @@
 
 
+2021.7.30
+
+	+	score_connection/data.py: loadDataset added.
+
+
 2021.7.29
 
 	+	score_connection/trainer.py created.
