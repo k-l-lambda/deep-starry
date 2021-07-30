@@ -2,9 +2,11 @@
 
 2021.7.30
 
+	+	score_connection/data.py: class of Dataset added.
+
 	+	preprocessScoreConnection.py created.
 
-	+	score_connection/data.py: loadDataset added.
+	+	score_connection/data.py: preprocessDataset added.
 
 
 2021.7.29

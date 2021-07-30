@@ -7,6 +7,7 @@ import platform
 from fs import open_fs
 import re
 from tqdm import tqdm
+import math
 
 from .semantic_element import JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES, JOINT_TARGET_SEMANTIC_ELEMENT_TYPES, STAFF_MAX
 
@@ -95,6 +96,46 @@ def batchizeTensorExamples (examples, batch_size):
 		})
 
 	return batches
+
+
+class Dataset:
+	@staticmethod
+	def loadPackage (data, batch_size, shuffles=(True, False)):
+		return tuple(map(lambda examples_shuffle: Dataset(examples_shuffle[0], batch_size, examples_shuffle[1]), zip(data, shuffles)))
+
+
+	def __init__ (self, examples, batch_size, shuffle=False):
+		self.examples = examples
+		self.batch_size = batch_size
+		self.shuffle = shuffle
+
+	def __len__(self):
+		return math.ceil(len(self.examples) / self.batch_size)
+
+	def __iter__ (self):
+		if self.shuffle:
+			np.random.shuffle(self.examples)
+
+		for i in range(0, len(self.examples), self.batch_size):
+			ex = self.examples[i:min(len(self.examples), i + self.batch_size)]
+
+			seq_id = torch.tensor(list(map(lambda x: x[0], ex)))
+			seq_position = torch.tensor(list(map(lambda x: x[1], ex)))
+			masks = torch.tensor(list(map(lambda x: x[3], ex)))
+
+			matrixHs = list(map(lambda x: x[2], ex))
+			matrixLen = max(*[len(mtx) for mtx in matrixHs])
+			matrixHsFixed = np.zeros((len(matrixHs), matrixLen), dtype=np.float32)
+			for i, mtx in enumerate(matrixHs):
+				matrixHsFixed[i, :len(mtx)] = mtx
+			matrixHsFixed = torch.tensor(matrixHsFixed)
+
+			yield {
+				'seq_id': seq_id,				# int32		(n, seq, 2)
+				'seq_position': seq_position,	# float32	(n, seq, d_word)
+				'mask': masks,					# bool		(n, 2, seq)
+				'matrixH': matrixHsFixed,		# float32	(n, max_batch_matrices)
+			}
 
 
 # workaround fs path seperator issue
