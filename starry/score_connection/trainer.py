@@ -25,6 +25,7 @@ class Trainer:
 		self.options = options
 
 		self.model = TransformJointer(d_word_vec=options.d_model, d_model=options.d_model)
+		self.model.to(options.device)
 
 		self.optimizer = ScheduledOptim(
 			torch.optim.Adam(self.model.parameters(), betas=(0.9, 0.98), eps=1e-09),

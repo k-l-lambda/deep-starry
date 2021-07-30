@@ -31,11 +31,11 @@ def main ():
 	data = pickle.load(open(args.data, 'rb'))
 	args.d_model = data['d_word']
 
-	datasets = Dataset.loadPackage(data, batch_size=args.batch_size, splits=args.splits, device=args.device, truncate=args.truncate)
+	train, val = Dataset.loadPackage(data, batch_size=args.batch_size, splits=args.splits, device=args.device)
 
 	logging.info('Training.')
 	trainer = Trainer(args)
-	trainer.train(datasets['train'], datasets['val'])
+	trainer.train(train, val)
 
 
 
