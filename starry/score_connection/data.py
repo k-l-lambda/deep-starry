@@ -100,14 +100,17 @@ def batchizeTensorExamples (examples, batch_size):
 
 class Dataset:
 	@staticmethod
-	def loadPackage (data, batch_size, shuffles=(True, False)):
-		return tuple(map(lambda examples_shuffle: Dataset(examples_shuffle[0], batch_size, examples_shuffle[1]), zip(data, shuffles)))
+	def loadPackage (data, batch_size, shuffles=(True, False), device='cpu'):
+		return tuple(map(
+			lambda examples_shuffle: Dataset(examples_shuffle[0], batch_size, device, examples_shuffle[1]),
+			zip(data['sets'], shuffles)))
 
 
-	def __init__ (self, examples, batch_size, shuffle=False):
+	def __init__ (self, examples, batch_size, device, shuffle=False):
 		self.examples = examples
 		self.batch_size = batch_size
 		self.shuffle = shuffle
+		self.device = device
 
 	def __len__(self):
 		return math.ceil(len(self.examples) / self.batch_size)
@@ -119,16 +122,16 @@ class Dataset:
 		for i in range(0, len(self.examples), self.batch_size):
 			ex = self.examples[i:min(len(self.examples), i + self.batch_size)]
 
-			seq_id = torch.tensor(list(map(lambda x: x[0], ex)))
-			seq_position = torch.tensor(list(map(lambda x: x[1], ex)))
-			masks = torch.tensor(list(map(lambda x: x[3], ex)))
+			seq_id = torch.tensor(list(map(lambda x: x[0], ex))).to(self.device)
+			seq_position = torch.tensor(list(map(lambda x: x[1], ex))).to(self.device)
+			masks = torch.tensor(list(map(lambda x: x[3], ex))).to(self.device)
 
 			matrixHs = list(map(lambda x: x[2], ex))
 			matrixLen = max(*[len(mtx) for mtx in matrixHs])
 			matrixHsFixed = np.zeros((len(matrixHs), matrixLen), dtype=np.float32)
 			for i, mtx in enumerate(matrixHs):
 				matrixHsFixed[i, :len(mtx)] = mtx
-			matrixHsFixed = torch.tensor(matrixHsFixed)
+			matrixHsFixed = torch.tensor(matrixHsFixed).to(self.device)
 
 			yield {
 				'seq_id': seq_id,				# int32		(n, seq, 2)
@@ -174,4 +177,7 @@ def preprocessDataset (data_dir, splits = ('1,2,3,4,5,6,7,8/10', '9/10'), name_i
 		#return batchizeTensorExamples(examples, batch_size)
 		return examples
 
-	return tuple(map(loadData, splits))
+	return {
+		'sets': tuple(map(loadData, splits)),
+		'd_word': d_word,
+	}

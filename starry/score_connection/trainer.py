@@ -12,7 +12,7 @@ from .models import TransformJointer
 '''
 	options:
 		output_dir:			str
-		save_mode:			str
+		save_mode:			str		'all' or 'best'
 		d_model:			int
 		epoch:				int
 		lr_mul:				float
@@ -35,7 +35,7 @@ class Trainer:
 		self.tb_writer = SummaryWriter(log_dir=os.path.join(options.output_dir, 'logs'))
 
 
-	def train (self, training_data, validation_data, device):
+	def train (self, training_data, validation_data):
 		def print_performances(header, ppl, accu, start_time, lr):
 			print('  - {header:12} ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, lr: {lr:8.5f}, elapse: {elapse:3.3f} min'
 				.format(header=f"({header})", ppl=ppl, accu=100*accu, elapse=(time.time()-start_time)/60, lr=lr))
@@ -45,7 +45,7 @@ class Trainer:
 			print('[ Epoch', epoch_i, ']')
 
 			start = time.time()
-			train_loss, train_accu = self.train_epoch(training_data, device)
+			train_loss, train_accu = self.train_epoch(training_data)
 			#train_ppl = math.exp(min(train_loss, 100))
 
 			# Current learning rate
@@ -53,7 +53,7 @@ class Trainer:
 			print_performances('Training', train_loss, train_accu, start, lr)
 
 			start = time.time()
-			valid_loss, valid_accu = self.eval_epoch(validation_data, device)
+			valid_loss, valid_accu = self.eval_epoch(validation_data)
 			#valid_ppl = math.exp(min(valid_loss, 100))
 			print_performances('Validation', valid_loss, valid_accu, start, lr)
 
@@ -65,7 +65,7 @@ class Trainer:
 				model_name = 'model_accu_{accu:3.3f}.chkpt'.format(accu=100*valid_accu)
 				torch.save(checkpoint, model_name)
 			elif self.options.save_mode == 'best':
-				model_name = 'model.chkpt'
+				model_name = f'model_{epoch_i:02}.chkpt'
 				if valid_loss <= min(valid_losses):
 					torch.save(checkpoint, os.path.join(self.options.output_dir, model_name))
 					print('	- [Info] The checkpoint file has been updated.')
@@ -75,15 +75,11 @@ class Trainer:
 			self.tb_writer.add_scalar('learning_rate', lr, epoch_i)
 
 
-	def train_epoch (dataset, device):
+	def train_epoch (dataset):
 		self.model.train()
 		total_loss, total_acc, n_batch = 0, 0, 0 
 
-		for batch in tqdm(training_data, mininterval=2, desc='  - (Training)   ', leave=False):
-			# prepare data
-			for k, v in batch.items():
-				batch[k] = v.to(device)
-
+		for batch in tqdm(dataset, mininterval=2, desc='  - (Training)   ', leave=False):
 			# forward
 			self.optimizer.zero_grad()
 			loss = model.forwardLoss(batch)
@@ -101,16 +97,12 @@ class Trainer:
 		return total_loss / n_batch, total_acc / n_batch
 
 
-	def eval_epoch (dataset, device):
+	def eval_epoch (dataset):
 		self.model.eval()
 		total_loss, total_acc, n_batch = 0, 0, 0 
 
 		with torch.no_grad():
-			for batch in tqdm(validation_data, mininterval=2, desc='  - (Validation) ', leave=False):
-				# prepare data
-				for k, v in batch.items():
-					batch[k] = v.to(device)
-
+			for batch in tqdm(dataset, mininterval=2, desc='  - (Validation) ', leave=False):
 				# forward
 				loss = model.forwardLoss(batch)
 				acc = 1 - loss # TODO
