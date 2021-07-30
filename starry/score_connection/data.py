@@ -151,7 +151,7 @@ class Dataset:
 _S = (lambda path: path.replace(os.path.sep, '/')) if platform.system() == 'Windows' else (lambda p: p)
 
 
-def preprocessDataset (data_dir, splits = ('1,2,3,4,5,6,7,8/10', '9/10'), name_id = re.compile(r'(.+)\.\w+$'),
+def preprocessDataset (data_dir, name_id = re.compile(r'(.+)\.\w+$'),
 	n_seq_max=0x100, d_word=0x200):
 	fs = open_fs(data_dir)
 	file_list = list(filter(lambda name: fs.isfile(name), fs.listdir('/')))
@@ -159,31 +159,30 @@ def preprocessDataset (data_dir, splits = ('1,2,3,4,5,6,7,8/10', '9/10'), name_i
 
 	identifier = lambda name: name_id.match(name).group(1)
 
-	id_map = dict(map(lambda name: (identifier(name), name), file_list))
-	ids = list(id_map.keys())
+	id_map = dict(map(lambda name: (name, identifier(name)), file_list))
+	ids = list(set(id_map.values()))
 	ids.sort()
-	id_indices = dict(zip(ids, range(len(ids))))
+	#id_indices = dict(zip(ids, range(len(ids))))
 
-	def loadData (split):
-		phases, cycle = split.split('/')
-		phases = list(map(int, phases.split(',')))
-		cycle = int(cycle)
+	def loadData (id):
+		#phases, cycle = split.split('/')
+		#phases = list(map(int, phases.split(',')))
+		#cycle = int(cycle)
 
-		filenames = [name for id, name in id_map.items() if id_indices[id] % cycle in phases]
+		filenames = [name for name, id_ in id_map.items() if id_ == id]
 
 		examples = []
-		#for filename in tqdm(filenames, desc='Preprocess files'):
 		for filename in filenames:
 			with fs.open(filename, 'r') as file:
 				data = loadConnectionSet(file)
 				examples += data['connections']
 
-		examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), tqdm(examples, desc='Preprocess examples', mininterval=1.)))
+		examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), examples))
+		#examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), tqdm(examples, desc='Preprocess examples', mininterval=1.)))
 
-		#return batchizeTensorExamples(examples, batch_size)
 		return examples
 
 	return {
-		'sets': tuple(map(loadData, splits)),
+		'groups': list(map(loadData, tqdm(ids, desc='Preprocess groups'))),
 		'd_word': d_word,
 	}
