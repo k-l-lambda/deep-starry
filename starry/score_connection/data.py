@@ -127,7 +127,7 @@ class Dataset:
 			masks = torch.tensor(list(map(lambda x: x[3], ex))).to(self.device)
 
 			matrixHs = list(map(lambda x: x[2], ex))
-			matrixLen = max(*[len(mtx) for mtx in matrixHs])
+			matrixLen = max(0, *[len(mtx) for mtx in matrixHs])
 			matrixHsFixed = np.zeros((len(matrixHs), matrixLen), dtype=np.float32)
 			for i, mtx in enumerate(matrixHs):
 				matrixHsFixed[i, :len(mtx)] = mtx

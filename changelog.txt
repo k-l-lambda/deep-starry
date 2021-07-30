@@ -2,6 +2,8 @@
 
 2021.7.30
 
+	+	trainScoreConnection.py created.
+
 	+	score_connection/data.py: class of Dataset added.
 
 	+	preprocessScoreConnection.py created.

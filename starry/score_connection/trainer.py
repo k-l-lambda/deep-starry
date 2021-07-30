@@ -1,4 +1,5 @@
 
+import os
 import torch
 from tensorboardX import SummaryWriter
 import time
@@ -26,7 +27,7 @@ class Trainer:
 		self.model = TransformJointer(d_word_vec=options.d_model, d_model=options.d_model)
 
 		self.optimizer = ScheduledOptim(
-			torch.optim.Adam(model.parameters(), betas=(0.9, 0.98), eps=1e-09),
+			torch.optim.Adam(self.model.parameters(), betas=(0.9, 0.98), eps=1e-09),
 			options.lr_mul,
 			options.d_model,
 			options.n_warmup_steps,
@@ -59,7 +60,7 @@ class Trainer:
 
 			valid_losses += [valid_loss]
 
-			checkpoint = {'epoch': epoch_i, 'settings': self.options, 'model': model.state_dict()}
+			checkpoint = {'epoch': epoch_i, 'settings': self.options, 'model': self.model.state_dict()}
 
 			if self.options.save_mode == 'all':
 				model_name = 'model_accu_{accu:3.3f}.chkpt'.format(accu=100*valid_accu)
@@ -75,19 +76,19 @@ class Trainer:
 			self.tb_writer.add_scalar('learning_rate', lr, epoch_i)
 
 
-	def train_epoch (dataset):
+	def train_epoch (self, dataset):
 		self.model.train()
 		total_loss, total_acc, n_batch = 0, 0, 0 
 
 		for batch in tqdm(dataset, mininterval=2, desc='  - (Training)   ', leave=False):
 			# forward
 			self.optimizer.zero_grad()
-			loss = model.forwardLoss(batch)
+			loss = self.model.forwardLoss(batch)
 			acc = 1 - loss # TODO
 
 			# backward and update parameters
 			loss.backward()
-			optimizer.step_and_update_lr()
+			self.optimizer.step_and_update_lr()
 
 			# note keeping
 			n_batch += 1
@@ -97,14 +98,14 @@ class Trainer:
 		return total_loss / n_batch, total_acc / n_batch
 
 
-	def eval_epoch (dataset):
+	def eval_epoch (self, dataset):
 		self.model.eval()
 		total_loss, total_acc, n_batch = 0, 0, 0 
 
 		with torch.no_grad():
 			for batch in tqdm(dataset, mininterval=2, desc='  - (Validation) ', leave=False):
 				# forward
-				loss = model.forwardLoss(batch)
+				loss = self.model.forwardLoss(batch)
 				acc = 1 - loss # TODO
 
 				# note keeping
