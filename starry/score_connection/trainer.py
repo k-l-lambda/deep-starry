@@ -37,9 +37,9 @@ class Trainer:
 
 
 	def train (self, training_data, validation_data):
-		def print_performances(header, ppl, accu, start_time, lr):
-			print('  - {header:12} ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, lr: {lr:8.5f}, elapse: {elapse:3.3f} min'
-				.format(header=f"({header})", ppl=ppl, accu=100*accu, elapse=(time.time()-start_time)/60, lr=lr))
+		def print_performances(header, loss, accu, start_time, lr):
+			print('  - {header:12} loss: {loss: 8.5f}, accuracy: {accu:3.3f} %, lr: {lr:8.5f}, elapse: {elapse:3.3f} min'
+				.format(header=f"({header})", loss=loss, accu=100*accu, elapse=(time.time()-start_time)/60, lr=lr))
 
 		valid_losses = []
 		for epoch_i in range(self.options.epoch):
@@ -71,7 +71,7 @@ class Trainer:
 					torch.save(checkpoint, os.path.join(self.options.output_dir, model_name))
 					print('	- [Info] The checkpoint file has been updated.')
 
-			self.tb_writer.add_scalars('ppl', {'train': train_loss, 'val': valid_loss}, epoch_i)
+			self.tb_writer.add_scalars('loss', {'train': train_loss, 'val': valid_loss}, epoch_i)
 			self.tb_writer.add_scalars('accuracy', {'train': train_accu, 'val': valid_accu}, epoch_i)
 			self.tb_writer.add_scalar('learning_rate', lr, epoch_i)
 

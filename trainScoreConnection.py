@@ -1,10 +1,15 @@
 
+import sys
 import dill as pickle
 import argparse
+import logging
 
 from starry.score_connection.data import Dataset
 from starry.score_connection.trainer import Trainer
 
+
+
+logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
 
 def main ():
@@ -16,15 +21,18 @@ def main ():
 	parser.add_argument('-e', '--epoch', type=int, default=400)
 	parser.add_argument('-lr', '--lr_mul', type=float, default=2.0)
 	parser.add_argument('-warm', '--n_warmup_steps', type=int, default=4000)
+	parser.add_argument('--truncate', type=int, default=None)
 
 	args = parser.parse_args()
 	args.output_dir = './output'
 
+	logging.info('Loading data.')
 	data = pickle.load(open(args.data, 'rb'))
 	args.d_model = data['d_word']
 
-	train_data, val_data = Dataset.loadPackage(data, batch_size=args.batch_size, device=args.device)
+	train_data, val_data = Dataset.loadPackage(data, batch_size=args.batch_size, device=args.device, truncate=args.truncate)
 
+	logging.info('Training.')
 	trainer = Trainer(args)
 	trainer.train(train_data, val_data)
 

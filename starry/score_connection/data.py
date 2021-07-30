@@ -100,7 +100,10 @@ def batchizeTensorExamples (examples, batch_size):
 
 class Dataset:
 	@staticmethod
-	def loadPackage (data, batch_size, shuffles=(True, False), device='cpu'):
+	def loadPackage (data, batch_size, shuffles=(True, False), device='cpu', truncate=None):
+		if truncate > 0:
+			data['sets'] = tuple(map(lambda ex: ex[:truncate], data['sets']))
+
 		return tuple(map(
 			lambda examples_shuffle: Dataset(examples_shuffle[0], batch_size, device, examples_shuffle[1]),
 			zip(data['sets'], shuffles)))
