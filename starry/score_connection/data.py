@@ -100,13 +100,16 @@ def batchizeTensorExamples (examples, batch_size):
 
 class Dataset:
 	@staticmethod
-	def loadPackage (data, batch_size, shuffles=(True, False), device='cpu', truncate=None):
+	def loadPackage (data, batch_size, set_map={'train': 0, 'val': 1}, shuffles=(True, False, False), device='cpu', truncate=None):
 		if truncate > 0:
 			data['sets'] = tuple(map(lambda ex: ex[:truncate], data['sets']))
 
-		return tuple(map(
-			lambda examples_shuffle: Dataset(examples_shuffle[0], batch_size, device, examples_shuffle[1]),
-			zip(data['sets'], shuffles)))
+		return dict(map(
+			lambda name: (
+				name,
+				Dataset(data['sets'][set_map[name]], batch_size, device, shuffles[set_map[name]]),
+			),
+			set_map.keys()))
 
 
 	def __init__ (self, examples, batch_size, device, shuffle=False):

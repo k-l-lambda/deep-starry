@@ -15,7 +15,7 @@ def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('source', type=str, help='input data directory path')
 	parser.add_argument('target', type=str, help='output path')
-	parser.add_argument('-sp', '--splits', type=str, default='1,2,3,4,5,6,7,8/10;9/10')
+	parser.add_argument('-sp', '--splits', type=str, default='1,2,3,4,5,6,7,8/10;9/10;0/10')
 	parser.add_argument('-seq', '--n_seq_max', type=int, default=0x100)
 	parser.add_argument('-d', '--d_word', type=int, default=0x200)
 
