@@ -99,17 +99,23 @@ def batchizeTensorExamples (examples, batch_size):
 
 
 class Dataset:
+	# '*' in split means shuffle
 	@staticmethod
-	def loadPackage (data, batch_size, set_map={'train': 0, 'val': 1}, shuffles=(True, False, False), device='cpu', truncate=None):
-		if truncate > 0:
-			data['sets'] = tuple(map(lambda ex: ex[:truncate], data['sets']))
+	def loadPackage (data, batch_size, splits='*1,2,3,4,5,6,7,8/10;9/10', device='cpu'):
+		splits = splits.split(';')
 
-		return dict(map(
-			lambda name: (
-				name,
-				Dataset(data['sets'][set_map[name]], batch_size, device, shuffles[set_map[name]]),
-			),
-			set_map.keys()))
+		def extractExamples (split):
+			split = split[1:] if split[0] == '*' else split
+
+			phases, cycle = split.split('/')
+			phases = list(map(int, phases.split(',')))
+			cycle = int(cycle)
+
+			return sum([examples for i, examples in enumerate(data['groups']) if i % cycle in phases], [])
+
+		return tuple(map(
+			lambda split: Dataset(extractExamples(split), batch_size, device, '*' in split),
+			splits))
 
 
 	def __init__ (self, examples, batch_size, device, shuffle=False):
@@ -165,10 +171,6 @@ def preprocessDataset (data_dir, name_id = re.compile(r'(.+)\.\w+$'),
 	#id_indices = dict(zip(ids, range(len(ids))))
 
 	def loadData (id):
-		#phases, cycle = split.split('/')
-		#phases = list(map(int, phases.split(',')))
-		#cycle = int(cycle)
-
 		filenames = [name for name, id_ in id_map.items() if id_ == id]
 
 		examples = []
