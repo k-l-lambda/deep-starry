@@ -9,6 +9,16 @@ from .models import TransformJointer
 
 
 
+'''
+	options:
+		output_dir:			str
+		save_mode:			str
+		d_model:			int
+		epoch:				int
+		lr_mul:				float
+		n_warmup_steps:		int
+'''
+
 class Trainer:
 	def __init__ (self, options):
 		self.options = options
@@ -17,9 +27,9 @@ class Trainer:
 
 		self.optimizer = ScheduledOptim(
 			torch.optim.Adam(model.parameters(), betas=(0.9, 0.98), eps=1e-09),
-			lr_mul,
-			d_model,
-			n_warmup_steps,
+			options.lr_mul,
+			options.d_model,
+			options.n_warmup_steps,
 		)
 
 		self.tb_writer = SummaryWriter(log_dir=os.path.join(options.output_dir, 'logs'))

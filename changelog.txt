@@ -2,6 +2,8 @@
 
 2021.7.30
 
+	+	preprocessScoreConnection.py created.
+
 	+	score_connection/data.py: loadDataset added.
 
 

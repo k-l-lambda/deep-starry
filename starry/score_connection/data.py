@@ -6,6 +6,7 @@ import os
 import platform
 from fs import open_fs
 import re
+from tqdm import tqdm
 
 from .semantic_element import JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES, JOINT_TARGET_SEMANTIC_ELEMENT_TYPES, STAFF_MAX
 
@@ -100,8 +101,8 @@ def batchizeTensorExamples (examples, batch_size):
 _S = (lambda path: path.replace(os.path.sep, '/')) if platform.system() == 'Windows' else (lambda p: p)
 
 
-def loadDataset (data_dir, splits = ('1,2,3,4,5,6,7,8/10', '9/10'), name_id = re.compile(r'(.+)\.\w+$'),
-	batch_size=1, n_seq_max=256, d_word=512):
+def preprocessDataset (data_dir, splits = ('1,2,3,4,5,6,7,8/10', '9/10'), name_id = re.compile(r'(.+)\.\w+$'),
+	n_seq_max=0x100, d_word=0x200):
 	fs = open_fs(data_dir)
 	file_list = list(filter(lambda name: fs.isfile(name), fs.listdir('/')))
 	#print('file_list:', file_list)
@@ -121,13 +122,15 @@ def loadDataset (data_dir, splits = ('1,2,3,4,5,6,7,8/10', '9/10'), name_id = re
 		filenames = [name for id, name in id_map.items() if id_indices[id] % cycle in phases]
 
 		examples = []
+		#for filename in tqdm(filenames, desc='Preprocess files'):
 		for filename in filenames:
 			with fs.open(filename, 'r') as file:
 				data = loadConnectionSet(file)
 				examples += data['connections']
 
-		examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), examples))
+		examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), tqdm(examples, desc='Preprocess examples', mininterval=1.)))
 
-		return batchizeTensorExamples(examples, batch_size)
+		#return batchizeTensorExamples(examples, batch_size)
+		return examples
 
 	return tuple(map(loadData, splits))
