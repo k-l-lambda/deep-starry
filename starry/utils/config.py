@@ -45,3 +45,30 @@ class Configuration:
 	def save (self):
 		with open(os.path.join(self.dir, '.state.yaml'), 'w') as state_file:
 			yaml.dump(self.data, state_file)
+
+
+	@property
+	def id (self):
+		return self.data['id']
+
+
+	def __getitem__ (self, key_path):
+		fields = key_path.split('.')
+		item = self.data
+		for field in fields:
+			if item is None:
+				break
+
+			item = item.get(field)
+
+		return item
+
+
+	def __setitem__ (self, key_path, value):
+		fields = key_path.split('.')
+		item = self.data
+		for field in fields[:-1]:
+			item = item.setdefault(field, {})
+
+		if item is not None:
+			item[fields[-1]] = value

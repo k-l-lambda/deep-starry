@@ -12,8 +12,7 @@ data:
 model:
   type:           TransformJointer
   args:
-    d_word_vec:           512
-    d_model:              512
+    #d_model:              512  # determined by dataset
     d_inner:              2048
     n_source_layers:      6
     n_target_layers:      1
