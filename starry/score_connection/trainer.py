@@ -65,7 +65,7 @@ class Trainer:
 
 			if self.options.save_mode == 'all':
 				model_name = 'model_accu_{accu:3.3f}.chkpt'.format(accu=100*valid_accu)
-				torch.save(checkpoint, model_name)
+				torch.save(checkpoint, os.path.join(self.options.output_dir, model_name))
 			elif self.options.save_mode == 'best':
 				model_name = f'model_{epoch_i:02}.chkpt'
 				if valid_loss <= min(valid_losses):
