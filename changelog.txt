@@ -1,5 +1,10 @@
 
 
+2021.8.2
+
+	+	score_connection/models.py: model class of TransformJointerLoss added.
+
+
 2021.7.30
 
 	+	trainScoreConnection.py created.

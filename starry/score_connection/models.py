@@ -80,11 +80,6 @@ class TransformJointer (nn.Module):
 		self.source_encoder = Encoder(d_word_vec, n_source_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
 		self.target_encoder = Encoder(d_word_vec, n_target_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
 
-		# initialize parameters
-		for p in self.parameters():
-			if p.dim() > 1:
-				nn.init.xavier_uniform_(p) 
-
 		assert d_model == d_word_vec, \
 		'To facilitate the residual connections, \
 		 the dimensions of all module outputs shall be the same.'
@@ -129,3 +124,37 @@ class TransformJointer (nn.Module):
 		loss /= len(pred)
 
 		return loss
+
+
+class TransformJointerLoss (nn.Module):
+	def __init__ (self, decisive_confidence=0.5, **kw_args):
+		super().__init__()
+
+		self.decisive_confidence = decisive_confidence
+		self.deducer = TransformJointer(**kw_args)
+
+		# initialize parameters
+		for p in self.parameters():
+			if p.dim() > 1:
+				nn.init.xavier_uniform_(p) 
+
+	def forward (self, batch):
+		pred = self.deducer(batch['seq_id'], batch['seq_position'], batch['mask'])
+		matrixH = batch['matrixH']
+
+		loss = 0
+		samples = 0
+		for i, (pred_i, truth) in enumerate(zip(pred, matrixH)):
+			truth = truth[:len(pred_i)]
+			loss += nn.functional.binary_cross_entropy(pred_i, truth)
+
+			pred_binary = pred_i > self.decisive_confidence
+			target_binary = truth > 0
+			errors = sum(pred_binary ^ target_binary)
+			samples += len(pred_i)
+
+		loss /= len(pred)
+
+		accuracy = 1 - errors / samples
+
+		return loss, accuracy
