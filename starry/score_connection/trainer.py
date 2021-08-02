@@ -31,9 +31,9 @@ class Trainer:
 		self.model = TransformJointerLoss(**config['model.args'])
 		self.model.to(self.options['device'])
 
-		config['optim.d_model'] = config['model.args.d_model']
 		self.optimizer = ScheduledOptim(
 			torch.optim.Adam(self.model.parameters(), betas=(0.9, 0.98), eps=1e-09),
+			d_model=config['model.args.d_model'],
 			**config['optim'],
 		)
 
@@ -75,8 +75,12 @@ class Trainer:
 					torch.save(checkpoint, os.path.join(self.output_dir, model_name))
 					print('	- [Info] The checkpoint file has been updated.')
 
-			self.tb_writer.add_scalars('loss', {'train': train_loss, 'val': valid_loss}, epoch_i)
-			self.tb_writer.add_scalars('accuracy', {'train': train_accu, 'val': valid_accu}, epoch_i)
+			#self.tb_writer.add_scalars('loss', {'train': train_loss, 'val': valid_loss}, epoch_i)
+			#self.tb_writer.add_scalars('accuracy', {'train': train_accu, 'val': valid_accu}, epoch_i)
+			self.tb_writer.add_scalar('loss', train_loss, epoch_i)
+			self.tb_writer.add_scalar('val_loss', train_loss, epoch_i)
+			self.tb_writer.add_scalar('accuracy', train_accu, epoch_i)
+			self.tb_writer.add_scalar('val_accuracy', valid_accu, epoch_i)
 			self.tb_writer.add_scalar('learning_rate', lr, epoch_i)
 
 
