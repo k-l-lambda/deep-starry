@@ -1,13 +1,18 @@
 
 id:     score_connection/{date}-{filename}
 
-device: cpu
 env: ~
   #CUDA_VISIBLE_DEVICES: 0
+
+trainer:
+  device:         cpu
+  save_mode:      all
+  epoch:          100
 
 data:
   file_name:      chopin10-3x100.pkl
   splits:         '*1,2,3,4,5,6,7,8/10:9/10'
+  batch_size:     1
 
 model:
   type:           TransformJointer

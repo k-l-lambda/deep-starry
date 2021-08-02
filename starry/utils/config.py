@@ -41,6 +41,8 @@ class Configuration:
 
 		self.data = yaml.safe_load(state_file)
 
+		# TODO: set env variables
+
 
 	def save (self):
 		with open(os.path.join(self.dir, '.state.yaml'), 'w') as state_file:

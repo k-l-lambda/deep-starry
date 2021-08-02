@@ -2,6 +2,8 @@
 
 2021.8.2
 
+	+	score_connection/trainer.py: refined by config.
+
 	+	starry/utils/config.py created.
 
 	+	score_connection/models.py: model class of TransformJointerLoss added.

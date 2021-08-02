@@ -10,6 +10,9 @@ from .models import TransformJointerLoss
 
 
 
+LOG_DIR = os.environ.get('LOG_DIR', './logs')
+
+
 '''
 	options:
 		output_dir:			str
@@ -21,20 +24,20 @@ from .models import TransformJointerLoss
 '''
 
 class Trainer:
-	def __init__ (self, options):
-		self.options = options
+	def __init__ (self, config):
+		self.options = config['trainer']
+		self.output_dir = config.dir
 
-		self.model = TransformJointerLoss(d_word_vec=options.d_model, d_model=options.d_model)
-		self.model.to(options.device)
+		self.model = TransformJointerLoss(**config['model.args'])
+		self.model.to(self.options['device'])
 
+		config['optim.d_model'] = config['model.args.d_model']
 		self.optimizer = ScheduledOptim(
 			torch.optim.Adam(self.model.parameters(), betas=(0.9, 0.98), eps=1e-09),
-			options.lr_mul,
-			options.d_model,
-			options.n_warmup_steps,
+			**config['optim'],
 		)
 
-		self.tb_writer = SummaryWriter(log_dir=os.path.join(options.output_dir, 'logs'))
+		self.tb_writer = SummaryWriter(log_dir=os.path.join(LOG_DIR, config.id))
 
 
 	def train (self, training_data, validation_data):
@@ -43,7 +46,7 @@ class Trainer:
 				.format(header=f"({header})", loss=loss, accu=100*accu, elapse=(time.time()-start_time)/60, lr=lr))
 
 		valid_losses = []
-		for epoch_i in range(self.options.epoch):
+		for epoch_i in range(self.options['epoch']):
 			print('[ Epoch', epoch_i, ']')
 
 			start = time.time()
@@ -61,15 +64,15 @@ class Trainer:
 
 			valid_losses += [valid_loss]
 
-			checkpoint = {'epoch': epoch_i, 'settings': self.options, 'model': self.model.state_dict()}
+			checkpoint = {'epoch': epoch_i, 'model': self.model.state_dict()}
 
-			if self.options.save_mode == 'all':
+			if self.options['save_mode'] == 'all':
 				model_name = 'model_accu_{accu:3.3f}.chkpt'.format(accu=100*valid_accu)
-				torch.save(checkpoint, os.path.join(self.options.output_dir, model_name))
-			elif self.options.save_mode == 'best':
+				torch.save(checkpoint, os.path.join(self.output_dir, model_name))
+			elif self.options['save_mode'] == 'best':
 				model_name = f'model_{epoch_i:02}.chkpt'
 				if valid_loss <= min(valid_losses):
-					torch.save(checkpoint, os.path.join(self.options.output_dir, model_name))
+					torch.save(checkpoint, os.path.join(self.output_dir, model_name))
 					print('	- [Info] The checkpoint file has been updated.')
 
 			self.tb_writer.add_scalars('loss', {'train': train_loss, 'val': valid_loss}, epoch_i)
