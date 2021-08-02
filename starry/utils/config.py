@@ -34,14 +34,17 @@ class Configuration:
 		else:
 			self.save()
 
+		if self.data['env'] is not None:
+			for key, value in self.data['env'].items():
+				os.environ[key] = str(value)
+				#print('env set:', key, value)
+
 
 	def load (self):
 		state_file = open(os.path.join(self.dir, '.state.yaml'), 'r')
 		assert state_file is not None, f'No .state.yaml file found in config directory: {self.dir}'
 
 		self.data = yaml.safe_load(state_file)
-
-		# TODO: set env variables
 
 
 	def save (self):
