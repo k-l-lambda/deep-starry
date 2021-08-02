@@ -101,8 +101,8 @@ def batchizeTensorExamples (examples, batch_size):
 class Dataset:
 	# '*' in split means shuffle
 	@staticmethod
-	def loadPackage (data, batch_size, splits='*1,2,3,4,5,6,7,8/10;9/10', device='cpu'):
-		splits = splits.split(';')
+	def loadPackage (data, batch_size, splits='*1,2,3,4,5,6,7,8/10:9/10', device='cpu'):
+		splits = splits.split(':')
 
 		def extractExamples (split):
 			split = split[1:] if split[0] == '*' else split

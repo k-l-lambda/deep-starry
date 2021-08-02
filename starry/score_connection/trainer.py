@@ -6,7 +6,7 @@ import time
 from tqdm import tqdm
 
 from ..transformer.optim import ScheduledOptim
-from .models import TransformJointer
+from .models import TransformJointerLoss
 
 
 
@@ -24,7 +24,7 @@ class Trainer:
 	def __init__ (self, options):
 		self.options = options
 
-		self.model = TransformJointer(d_word_vec=options.d_model, d_model=options.d_model)
+		self.model = TransformJointerLoss(d_word_vec=options.d_model, d_model=options.d_model)
 		self.model.to(options.device)
 
 		self.optimizer = ScheduledOptim(
@@ -84,8 +84,7 @@ class Trainer:
 		for batch in tqdm(dataset, mininterval=2, desc='  - (Training)   ', leave=False):
 			# forward
 			self.optimizer.zero_grad()
-			loss = self.model.forwardLoss(batch)
-			acc = 1 - loss # TODO
+			loss, acc = self.model(batch)
 
 			# backward and update parameters
 			loss.backward()
@@ -106,8 +105,7 @@ class Trainer:
 		with torch.no_grad():
 			for batch in tqdm(dataset, mininterval=2, desc='  - (Validation) ', leave=False):
 				# forward
-				loss = self.model.forwardLoss(batch)
-				acc = 1 - loss # TODO
+				loss, acc = self.model(batch)
 
 				# note keeping
 				n_batch += 1

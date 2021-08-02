@@ -113,7 +113,7 @@ class TransformJointer (nn.Module):
 		return results
 
 
-	def forwardLoss (self, batch):
+	'''def forwardLoss (self, batch):
 		pred = self.forward(batch['seq_id'], batch['seq_position'], batch['mask'])
 		matrixH = batch['matrixH']
 
@@ -123,7 +123,7 @@ class TransformJointer (nn.Module):
 
 		loss /= len(pred)
 
-		return loss
+		return loss'''
 
 
 class TransformJointerLoss (nn.Module):

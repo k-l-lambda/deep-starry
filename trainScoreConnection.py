@@ -22,7 +22,7 @@ def main ():
 	parser.add_argument('-e', '--epoch', type=int, default=400)
 	parser.add_argument('-lr', '--lr_mul', type=float, default=2.0)
 	parser.add_argument('-warm', '--n_warmup_steps', type=int, default=4000)
-	#parser.add_argument('--truncate', type=int, default=None)
+	parser.add_argument('--truncate', type=int, default=None)
 
 	args = parser.parse_args()
 	args.output_dir = './output'
@@ -32,6 +32,10 @@ def main ():
 	args.d_model = data['d_word']
 
 	train, val = Dataset.loadPackage(data, batch_size=args.batch_size, splits=args.splits, device=args.device)
+
+	if args.truncate > 0:
+		train.examples = train.examples[:args.truncate]
+		val.examples = val.examples[:args.truncate]
 
 	logging.info('Training.')
 	trainer = Trainer(args)
