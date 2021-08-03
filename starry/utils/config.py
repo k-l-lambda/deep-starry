@@ -15,6 +15,8 @@ class Configuration:
 	def create (file_path):
 		filename = os.path.basename(file_path)
 		filename = os.path.splitext(filename)[0]
+		if filename.endswith('.local'):
+			filename = os.path.splitext(filename)[0]
 		today = date.today().strftime('%Y%m%d')
 
 		data = yaml.safe_load(open(file_path, 'r'))
