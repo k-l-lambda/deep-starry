@@ -14,28 +14,22 @@ from .models import TransformJointerLoss
 LOG_DIR = os.environ.get('LOG_DIR', './logs')
 
 
-'''
-	options:
-		output_dir:			str
-		save_mode:			str		'all' or 'best'
-		d_model:			int
-		epoch:				int
-		lr_mul:				float
-		n_warmup_steps:		int
-'''
-
 class Trainer:
 	def __init__ (self, config):
 		self.config = config
 		self.options = config['trainer']
-		self.output_dir = config.dir
+
+		self.start_epoch = 0
 
 		self.model = TransformJointerLoss(**config['model.args'])
+		if self.config['best']:
+			self.loadCheckpoint(self.config['best'])
 		self.model.to(self.options['device'])
 
 		self.optimizer = ScheduledOptim(
 			torch.optim.Adam(self.model.parameters(), betas=(0.9, 0.98), eps=1e-09),
 			d_model=config['model.args.d_model'],
+			init_step=self.options.get('steps', 0),
 			**config['optim'],
 		)
 
@@ -48,8 +42,7 @@ class Trainer:
 				.format(header=f"({header})", loss=loss, accu=100*accu, elapse=(time.time()-start_time)/60, lr=lr))
 
 		valid_losses = []
-		start_epoch = self.options.get('start_epoch', 0)
-		for epoch_i in range(start_epoch, self.options['epoch']):
+		for epoch_i in range(self.start_epoch, self.options['epoch']):
 			logging.info(f'[ Epoch{epoch_i}]')
 
 			start = time.time()
@@ -71,10 +64,10 @@ class Trainer:
 
 			model_name = f'model_{epoch_i:02}_acc_{100*valid_accu:3.3f}.chkpt'
 			if self.options['save_mode'] == 'all':
-				torch.save(checkpoint, os.path.join(self.output_dir, model_name))
+				torch.save(checkpoint, self.config.localPath(model_name))
 			elif self.options['save_mode'] == 'best':
 				if valid_loss <= min(valid_losses):
-					torch.save(checkpoint, os.path.join(self.output_dir, model_name))
+					torch.save(checkpoint, self.config.localPath(model_name))
 					logging.info('	- [Info] The checkpoint file has been updated.')
 
 			if valid_loss <= min(valid_losses):
@@ -88,7 +81,7 @@ class Trainer:
 			self.tb_writer.add_scalar('val_accuracy', valid_accu, epoch_i)
 			self.tb_writer.add_scalar('learning_rate', lr, epoch_i)
 
-			self.options['start_epoch'] = epoch_i + 1
+			self.options['steps'] = self.optimizer.n_steps
 
 			self.config.save()
 
@@ -129,3 +122,9 @@ class Trainer:
 				total_acc += acc
 
 		return total_loss / n_batch, total_acc / n_batch
+
+
+	def loadCheckpoint (self, filename):
+		checkpoint = torch.load(self.config.localPath(filename), map_location=self.options['device'])
+		self.model.load_state_dict(checkpoint['model'])
+		self.start_epoch = checkpoint['epoch'] + 1

@@ -8,12 +8,12 @@ import numpy as np
 class ScheduledOptim():
 	'''A simple wrapper class for learning rate scheduling'''
 
-	def __init__(self, optimizer, lr_mul, d_model, n_warmup_steps):
+	def __init__(self, optimizer, lr_mul, d_model, n_warmup_steps, init_step=0):
 		self._optimizer = optimizer
 		self.lr_mul = lr_mul
 		self.d_model = d_model
 		self.n_warmup_steps = n_warmup_steps
-		self.n_steps = 0
+		self.n_steps = init_step
 
 
 	def step_and_update_lr(self):

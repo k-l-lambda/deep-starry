@@ -2,6 +2,7 @@
 
 2021.8.3
 
+	+	score_connection/trainer.py: load checkpoint file for continue training.
 	+	score_connection/trainer.py: save training state in config file.
 
 
