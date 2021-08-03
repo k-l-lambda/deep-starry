@@ -4,7 +4,7 @@ import argparse
 import dill as pickle
 import logging
 
-from starry.score_connection.data import preprocessDataset
+from starry.score_topology.data import preprocessDataset
 
 
 
