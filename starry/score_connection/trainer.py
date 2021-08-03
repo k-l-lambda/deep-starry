@@ -43,7 +43,7 @@ class Trainer:
 
 		valid_losses = []
 		for epoch_i in range(self.start_epoch, self.options['epoch']):
-			logging.info(f'[ Epoch{epoch_i}]')
+			logging.info(f'[Epoch {epoch_i}]')
 
 			start = time.time()
 			train_loss, train_accu = self.train_epoch(training_data)

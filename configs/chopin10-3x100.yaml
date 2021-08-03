@@ -1,5 +1,5 @@
 
-id:     score_connection/{date}-{filename}
+id:     score-connection/{date}-{filename}
 
 env: ~
   #CUDA_VISIBLE_DEVICES: 0
