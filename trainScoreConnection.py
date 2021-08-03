@@ -32,7 +32,7 @@ def main ():
 
 	train, val = Dataset.loadPackage(data, batch_size=config['data.batch_size'], splits=config['data.splits'], device=config['trainer.device'])
 
-	if args.truncate > 0:
+	if args.truncate is not None:
 		train.examples = train.examples[:args.truncate]
 		val.examples = val.examples[:args.truncate]
 
