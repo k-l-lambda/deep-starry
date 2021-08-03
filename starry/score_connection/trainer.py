@@ -4,6 +4,7 @@ import torch
 from tensorboardX import SummaryWriter
 import time
 from tqdm import tqdm
+import logging
 
 from ..transformer.optim import ScheduledOptim
 from .models import TransformJointerLoss
@@ -25,6 +26,7 @@ LOG_DIR = os.environ.get('LOG_DIR', './logs')
 
 class Trainer:
 	def __init__ (self, config):
+		self.config = config
 		self.options = config['trainer']
 		self.output_dir = config.dir
 
@@ -46,8 +48,9 @@ class Trainer:
 				.format(header=f"({header})", loss=loss, accu=100*accu, elapse=(time.time()-start_time)/60, lr=lr))
 
 		valid_losses = []
-		for epoch_i in range(self.options['epoch']):
-			print('[ Epoch', epoch_i, ']')
+		start_epoch = self.options.get('start_epoch', 0)
+		for epoch_i in range(start_epoch, self.options['epoch']):
+			logging.info(f'[ Epoch{epoch_i}]')
 
 			start = time.time()
 			train_loss, train_accu = self.train_epoch(training_data)
@@ -66,14 +69,16 @@ class Trainer:
 
 			checkpoint = {'epoch': epoch_i, 'model': self.model.state_dict()}
 
+			model_name = f'model_{epoch_i:02}_acc_{100*valid_accu:3.3f}.chkpt'
 			if self.options['save_mode'] == 'all':
-				model_name = 'model_accu_{accu:3.3f}.chkpt'.format(accu=100*valid_accu)
 				torch.save(checkpoint, os.path.join(self.output_dir, model_name))
 			elif self.options['save_mode'] == 'best':
-				model_name = f'model_{epoch_i:02}.chkpt'
 				if valid_loss <= min(valid_losses):
 					torch.save(checkpoint, os.path.join(self.output_dir, model_name))
-					print('	- [Info] The checkpoint file has been updated.')
+					logging.info('	- [Info] The checkpoint file has been updated.')
+
+			if valid_loss <= min(valid_losses):
+				self.config['best'] = model_name
 
 			#self.tb_writer.add_scalars('loss', {'train': train_loss, 'val': valid_loss}, epoch_i)
 			#self.tb_writer.add_scalars('accuracy', {'train': train_accu, 'val': valid_accu}, epoch_i)
@@ -82,6 +87,10 @@ class Trainer:
 			self.tb_writer.add_scalar('accuracy', train_accu, epoch_i)
 			self.tb_writer.add_scalar('val_accuracy', valid_accu, epoch_i)
 			self.tb_writer.add_scalar('learning_rate', lr, epoch_i)
+
+			self.options['start_epoch'] = epoch_i + 1
+
+			self.config.save()
 
 
 	def train_epoch (self, dataset):

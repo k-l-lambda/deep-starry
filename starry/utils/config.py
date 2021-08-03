@@ -40,16 +40,26 @@ class Configuration:
 				#print('env set:', key, value)
 
 
+	def localPath (self, name):
+		return os.path.join(self.dir, name)
+
+
 	def load (self):
-		state_file = open(os.path.join(self.dir, '.state.yaml'), 'r')
+		state_file = open(self.localPath('.state.yaml'), 'r')
 		assert state_file is not None, f'No .state.yaml file found in config directory: {self.dir}'
 
 		self.data = yaml.safe_load(state_file)
 
 
 	def save (self):
-		with open(os.path.join(self.dir, '.state.yaml'), 'w') as state_file:
+		has_old = os.path.exists(self.localPath('.state.yaml'))
+		if has_old:
+			os.rename(self.localPath('.state.yaml'), self.localPath('~state.yaml'))
+		with open(self.localPath('.state.yaml'), 'w') as state_file:
 			yaml.dump(self.data, state_file)
+
+		if has_old:
+			os.remove(self.localPath('~state.yaml'))
 
 
 	@property
