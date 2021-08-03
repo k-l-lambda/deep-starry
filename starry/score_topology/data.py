@@ -13,7 +13,7 @@ from .semantic_element import JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES, JOINT_TARGET_
 
 
 
-def loadConnectionSet (file):
+def loadClusterSet (file):
 	return json.load(file)
 
 
@@ -176,8 +176,8 @@ def preprocessDataset (data_dir, name_id = re.compile(r'(.+)\.\w+$'),
 		examples = []
 		for filename in filenames:
 			with fs.open(filename, 'r') as file:
-				data = loadConnectionSet(file)
-				examples += data['connections']
+				data = loadClusterSet(file)
+				examples += data.get('clusters', data['connections'])
 
 		examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), examples))
 		#examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), tqdm(examples, desc='Preprocess examples', mininterval=1.)))
