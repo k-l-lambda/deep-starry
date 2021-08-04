@@ -42,7 +42,7 @@ def elementToVector (elem, d_word):
 	return (se_type, staff), pos_vec
 
 
-def exampleToTensors (example, n_seq_max, d_word):
+def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False):
 	elements = example['elements']
 
 	seq_id = np.ones((n_seq_max, 2), dtype=np.int32)
@@ -57,10 +57,13 @@ def exampleToTensors (example, n_seq_max, d_word):
 		[i < len(elements) and elements[i]['type'] in JOINT_TARGET_SEMANTIC_ELEMENT_TYPES for i in range(n_seq_max)],
 	)
 
-	matrixH = [
-		[x for j, x in enumerate(line) if masks[1][j]]
-			for i, line in enumerate(example['matrixH']) if masks[0][i]
-	]
+	if matrix_placeholder:
+		matrixH = [[0]]
+	else:
+		matrixH = [
+			[x for j, x in enumerate(line) if masks[1][j]]
+				for i, line in enumerate(example['matrixH']) if masks[0][i]
+		]
 	matrixH = np.array(matrixH, dtype=np.float32).flatten()
 
 	return (

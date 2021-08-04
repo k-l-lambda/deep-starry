@@ -114,19 +114,6 @@ class TransformJointer (nn.Module):
 		return results
 
 
-	'''def forwardLoss (self, batch):
-		pred = self.forward(batch['seq_id'], batch['seq_position'], batch['mask'])
-		matrixH = batch['matrixH']
-
-		loss = 0
-		for i, (pred_i, truth) in enumerate(zip(pred, matrixH)):
-			loss += nn.functional.binary_cross_entropy(pred_i, truth[:len(pred_i)])
-
-		loss /= len(pred)
-
-		return loss'''
-
-
 class TransformJointerLoss (nn.Module):
 	def __init__ (self, decisive_confidence=0.5, **kw_args):
 		super().__init__()

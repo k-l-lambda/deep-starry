@@ -1,5 +1,10 @@
 
 
+2021.8.4
+
+	+	score_topology/predictor.py created.
+
+
 2021.8.3
 
 	+	Renamed term: score_connection -> score_topology.
