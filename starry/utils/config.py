@@ -39,8 +39,9 @@ class Configuration:
 
 		if self.data['env'] is not None:
 			for key, value in self.data['env'].items():
-				os.environ[key] = str(value)
-				#print('env set:', key, value)
+				if os.environ[key] is None:
+					os.environ[key] = str(value)
+					#print('env set:', key, value)
 
 
 	def localPath (self, name):
