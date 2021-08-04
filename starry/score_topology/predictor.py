@@ -23,14 +23,34 @@ class Predictor:
 		self.model.eval()
 
 
-	def predict(self, clusters):
+	def predict(self, clusters, expand=False):
 		n_seq_max = max(len(cluster['elements']) for cluster in clusters)
 		examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, self.d_model, matrix_placeholder=True), clusters))
 		dataset = Dataset(examples, self.batch_size, self.device)
 
-		results = []
+		matrices = []
 		with torch.no_grad():
 			for batch in dataset:
-				results += self.model(batch['seq_id'], batch['seq_position'], batch['mask'])
+				matrices += self.model(batch['seq_id'], batch['seq_position'], batch['mask'])
+
+		results = []
+		for matrix, mask in zip(matrices, batch['mask']):
+			matrix = matrix.cpu().tolist()
+			mask = mask.cpu().tolist()
+
+			if expand:
+				it = iter(matrix)
+				full = [
+					[
+						next(it) if row & column else None
+						for column in mask[1]
+					] for row in mask[0]
+				]
+				results.append(full)
+			else:
+				results.append({
+					'matrixH': matrix,
+					'mask': mask,
+				})
 
 		return results
