@@ -1,5 +1,10 @@
 
 
+2021.8.5
+
+	+	streamPredictor.py: created.
+
+
 2021.8.4
 
 	+	score_topology/predictor.py created.
