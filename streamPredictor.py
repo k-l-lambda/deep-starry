@@ -7,7 +7,7 @@ import logging
 import json
 
 from starry.utils.config import Configuration
-import starry.score_topology as topology
+import starry.topology as topology
 
 
 

@@ -6,8 +6,8 @@ import argparse
 import logging
 
 from starry.utils.config import Configuration
-from starry.score_topology.data import Dataset
-from starry.score_topology.trainer import Trainer
+from starry.topology.data import Dataset
+from starry.topology.trainer import Trainer
 
 
 

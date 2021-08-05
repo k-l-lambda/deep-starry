@@ -2,6 +2,8 @@
 
 2021.8.5
 
+	>	Renamed folder: starry/score_topology -> starry/topology.
+
 	+	streamPredictor.py: created.
 
 
