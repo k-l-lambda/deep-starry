@@ -180,7 +180,7 @@ def preprocessDataset (data_dir, name_id = re.compile(r'(.+)\.\w+$'),
 		for filename in filenames:
 			with fs.open(filename, 'r') as file:
 				data = loadClusterSet(file)
-				examples += data.get('clusters', data['connections'])
+				examples += data.get('clusters') or data.get('connections')
 
 		examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), examples))
 		#examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), tqdm(examples, desc='Preprocess examples', mininterval=1.)))
