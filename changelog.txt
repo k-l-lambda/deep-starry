@@ -2,6 +2,8 @@
 
 2021.8.7
 
+	+	topology/data.py: print splitted ids in Dataset.loadPackage.
+
 	+	preprocessScoreTopology.py: added argument of name_id.
 
 

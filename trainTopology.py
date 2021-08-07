@@ -20,7 +20,7 @@ DATA_DIR = os.environ.get('DATA_DIR')
 def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('config', type=str)
-	parser.add_argument('--truncate', type=int, default=None)
+	parser.add_argument('-tr', '--truncate', type=int, default=None)
 
 	args = parser.parse_args()
 

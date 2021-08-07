@@ -8,6 +8,7 @@ from fs import open_fs
 import re
 from tqdm import tqdm
 import math
+import logging
 
 from .semantic_element import JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES, JOINT_TARGET_SEMANTIC_ELEMENT_TYPES, STAFF_MAX
 
@@ -113,6 +114,9 @@ class Dataset:
 			phases, cycle = split.split('/')
 			phases = list(map(int, phases.split(',')))
 			cycle = int(cycle)
+
+			ids = [id for i, id in enumerate(data['ids']) if i % cycle in phases]
+			logging.info(f'splitted ids: {" ,".join(ids)}')
 
 			return sum([examples for i, examples in enumerate(data['groups']) if i % cycle in phases], [])
 
