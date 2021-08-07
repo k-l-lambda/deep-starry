@@ -3,6 +3,7 @@ import sys
 import argparse
 import dill as pickle
 import logging
+import re
 
 from starry.topology.data import preprocessDataset
 
@@ -17,11 +18,12 @@ def main ():
 	parser.add_argument('target', type=str, help='output path')
 	parser.add_argument('-seq', '--n_seq_max', type=int, default=0x100)
 	parser.add_argument('-d', '--d_word', type=int, default=0x200)
+	parser.add_argument('-n', '--name_id', type=str, default=r'^(.+)\.\d+\.[\w.]+$')
 
 	args = parser.parse_args()
 
 	logging.info('Building package from directory: %s', args.source)
-	data = preprocessDataset(args.source, n_seq_max=args.n_seq_max, d_word=args.d_word)
+	data = preprocessDataset(args.source, name_id=re.compile(args.name_id), n_seq_max=args.n_seq_max, d_word=args.d_word)
 
 	logging.info('Writing package: %s', args.target)
 	with open(args.target, 'wb') as file:

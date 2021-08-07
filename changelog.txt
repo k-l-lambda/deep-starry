@@ -1,5 +1,10 @@
 
 
+2021.8.7
+
+	+	preprocessScoreTopology.py: added argument of name_id.
+
+
 2021.8.5
 
 	>	Renamed folder: starry/score_topology -> starry/topology.

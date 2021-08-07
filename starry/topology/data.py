@@ -172,6 +172,7 @@ def preprocessDataset (data_dir, name_id = re.compile(r'(.+)\.\w+$'),
 	ids = list(set(id_map.values()))
 	ids.sort()
 	#id_indices = dict(zip(ids, range(len(ids))))
+	#print('ids:', ids)
 
 	def loadData (id):
 		filenames = [name for name, id_ in id_map.items() if id_ == id]
@@ -190,4 +191,5 @@ def preprocessDataset (data_dir, name_id = re.compile(r'(.+)\.\w+$'),
 	return {
 		'groups': list(map(loadData, tqdm(ids, desc='Preprocess groups'))),
 		'd_word': d_word,
+		'ids': ids,
 	}
