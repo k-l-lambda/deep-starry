@@ -49,6 +49,8 @@ def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False):
 	seq_id = np.ones((n_seq_max, 2), dtype=np.int32)
 	seq_position = np.zeros((n_seq_max, d_word), dtype=np.float32)
 	for i, elem in enumerate(elements):
+		if i >= n_seq_max:
+			break
 		ids, position = elementToVector(elem, d_word)
 		seq_id[i, :] = ids
 		seq_position[i, :] = position
