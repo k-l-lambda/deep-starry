@@ -69,7 +69,7 @@ def session (predictor):
 	outputData(json.dumps(result))
 
 	print('', flush = True)
-	logging.info(f'Prediction result sent. ({t1 - t0:.3f}s)')
+	logging.info(f'Prediction result ({len(result)}) sent. ({t1 - t0:.3f}s)')
 
 	return True
 

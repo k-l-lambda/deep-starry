@@ -1,5 +1,10 @@
 
 
+2021.8.9
+
+	+	topology/predictor.py: fixed mask in Predictor.predict.
+
+
 2021.8.7
 
 	+	topology/data.py: print splitted ids in Dataset.loadPackage.
