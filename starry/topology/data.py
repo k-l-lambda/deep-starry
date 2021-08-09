@@ -64,8 +64,8 @@ def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False):
 		matrixH = [[0]]
 	else:
 		matrixH = [
-			[x for j, x in enumerate(line) if j < len(masks[1]) & masks[1][j]]
-				for i, line in enumerate(example['matrixH']) if i < len(masks[0]) & masks[0][i]
+			[x for j, x in enumerate(line) if j < n_seq_max and masks[1][j]]
+				for i, line in enumerate(example['matrixH']) if i < n_seq_max and masks[0][i]
 		]
 	matrixH = np.array(matrixH, dtype=np.float32).flatten()
 
