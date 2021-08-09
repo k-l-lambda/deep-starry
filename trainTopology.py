@@ -27,10 +27,12 @@ def main ():
 	config = Configuration.create(args.config) if args.config.endswith('.yaml') else Configuration(args.config)
 
 	logging.info('Loading data.')
-	data = pickle.load(open(os.path.join(DATA_DIR, config['data.file_name']), 'rb'))
-	config['model.args.d_model'] = data['d_word']
+	data_file = open(os.path.join(DATA_DIR, config['data.file_name']), 'rb')
 
-	train, val = Dataset.loadPackage(data, batch_size=config['data.batch_size'], splits=config['data.splits'], device=config['trainer.device'])
+	meta = pickle.load(data_file)
+	config['model.args.d_model'] = meta['d_word']
+
+	train, val = Dataset.loadPackage(data_file, batch_size=config['data.batch_size'], splits=config['data.splits'], device=config['trainer.device'])
 
 	if args.truncate is not None:
 		train.examples = train.examples[:args.truncate]

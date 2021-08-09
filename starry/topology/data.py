@@ -108,8 +108,9 @@ def batchizeTensorExamples (examples, batch_size):
 class Dataset:
 	# '*' in split means shuffle
 	@staticmethod
-	def loadPackage (data, batch_size, splits='*1,2,3,4,5,6,7,8/10:9/10', device='cpu'):
+	def loadPackage (file, batch_size, splits='*1,2,3,4,5,6,7,8/10:9/10', device='cpu'):
 		splits = splits.split(':')
+		data = Dataset.joinDataFromPackage(file)
 
 		def extractExamples (split):
 			split = split[1:] if split[0] == '*' else split
@@ -126,6 +127,24 @@ class Dataset:
 		return tuple(map(
 			lambda split: Dataset(extractExamples(split), batch_size, device, '*' in split),
 			splits))
+
+
+	@staticmethod
+	def joinDataFromPackage (file):
+		file.seek(0, 2)
+		total_size = file.tell()
+		file.seek(0, 0)
+
+		data = {}
+		while file.tell() < total_size:
+			chunk = pickle.load(file)
+			for key, value in chunk.items():
+				if data.get(key) and type(data[key]) == list:
+					data[key] += value
+				else:
+					data[key] = value
+
+		return data
 
 
 	def __init__ (self, examples, batch_size, device, shuffle=False):

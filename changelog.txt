@@ -2,6 +2,8 @@
 
 2021.8.9
 
+	+	topology/data.py: load multiple pickle package.
+
 	+	topology/predictor.py: fixed mask in Predictor.predict.
 
 

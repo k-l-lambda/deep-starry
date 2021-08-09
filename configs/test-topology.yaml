@@ -7,7 +7,7 @@ env: ~
 trainer:
   device:         cpu
   save_mode:      all
-  epoch:          100
+  epoch:          2
 
 data:
   file_name:      test.pkl
