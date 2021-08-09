@@ -1,7 +1,6 @@
 
 import sys
 import argparse
-import dill as pickle
 import logging
 import re
 
@@ -23,11 +22,8 @@ def main ():
 	args = parser.parse_args()
 
 	logging.info('Building package from directory: %s', args.source)
-	data = preprocessDataset(args.source, name_id=re.compile(args.name_id), n_seq_max=args.n_seq_max, d_word=args.d_word)
-
-	logging.info('Writing package: %s', args.target)
 	with open(args.target, 'wb') as file:
-		pickle.dump(data, file)
+		preprocessDataset(args.source, file, name_id=re.compile(args.name_id), n_seq_max=args.n_seq_max, d_word=args.d_word)
 
 	logging.info('Done.')
 

@@ -9,6 +9,7 @@ import re
 from tqdm import tqdm
 import math
 import logging
+import dill as pickle
 
 from .semantic_element import JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES, JOINT_TARGET_SEMANTIC_ELEMENT_TYPES, STAFF_MAX
 
@@ -166,8 +167,7 @@ class Dataset:
 _S = (lambda path: path.replace(os.path.sep, '/')) if platform.system() == 'Windows' else (lambda p: p)
 
 
-def preprocessDataset (data_dir, name_id = re.compile(r'(.+)\.\w+$'),
-	n_seq_max=0x100, d_word=0x200):
+def preprocessDataset (data_dir, output_file, name_id = re.compile(r'(.+)\.\w+$'), n_seq_max=0x100, d_word=0x200):
 	fs = open_fs(data_dir)
 	file_list = list(filter(lambda name: fs.isfile(name), fs.listdir('/')))
 	#print('file_list:', file_list)
@@ -180,7 +180,12 @@ def preprocessDataset (data_dir, name_id = re.compile(r'(.+)\.\w+$'),
 	#id_indices = dict(zip(ids, range(len(ids))))
 	#print('ids:', ids)
 
-	def loadData (id):
+	pickle.dump({
+		'd_word': d_word,
+		'ids': ids,
+	}, output_file)
+
+	def dumpData (id):
 		filenames = [name for name, id_ in id_map.items() if id_ == id]
 
 		examples = []
@@ -192,10 +197,7 @@ def preprocessDataset (data_dir, name_id = re.compile(r'(.+)\.\w+$'),
 		examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), examples))
 		#examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), tqdm(examples, desc='Preprocess examples', mininterval=1.)))
 
-		return examples
+		pickle.dump({ 'groups': [examples] }, output_file)
 
-	return {
-		'groups': list(map(loadData, tqdm(ids, desc='Preprocess groups'))),
-		'd_word': d_word,
-		'ids': ids,
-	}
+	for id in tqdm(ids, desc='Preprocess groups'):
+		dumpData(id)
