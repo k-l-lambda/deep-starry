@@ -1,5 +1,6 @@
 
 import torch
+import logging
 
 from .models import TransformJointerLoss
 from .data import exampleToTensors, Dataset
@@ -15,6 +16,7 @@ class Predictor:
 		if config['best']:
 			checkpoint = torch.load(config.localPath(config['best']), map_location=self.device)
 			model.load_state_dict(checkpoint['model'])
+			logging.info(f'checkpoint loaded: {config["best"]}')
 
 		self.d_model = config['model.args.d_model']
 

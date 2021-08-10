@@ -78,6 +78,7 @@ def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('config', type=str)
 	parser.add_argument('-m', '--mode', type=str, default='topology', help='predictor mode')
+	parser.add_argument('-d', '--device', type=str, default='cpu', help='cpu or cuda')
 
 	args = parser.parse_args()
 
@@ -88,7 +89,7 @@ def main ():
 		logging.error(f'Mode "{args.mode}" is not supported.')
 		return -1
 
-	predictor = predictorClass(config)
+	predictor = predictorClass(config, device=args.device)
 
 	while session(predictor):
 		pass
