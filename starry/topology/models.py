@@ -1,6 +1,7 @@
 
 import torch.nn as nn
 import numpy as np
+import logging
 
 from ..transformer.layers import EncoderLayer
 from ..transformer.models import get_pad_mask, get_subsequent_mask
@@ -134,6 +135,10 @@ class TransformJointerLoss (nn.Module):
 		samples = 0
 		errors = 0
 		for pred_i, truth in zip(pred, matrixH):
+			if len(pred_i) == 0:
+				logging.warn('empty mask.')
+				continue
+
 			truth = truth[:len(pred_i)]
 			loss += nn.functional.binary_cross_entropy(pred_i, truth)
 
