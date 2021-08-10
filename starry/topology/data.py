@@ -211,10 +211,15 @@ def preprocessDataset (data_dir, output_file, name_id = re.compile(r'(.+)\.\w+$'
 		for filename in filenames:
 			with fs.open(filename, 'r') as file:
 				data = loadClusterSet(file)
-				examples += data.get('clusters') or data.get('connections')
+				clusters = data.get('clusters') or data.get('connections')
+
+				if any(map(lambda cluster: len([e for e in cluster['elements'] if e['type'] in JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES]) == 0, clusters)):
+					logging.warning(f'{filename} has empty cluster!')
+					continue
+
+				examples += clusters
 
 		examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), examples))
-		#examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, d_word), tqdm(examples, desc='Preprocess examples', mininterval=1.)))
 
 		pickle.dump({ 'groups': [examples] }, output_file)
 
