@@ -135,8 +135,9 @@ class TransformJointerLoss (nn.Module):
 		samples = 0
 		errors = 0
 		for pred_i, truth in zip(pred, matrixH):
+			# skip empty prediction
 			if len(pred_i) == 0:
-				logging.warn('empty mask.')
+				#logging.warn('empty mask.')
 				continue
 
 			truth = truth[:len(pred_i)]
