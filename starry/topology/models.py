@@ -132,13 +132,14 @@ class TransformJointerLoss (nn.Module):
 
 		loss = 0
 		samples = 0
-		for i, (pred_i, truth) in enumerate(zip(pred, matrixH)):
+		errors = 0
+		for pred_i, truth in zip(pred, matrixH):
 			truth = truth[:len(pred_i)]
 			loss += nn.functional.binary_cross_entropy(pred_i, truth)
 
 			pred_binary = pred_i > self.decisive_confidence
 			target_binary = truth > 0
-			errors = sum(pred_binary ^ target_binary)
+			errors += sum(pred_binary ^ target_binary)
 			samples += len(pred_i)
 
 		loss /= len(pred)
