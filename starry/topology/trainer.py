@@ -76,7 +76,7 @@ class Trainer:
 			#self.tb_writer.add_scalars('loss', {'train': train_loss, 'val': valid_loss}, epoch_i)
 			#self.tb_writer.add_scalars('accuracy', {'train': train_accu, 'val': valid_accu}, epoch_i)
 			self.tb_writer.add_scalar('loss', train_loss, epoch_i)
-			self.tb_writer.add_scalar('val_loss', train_loss, epoch_i)
+			self.tb_writer.add_scalar('val_loss', valid_loss, epoch_i)
 			self.tb_writer.add_scalar('accuracy', train_accu, epoch_i)
 			self.tb_writer.add_scalar('val_accuracy', valid_accu, epoch_i)
 			self.tb_writer.add_scalar('learning_rate', lr, epoch_i)
