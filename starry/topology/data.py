@@ -216,7 +216,6 @@ def preprocessDataset (data_dir, output_file, name_id = re.compile(r'(.+)\.\w+$'
 
 				if len(valid_clusters) < len(clusters):
 					logging.warning(f'{filename} has empty cluster!')
-					continue
 
 				for i, cluster in enumerate(valid_clusters):
 					cluster['id'] = f'{id}-{i}'

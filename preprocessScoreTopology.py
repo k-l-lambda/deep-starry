@@ -1,14 +1,19 @@
 
+import os
 import sys
 import argparse
 import logging
 import re
 
+import starry.utils.env
 from starry.topology.data import preprocessDataset
 
 
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+
+
+DATA_DIR = os.environ.get('DATA_DIR')
 
 
 def main ():
@@ -21,8 +26,12 @@ def main ():
 
 	args = parser.parse_args()
 
+	target = args.target
+	if not os.path.isabs(target):
+		target = os.path.join(DATA_DIR, target)
+
 	logging.info('Building package from directory: %s', args.source)
-	with open(args.target, 'wb') as file:
+	with open(target, 'wb') as file:
 		preprocessDataset(args.source, file, name_id=re.compile(args.name_id), n_seq_max=args.n_seq_max, d_word=args.d_word)
 
 	logging.info('Done.')
