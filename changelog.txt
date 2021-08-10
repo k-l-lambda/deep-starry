@@ -2,6 +2,8 @@
 
 2021.8.10
 
+	+	topology/models.py: refined accuracy formula.
+
 	+	topology/data.py: sort clusters by id-measure index.
 
 	+	topology/data.py: added empty cluster checking in preprocessDataset.

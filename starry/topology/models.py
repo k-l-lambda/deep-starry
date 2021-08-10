@@ -132,8 +132,8 @@ class TransformJointerLoss (nn.Module):
 		matrixH = batch['matrixH']
 
 		loss = 0
-		samples = 0
-		errors = 0
+		#samples = 0
+		ground_positive, ground_negative, true_positive, true_negative = 0, 0, 0, 0
 		for pred_i, truth in zip(pred, matrixH):
 			# skip empty prediction
 			if len(pred_i) == 0:
@@ -145,11 +145,17 @@ class TransformJointerLoss (nn.Module):
 
 			pred_binary = pred_i > self.decisive_confidence
 			target_binary = truth > 0
-			errors += sum(pred_binary ^ target_binary)
-			samples += len(pred_i)
+			#errors += sum(pred_binary ^ target_binary)
+			#samples += len(pred_i)
+			ground_positive += sum(target_binary)
+			ground_negative += sum(~target_binary)
+			true_positive += sum(pred_binary & target_binary)
+			true_negative += sum(~pred_binary & ~target_binary)
 
 		loss /= len(pred)
 
-		accuracy = 1 - errors / samples
+		ground_positive = max(ground_positive, 1)
+		ground_negative = max(ground_negative, 1)
+		accuracy = (true_positive / ground_positive) * (true_negative / ground_negative)
 
 		return loss, accuracy
