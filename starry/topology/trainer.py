@@ -41,7 +41,8 @@ class Trainer:
 			print('  - {header:12} loss: {loss: 8.5f}, accuracy: {accu:3.3f} %, lr: {lr:8.5f}, elapse: {elapse:3.3f} min'
 				.format(header=f"({header})", loss=loss, accu=100*accu, elapse=(time.time()-start_time)/60, lr=lr))
 
-		valid_losses = []
+		val_losses = []
+		val_accs = []
 		for epoch_i in range(self.start_epoch, self.options['epoch']):
 			logging.info(f'[Epoch {epoch_i}]')
 
@@ -54,31 +55,32 @@ class Trainer:
 			print_performances('Training', train_loss, train_accu, start, lr)
 
 			start = time.time()
-			valid_loss, valid_accu = self.eval_epoch(validation_data)
-			#valid_ppl = math.exp(min(valid_loss, 100))
-			print_performances('Validation', valid_loss, valid_accu, start, lr)
+			val_loss, val_acc = self.eval_epoch(validation_data)
+			print_performances('Validation', val_loss, val_acc, start, lr)
 
-			valid_losses += [valid_loss]
+			val_losses.append(val_loss)
+			val_accs.append(val_acc)
 
 			checkpoint = {'epoch': epoch_i, 'model': self.model.state_dict()}
 
-			model_name = f'model_{epoch_i:02}_acc_{100*valid_accu:3.3f}.chkpt'
+			model_name = f'model_{epoch_i:02}_acc_{100*val_acc:3.3f}.chkpt'
 			if self.options['save_mode'] == 'all':
 				torch.save(checkpoint, self.config.localPath(model_name))
 			elif self.options['save_mode'] == 'best':
-				if valid_loss <= min(valid_losses):
+				#if val_loss <= min(val_losses):
+				if val_acc > max(val_accs) or epoch_i == 0:
 					torch.save(checkpoint, self.config.localPath(model_name))
 					logging.info('	- [Info] The checkpoint file has been updated.')
 
-			if valid_loss <= min(valid_losses):
+			if val_acc > max(val_accs) or self.config['best'] is None:
 				self.config['best'] = model_name
 
-			#self.tb_writer.add_scalars('loss', {'train': train_loss, 'val': valid_loss}, epoch_i)
-			#self.tb_writer.add_scalars('accuracy', {'train': train_accu, 'val': valid_accu}, epoch_i)
+			#self.tb_writer.add_scalars('loss', {'train': train_loss, 'val': val_loss}, epoch_i)
+			#self.tb_writer.add_scalars('accuracy', {'train': train_accu, 'val': val_acc}, epoch_i)
 			self.tb_writer.add_scalar('loss', train_loss, epoch_i)
-			self.tb_writer.add_scalar('val_loss', valid_loss, epoch_i)
+			self.tb_writer.add_scalar('val_loss', val_loss, epoch_i)
 			self.tb_writer.add_scalar('accuracy', train_accu, epoch_i)
-			self.tb_writer.add_scalar('val_accuracy', valid_accu, epoch_i)
+			self.tb_writer.add_scalar('val_accuracy', val_acc, epoch_i)
 			self.tb_writer.add_scalar('learning_rate', lr, epoch_i)
 
 			self.options['steps'] = self.optimizer.n_steps
