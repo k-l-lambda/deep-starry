@@ -37,8 +37,8 @@ class Configuration:
 		else:
 			self.save()
 
-		if self.data['env'] is not None:
-			for key, value in self.data['env'].items():
+		if self['env'] is not None:
+			for key, value in self['env'].items():
 				if os.environ.get(key) is None:
 					os.environ[key] = str(value)
 					#print('env set:', key, value)

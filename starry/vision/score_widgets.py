@@ -59,7 +59,7 @@ class ScoreWidgets (nn.Module):
 		self.backbone.train(mode)
 
 
-class ScoreWidgets3Mask (ScoreWidgets):
+class ScoreWidgetsMask (ScoreWidgets):
 	def __init__ (self, **kw_args):
 		super().__init__(**kw_args)
 
@@ -77,7 +77,7 @@ class ScoreWidgets3Mask (ScoreWidgets):
 		return x
 
 
-class ScoreWidgets3Inspection (ScoreWidgets):
+class ScoreWidgetsInspection (ScoreWidgets):
 	def __init__ (self, **kw_args):
 		super().__init__(**kw_args)
 
