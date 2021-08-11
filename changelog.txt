@@ -1,5 +1,10 @@
 
 
+2021.8.11
+
+	+	vision/score_widgets.py created.
+
+
 2021.8.10
 
 	+	topology/models.py: refined accuracy formula.

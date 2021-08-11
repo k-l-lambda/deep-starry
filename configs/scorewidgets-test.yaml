@@ -1,0 +1,19 @@
+
+id:     score-vison/{date}-{filename}
+
+env: ~
+
+model:
+  type:           ScoreWidgets
+  args:
+    in_channels:    1
+    out_channels:   75
+    freeze_mask:    True
+    mask:
+      type:                 unet
+      unet_depth:           5
+      unet_init_width:      32
+    backbone:
+      type:                 unet
+      unet_depth:           4
+      unet_init_width:      64
