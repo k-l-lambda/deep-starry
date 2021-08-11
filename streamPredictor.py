@@ -5,9 +5,11 @@ import io
 import argparse
 import logging
 import json
+import base64
 
 from starry.utils.config import Configuration
 import starry.topology as topology
+from starry.vision.semantic_predictor import SemanticPredictor
 
 
 
@@ -16,6 +18,7 @@ logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
 PREDICTOR_FACTORY = {
 	'topology': topology.predictor.Predictor,
+	'semantic': SemanticPredictor,
 }
 
 
@@ -57,7 +60,9 @@ def session (predictor):
 
 		data = parseInputLine(data)
 		if data.get('buffer'):
-			args.append(data['buffer'])
+			if not len(args):
+				args.append([])
+			args[0].append(data['buffer'])
 		else:
 			kwarg = {**kwarg, **data}
 

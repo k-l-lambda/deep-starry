@@ -1,6 +1,13 @@
 
+TODO:
+	trainer:
+		save optimizer states in checkpoint file
+
+
 
 2021.8.11
+
+	+	vision/semantic_preditor.py created.
 
 	+	checkpointConverter.py created.
 
