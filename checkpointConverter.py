@@ -15,7 +15,7 @@ def main ():
 
 	args = parser.parse_args()
 
-	config = Configuration(args.target)
+	config = Configuration.create(args.target) if args.target.endswith('.yaml') else Configuration(args.target)
 	model = model_factory.loadModel(config['model'])
 
 	checkpoint = torch.load(args.source, map_location='cpu')

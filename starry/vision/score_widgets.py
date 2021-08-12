@@ -61,7 +61,7 @@ class ScoreWidgets (nn.Module):
 
 class ScoreWidgetsMask (ScoreWidgets):
 	def __init__ (self, **kw_args):
-		super().__init__(**kw_args)
+		super().__init__(out_channels=1, freeze_mask=False, **kw_args)
 
 
 	# overload
