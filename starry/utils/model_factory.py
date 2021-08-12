@@ -12,6 +12,7 @@ def registerModels ():
 		tpm.TransformJointer, tpm.TransformJointerLoss,
 		vm.ScoreWidgets, vm.ScoreWidgetsMask, vm.ScoreWidgetsInspection,
 		vm.ScoreRegression,
+		vm.ScoreResidue, vm.ScoreResidueInspection,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])
