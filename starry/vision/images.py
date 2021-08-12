@@ -121,3 +121,18 @@ def encodeImageBase64 (image):
 	image_code = 'data:image/png;base64,' + base64.b64encode(fp.getvalue()).decode('ascii')
 
 	return image_code
+
+
+def gaugeToRGB (gauge, frac_y=False):	# gauge: [Y(h, w), K(h, w)]
+	mapy = gauge[0] * 8 + 128
+	mapk = gauge[1] * 127 + 128
+
+	result = None
+	if frac_y:
+		B, R = np.modf(mapy)
+		result = np.stack([B * 256, mapk, R], axis=2)
+	else:
+		result = np.stack([np.zeros(mapy.shape, np.float32), mapk, mapy], axis=2)
+	result = np.uint8(np.clip(result, 0, 255))
+
+	return result

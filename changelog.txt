@@ -7,6 +7,8 @@ TODO:
 
 2021.8.12
 
+	+	vision/gauge_predictor.py created.
+
 	+	vision/models/score_regression.py created.
 
 	+	vision/mask_predictor.py created.

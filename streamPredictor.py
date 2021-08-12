@@ -11,6 +11,7 @@ from starry.utils.config import Configuration
 import starry.topology as topology
 from starry.vision.semantic_predictor import SemanticPredictor
 from starry.vision.mask_predictor import MaskPredictor
+from starry.vision.gauge_predictor import GaugePredictor
 
 
 
@@ -21,6 +22,7 @@ PREDICTOR_FACTORY = {
 	'topology':		topology.predictor.Predictor,
 	'semantic':		SemanticPredictor,
 	'mask':			MaskPredictor,
+	'gauge':		GaugePredictor,
 }
 
 
