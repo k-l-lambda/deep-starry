@@ -1,5 +1,7 @@
 
 import os
+import io
+import base64
 import math
 import PIL.Image
 import cv2
@@ -103,3 +105,19 @@ def spliceOutputTensor (tensor, keep_margin=False, soft=False, margin_divider=MA
 		return softSplicePieces(arr, margin_divider)
 
 	return splicePieces(arr, margin_divider, keep_margin=keep_margin)
+
+
+def maskToAlpha (mask, frac_y = False):	# mask: [fore(h, w), back(h, w)]
+	fore = mask[0] * 255
+	fore = np.stack([np.zeros(mask[0].shape, np.float32), fore], axis = 2)
+	fore = np.uint8(np.clip(fore, 0, 255))
+
+	return fore
+
+
+def encodeImageBase64 (image):
+	fp = io.BytesIO()
+	image.save(fp, PIL.Image.registered_extensions()['.png'])
+	image_code = 'data:image/png;base64,' + base64.b64encode(fp.getvalue()).decode('ascii')
+
+	return image_code

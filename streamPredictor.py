@@ -10,6 +10,7 @@ import base64
 from starry.utils.config import Configuration
 import starry.topology as topology
 from starry.vision.semantic_predictor import SemanticPredictor
+from starry.vision.mask_predictor import MaskPredictor
 
 
 
@@ -17,8 +18,9 @@ logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
 
 PREDICTOR_FACTORY = {
-	'topology': topology.predictor.Predictor,
-	'semantic': SemanticPredictor,
+	'topology':		topology.predictor.Predictor,
+	'semantic':		SemanticPredictor,
+	'mask':			MaskPredictor,
 }
 
 

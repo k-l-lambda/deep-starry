@@ -21,6 +21,8 @@ class ScoreWidgets (nn.Module):
 			depth = backbone['unet_depth']
 			init_width = backbone['unet_init_width']
 			self.backbone = UNet(trunk_channels, out_channels, depth = depth, init_width = init_width)
+		else:
+			self.backbone = None
 
 		self.freeze_mask = freeze_mask
 		if self.freeze_mask:
@@ -56,7 +58,9 @@ class ScoreWidgets (nn.Module):
 	# overload
 	def train (self, mode=True):
 		self.mask.train(mode and not self.freeze_mask)
-		self.backbone.train(mode)
+
+		if self.backbone:
+			self.backbone.train(mode)
 
 
 class ScoreWidgetsMask (ScoreWidgets):
