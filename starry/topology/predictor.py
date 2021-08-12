@@ -8,7 +8,7 @@ from .data import exampleToTensors, Dataset
 
 
 class Predictor:
-	def __init__(self, config, batch_size=4, device='cpu'):
+	def __init__(self, config, batch_size=4, device='cpu', **_):
 		self.batch_size = batch_size
 		self.device = device
 

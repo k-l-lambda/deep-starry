@@ -15,3 +15,13 @@ model:
       type:                 unet
       unet_depth:           4
       unet_init_width:      64
+
+data:
+  trans:                    [Mono, HWC2CHW, Tar_STDgray, Tar_HWC2CHW]
+  slicing_width:            512
+  labels:                   [
+                              ClefG, ClefF, TimesigFour, TimesigThree, TimesigTwo, NoteheadS0, NoteheadS1, NoteheadS2, Dot, vline_BarMeasure, vline_Stem, Flag3,
+                              TimesigC44, TimesigC22, TimesigEight, TimesigSix, AccNatural, AccSharp, AccFlat, KeyAcc, Rest0, Rest1, Rest2, Rest3, Rest4, OctaveShift8, OctaveShift0,
+                              AccDoublesharp, AccFlatflat, TimesigOne, TimesigNine, Rest5, Rest6, SlurBegin, SlurEnd, VoltaLeft, VoltaRight, vline_BarTerminal, vline_BarSegment, TempoNotehead, GraceNotehead,
+                              f, p, m, ScriptFermata, ScriptSforzato, ScriptStaccato, ScriptStaccatissimo, ScriptTurn, ScriptTrill, ScriptSegno, ScriptCoda, ScriptArpeggio, ScriptPrall, ScriptMordent, ScriptTenuto, PedalStar, PedalPed, TimesigFive, TimesigSeven, TimesigZero, One, Two, Three, Four, Five, rect_Text, rect_Lyric, BeamLeft, BeamRight, BeamContinue, CrescendoBegin, CrescendoEnd, DecrescendoBegin, DecrescendoEnd,
+                            ]
