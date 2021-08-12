@@ -1,6 +1,7 @@
 
 import numpy as np
 import torch
+import logging
 
 from ..utils.predictor import Predictor
 from .images import arrayFromImageStream, writeImageFileFormat, sliceFeature, spliceOutputTensor, MARGIN_DIVIDER
@@ -34,8 +35,8 @@ class SemanticPredictor(Predictor):
 			if output_path:
 				writeImageFileFormat(image, output_path, i, 'feature')
 
-			pieces = sliceFeature(image, width = self.slicing_width, overlapping = 2 / MARGIN_DIVIDER, padding = True)
-			pieces = np.array(list(pieces), dtype = np.uint8)
+			pieces = sliceFeature(image, width=self.slicing_width, overlapping = 2 / MARGIN_DIVIDER, padding=True)
+			pieces = np.array(list(pieces), dtype=np.uint8)
 			staves, _ = self.composer(pieces, np.ones((1, 4, 4, 2)))
 
 			with torch.no_grad():
@@ -44,14 +45,12 @@ class SemanticPredictor(Predictor):
 
 				output = self.model(batch)
 
-				semantic, mask, tm0, tm1, tm2 = None, None, None, None, None
+				semantic, mask = None, None
 				if self.inspect:
-					mask, trunk_map, semantic = output
-					trunk_map = trunk_map if trunk_map is not None else (None, None, None)
-					tm0, tm1, tm2 = trunk_map
+					mask, semantic = output
 				else:
 					semantic = output	# (batch, channel, height, width)
-				semantic, mask, tm0, tm1, tm2 = map(spliceOutputTensor, (semantic, mask, tm0, tm1, tm2))
+				semantic, mask = map(spliceOutputTensor, (semantic, mask))
 
 				if output_path:
 					if mask is not None:
@@ -60,11 +59,6 @@ class SemanticPredictor(Predictor):
 						mask = np.clip(np.uint8(mask * 255), 0, 255)
 
 						writeImageFileFormat(mask, output_path, i, 'mask')
-
-					if tm0 is not None:
-						for (ii, tm) in enumerate([tm0, tm1, tm2]):
-							chromatic = composeChromaticMap(tm)
-							writeImageFileFormat(chromatic, output_path, i, f'trunk_map{ii}')
 
 					chromatic = composeChromaticMap(semantic)
 					writeImageFileFormat(chromatic, output_path, i, 'semantics')

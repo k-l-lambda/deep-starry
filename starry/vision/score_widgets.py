@@ -90,4 +90,4 @@ class ScoreWidgetsInspection (ScoreWidgets):
 		mask = torch.sigmoid(mask)
 		result = torch.sigmoid(x)
 
-		return [mask, None, result]
+		return (mask, result)
