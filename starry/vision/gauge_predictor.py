@@ -28,7 +28,6 @@ class GaugePredictor (Predictor):
 		self.loadModel(config)
 
 		self.slicing_width = config['data.slicing_width']
-		self.labels = config['data.labels']
 
 		trans = [t for t in config['data.trans'] if not t.startswith('Tar_')]
 		self.composer = transform.Composer(trans)
