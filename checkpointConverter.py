@@ -28,13 +28,18 @@ def main ():
 
 	filename = os.path.basename(args.source)
 	filename = os.path.splitext(filename)[0]
+	filename = f'{filename}.chkpt'
 
-	output_path = config.localPath(f'{filename}.chkpt')
+	output_path = config.localPath(filename)
 
 	torch.save({
 		'epoch': epoch,
 		'model': model.state_dict(),
 	}, output_path)
+
+	if config['best'] is None:
+		config['best'] = filename
+		config.save()
 
 	print('New checkpoint wrote:', output_path)
 
