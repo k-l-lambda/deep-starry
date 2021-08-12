@@ -5,6 +5,11 @@ TODO:
 
 
 
+2021.8.12
+
+	+	vision/score_semantic.py created.
+
+
 2021.8.11
 
 	+	vision/semantic_preditor.py created.

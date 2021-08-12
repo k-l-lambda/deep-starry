@@ -1,12 +1,15 @@
 
+import os
 import numpy as np
 import torch
+import yaml
 import logging
 
 from ..utils.predictor import Predictor
 from .images import arrayFromImageStream, writeImageFileFormat, sliceFeature, spliceOutputTensor, MARGIN_DIVIDER
 from . import transform
 from .chromaticChannels import composeChromaticMap
+from .score_semantic import ScoreSemantic
 
 
 
@@ -25,6 +28,13 @@ class SemanticPredictor(Predictor):
 
 		trans = [t for t in config['data.trans'] if not t.startswith('Tar_')]
 		self.composer = transform.Composer(trans)
+
+		self.confidence_table = None
+		confidence_path = config.localPath('confidence.yaml')
+		if os.path.exists(confidence_path):
+			with open(confidence_path, 'r') as file:
+				self.confidence_table = yaml.safe_load(file)
+				logging.info('confidence_table loaded: %s', confidence_path)
 
 
 	def predict (self, streams, output_path=None):
@@ -63,6 +73,7 @@ class SemanticPredictor(Predictor):
 					chromatic = composeChromaticMap(semantic)
 					writeImageFileFormat(chromatic, output_path, i, 'semantics')
 
-				#graphs.append(score_rep(np.uint8(semantic * 255), self.labels, confidence_table=self.confidence_table))
+				ss = ScoreSemantic(np.uint8(semantic * 255), self.labels, confidence_table=self.confidence_table)
+				graphs.append(ss.json())
 
 		return graphs
