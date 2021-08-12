@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 
-from ..unet import UNet
+from ...unet import UNet
 
 
 

@@ -4,18 +4,17 @@ model_dict = None
 
 def registerModels ():
 	global model_dict
-	model_dict = {}
 
 	from ..topology import models as tpm
-	from ..vision import score_widgets as sw
+	from ..vision import models as vm
 
 	classes = [
 		tpm.TransformJointer, tpm.TransformJointerLoss,
-		sw.ScoreWidgets, sw.ScoreWidgetsMask, sw.ScoreWidgetsInspection,
+		vm.ScoreWidgets, vm.ScoreWidgetsMask, vm.ScoreWidgetsInspection,
+		vm.ScoreRegression,
 	]
 
-	for c in classes:
-		model_dict[c.__name__] = c
+	model_dict = dict([(c.__name__, c) for c in classes])
 
 
 
