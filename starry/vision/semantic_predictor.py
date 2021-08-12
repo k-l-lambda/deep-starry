@@ -40,7 +40,6 @@ class SemanticPredictor(Predictor):
 	def predict (self, streams, output_path=None):
 		images = map(lambda stream: arrayFromImageStream(stream), streams)
 
-		graphs = []
 		for i, image in enumerate(images):
 			if output_path:
 				writeImageFileFormat(image, output_path, i, 'feature')
@@ -74,6 +73,4 @@ class SemanticPredictor(Predictor):
 					writeImageFileFormat(chromatic, output_path, i, 'semantics')
 
 				ss = ScoreSemantic(np.uint8(semantic * 255), self.labels, confidence_table=self.confidence_table)
-				graphs.append(ss.json())
-
-		return graphs
+				yield ss.json()

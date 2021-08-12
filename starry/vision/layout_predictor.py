@@ -77,8 +77,6 @@ class LayoutPredictor (Predictor):
 	def predict (self, streams, output_path=None):
 		images = map(lambda stream: arrayFromImageStream(stream), streams)
 
-		layouts = []
-
 		for i, image in enumerate(images):
 			image = np.expand_dims(image, 0)
 			batch, _ = self.composer(image, np.ones((1, 4, 4, 2)))
@@ -102,6 +100,4 @@ class LayoutPredictor (Predictor):
 						layout = np.moveaxis(layout, 0, -1)[:, :, ::-1]
 						writeImageFileFormat(layout, output_path, begin_index, f'layout-{i}')
 
-				layouts.append(PageLayout(hotmap).json())
-
-		return layouts
+				yield PageLayout(hotmap).json()

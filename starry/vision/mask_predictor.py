@@ -36,7 +36,6 @@ class MaskPredictor (Predictor):
 	def predict (self, streams, **_):
 		images = map(lambda stream: arrayFromImageStream(stream), streams)
 
-		results = []
 		for i, image in enumerate(images):
 			#logging.info('feature: %s', image.shape)
 			pieces = sliceFeature(image, width=self.slicing_width, overlapping=2 / MARGIN_DIVIDER, padding=False)
@@ -53,6 +52,4 @@ class MaskPredictor (Predictor):
 					hotmap = hotmap[:, :, :image.shape[1]]
 				#logging.info('hotmap: %s', hotmap.shape)
 
-				results.append(StaffMask(hotmap).json())
-
-		return results
+				yield StaffMask(hotmap).json()

@@ -74,13 +74,14 @@ def session (predictor):
 
 	logging.info('Predicting...')
 	t0 = time.time()
-	result = predictor.predict(*args, **kwarg)
+	count = 0
+	for result in predictor.predict(*args, **kwarg):
+		outputData(json.dumps(result))
+		count += 1
 	t1 = time.time()
 
-	outputData(json.dumps(result))
-
 	print('', flush = True)
-	logging.info(f'Prediction result ({len(result)}) sent. ({t1 - t0:.3f}s)')
+	logging.info(f'Prediction results ({count}) sent. ({t1 - t0:.3f}s)')
 
 	return True
 

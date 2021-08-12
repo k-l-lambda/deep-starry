@@ -36,7 +36,6 @@ class GaugePredictor (Predictor):
 	def predict (self, streams, **_):
 		images = map(lambda stream: arrayFromImageStream(stream), streams)
 
-		results = []
 		for i, image in enumerate(images):
 			pieces = sliceFeature(image, width=self.slicing_width, overlapping=2 / MARGIN_DIVIDER, padding=False)
 			pieces = np.array(list(pieces), dtype=np.float32)
@@ -51,6 +50,4 @@ class GaugePredictor (Predictor):
 				if hotmap.shape[2] > image.shape[1]:
 					hotmap = hotmap[:, :, :image.shape[1]]
 
-				results.append(StaffGauge(hotmap).json())
-
-		return results
+				yield StaffGauge(hotmap).json()
