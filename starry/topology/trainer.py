@@ -41,8 +41,8 @@ class Trainer:
 			print('  - {header:12} loss: {loss: 8.5f}, accuracy: {accu:3.3f} %, lr: {lr:8.5f}, elapse: {elapse:3.3f} min'
 				.format(header=f"({header})", loss=loss, accu=100*accu, elapse=(time.time()-start_time)/60, lr=lr))
 
-		val_losses = []
-		val_accs = []
+		#val_losses = []
+		best_acc = 0
 		for epoch_i in range(self.start_epoch, self.options['epoch']):
 			logging.info(f'[Epoch {epoch_i}]')
 
@@ -65,15 +65,15 @@ class Trainer:
 				torch.save(checkpoint, self.config.localPath(model_name))
 			elif self.options['save_mode'] == 'best':
 				#if val_loss <= min(val_losses):
-				if val_acc > max(val_accs) or epoch_i == 0:
+				if val_acc > best_acc or epoch_i == 0:
 					torch.save(checkpoint, self.config.localPath(model_name))
 					logging.info('	- [Info] The checkpoint file has been updated.')
 
-			if val_acc > max(val_accs) or self.config['best'] is None:
+			if val_acc > best_acc or self.config['best'] is None:
 				self.config['best'] = model_name
 
-			val_losses.append(val_loss)
-			val_accs.append(val_acc)
+			#val_losses.append(val_loss)
+			best_acc = max(best_acc, val_acc)
 
 			#self.tb_writer.add_scalars('loss', {'train': train_loss, 'val': val_loss}, epoch_i)
 			#self.tb_writer.add_scalars('accuracy', {'train': train_accu, 'val': val_acc}, epoch_i)
