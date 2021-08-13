@@ -2,27 +2,18 @@
 import torch
 import logging
 
-from .models import TransformJointerLoss
 from .data import exampleToTensors, Dataset
+from ..utils.predictor import Predictor
 
 
 
-class Predictor:
+class TopologyPredictor (Predictor):
 	def __init__(self, config, batch_size=4, device='cpu', **_):
-		self.batch_size = batch_size
-		self.device = device
-
-		model = TransformJointerLoss(**config['model.args'])
-		if config['best']:
-			checkpoint = torch.load(config.localPath(config['best']), map_location=self.device)
-			model.load_state_dict(checkpoint['model'])
-			logging.info(f'checkpoint loaded: {config["best"]}')
+		super().__init__(batch_size=batch_size, device=device)
 
 		self.d_model = config['model.args.d_model']
 
-		self.model = model.deducer
-		self.model.to(self.device)
-		self.model.eval()
+		self.loadModel(config)
 
 
 	def predict(self, clusters, expand=False):

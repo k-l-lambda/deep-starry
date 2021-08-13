@@ -1,12 +1,13 @@
 
 TODO:
-	refined topology predictor
 	trainer:
 		save optimizer states in checkpoint file
 
 
 
 2021.8.13
+
+	+	topology/predictor.py: refined by utils.predictor.
 
 	+	layout_predictor.py: normalizeImageDimension added.
 

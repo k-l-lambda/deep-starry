@@ -61,7 +61,7 @@ class Trainer:
 			val_losses.append(val_loss)
 			val_accs.append(val_acc)
 
-			checkpoint = {'epoch': epoch_i, 'model': self.model.state_dict()}
+			checkpoint = {'epoch': epoch_i, 'model': self.model.deducer.state_dict()}
 
 			model_name = f'model_{epoch_i:02}_acc_{100*val_acc:3.3f}.chkpt'
 			if self.options['save_mode'] == 'all':
@@ -128,5 +128,5 @@ class Trainer:
 
 	def loadCheckpoint (self, filename):
 		checkpoint = torch.load(self.config.localPath(filename), map_location=self.options['device'])
-		self.model.load_state_dict(checkpoint['model'])
+		self.model.deducer.load_state_dict(checkpoint['model'])
 		self.start_epoch = checkpoint['epoch'] + 1
