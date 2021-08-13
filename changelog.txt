@@ -1,8 +1,8 @@
 
 TODO:
+	refined topology predictor
 	trainer:
 		save optimizer states in checkpoint file
-		refined topology predictor
 
 
 

@@ -1,6 +1,7 @@
 .vscode/
 __pycache__/
 *.local
+*.local.*
 /output/
 /training/
 /logs/
