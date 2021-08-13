@@ -28,7 +28,6 @@ class TopologyPredictor (Predictor):
 				matrices += self.model(batch['seq_id'], batch['seq_position'], batch['mask'])
 				masks += batch['mask']
 
-		results = []
 		for matrix, mask in zip(matrices, masks):
 			matrix = matrix.cpu().tolist()
 			mask = mask.cpu().tolist()
@@ -41,11 +40,9 @@ class TopologyPredictor (Predictor):
 						for column in mask[1]
 					] for row in mask[0]
 				]
-				results.append(full)
+				yield full
 			else:
-				results.append({
+				yield {
 					'matrixH': matrix,
 					'mask': mask,
-				})
-
-		return results
+				}

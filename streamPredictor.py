@@ -48,7 +48,7 @@ def parseInputLine (line):
 
 def outputData (data):
 	logging.info('output json: %d', len(data))
-	print(data + '\n')
+	print(data, end='\n')
 
 
 def session (predictor):
@@ -59,7 +59,6 @@ def session (predictor):
 
 	while True:
 		data = sys.stdin.readline()
-		#print('read:', len(data), data[0], flush = True)
 		logging.info('data read: %d', len(data))
 		if not data or len(data) <= 1:
 			break
@@ -80,7 +79,7 @@ def session (predictor):
 		count += 1
 	t1 = time.time()
 
-	print('', flush = True)
+	print('', end='\n', flush = True)
 	logging.info(f'Prediction results ({count}) sent. ({t1 - t0:.3f}s)')
 
 	return True
