@@ -79,6 +79,8 @@ class LayoutPredictor (Predictor):
 
 		for i, image in enumerate(images):
 			image = np.expand_dims(image, 0)
+			image = self.normalizeImageDimension(image)
+
 			batch, _ = self.composer(image, np.ones((1, 4, 4, 2)))
 			batch = torch.from_numpy(batch)
 			batch = batch.to(self.device)
@@ -101,3 +103,14 @@ class LayoutPredictor (Predictor):
 						writeImageFileFormat(layout, output_path, begin_index, f'layout-{i}')
 
 				yield PageLayout(hotmap).json()
+
+
+	@classmethod
+	def normalizeImageDimension (cls, image):
+		n, h, w, c = image.shape
+		if h % 4 != 0 | w % 4 != 0:
+			logging.warn('[LayoutPredictor]	image diemension cannot be divisible by 4: %d x %d', h, w)
+
+			return image[:, :h - h % 4, :w - w % 4, :]
+
+		return image

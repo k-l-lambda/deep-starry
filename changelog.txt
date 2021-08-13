@@ -6,6 +6,11 @@ TODO:
 
 
 
+2021.8.13
+
+	+	layout_predictor.py: normalizeImageDimension added.
+
+
 2021.8.12
 
 	+	vision/layout_predictor.py created.
