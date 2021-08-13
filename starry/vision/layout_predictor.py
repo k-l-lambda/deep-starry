@@ -108,7 +108,7 @@ class LayoutPredictor (Predictor):
 	@classmethod
 	def normalizeImageDimension (cls, image):
 		n, h, w, c = image.shape
-		if h % 4 != 0 | w % 4 != 0:
+		if (h % 4 != 0) | (w % 4 != 0):
 			logging.warn('[LayoutPredictor]	image diemension cannot be divisible by 4: %d x %d', h, w)
 
 			return image[:, :h - h % 4, :w - w % 4, :]
