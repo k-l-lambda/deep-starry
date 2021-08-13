@@ -58,9 +58,6 @@ class Trainer:
 			val_loss, val_acc = self.eval_epoch(validation_data)
 			print_performances('Validation', val_loss, val_acc, start, lr)
 
-			val_losses.append(val_loss)
-			val_accs.append(val_acc)
-
 			checkpoint = {'epoch': epoch_i, 'model': self.model.deducer.state_dict()}
 
 			model_name = f'model_{epoch_i:02}_acc_{100*val_acc:3.3f}.chkpt'
@@ -74,6 +71,9 @@ class Trainer:
 
 			if val_acc > max(val_accs) or self.config['best'] is None:
 				self.config['best'] = model_name
+
+			val_losses.append(val_loss)
+			val_accs.append(val_acc)
 
 			#self.tb_writer.add_scalars('loss', {'train': train_loss, 'val': val_loss}, epoch_i)
 			#self.tb_writer.add_scalars('accuracy', {'train': train_accu, 'val': val_acc}, epoch_i)
