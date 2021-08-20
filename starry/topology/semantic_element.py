@@ -33,6 +33,7 @@ JOINT_SEMANTIC_ELEMENT_TYPES = [
 	SemanticElementType.NoteheadS0,
 	SemanticElementType.NoteheadS1,
 	SemanticElementType.NoteheadS2,
+	SemanticElementType.GraceNoteheadS0,
 	SemanticElementType.Rest0,
 	SemanticElementType.Rest1,
 	SemanticElementType.Rest2,
@@ -48,6 +49,7 @@ JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES = [
 	SemanticElementType.NoteheadS0,
 	SemanticElementType.NoteheadS1,
 	SemanticElementType.NoteheadS2,
+	SemanticElementType.GraceNoteheadS0,
 	SemanticElementType.Rest0,
 	SemanticElementType.Rest1,
 	SemanticElementType.Rest2,
@@ -61,6 +63,19 @@ JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES = [
 
 JOINT_TARGET_SEMANTIC_ELEMENT_TYPES = [
 	SemanticElementType.BOS,
+	SemanticElementType.NoteheadS0,
+	SemanticElementType.Rest0,
+	SemanticElementType.Rest1,
+	SemanticElementType.Rest2,
+	SemanticElementType.Rest3,
+	SemanticElementType.Rest4,
+	SemanticElementType.Rest5,
+	SemanticElementType.Rest6,
+	SemanticElementType.vline_Stem,
+]
+
+
+ROOT_SEMANTIC_ELEMENT_TYPES = [
 	SemanticElementType.NoteheadS0,
 	SemanticElementType.Rest0,
 	SemanticElementType.Rest1,
