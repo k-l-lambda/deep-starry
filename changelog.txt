@@ -1,11 +1,11 @@
 
 TODO:
-	trainer:
-		save optimizer states in checkpoint file
 
 
 
 2021.8.21
+
+	+	topology/trainer: saved optimizer states in checkpoint file.
 
 	+	topology: added model of TransformJointerH.
 

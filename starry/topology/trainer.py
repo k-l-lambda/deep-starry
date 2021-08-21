@@ -22,9 +22,6 @@ class Trainer:
 		self.start_epoch = 0
 
 		self.model = loadModel(config['model'], postfix='Loss')
-		if self.config['best']:
-			self.loadCheckpoint(self.config['best'])
-		self.model.to(self.options['device'])
 
 		self.optimizer = ScheduledOptim(
 			torch.optim.Adam(self.model.parameters(), betas=(0.9, 0.98), eps=1e-09),
@@ -32,6 +29,10 @@ class Trainer:
 			init_step=self.options.get('steps', 0),
 			**config['optim'],
 		)
+
+		if self.config['best']:
+			self.loadCheckpoint(self.config['best'])
+		self.model.to(self.options['device'])
 
 		self.tb_writer = SummaryWriter(log_dir=os.path.join(LOG_DIR, config.id))
 
@@ -58,7 +59,11 @@ class Trainer:
 			val_loss, val_acc = self.eval_epoch(validation_data)
 			print_performances('Validation', val_loss, val_acc, start, lr)
 
-			checkpoint = {'epoch': epoch_i, 'model': self.model.deducer.state_dict()}
+			checkpoint = {
+				'epoch': epoch_i,
+				'model': self.model.deducer.state_dict(),
+				'optim': self.optimizer._optimizer.state_dict(),
+			}
 
 			model_name = f'model_{epoch_i:02}_acc_{100*val_acc:3.3f}.chkpt'
 			if self.options['save_mode'] == 'all':
@@ -130,3 +135,6 @@ class Trainer:
 		checkpoint = torch.load(self.config.localPath(filename), map_location=self.options['device'])
 		self.model.deducer.load_state_dict(checkpoint['model'])
 		self.start_epoch = checkpoint['epoch'] + 1
+
+		if 'optim' in checkpoint:
+			self.optimizer._optimizer.load_state_dict(checkpoint['optim'])
