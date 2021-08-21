@@ -14,6 +14,15 @@ from ..utils.model_factory import loadModel
 LOG_DIR = os.environ.get('LOG_DIR', './logs')
 
 
+def print_acc (acc):
+	if type(acc) == float or type(acc) == torch.Tensor:
+		return f'accuracy: {acc*100:3.3f}%'
+	elif type(acc) == dict:
+		', '.join(map(lambda item: f'{item[0]}: {item[1]*100:3.3f}%', acc.items))
+	else:
+		return str(acc)
+
+
 class Trainer:
 	def __init__ (self, config):
 		self.config = config
@@ -39,8 +48,8 @@ class Trainer:
 
 	def train (self, training_data, validation_data):
 		def print_performances(header, loss, accu, start_time, lr):
-			print('  - {header:12} loss: {loss: 8.5f}, accuracy: {accu:3.3f} %, lr: {lr:8.5f}, elapse: {elapse:3.3f} min'
-				.format(header=f"({header})", loss=loss, accu=100*accu, elapse=(time.time()-start_time)/60, lr=lr))
+			print('  - {header:12} loss: {loss: 8.5f}, {accu}, lr: {lr:8.5f}, elapse: {elapse:3.3f} min'
+				.format(header=f"({header})", loss=loss, accu=print_acc(accu), elapse=(time.time()-start_time)/60, lr=lr))
 
 		#val_losses = []
 		best_acc = 0
@@ -48,12 +57,12 @@ class Trainer:
 			logging.info(f'[Epoch {epoch_i}]')
 
 			start = time.time()
-			train_loss, train_accu = self.train_epoch(training_data)
+			train_loss, train_acc = self.train_epoch(training_data)
 			#train_ppl = math.exp(min(train_loss, 100))
 
 			# Current learning rate
 			lr = self.optimizer._optimizer.param_groups[0]['lr']
-			print_performances('Training', train_loss, train_accu, start, lr)
+			print_performances('Training', train_loss, train_acc, start, lr)
 
 			start = time.time()
 			val_loss, val_acc = self.eval_epoch(validation_data)
@@ -81,11 +90,19 @@ class Trainer:
 			best_acc = max(best_acc, val_acc)
 
 			#self.tb_writer.add_scalars('loss', {'train': train_loss, 'val': val_loss}, epoch_i)
-			#self.tb_writer.add_scalars('accuracy', {'train': train_accu, 'val': val_acc}, epoch_i)
+			#self.tb_writer.add_scalars('accuracy', {'train': train_acc, 'val': val_acc}, epoch_i)
 			self.tb_writer.add_scalar('loss', train_loss, epoch_i)
 			self.tb_writer.add_scalar('val_loss', val_loss, epoch_i)
-			self.tb_writer.add_scalar('accuracy', train_accu, epoch_i)
-			self.tb_writer.add_scalar('val_accuracy', val_acc, epoch_i)
+			if type(train_acc) == dict:
+				for k, v in train_acc.items():
+					self.tb_writer.add_scalar(k, v, epoch_i)
+			else:
+				self.tb_writer.add_scalar('accuracy', train_acc, epoch_i)
+			if type(val_acc) == dict:
+				for k, v in val_acc.items():
+					self.tb_writer.add_scalar('val_' + k, v, epoch_i)
+			else:
+				self.tb_writer.add_scalar('val_accuracy', val_acc, epoch_i)
 			self.tb_writer.add_scalar('learning_rate', lr, epoch_i)
 
 			self.options['steps'] = self.optimizer.n_steps
