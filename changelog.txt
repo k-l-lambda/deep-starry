@@ -5,11 +5,13 @@ TODO:
 
 2021.8.21
 
+	+	topology: model of TransformJointerHV added.
+
 	+	topology/trainer: saved optimizer states in checkpoint file.
 
 	+	topology: added model of TransformJointerH.
 
-	+	data.py: added matrixV in dataset example.
+	+	topology/data.py: added matrixV in dataset example.
 
 
 2021.8.13

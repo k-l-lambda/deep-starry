@@ -11,6 +11,7 @@ def registerModels ():
 	classes = [
 		tpm.TransformJointer, tpm.TransformJointerLoss,
 		tpm.TransformJointerH, tpm.TransformJointerHLoss,
+		tpm.TransformJointerHV, tpm.TransformJointerHVLoss,
 		vm.ScoreWidgets, vm.ScoreWidgetsMask, vm.ScoreWidgetsInspection,
 		vm.ScoreRegression,
 		vm.ScoreResidue, vm.ScoreResidueInspection,

@@ -18,7 +18,7 @@ def print_acc (acc):
 	if type(acc) == float or type(acc) == torch.Tensor:
 		return f'accuracy: {acc*100:3.3f}%'
 	elif type(acc) == dict:
-		', '.join(map(lambda item: f'{item[0]}: {item[1]*100:3.3f}%', acc.items))
+		return ', '.join(map(lambda item: f'{item[0]}: {item[1]*100:3.3f}%', acc.items()))
 	else:
 		return str(acc)
 
@@ -74,35 +74,31 @@ class Trainer:
 				'optim': self.optimizer._optimizer.state_dict(),
 			}
 
-			model_name = f'model_{epoch_i:02}_acc_{100*val_acc:3.3f}.chkpt'
+			val_acc_value = next(iter(val_acc.values()))
+
+			model_name = f'model_{epoch_i:02}_acc_{100*val_acc_value:3.3f}.chkpt'
 			if self.options['save_mode'] == 'all':
 				torch.save(checkpoint, self.config.localPath(model_name))
 			elif self.options['save_mode'] == 'best':
 				#if val_loss <= min(val_losses):
-				if val_acc > best_acc or epoch_i == 0:
+				if val_acc_value > best_acc or epoch_i == 0:
 					torch.save(checkpoint, self.config.localPath(model_name))
 					logging.info('	- [Info] The checkpoint file has been updated.')
 
-			if val_acc > best_acc or self.config['best'] is None:
+			if val_acc_value > best_acc or self.config['best'] is None:
 				self.config['best'] = model_name
 
 			#val_losses.append(val_loss)
-			best_acc = max(best_acc, val_acc)
+			best_acc = max(best_acc, val_acc_value)
 
 			#self.tb_writer.add_scalars('loss', {'train': train_loss, 'val': val_loss}, epoch_i)
 			#self.tb_writer.add_scalars('accuracy', {'train': train_acc, 'val': val_acc}, epoch_i)
 			self.tb_writer.add_scalar('loss', train_loss, epoch_i)
 			self.tb_writer.add_scalar('val_loss', val_loss, epoch_i)
-			if type(train_acc) == dict:
-				for k, v in train_acc.items():
-					self.tb_writer.add_scalar(k, v, epoch_i)
-			else:
-				self.tb_writer.add_scalar('accuracy', train_acc, epoch_i)
-			if type(val_acc) == dict:
-				for k, v in val_acc.items():
-					self.tb_writer.add_scalar('val_' + k, v, epoch_i)
-			else:
-				self.tb_writer.add_scalar('val_accuracy', val_acc, epoch_i)
+			for k, v in train_acc.items():
+				self.tb_writer.add_scalar(k, v, epoch_i)
+			for k, v in val_acc.items():
+				self.tb_writer.add_scalar('val_' + k, v, epoch_i)
 			self.tb_writer.add_scalar('learning_rate', lr, epoch_i)
 
 			self.options['steps'] = self.optimizer.n_steps
@@ -112,7 +108,8 @@ class Trainer:
 
 	def train_epoch (self, dataset):
 		self.model.train()
-		total_loss, total_acc, n_batch = 0, 0, 0 
+		total_loss, n_batch = 0, 0
+		accs = {}
 
 		for batch in tqdm(dataset, mininterval=2, desc='  - (Training)   ', leave=False):
 			# forward
@@ -126,14 +123,21 @@ class Trainer:
 			# note keeping
 			n_batch += 1
 			total_loss += loss.item()
-			total_acc += acc
 
-		return total_loss / n_batch, total_acc / n_batch
+			acc = acc if type(acc) == dict else {'acc': acc}
+			for k, v in acc.items():
+				accs[k] = accs.get(k, 0) + v
+
+		for k in accs:
+			accs[k] /= n_batch
+
+		return total_loss / n_batch, accs
 
 
 	def eval_epoch (self, dataset):
 		self.model.eval()
-		total_loss, total_acc, n_batch = 0, 0, 0 
+		total_loss, n_batch = 0, 0
+		accs = {}
 
 		with torch.no_grad():
 			for batch in tqdm(dataset, mininterval=2, desc='  - (Validation) ', leave=False):
@@ -143,9 +147,15 @@ class Trainer:
 				# note keeping
 				n_batch += 1
 				total_loss += loss.item()
-				total_acc += acc
 
-		return total_loss / n_batch, total_acc / n_batch
+				acc = acc if type(acc) == dict else {'acc': acc}
+				for k, v in acc.items():
+					accs[k] = accs.get(k, 0) + v
+
+		for k in accs:
+			accs[k] /= n_batch
+
+		return total_loss / n_batch, accs
 
 
 	def loadCheckpoint (self, filename):

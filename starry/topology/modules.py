@@ -1,4 +1,5 @@
 
+import torch
 import torch.nn as nn
 
 from ..transformer.layers import EncoderLayer
@@ -124,13 +125,15 @@ class Encoder1 (nn.Module):
 
 
 class EncoderBranch2 (nn.Module):
-	def __init__ (self, d_word_vec, n_layers_trunk, n_layers_left, n_layers_right, n_head, d_k, d_v,
+	def __init__ (self, d_word_vec, n_layers, n_head, d_k, d_v,
 			d_model, d_inner, dropout=0.1, scale_emb=False):
 		super().__init__()
 
 		self.src_word_emb = Embedder(d_word_vec)
 
 		self.dropout = nn.Dropout(p=dropout)
+
+		n_layers_trunk, n_layers_left, n_layers_right = n_layers
 
 		self.stack_trunk = EncoderLayerStack(n_layers_trunk, n_head, d_k, d_v, d_model, d_inner, dropout)
 		self.stack_left = EncoderLayerStack(n_layers_left, n_head, d_k, d_v, d_model, d_inner, dropout)
@@ -168,10 +171,16 @@ class EncoderBranch2 (nn.Module):
 
 
 class Jointer (nn.Module):
-	def __init__ (self, d_model):
+	def __init__ (self, d_model, triu_mask=False):
 		super().__init__()
 
 		self.d_model = d_model
+
+		if triu_mask:
+			mask = torch.triu(torch.ones((0x200, 0x200))) == 0
+			self.register_buffer('triu_mask', mask, persistent=False)
+		else:
+			self.triu_mask = None
 
 	def forward (self, source, target, mask_src, mask_tar):
 		results = []
@@ -189,7 +198,11 @@ class Jointer (nn.Module):
 			code_src = code_src.unsqueeze(1).repeat(1, tar_joints, 1, 1)			# (src_joint, tar_joints, 1, d_model)
 			code_tar = code_tar.repeat(src_joints, 1, 1, 1)							# (src_joint, tar_joint, d_model, 1)
 
-			result = code_src.matmul(code_tar).clamp(min=0).flatten()				# (src_joint * tar_joint)
+			result = code_src.matmul(code_tar).clamp(min=0)							# (src_joint, tar_joint)
+			if self.triu_mask is not None:
+				result = result.squeeze(-1).squeeze(-1).masked_select(self.triu_mask[:result.shape[0], :result.shape[1]])
+			else:
+				result = result.flatten()
 			results.append(result)
 
 		return results
