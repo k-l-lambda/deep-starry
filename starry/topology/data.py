@@ -92,7 +92,7 @@ def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False):
 
 
 def toFixedBatchTensor (batch):
-	length = max(*[len(arr) for arr in batch])
+	length = max(0, *[len(arr) for arr in batch])
 	fixed = np.zeros((len(batch), length), dtype=np.float32)
 	for i, arr in enumerate(batch):
 		fixed[i, :len(arr)] = arr
@@ -119,7 +119,7 @@ def batchizeTensorExamples (examples, batch_size):
 		batches.append({
 			'seq_id': seq_id,				# int32		(n, seq, 2)
 			'seq_position': seq_position,	# float32	(n, seq, d_word)
-			'mask': masks,					# bool		(n, 2, seq)
+			'mask': masks,					# bool		(n, 3, seq)
 			'matrixH': matrixHsFixed,		# float32	(n, max_batch_matricesH)
 			'matrixV': matrixVsFixed,		# float32	(n, max_batch_matricesV)
 		})
@@ -198,7 +198,7 @@ class Dataset:
 			yield {
 				'seq_id': seq_id,				# int32		(n, seq, 2)
 				'seq_position': seq_position,	# float32	(n, seq, d_word)
-				'mask': masks,					# bool		(n, 2, seq)
+				'mask': masks,					# bool		(n, 3, seq)
 				'matrixH': matrixHsFixed,		# float32	(n, max_batch_matricesH)
 				'matrixV': matrixVsFixed,		# float32	(n, max_batch_matricesV)
 			}
