@@ -80,7 +80,10 @@ def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False):
 		[(1 if i2g[i] == i2g[j] else 0) for j, mj in enumerate(masks[2]) if mj]
 			for i, mi in enumerate(masks[2]) if mi
 	]
-	matrixV = np.array(matrixV, dtype=np.float32).flatten()
+	matrixV = np.array(matrixV, dtype=np.float32)
+
+	triu = np.triu(np.ones(matrixV.shape)) == 0
+	matrixV = matrixV[triu]
 
 	return (
 		seq_id,			# (n_seq_max, 2)
