@@ -56,26 +56,48 @@ def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False):
 		seq_id[i, :] = ids
 		seq_position[i, :] = position
 
+	groupsV = example['groupsV']
+
 	masks = (
 		[i < len(elements) and elements[i]['type'] in JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES for i in range(n_seq_max)],
 		[i < len(elements) and elements[i]['type'] in JOINT_TARGET_SEMANTIC_ELEMENT_TYPES for i in range(n_seq_max)],
+		[any(map(lambda group: i in group, groupsV)) for i in range(n_seq_max)],
 	)
 
 	if matrix_placeholder:
 		matrixH = [[0]]
 	else:
-		matrixH = [
+		'''matrixH = [
 			[x for j, x in enumerate(line) if j < n_seq_max and masks[1][j]]
 				for i, line in enumerate(example['matrixH']) if i < n_seq_max and masks[0][i]
-		]
+		]'''
+		matrixH = example['compactMatrixH']
 	matrixH = np.array(matrixH, dtype=np.float32).flatten()
+
+	# matrixV
+	i2g = [next(g for g, group in enumerate(groupsV) if i in group) if masks[2][i] else -1 for i in range(n_seq_max)]
+	matrixV = [
+		[(1 if i2g[i] == i2g[j] else 0) for j, mj in enumerate(masks[2]) if mj]
+			for i, mi in enumerate(masks[2]) if mi
+	]
+	matrixV = np.array(matrixV, dtype=np.float32).flatten()
 
 	return (
 		seq_id,			# (n_seq_max, 2)
 		seq_position,	# (n_seq_max, d_word)
+		masks,			# (3, n_seq_max)
 		matrixH,		# n_source_joints * n_target_joints
-		masks,			# (2, n_seq_max)
+		matrixV,		# n_grouped * n_grouped
 	)
+
+
+def toFixedBatchTensor (batch):
+	length = max(*[len(arr) for arr in batch])
+	fixed = np.zeros((len(batch), length), dtype=np.float32)
+	for i, arr in enumerate(batch):
+		fixed[i, :len(arr)] = arr
+
+	return torch.tensor(fixed)
 
 
 def batchizeTensorExamples (examples, batch_size):
@@ -86,20 +108,20 @@ def batchizeTensorExamples (examples, batch_size):
 
 		seq_id = torch.tensor(list(map(lambda x: x[0], ex)))
 		seq_position = torch.tensor(list(map(lambda x: x[1], ex)))
-		masks = torch.tensor(list(map(lambda x: x[3], ex)))
+		masks = torch.tensor(list(map(lambda x: x[2], ex)))
 
-		matrixHs = list(map(lambda x: x[2], ex))
-		matrixLen = max(*[len(mtx) for mtx in matrixHs])
-		matrixHsFixed = np.zeros((len(matrixHs), matrixLen), dtype=np.float32)
-		for i, mtx in enumerate(matrixHs):
-			matrixHsFixed[i, :len(mtx)] = mtx
-		matrixHsFixed = torch.tensor(matrixHsFixed)
+		matrixHs = list(map(lambda x: x[3], ex))
+		matrixHsFixed = toFixedBatchTensor(matrixHs)
+
+		matrixVs = list(map(lambda x: x[4], ex))
+		matrixVsFixed = toFixedBatchTensor(matrixVs)
 
 		batches.append({
 			'seq_id': seq_id,				# int32		(n, seq, 2)
 			'seq_position': seq_position,	# float32	(n, seq, d_word)
 			'mask': masks,					# bool		(n, 2, seq)
-			'matrixH': matrixHsFixed,		# float32	(n, max_batch_matrices)
+			'matrixH': matrixHsFixed,		# float32	(n, max_batch_matricesH)
+			'matrixV': matrixVsFixed,		# float32	(n, max_batch_matricesV)
 		})
 
 	return batches
@@ -165,20 +187,20 @@ class Dataset:
 
 			seq_id = torch.tensor(list(map(lambda x: x[0], ex))).to(self.device)
 			seq_position = torch.tensor(list(map(lambda x: x[1], ex))).to(self.device)
-			masks = torch.tensor(list(map(lambda x: x[3], ex))).to(self.device)
+			masks = torch.tensor(list(map(lambda x: x[2], ex))).to(self.device)
 
-			matrixHs = list(map(lambda x: x[2], ex))
-			matrixLen = max(0, *[len(mtx) for mtx in matrixHs])
-			matrixHsFixed = np.zeros((len(matrixHs), matrixLen), dtype=np.float32)
-			for i, mtx in enumerate(matrixHs):
-				matrixHsFixed[i, :len(mtx)] = mtx
-			matrixHsFixed = torch.tensor(matrixHsFixed).to(self.device)
+			matrixHs = list(map(lambda x: x[3], ex))
+			matrixHsFixed = toFixedBatchTensor(matrixHs)
+
+			matrixVs = list(map(lambda x: x[4], ex))
+			matrixVsFixed = toFixedBatchTensor(matrixVs)
 
 			yield {
 				'seq_id': seq_id,				# int32		(n, seq, 2)
 				'seq_position': seq_position,	# float32	(n, seq, d_word)
 				'mask': masks,					# bool		(n, 2, seq)
-				'matrixH': matrixHsFixed,		# float32	(n, max_batch_matrices)
+				'matrixH': matrixHsFixed,		# float32	(n, max_batch_matricesH)
+				'matrixV': matrixVsFixed,		# float32	(n, max_batch_matricesV)
 			}
 
 
@@ -211,7 +233,7 @@ def preprocessDataset (data_dir, output_file, name_id = re.compile(r'(.+)\.\w+$'
 		for filename in filenames:
 			with fs.open(filename, 'r') as file:
 				data = loadClusterSet(file)
-				clusters = data.get('clusters') or data.get('connections')
+				clusters = data.get('clusters')
 				valid_clusters = list(filter(lambda cluster: any(map(lambda e: e['type'] in JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES, cluster['elements'])), clusters))
 
 				if len(valid_clusters) < len(clusters):

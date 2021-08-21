@@ -5,6 +5,11 @@ TODO:
 
 
 
+2021.8.21
+
+	+	data.py: added matrixV in dataset example.
+
+
 2021.8.13
 
 	+	topology/predictor.py: refined by utils.predictor.
