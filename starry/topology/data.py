@@ -193,10 +193,10 @@ class Dataset:
 			masks = torch.tensor(list(map(lambda x: x[2], ex))).to(self.device)
 
 			matrixHs = list(map(lambda x: x[3], ex))
-			matrixHsFixed = toFixedBatchTensor(matrixHs)
+			matrixHsFixed = toFixedBatchTensor(matrixHs).to(self.device)
 
 			matrixVs = list(map(lambda x: x[4], ex))
-			matrixVsFixed = toFixedBatchTensor(matrixVs)
+			matrixVsFixed = toFixedBatchTensor(matrixVs).to(self.device)
 
 			yield {
 				'seq_id': seq_id,				# int32		(n, seq, 2)
