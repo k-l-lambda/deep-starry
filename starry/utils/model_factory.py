@@ -10,6 +10,7 @@ def registerModels ():
 
 	classes = [
 		tpm.TransformJointer, tpm.TransformJointerLoss,
+		tpm.TransformJointerH, tpm.TransformJointerHLoss,
 		vm.ScoreWidgets, vm.ScoreWidgetsMask, vm.ScoreWidgetsInspection,
 		vm.ScoreRegression,
 		vm.ScoreResidue, vm.ScoreResidueInspection,
@@ -19,14 +20,16 @@ def registerModels ():
 
 
 
-def loadModel (config):
+def loadModel (config, postfix = ''):
 	global model_dict
 	if model_dict is None:
 		registerModels()
 
-	if config['type'] not in model_dict:
-		raise RuntimeError("Model type %s not found" % config['type'])
+	model_type = config['type'] + postfix
 
-	model_class = model_dict[config['type']]
+	if model_type not in model_dict:
+		raise RuntimeError("Model type %s not found" % model_type)
+
+	model_class = model_dict[model_type]
 
 	return model_class(**config['args'])

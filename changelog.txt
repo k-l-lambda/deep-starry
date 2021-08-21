@@ -7,6 +7,8 @@ TODO:
 
 2021.8.21
 
+	+	topology: added model of TransformJointerH.
+
 	+	data.py: added matrixV in dataset example.
 
 

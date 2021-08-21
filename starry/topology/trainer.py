@@ -7,7 +7,7 @@ from tqdm import tqdm
 import logging
 
 from ..transformer.optim import ScheduledOptim
-from .models import TransformJointerLoss
+from ..utils.model_factory import loadModel
 
 
 
@@ -21,7 +21,7 @@ class Trainer:
 
 		self.start_epoch = 0
 
-		self.model = TransformJointerLoss(**config['model.args'])
+		self.model = loadModel(config['model'], postfix='Loss')
 		if self.config['best']:
 			self.loadCheckpoint(self.config['best'])
 		self.model.to(self.options['device'])
