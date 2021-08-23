@@ -56,7 +56,7 @@ def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False, prun
 		seq_id[i, :] = ids
 		seq_position[i, :] = position
 
-	groupsV = example['groupsV']
+	groupsV = example.get('groupsV')
 	maskv = [
 			i < len(elements) and elements[i]['type'] in ROOT_NOTE_SEMANTIC_ELEMENT_TYPES for i in range(n_seq_max)
 		] if pruned_maskv else [

@@ -8,7 +8,7 @@ import json
 import base64
 
 from starry.utils.config import Configuration
-from starry.topology.predictor import TopologyPredictorH
+from starry.topology.predictor import TopologyPredictorH, TopologyPredictorHV
 from starry.vision.semantic_predictor import SemanticPredictor
 from starry.vision.mask_predictor import MaskPredictor
 from starry.vision.gauge_predictor import GaugePredictor
