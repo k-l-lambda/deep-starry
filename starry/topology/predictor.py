@@ -7,7 +7,7 @@ from ..utils.predictor import Predictor
 
 
 
-class TopologyPredictor (Predictor):
+class TopologyPredictorH (Predictor):
 	def __init__(self, config, batch_size=4, device='cpu', **_):
 		super().__init__(batch_size=batch_size, device=device)
 
@@ -46,3 +46,40 @@ class TopologyPredictor (Predictor):
 					'matrixH': matrix,
 					'mask': mask,
 				}
+
+
+class TopologyPredictorHV (Predictor):
+	def __init__(self, config, batch_size=4, device='cpu', **_):
+		super().__init__(batch_size=batch_size, device=device)
+
+		self.d_model = config['model.args.d_model']
+
+		self.loadModel(config)
+
+
+	def predict(self, clusters):
+		n_seq_max = max(len(cluster['elements']) for cluster in clusters)
+		examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, self.d_model, matrix_placeholder=True, pruned_maskv=True), clusters))
+		dataset = Dataset(examples, self.batch_size, self.device)
+
+		matricesH = []
+		matricesV = []
+		masks = []
+		with torch.no_grad():
+			for batch in dataset:
+				h, v = self.model(batch['seq_id'], batch['seq_position'], batch['mask'])
+				matricesH += h
+				matricesV += v
+
+				masks += batch['mask']
+
+		for matrixH, matrixV, mask in zip(matricesH, matricesV, masks):
+			matrixH = matrixH.cpu().tolist()
+			matrixV = matrixV.cpu().tolist()
+			mask = mask.cpu().tolist()
+
+			yield {
+				'matrixH': matrixH,
+				'matrixV': matrixV,
+				'mask': mask,
+			}

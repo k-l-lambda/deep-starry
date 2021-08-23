@@ -11,7 +11,7 @@ import math
 import logging
 import dill as pickle
 
-from .semantic_element import JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES, JOINT_TARGET_SEMANTIC_ELEMENT_TYPES, STAFF_MAX
+from .semantic_element import JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES, JOINT_TARGET_SEMANTIC_ELEMENT_TYPES, ROOT_NOTE_SEMANTIC_ELEMENT_TYPES, STAFF_MAX
 
 
 
@@ -44,7 +44,7 @@ def elementToVector (elem, d_word):
 	return (se_type, staff), pos_vec
 
 
-def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False):
+def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False, pruned_maskv=False):
 	elements = example['elements']
 
 	seq_id = np.ones((n_seq_max, 2), dtype=np.int32)
@@ -57,31 +57,37 @@ def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False):
 		seq_position[i, :] = position
 
 	groupsV = example['groupsV']
+	maskv = [
+			i < len(elements) and elements[i]['type'] in ROOT_NOTE_SEMANTIC_ELEMENT_TYPES for i in range(n_seq_max)
+		] if pruned_maskv else [
+			any(map(lambda group: i in group, groupsV)) for i in range(n_seq_max)
+		]
 
 	masks = (
 		[i < len(elements) and elements[i]['type'] in JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES for i in range(n_seq_max)],
 		[i < len(elements) and elements[i]['type'] in JOINT_TARGET_SEMANTIC_ELEMENT_TYPES for i in range(n_seq_max)],
-		[any(map(lambda group: i in group, groupsV)) for i in range(n_seq_max)],
+		maskv,
 	)
 
 	if matrix_placeholder:
 		matrixH = [[0]]
+		matrixV = [[0]]
 	else:
 		'''matrixH = [
 			[x for j, x in enumerate(line) if j < n_seq_max and masks[1][j]]
 				for i, line in enumerate(example['matrixH']) if i < n_seq_max and masks[0][i]
 		]'''
 		matrixH = example['compactMatrixH']
+
+		# matrixV
+		i2g = [next(g for g, group in enumerate(groupsV) if i in group) if masks[2][i] else -1 for i in range(n_seq_max)]
+		matrixV = [
+			[(1 if i2g[i] == i2g[j] else 0) for j, mj in enumerate(masks[2]) if mj]
+				for i, mi in enumerate(masks[2]) if mi
+		]
 	matrixH = np.array(matrixH, dtype=np.float32).flatten()
 
-	# matrixV
-	i2g = [next(g for g, group in enumerate(groupsV) if i in group) if masks[2][i] else -1 for i in range(n_seq_max)]
-	matrixV = [
-		[(1 if i2g[i] == i2g[j] else 0) for j, mj in enumerate(masks[2]) if mj]
-			for i, mi in enumerate(masks[2]) if mi
-	]
 	matrixV = np.array(matrixV, dtype=np.float32)
-
 	triu = np.triu(np.ones(matrixV.shape)) == 0
 	matrixV = matrixV[triu]
 

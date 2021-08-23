@@ -8,7 +8,7 @@ import json
 import base64
 
 from starry.utils.config import Configuration
-from starry.topology.predictor import TopologyPredictor
+from starry.topology.predictor import TopologyPredictorH
 from starry.vision.semantic_predictor import SemanticPredictor
 from starry.vision.mask_predictor import MaskPredictor
 from starry.vision.gauge_predictor import GaugePredictor
@@ -20,7 +20,8 @@ logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
 
 PREDICTOR_FACTORY = {
-	'topology':		TopologyPredictor,
+	'topology':		TopologyPredictorH,
+	'topologyHV':	TopologyPredictorHV,
 	'semantic':		SemanticPredictor,
 	'mask':			MaskPredictor,
 	'gauge':		GaugePredictor,

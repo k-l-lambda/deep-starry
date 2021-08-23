@@ -88,4 +88,20 @@ ROOT_SEMANTIC_ELEMENT_TYPES = [
 ]
 
 
+ROOT_NOTE_SEMANTIC_ELEMENT_TYPES = [
+	SemanticElementType.NoteheadS0,
+	SemanticElementType.NoteheadS1,
+	SemanticElementType.NoteheadS2,
+	SemanticElementType.GraceNoteheadS0,
+	SemanticElementType.Rest0,
+	SemanticElementType.Rest1,
+	SemanticElementType.Rest2,
+	SemanticElementType.Rest3,
+	SemanticElementType.Rest4,
+	SemanticElementType.Rest5,
+	SemanticElementType.Rest6,
+	SemanticElementType.vline_Stem,
+]
+
+
 STAFF_MAX = 8
