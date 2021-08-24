@@ -12,6 +12,7 @@ def registerModels ():
 		tpm.TransformJointer, tpm.TransformJointerLoss,
 		tpm.TransformJointerH, tpm.TransformJointerHLoss,
 		tpm.TransformJointerHV, tpm.TransformJointerHVLoss,
+		tpm.TransformJointerH_ED, tpm.TransformJointerH_EDLoss,
 		vm.ScoreWidgets, vm.ScoreWidgetsMask, vm.ScoreWidgetsInspection,
 		vm.ScoreRegression,
 		vm.ScoreResidue, vm.ScoreResidueInspection,

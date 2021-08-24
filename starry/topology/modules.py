@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 
-from ..transformer.layers import EncoderLayer
+from ..transformer.layers import EncoderLayer, DecoderLayer
 from .semantic_element import SemanticElementType, STAFF_MAX
 
 
@@ -85,6 +85,23 @@ class EncoderLayerStack (nn.Module):
 		return enc_output
 
 
+class DecoderLayerStack (nn.Module):
+	def __init__ (self, n_layers, n_head, d_k, d_v, d_model, d_inner, dropout=0.1):
+		super().__init__()
+
+		self.layer_stack = nn.ModuleList([
+			DecoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout)
+			for _ in range(n_layers)])
+
+
+	def forward (self, dec_input, enc_output, mask):	# (n, seq, d_word)
+		dec_output = dec_input
+		for layer in self.layer_stack:
+			dec_output, _1, _2 = layer(dec_output, enc_output, slf_attn_mask=mask, dec_enc_attn_mask=mask)
+
+		return dec_output
+
+
 class Encoder1 (nn.Module):
 	def __init__ (self, d_word_vec, n_layers, n_head, d_k, d_v,
 			d_model, d_inner, dropout=0.1, scale_emb=False):
@@ -105,8 +122,6 @@ class Encoder1 (nn.Module):
 	# seq_position:	(n, seq, d_word)
 	# mask:			(n, seq, seq)
 	def forward (self, seq_id, seq_position, mask):	# (n, seq, d_word), (n, seq, d_word)
-		enc_slf_attn_list = []
-
 		# -- Forward
 		enc_output = self.src_word_emb(seq_id) + seq_position
 
@@ -145,9 +160,6 @@ class EncoderBranch2 (nn.Module):
 	# seq_position:	(n, seq, d_word)
 	# mask:			(n, seq, seq)
 	def forward (self, seq_id, seq_position, mask):	# (n, seq, d_word), (n, seq, d_word)
-		enc_slf_attn_list = []
-
-		# -- Forward
 		enc_output = self.src_word_emb(seq_id) + seq_position
 
 		if self.scale_emb:
@@ -161,6 +173,40 @@ class EncoderBranch2 (nn.Module):
 		enc_out_right = self.stack_right(enc_output, mask)
 
 		return enc_out_left, enc_out_right
+
+
+class Decoder1 (nn.Module):
+	def __init__ (self, d_word_vec, n_layers, n_head, d_k, d_v,
+			d_model, d_inner, dropout=0.1, scale_emb=False):
+		super().__init__()
+
+		self.src_word_emb = Embedder(d_word_vec)
+
+		self.dropout = nn.Dropout(p=dropout)
+
+		self.stack = DecoderLayerStack(n_layers, n_head, d_k, d_v, d_model, d_inner, dropout)
+
+		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
+
+		self.scale_emb = scale_emb
+		self.d_model = d_model
+
+	# seq_id:		(n, seq, 2)
+	# seq_position:	(n, seq, d_word)
+	# mask:			(n, seq, seq)
+	# enc_output:	(n, seq, d_word)
+	def forward (self, seq_id, seq_position, enc_output, mask):	# (n, seq, d_word)
+		dec_output = self.src_word_emb(seq_id) + seq_position
+
+		if self.scale_emb:
+			dec_output *= self.d_model ** 0.5
+
+		dec_output = self.dropout(dec_output)
+		dec_output = self.layer_norm(dec_output)
+
+		dec_output = self.stack(dec_output, enc_output, mask)
+
+		return dec_output
 
 
 class Jointer (nn.Module):

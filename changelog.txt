@@ -3,6 +3,11 @@ TODO:
 
 
 
+2021.8.24
+
+	+	topology: model of TransformJointerH_ED added.
+
+
 2021.8.23
 
 	+	topology: TopologyPredictorHV added.
