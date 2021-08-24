@@ -118,9 +118,6 @@ class Encoder1 (nn.Module):
 
 		enc_output = self.stack(enc_output, mask)
 
-		# normalize for inner product
-		enc_output = nn.functional.normalize(enc_output, dim=-1)
-
 		return enc_output
 
 
@@ -163,10 +160,6 @@ class EncoderBranch2 (nn.Module):
 		enc_out_left = self.stack_left(enc_output, mask)
 		enc_out_right = self.stack_right(enc_output, mask)
 
-		# normalize for inner product
-		enc_out_left = nn.functional.normalize(enc_out_left, dim=-1)
-		enc_out_right = nn.functional.normalize(enc_out_right, dim=-1)
-
 		return enc_out_left, enc_out_right
 
 
@@ -183,6 +176,10 @@ class Jointer (nn.Module):
 			self.triu_mask = None
 
 	def forward (self, source, target, mask_src, mask_tar):
+		# normalize for inner product
+		source = nn.functional.normalize(source, dim=-1)
+		target = nn.functional.normalize(target, dim=-1)
+
 		results = []
 		for i, (code_src, code_tar) in enumerate(zip(source, target)):
 			msk_src, msk_tar = mask_src[i].unsqueeze(-1), mask_tar[i].unsqueeze(-1)
