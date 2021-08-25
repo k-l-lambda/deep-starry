@@ -31,6 +31,7 @@ class Trainer:
 		self.start_epoch = 0
 
 		self.model = loadModel(config['model'], postfix='Loss')
+		self.model.to(self.options['device'])
 
 		self.optimizer = ScheduledOptim(
 			torch.optim.Adam(self.model.parameters(), betas=(0.9, 0.98), eps=1e-09),
@@ -41,7 +42,6 @@ class Trainer:
 
 		if self.config['best']:
 			self.loadCheckpoint(self.config['best'])
-		self.model.to(self.options['device'])
 
 		self.tb_writer = SummaryWriter(log_dir=os.path.join(LOG_DIR, config.id))
 
