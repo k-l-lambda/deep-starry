@@ -4,7 +4,7 @@ import logging
 
 from ..transformer.models import get_pad_mask, get_subsequent_mask
 from .semantic_element import SemanticElementType, STAFF_MAX
-from .modules import Encoder, Encoder1, Decoder1, EncoderBranch2, Jointer, JaggedLoss
+from .modules import Encoder, Encoder1, Decoder1, EncoderBranch2, Jointer, SieveJointer, JaggedLoss
 
 
 
@@ -277,3 +277,37 @@ class TransformJointerHV_EDD (nn.Module):
 class TransformJointerHV_EDDLoss (TransformJointerHVLoss):
 	def __init__ (self, **kw_args):
 		super().__init__(TransformJointerHV_EDD, **kw_args)
+
+
+class TransformSieveJointerH (nn.Module):
+	def __init__ (self, d_model=512, d_inner=2048,
+			n_source_layers=6, n_target_layers=1, n_sieve_layers=1,
+			n_head=8, d_k=64, d_v=64, dropout=0.1, scale_emb=False):
+		super().__init__()
+
+		self.d_model = d_model
+		d_word_vec = d_model
+
+		self.source_encoder = Decoder1(d_word_vec, n_source_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
+		self.target_encoder = Encoder1(d_word_vec, n_target_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
+		self.sieve_encoder = Encoder1(d_word_vec, n_sieve_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
+
+		self.jointer = SieveJointer(d_model)
+
+
+	def forward (self, seq_id, seq_position, mask):
+		seq_type = seq_id[:, :, 0]
+		seq_mask = get_pad_mask(seq_type, SemanticElementType.PAD)
+
+		target = self.target_encoder(seq_id, seq_position, seq_mask)
+		sieve = self.sieve_encoder(seq_id, seq_position, seq_mask)
+		source = self.source_encoder(seq_id, seq_position, target, seq_mask)
+
+		results = self.jointer(source, target, sieve, mask[:, 0], mask[:, 1])
+
+		return results
+
+
+class TransformSieveJointerHLoss (TransformJointerHLoss):
+	def __init__ (self, **kw_args):
+		super().__init__(TransformSieveJointerH, **kw_args)
