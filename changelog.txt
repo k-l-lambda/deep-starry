@@ -1,6 +1,12 @@
 
 TODO:
+	semantic picking model
 
+
+
+2021.8.28
+
+	+	topology: model of TransformSieveJointerHV added.
 
 
 2021.8.27

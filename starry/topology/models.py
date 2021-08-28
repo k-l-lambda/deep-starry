@@ -311,3 +311,41 @@ class TransformSieveJointerH (nn.Module):
 class TransformSieveJointerHLoss (TransformJointerHLoss):
 	def __init__ (self, **kw_args):
 		super().__init__(TransformSieveJointerH, **kw_args)
+
+
+class TransformSieveJointerHV (nn.Module):
+	def __init__ (self, d_model=512, d_inner=2048,
+			n_source_layers=6, n_target_layers=1, n_sieve_layers=1, n_v_layers=1,
+			n_head=8, d_k=64, d_v=64, dropout=0.1, scale_emb=False):
+		super().__init__()
+
+		self.d_model = d_model
+		d_word_vec = d_model
+
+		self.source_encoder = Decoder1(d_word_vec, n_source_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
+		self.target_encoder = Encoder1(d_word_vec, n_target_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
+		self.sieve_encoder = Encoder1(d_word_vec, n_sieve_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
+		self.v_encoder = Decoder1(d_word_vec, n_v_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
+
+		self.jointer_h = SieveJointer(d_model)
+		self.jointer_v = Jointer(d_model, triu_mask=True)
+
+
+	def forward (self, seq_id, seq_position, mask):
+		seq_type = seq_id[:, :, 0]
+		seq_mask = get_pad_mask(seq_type, SemanticElementType.PAD)
+
+		target = self.target_encoder(seq_id, seq_position, seq_mask)
+		sieve = self.sieve_encoder(seq_id, seq_position, seq_mask)
+		source = self.source_encoder(seq_id, seq_position, target, seq_mask)
+		vcode = self.v_encoder(seq_id, seq_position, source, seq_mask)
+
+		h_results = self.jointer_h(source, target, sieve, mask[:, 0], mask[:, 1])
+		v_results = self.jointer_v(vcode, vcode, mask[:, 2], mask[:, 2])
+
+		return h_results, v_results
+
+
+class TransformSieveJointerHVLoss (TransformJointerHVLoss):
+	def __init__ (self, **kw_args):
+		super().__init__(TransformSieveJointerHV, **kw_args)
