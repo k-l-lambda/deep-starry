@@ -5,7 +5,7 @@ from perlin_noise import PerlinNoise
 
 
 
-def gen(size, dimension = (256, 256), octaves = 1, output_path = './temp/perlin-%d.npy'):
+def gen(size, dimension=(256, 256), octaves=1, output_path='./temp/perlin-%d.npy'):
 	arr = np.zeros((size, dimension[0], dimension[1]), np.float32)
 
 	for i in range(size):

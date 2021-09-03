@@ -19,23 +19,23 @@ data:
     input_mask:               False
     cache_labels:             True
     crop_margin:              136
-    #augmentor:
-    #  tinter:
-    #    fore_pow:             4.
-    #    fore_sigma:           0.2
-    #    fore_scale_range:     [40, 100]
-    #    fore_blur_range:      [0, 1]
-    #    back_pow:             3.
-    #    back_sigma:           0.2
-    #    back_scale_range:     [0.1, 0.5]
-    #    back_blur_range:      [0, 8]
-    #  gaussian_noise:
-    #    sigma:                0.01
-    #  gaussian_blur:
-    #    sigma:                0.6
-    #  distortion:
-    #    noise:                temp/perlin-12.npy
-    #    scale:                1.4
-    #    scale_sigma:          0.2
-    #    intensity:            0.03
-    #    intensity_sigma:      0.4
+    augmentor:
+      tinter:
+        fore_pow:             4.
+        fore_sigma:           0.2
+        fore_scale_range:     [40, 100]
+        fore_blur_range:      [0, 1]
+        back_pow:             3.
+        back_sigma:           0.2
+        back_scale_range:     [0.1, 0.5]
+        back_blur_range:      [0, 8]
+      gaussian_noise:
+        sigma:                0.01
+      gaussian_blur:
+        sigma:                0.6
+      distortion:
+        noise:                temp/perlin-12.npy
+        scale:                1.4
+        scale_sigma:          0.2
+        intensity:            0.03
+        intensity_sigma:      0.4

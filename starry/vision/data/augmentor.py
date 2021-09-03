@@ -40,14 +40,14 @@ class ScoreTinter:
 				ScoreTinter.regular_texture_iter = TextureSet(texture_dir).makeIterator(frame_size = (2048, 2048), frame_count = frame_count, shuffle = False)
 			self.texture_iter = ScoreTinter.regular_texture_iter
 
-		self.fore_scale_range = config.FORE_SCALE_RANGE
-		self.fore_blur_range = config.FORE_BLUR_RANGE
-		self.fore_sigma = config.FORE_SIGMA
-		self.fore_pow = config.FORE_POW
-		self.back_scale_range = config.BACK_SCALE_RANGE
-		self.back_blur_range = config.BACK_BLUR_RANGE
-		self.back_sigma = config.BACK_SIGMA
-		self.back_pow = config.BACK_POW
+		self.fore_scale_range = config['fore_scale_range']
+		self.fore_blur_range = config['fore_blur_range']
+		self.fore_sigma = config['fore_sigma']
+		self.fore_pow = config['fore_pow']
+		self.back_scale_range = config['back_scale_range']
+		self.back_blur_range = config['back_blur_range']
+		self.back_sigma = config['back_sigma']
+		self.back_pow = config['back_pow']
 
 	def tint (self, source):
 		back_texture = self.texture_iter.get(source.shape[:2], scale_range = self.back_scale_range, blur_range = self.back_blur_range)
