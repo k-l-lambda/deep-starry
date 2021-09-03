@@ -6,6 +6,7 @@ import math
 import PIL.Image
 import cv2
 import numpy as np
+import random
 
 
 
@@ -105,6 +106,51 @@ def spliceOutputTensor (tensor, keep_margin=False, soft=False, margin_divider=MA
 		return softSplicePieces(arr, margin_divider)
 
 	return splicePieces(arr, margin_divider, keep_margin=keep_margin)
+
+
+def randomSliceImage (source, target, width):	# (256, w, 3), (256, w, labels)
+	ratio = source.shape[0] // target.shape[0]
+	tw = width // ratio
+
+	sliced_source, sliced_target = None, None
+
+	# fill zeros for right residue
+	if target.shape[1] < tw:
+		sliced_target = np.zeros((target.shape[0], tw, target.shape[2]), dtype=np.float32)
+		sliced_target[:, :target.shape[1], :] = target
+
+		sliced_source = np.ones((source.shape[0], width, source.shape[2]), dtype=np.float32)
+		sliced_source[:, :source.shape[1], :] = source
+	else:
+		target_width = target.shape[1]
+		target_start = random.randint(0, target_width - tw)
+		source_start = target_start * ratio
+
+		sliced_target = target[:, target_start:target_start + tw, :]
+		sliced_source = source[:, source_start:source_start + width, :]
+
+	return sliced_source, sliced_target
+
+
+def iterateSliceImage (source, target, width, overlapping = 0.25, crop_margin = 0):
+	ratio = source.shape[0] // target.shape[0]
+	tw = width // ratio
+	step = math.floor(width - overlapping * source.shape[0])
+
+	for x in range(crop_margin, source.shape[1] - crop_margin, step):
+		sliced_source = np.ones((source.shape[0], width, source.shape[2]), dtype=np.float32)
+		sliced_target = np.zeros((target.shape[0], tw, target.shape[2]), dtype=np.float32)
+
+		tx = x // ratio
+		if x + width <= source.shape[1]:
+			sliced_source = source[:, x:x + width, :]
+			sliced_target = target[:, tx:tx + tw, :]
+		else:
+			# fill zeros for right residue
+			sliced_source[:, :source.shape[1] - x, :] = source[:, x:, :]
+			sliced_target[:, :target.shape[1] - tx, :] = target[:, tx:, :]
+
+		yield sliced_source, sliced_target
 
 
 def maskToAlpha (mask, frac_y = False):	# mask: [fore(h, w), back(h, w)]

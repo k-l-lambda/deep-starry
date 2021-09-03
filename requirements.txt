@@ -3,3 +3,4 @@ fs>=2.4.13
 python-dotenv>=0.10.1
 Pillow>=6.0.0
 dill>=0.3.4
+perlin-noise>=1.7
