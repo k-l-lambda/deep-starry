@@ -4,6 +4,7 @@ import math
 import cv2
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import logging
 
 from .score_semantic import ScoreSemantic
 from .chromaticChannels import composeChromaticMap
@@ -208,26 +209,27 @@ def scoreAnnoGauge (feature, targets, predictions=None):
 	plt.close()
 
 
-class DatasetViewer():
-	def __init__(self, cfg, chromatic = False, gauge_mode = False):
+class DatasetViewer:
+	def __init__(self, config, chromatic=True, gauge_mode=False):
 		self.chromatic = chromatic
 		self.gauge_mode = gauge_mode
 
-		self.labels = cfg.DATASET_PROTOTYPE.LABELS
+		self.labels = config['data.args.labels']
 
 
-	def view(self, data_set, num):
-		couter = 0
+	def show(self, data_set):
 		for batch, (feature, target) in enumerate(data_set):
 			bsize = len(feature)
 			for i in range(bsize):
+				index = batch * bsize + i
+				logging.info(index)
+
 				img = feature[i].cpu().numpy()
 				hm = target[i].cpu().numpy()
 				img = np.moveaxis(img, 0, -1)
 				img = img.reshape(img.shape[:2]) if img.shape[2] == 1 else img.reshape(img.shape[:3])
 				img = np.clip(img, 0., 1.)
 				img = np.uint8(img * 255)
-				#img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
 				#print('img shape2:', img.shape)
 
 				if self.gauge_mode:
@@ -238,7 +240,3 @@ class DatasetViewer():
 					else:
 						hm = np.uint8(hm * 255)
 						scoreAnno(hm, img, labels = self.labels)
-
-				couter += 1
-				if(couter >= num):
-					return
