@@ -76,41 +76,43 @@ class Augmentor:
 		self.flip_intensity_range = None
 
 		if options:
-			if hasattr(options, 'TINTER'):
+			if options.get('tinter'):
 				size = min(TEXTURE_SET_SIZE, 4) if not shuffle else TEXTURE_SET_SIZE
-				self.tinter = ScoreTinter(TEXTURE_SET_DIR, size, options.TINTER, shuffle = shuffle)
+				self.tinter = ScoreTinter(TEXTURE_SET_DIR, size, options['tinter'], shuffle = shuffle)
 
-			if hasattr(options, 'DISTORTION'):
-				noise_path = options.DISTORTION.NOISE if hasattr(options.DISTORTION, 'NOISE') else './temp/perlin.npy'
+			if options.get('distortion'):
+				DISTORTION = options['distortion']
+				noise_path = DISTORTION.get('noise', './temp/perlin.npy')
 				self.distorter = Distorter(noise_path)
 				self.distortion = {
-					'scale':		options.DISTORTION.SCALE if hasattr(options.DISTORTION, 'SCALE') else 2,
-					'scale_sigma':	options.DISTORTION.SCALE_SIGMA if hasattr(options.DISTORTION, 'SCALE_SIGMA') else 0.4,
-					'intensity':	options.DISTORTION.INTENSITY,
-					'intensity_sigma':	options.DISTORTION.INTENSITY_SIGMA,
-					'noise_weights_sigma':	options.DISTORTION.NOISE_WEIGHTS_SIGMA if hasattr(options.DISTORTION, 'NOISE_WEIGHTS_SIGMA') else 1,
+					'scale':		DISTORTION.get('scale', 2),
+					'scale_sigma':	DISTORTION.get('scale_sigma', 0.4),
+					'intensity':	DISTORTION['intensity'],
+					'intensity_sigma':	DISTORTION['intensity_sigma'],
+					'noise_weights_sigma':	DISTORTION.get('noise_weights_sigma', 1),
 				}
 
-			if hasattr(options, 'GAUSSIAN_NOISE'):
-				self.gaussian_noise = options.GAUSSIAN_NOISE.SIGMA
+			if options.get('gaussian_noise'):
+				self.gaussian_noise = options['gaussian_noise']['sigma']
 
-			if hasattr(options, 'AFFINE'):
+			if options.get('affine'):
+				AFFINE = options['affine']
 				self.affine = {
-					'padding_scale': options.AFFINE.PADDING_SCALE if hasattr(options.AFFINE, 'PADDING_SCALE') else 1,
-					'padding_sigma': options.AFFINE.PADDING_SIGMA if hasattr(options.AFFINE, 'PADDING_SIGMA') else 0.04,
-					'angle_sigma': options.AFFINE.ANGLE_SIGMA,
-					'scale_sigma': options.AFFINE.SCALE_SIGMA,
-					'scale_mu': options.AFFINE.SCALE_MU if hasattr(options.AFFINE, 'SCALE_MU') else 1,
-					'scale_limit': options.AFFINE.SCALE_LIMIT if hasattr(options.AFFINE, 'SCALE_LIMIT') else float('inf'),
-					'size_limit': options.AFFINE.SIZE_LIMIT if hasattr(options.AFFINE, 'SIZE_LIMIT') else float('inf'),
-					'size_fixed': options.AFFINE.SIZE_FIXED if hasattr(options.AFFINE, 'SIZE_FIXED') else None,
+					'padding_scale': AFFINE.get('padding_scale', 1),
+					'padding_sigma': AFFINE.get('padding_sigma', 0.04),
+					'angle_sigma': AFFINE['angle_sigma'],
+					'scale_sigma': AFFINE['scale_sigma'],
+					'scale_mu': AFFINE.get('scale_mu', 1),
+					'scale_limit': AFFINE.get('scale_limit', float('inf')),
+					'size_limit': AFFINE.get('size_limit', float('inf')),
+					'size_fixed': AFFINE.get('size_fixed'),
 				}
 
-			if hasattr(options, 'FLIP_MARK'):
-				self.flip_intensity_range = options.FLIP_MARK.INTENSITY_RANGE
+			if options.get('flip_mark'):
+				self.flip_intensity_range = options['flip_mark']['intensity_range']
 
-			if hasattr(options, 'GAUSSIAN_BLUR'):
-				self.gaussian_blur = options.GAUSSIAN_BLUR.SIGMA
+			if options.get('gaussian_blur'):
+				self.gaussian_blur = options['gaussian_blur']['sigma']
 
 	def augment (self, source, target):
 		if self.flip_intensity_range is not None:

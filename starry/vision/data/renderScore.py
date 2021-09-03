@@ -134,7 +134,12 @@ def renderTargetFromGraph (graph, labels, size, unit_size=16, point_radius=2 / 1
 
 
 class RenderScore (CachedIterableDataset):
-	def __init__ (self, root, split='0/1', trans=[], device='cpu',
+	@staticmethod
+	def load (root, args, splits, device='cpu'):
+		splits = splits.split(':')
+		return tuple(map(lambda split: RenderScore(root, split=split, device=device, **args), splits))
+
+	def __init__ (self, root, split='0/1', device='cpu', trans=[],
 		labels=[], shuffle=False, slicing_width=256, blur_scale=None,
 		crop_margin=0, input_mask=False, unit_size=8, cache_labels=False, augmentor=None,
 	):

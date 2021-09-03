@@ -70,7 +70,9 @@ class LayoutPredictor (Predictor):
 
 		self.loadModel(config)
 
-		trans = [t for t in config['data.trans'] if not t.startswith('Tar_')]
+		data_args = config['data.args'] or config['data']
+
+		trans = [t for t in data_args['trans'] if not t.startswith('Tar_')]
 		self.composer = transform.Composer(trans)
 
 

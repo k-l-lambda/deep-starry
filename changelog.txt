@@ -1,10 +1,12 @@
 
 TODO:
-	semantic picking model
+	semantic rectification model
 
 
 
 2021.9.3
+
+	+	viewDataset.py created.
 
 	+	starry/vision/data folder created.
 
