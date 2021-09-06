@@ -292,13 +292,16 @@ def statPoints (points, true_count, negative_weight = 1, positive_weight = 1):
 
 	true_count = max(true_count, 1)
 
+	true_positive_count = len(points) - fake_positive_count
+	true_negative_count = len([p for p in points if p['confidence'] < confidence and p['value'] < 0])
+
 	error = fake_negative_count * negative_weight + fake_positive_count * positive_weight
 	feasibility = 1 - error / true_count
 
 	pe = max((fake_negative_count + fake_positive_count) / true_count, 1e-100)
 	precision = -math.log(pe)
 
-	return confidence, error, precision, feasibility, fake_negative_count, fake_positive_count
+	return confidence, error, precision, feasibility, fake_negative_count, fake_positive_count, true_negative_count, true_positive_count
 
 
 class Compounder:

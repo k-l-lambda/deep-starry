@@ -64,6 +64,8 @@ class Validator (Predictor):
 				if self.skip_perfect:
 					perfect = True
 
+					fake_negative, fake_positive, true_negative, true_positive = 0, 0, 0, 0
+
 					for c, label in enumerate(self.compounder.labels):
 						tar = target_compound[c]
 						pred = pred_compound[c]
@@ -71,7 +73,13 @@ class Validator (Predictor):
 						points = contours.countHeatmaps(tar, pred, label, unit_size = unit_size)
 						true_count = len([p for p in points if p['value'] > 0])
 						if true_count > 0:
-							confidence, error, precision, feasibility, fake_neg, fake_pos = contours.statPoints(points, true_count, 1, 1)
+							confidence, error, precision, feasibility, fake_neg, fake_pos, true_neg, true_pos = contours.statPoints(points, true_count, 1, 1)
+
+							fake_negative += fake_neg
+							fake_positive += fake_pos
+							true_negative += true_neg
+							true_positive += true_pos
+
 							#print('label:', label, error, precision, feasibility)
 							if error > 0:
 								perfect = False
@@ -86,6 +94,9 @@ class Validator (Predictor):
 								print(yaml.dump(issue_points))
 
 								break
+
+					# confusion matrix
+					print(f'confusion:\n  {true_positive}\t{fake_positive}\n  {fake_negative}\t{true_negative}')
 
 					if perfect:
 						print('.', end='', flush=True)	# . stand for skipping a perfect sample
