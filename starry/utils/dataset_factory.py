@@ -36,7 +36,7 @@ def loadDataset (config, data_dir='.'):
 	datasets = dataset_class.load(root, config['data.args'], splits=config['data.splits'])
 	loaders = tuple(map(
 		lambda dataset:
-			DataLoader(dataset, batch_size=config['data.batch_size'], shuffle=dataset.shuffle, collate_fn=dataset.collateBatch),
+			DataLoader(dataset, batch_size=config['data.batch_size'], collate_fn=dataset.collateBatch),
 		datasets))
 
 	return loaders

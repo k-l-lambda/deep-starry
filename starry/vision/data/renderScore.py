@@ -44,6 +44,7 @@ def listAllScoreNames (reader, filterStr, dir=STAFF):
 	if filterStr is None:
 		return all_names
 
+	filterStr = filterStr[1:] if filterStr.startswith('*') else filterStr
 	phases, cycle = filterStr.split('/')
 	phases = list(map(int, phases.split(',')))
 	cycle = int(cycle)
@@ -137,7 +138,7 @@ class RenderScore (CachedIterableDataset):
 	@staticmethod
 	def load (root, args, splits, device='cpu'):
 		splits = splits.split(':')
-		return tuple(map(lambda split: RenderScore(root, split=split, device=device, **args), splits))
+		return tuple(map(lambda split: RenderScore(root, split=split, shuffle=split.startswith('*'), device=device, **args), splits))
 
 	def __init__ (self, root, split='0/1', device='cpu', trans=[],
 		labels=[], shuffle=False, slicing_width=256, blur_scale=None,

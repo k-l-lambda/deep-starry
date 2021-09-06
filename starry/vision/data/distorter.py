@@ -15,7 +15,7 @@ def softMax (xs, temperature):
 
 
 class Distorter:
-	def __init__ (self, noise_path = './temp/perlin.npy'):
+	def __init__ (self, noise_path='./temp/perlin.npy'):
 		noise_path = [noise_path] if type(noise_path) == str else noise_path
 
 		self.perlin_maps = [np.load(path) for path in noise_path]
