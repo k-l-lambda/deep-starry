@@ -303,8 +303,8 @@ def statPoints (points, true_count, negative_weight = 1, positive_weight = 1):
 
 class Compounder:
 	def __init__ (self, config):
-		self.list = config.DATASET_PROTOTYPE.COMPOUND_LABELS.LIST if hasattr(config.DATASET_PROTOTYPE.COMPOUND_LABELS, 'LIST') else None
-		self.labels = list(map(lambda item: item['LABEL'], self.list)) if self.list else config.DATASET_PROTOTYPE.LABELS
+		self.list = config['data.args.compound_labels']
+		self.labels = list(map(lambda item: item['label'], self.list)) if self.list else config['data.args.labels']
 
 	def compound (self, image):	# (channel, h, w)
 		if self.list is not None:
@@ -312,7 +312,7 @@ class Compounder:
 			channels = len(self.list)
 			result = np.zeros((channels, shape[1], shape[2]), dtype=np.uint8)
 			for l in range(channels):
-				for c in self.list[l]['CHANNELS']:
+				for c in self.list[l]['channels']:
 					result[l, :, :] = np.maximum(result[l, :, :], image[c, :, :])
 
 			return result
