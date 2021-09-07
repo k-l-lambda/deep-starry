@@ -157,8 +157,8 @@ def detectBoxes (heatmap, vertical_units = 24, otsu = False):
 
 POINT_NEAR_DISTANCE = 0.2
 
-LINE_TOLERANCE_X = 0.3
-LINE_TOLERANCE_Y = 0.5
+LINE_TOLERANCE_X = 0.5
+LINE_TOLERANCE_Y = 0.8
 
 RECT_TOLERANCE = 0.8
 

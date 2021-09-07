@@ -66,7 +66,7 @@ class ScoreTinter:
 
 
 class Augmentor:
-	def __init__ (self, options, shuffle = True):
+	def __init__ (self, options, shuffle=True):
 		self.tinter = None
 		self.distorter = None
 		self.gaussian_noise = 0
@@ -114,7 +114,7 @@ class Augmentor:
 			if options.get('gaussian_blur'):
 				self.gaussian_blur = options['gaussian_blur']['sigma']
 
-	def augment (self, source, target):
+	def augment (self, source, target=None):
 		if self.flip_intensity_range is not None:
 			origin = source
 			if self.flip_texture is not None:
@@ -149,7 +149,7 @@ class Augmentor:
 			rx, ry = np.random.random(), np.random.random()
 
 			source = self.affineTransform(source, (padding_y, padding_x), mat, scale, rx, ry)
-			target = self.affineTransform(target, (padding_y, padding_x), mat, scale, rx, ry)
+			target = self.affineTransform(target, (padding_y, padding_x), mat, scale, rx, ry) if target is not None else target
 			#print('target.2:', target.shape, (padding_y, padding_x))
 
 			source = np.expand_dims(source, -1)
@@ -163,7 +163,7 @@ class Augmentor:
 			nx, ny = self.distorter.make_maps(source.shape, scale, intensity, self.distortion['noise_weights_sigma'])
 
 			source = self.distorter.distort(source, nx, ny)
-			target = self.distorter.distort(target, nx, ny)
+			target = self.distorter.distort(target, nx, ny) if target is not None else target
 			source = np.expand_dims(source, -1)
 
 		if self.gaussian_blur > 0:
