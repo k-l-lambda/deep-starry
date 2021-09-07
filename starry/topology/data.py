@@ -151,7 +151,7 @@ class Dataset:
 			cycle = int(cycle)
 
 			ids = [id for i, id in enumerate(data['ids']) if i % cycle in phases]
-			logging.info(f'splitted ids: {" ,".join(ids)}')
+			logging.info(f'splitted ids: {", ".join(ids)}')
 
 			return sum([examples for i, examples in enumerate(data['groups']) if i % cycle in phases], [])
 
