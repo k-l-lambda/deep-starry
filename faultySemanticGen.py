@@ -13,6 +13,7 @@ from starry.utils.predictor import Predictor
 from starry.vision import contours
 from starry.vision.images import MARGIN_DIVIDER, splicePieces
 from starry.vision.data import GraphScore
+from starry.vision.score_semantic import ScoreSemantic
 
 
 
@@ -40,6 +41,16 @@ class FaultyGenerator (Predictor):
 				print('name:', name)
 				print('source:', source.shape)
 				print('graph:', graph)
+
+				pred = self.model(source)
+				#print('pred:', pred.shape)
+				heatmap = splicePieces(pred.cpu().numpy(), MARGIN_DIVIDER, keep_margin=True)
+				heatmap = np.uint8(heatmap * 255)
+				print('heatmap:', heatmap.shape)
+
+				semantics = ScoreSemantic(heatmap, labels)
+				print('semantics:', semantics.json())
+
 				break
 
 

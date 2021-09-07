@@ -2,6 +2,7 @@
 import sys
 import os
 import torch
+import math
 import numpy as np
 import random
 import time
@@ -16,6 +17,26 @@ from .imageReader import ImageReader, CachedImageReader, _S
 from .augmentor import Augmentor
 from .score import makeReader, listAllScoreNames, STAFF, GRAPH
 
+
+
+def sliceToBatch (source, width, overlapping=0.25, crop_margin=0):
+	tw = width
+	step = math.floor(width - overlapping * source.shape[0])
+
+	pieces = []
+	for x in range(crop_margin, source.shape[1] - crop_margin, step):
+		sliced_source = np.ones((source.shape[0], width, source.shape[2]), dtype=np.float32)
+
+		tx = x
+		if x + width <= source.shape[1]:
+			sliced_source = source[:, x:x + width, :]
+		else:
+			# fill zeros for right residue
+			sliced_source[:, :source.shape[1] - x, :] = source[:, x:, :]
+
+		pieces.append(sliced_source)
+
+	return np.stack(pieces, axis=0)
 
 
 class GraphScore:
@@ -68,6 +89,9 @@ class GraphScore:
 					continue
 
 			source, _ = self.augmentor.augment(source)
+			source = sliceToBatch(source, self.slicing_width)
+			source, _ = self.trans(source, np.ones((1, 4, 4, 2)))
+			source = torch.from_numpy(source).to(self.device)
 
 			yield name, source, graph
 

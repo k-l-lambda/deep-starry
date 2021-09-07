@@ -59,7 +59,7 @@ def sliceFeature (source, width, overlapping=0.25, padding=False):	# source: (he
 		yield sliced_source
 
 
-def splicePieces (pieces, magin_divider, keep_margin = False):	# pieces: (batch, channel, height, width)
+def splicePieces (pieces, magin_divider, keep_margin=False):	# pieces: (batch, channel, height, width)
 	piece_height, piece_width = pieces.shape[2:]
 	margin_width = piece_height // magin_divider
 	patch_width = piece_width - margin_width * 2
