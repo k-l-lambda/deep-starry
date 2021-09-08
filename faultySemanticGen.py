@@ -61,9 +61,10 @@ class FaultyGenerator (Predictor):
 
 				fake_positive = len([p for p in semantics.data['points'] if p['value'] == 0 and p['confidence'] >= 1])
 				fake_negative = len([p for p in semantics.data['points'] if p['value'] > 0 and p['confidence'] < 1])
+				true_positive = len([p for p in semantics.data['points'] if p['value'] > 0 and p['confidence'] >= 1])
 
-				error_rate = (fake_positive + fake_negative) / len(graph['points'])
-				print('error_rate:', error_rate, fake_positive, fake_negative)
+				error_rate = (fake_positive + fake_negative) / max(1, true_positive + fake_negative)
+				print('error_rate:', error_rate, fake_positive, fake_negative, true_positive, len(graph['points']))
 
 				semantics.data['points'].sort(key=lambda p: p['x'])
 
