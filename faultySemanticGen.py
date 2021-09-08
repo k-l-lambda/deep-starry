@@ -40,7 +40,8 @@ class FaultyGenerator (Predictor):
 			for name, source, graph in dataset:
 				print('name:', name)
 				print('source:', source.shape)
-				print('graph:', graph)
+				#print('graph:', graph)
+				print('graph:', len(graph['points']))
 
 				pred = self.model(source)
 				#print('pred:', pred.shape)
@@ -49,7 +50,8 @@ class FaultyGenerator (Predictor):
 				print('heatmap:', heatmap.shape)
 
 				semantics = ScoreSemantic(heatmap, labels)
-				print('semantics:', semantics.json())
+				semantics.discern(graph)
+				print('semantics:', len(semantics.json()['points']))
 
 				break
 

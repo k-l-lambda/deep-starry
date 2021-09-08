@@ -5,7 +5,7 @@ import numpy as np
 import math
 import re
 
-from .contours import detectPoints, detectVLines, detectRectangles, detectBoxes
+from .contours import detectPoints, detectVLines, detectRectangles, detectBoxes, labelToDetector
 
 
 
@@ -13,19 +13,16 @@ VERTICAL_UNITS = 24.
 
 
 class ScoreSemantic:
-	def __init__(self, heatmaps, labels, confidence_table=None):
+	def __init__ (self, heatmaps, labels, confidence_table=None):
 		self.data = dict({
 			'__prototype': 'SemanticGraph',
 			'points': [],
 		})
 
-		num_classes = len(labels)
-		assert num_classes == len(heatmaps), f'classes - heat maps count mismatch, {num_classes} - {len(heatmaps)}'
+		assert len(labels) == len(heatmaps), f'classes - heat maps count mismatch, {len(labels)} - {len(heatmaps)}'
 
 		self.marks = []
-		for i in range(num_classes):
-			semantic = labels[i]
-
+		for i, semantic in enumerate(labels):
 			mean_confidence = 1
 			if confidence_table is not None:
 				item = confidence_table[i]
@@ -82,5 +79,22 @@ class ScoreSemantic:
 				self.marks.append({'points': np.array([point['mark'] for point in points], dtype = np.float32)})
 
 
-	def json(self):
+	def discern (self, truth_graph):
+		points = self.data['points']
+		for p in points:
+			p['value'] = 0
+
+		labels = set(map(lambda p: p['semantic'], truth_graph['points']))
+		for label in labels:
+			points_true = [p for p in truth_graph['points'] if p['semantic'] == label]
+			points_pred = [p for p in points if p['semantic'] == label]
+
+			for pt in points_true:
+				_, finder = labelToDetector(pt['semantic'])
+				pp = finder(pt, points_pred)
+				if pp is not None:
+					pp['value'] = 1
+
+
+	def json (self):
 		return self.data

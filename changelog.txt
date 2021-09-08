@@ -4,7 +4,12 @@ TODO:
 
 
 
-2021.9.3
+2021.9.8
+
+	+	score_semantic.py: ScoreSemantic.discern added.
+
+
+2021.9.6
 
 	+	validateVision.py created.
 
