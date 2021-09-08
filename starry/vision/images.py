@@ -59,9 +59,9 @@ def sliceFeature (source, width, overlapping=0.25, padding=False):	# source: (he
 		yield sliced_source
 
 
-def splicePieces (pieces, magin_divider, keep_margin=False):	# pieces: (batch, channel, height, width)
+def splicePieces (pieces, margin_divider, keep_margin=False, pad_margin=False):	# pieces: (batch, channel, height, width)
 	piece_height, piece_width = pieces.shape[2:]
-	margin_width = piece_height // magin_divider
+	margin_width = piece_height // margin_divider
 	patch_width = piece_width - margin_width * 2
 	result = np.zeros((pieces.shape[1], pieces.shape[2], patch_width * pieces.shape[0]), dtype=np.float32)
 
@@ -70,13 +70,17 @@ def splicePieces (pieces, magin_divider, keep_margin=False):	# pieces: (batch, c
 
 	if keep_margin:
 		return np.concatenate((pieces[0, :, :, :margin_width], result, pieces[-1, :, :, -margin_width:]), axis = 2)
+	elif pad_margin:
+		entire = np.zeros((pieces.shape[1], pieces.shape[2], patch_width * pieces.shape[0] + margin_width * 2), dtype=np.float32)
+		entire[:, :, margin_width:-margin_width] = result
+		return entire
 
 	return result	# (channel, height, width)
 
 
-def softSplicePieces (pieces, magin_divider):
+def softSplicePieces (pieces, margin_divider):
 	batches, channels, piece_height, piece_width = pieces.shape
-	overlap_width = piece_height * 2 // magin_divider
+	overlap_width = piece_height * 2 // margin_divider
 	segment_width = piece_width - overlap_width
 
 	slope = np.arange(overlap_width, dtype = np.float32) / overlap_width

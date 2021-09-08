@@ -51,7 +51,7 @@ class FaultyGenerator (Predictor):
 
 				pred = self.model(source)
 				#print('pred:', pred.shape)
-				heatmap = splicePieces(pred.cpu().numpy(), MARGIN_DIVIDER, keep_margin=True)
+				heatmap = splicePieces(pred.cpu().numpy(), MARGIN_DIVIDER, pad_margin=True)
 				heatmap = np.uint8(heatmap * 255)
 				#print('heatmap:', heatmap.shape)
 
