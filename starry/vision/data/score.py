@@ -10,6 +10,7 @@ GRAPH = '_Graph'
 MASK = '_Mask'
 PAGE = '_Page'
 PAGE_LAYOUT = '_PageLayout'
+FAULT = '_Fault'
 
 
 def makeReader (root):

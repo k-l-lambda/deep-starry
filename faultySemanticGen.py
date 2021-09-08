@@ -6,6 +6,8 @@ import logging
 import torch
 import numpy as np
 import yaml
+import json
+import zlib
 
 from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
@@ -14,6 +16,7 @@ from starry.vision import contours
 from starry.vision.images import MARGIN_DIVIDER, splicePieces
 from starry.vision.data import GraphScore
 from starry.vision.score_semantic import ScoreSemantic
+from starry.vision.data.score import FAULT
 
 
 
@@ -24,13 +27,16 @@ VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR')
 
 
 class FaultyGenerator (Predictor):
-	def __init__(self, config, device):
+	def __init__(self, config, root):
 		super().__init__()
 
+		self.root = os.path.join(VISION_DATA_DIR, root)
 		self.config = config
 		self.loadModel(config)
 
 		self.compounder = contours.Compounder(config)
+
+		os.makedirs(os.path.join(self.root, FAULT), exist_ok=True)
 
 	def run(self, dataset):
 		labels = self.config['data.args.labels']
@@ -38,7 +44,7 @@ class FaultyGenerator (Predictor):
 
 		with torch.no_grad():
 			for name, source, graph in dataset:
-				print('name:', name)
+				#print('name:', name)
 				#print('source:', source.shape)
 				#print('graph:', graph)
 				#print('graph:', len(graph['points']))
@@ -58,6 +64,22 @@ class FaultyGenerator (Predictor):
 
 				error_rate = (fake_positive + fake_negative) / len(graph['points'])
 				print('error_rate:', error_rate, fake_positive, fake_negative)
+
+				semantics.data['points'].sort(key=lambda p: p['x'])
+
+				self.saveFaultGraph(name, semantics.json())
+
+	def saveFaultGraph (self, name, graph):
+		content = json.dumps(graph)
+		hash = zlib.crc32(content.encode('utf8'))
+		hash = '{0:0{1}x}'.format(hash, 8)
+		#print('fault:', self.root, name, hash)
+
+		path = os.path.join(self.root, FAULT, f'{name}.{hash}.json')
+		with open(path, 'w') as file:
+			file.write(content)
+
+		print('fault saved:', path)
 
 
 def main ():
@@ -79,8 +101,8 @@ def main ():
 
 	#data, = loadDataset(config, data_dir=VISION_DATA_DIR, device=args.device)
 	root = os.path.join(VISION_DATA_DIR, config['data.root'])
-	dataset = GraphScore(root, device=args.device, multiple=args.multiple, **config['data.args'])
-	generator = FaultyGenerator(config, device=args.device)
+	dataset = GraphScore(root, shuffle=False, device=args.device, multiple=args.multiple, **config['data.args'])
+	generator = FaultyGenerator(config, root=config['data.root'])
 	generator.run(iter(dataset))
 
 
