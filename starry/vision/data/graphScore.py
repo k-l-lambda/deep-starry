@@ -42,6 +42,7 @@ def sliceToBatch (source, width, overlapping=0.25, crop_margin=0):
 class GraphScore:
 	def __init__ (self, root, split='0/1', device='cpu', trans=[],
 		shuffle=False, slicing_width=256, unit_size=8, cache_labels=False, augmentor=None,
+		multiple=1,
 		**_,
 	):
 		self.reader, self.root = makeReader(root)
@@ -50,6 +51,7 @@ class GraphScore:
 		self.shuffle = shuffle
 		self.slicing_width = slicing_width
 		#self.unit_size = unit_size
+		self.multiple = multiple
 
 		self.names = listAllScoreNames(self.reader, split)
 		self.trans = Composer(trans) if len(trans) > 0 else None
@@ -88,12 +90,13 @@ class GraphScore:
 					print('error to load graph:', graph_path, sys.exc_info()[1])
 					continue
 
-			source, _ = self.augmentor.augment(source)
-			source = sliceToBatch(source, self.slicing_width)
-			source, _ = self.trans(source, np.ones((1, 4, 4, 2)))
-			source = torch.from_numpy(source).to(self.device)
+			for i in range(self.multiple):
+				aug_source, _ = self.augmentor.augment(source)
+				aug_source = sliceToBatch(aug_source, self.slicing_width)
+				aug_source, _ = self.trans(aug_source, np.ones((1, 4, 4, 2)))
+				aug_source = torch.from_numpy(aug_source).to(self.device)
 
-			yield name, source, graph
+				yield name, aug_source, graph
 
 
 	def __len__ (self):

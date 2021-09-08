@@ -6,6 +6,8 @@ TODO:
 
 2021.9.8
 
+	+	graphScore.py: argument of multiple added.
+
 	+	score_semantic.py: ScoreSemantic.discern added.
 
 
