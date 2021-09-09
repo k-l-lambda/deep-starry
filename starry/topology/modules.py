@@ -210,7 +210,7 @@ class Decoder1 (nn.Module):
 
 
 class Jointer (nn.Module):
-	def __init__ (self, d_model, name='jointer', triu_mask=False, with_temperature=False):
+	def __init__ (self, d_model, triu_mask=False, with_temperature=False):
 		super().__init__()
 
 		self.d_model = d_model
