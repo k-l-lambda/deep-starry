@@ -27,7 +27,7 @@ VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR')
 
 
 class FaultyGenerator (Predictor):
-	def __init__(self, config, root):
+	def __init__(self, config, root, load_confidence_path=False):
 		super().__init__()
 
 		self.root = os.path.join(VISION_DATA_DIR, root)
@@ -38,9 +38,19 @@ class FaultyGenerator (Predictor):
 
 		os.makedirs(os.path.join(self.root, FAULT), exist_ok=True)
 
+		self.confidence_table = None
+		if load_confidence_path:
+			confidence_path = config.localPath('confidence.yaml')
+			if os.path.exists(confidence_path):
+				with open(confidence_path, 'r') as file:
+					self.confidence_table = yaml.safe_load(file)
+					logging.info('confidence_table loaded: %s', confidence_path)
+
 	def run(self, dataset):
 		labels = self.config['data.args.labels']
 		unit_size = self.config['data.args.unit_size']
+
+		total_true_positive, total_true_negative, total_fake_positive, total_fake_negative = 0, 0, 0, 0
 
 		with torch.no_grad():
 			for name, source, graph in dataset:
@@ -55,20 +65,38 @@ class FaultyGenerator (Predictor):
 				heatmap = np.uint8(heatmap * 255)
 				#print('heatmap:', heatmap.shape)
 
-				semantics = ScoreSemantic(heatmap, labels)
+				semantics = ScoreSemantic(heatmap, labels, confidence_table=self.confidence_table)
 				semantics.discern(graph)
 				#print('semantics:', len(semantics.json()['points']))
 
 				fake_positive = len([p for p in semantics.data['points'] if p['value'] == 0 and p['confidence'] >= 1])
 				fake_negative = len([p for p in semantics.data['points'] if p['value'] > 0 and p['confidence'] < 1])
 				true_positive = len([p for p in semantics.data['points'] if p['value'] > 0 and p['confidence'] >= 1])
+				true_negative = len([p for p in semantics.data['points'] if p['value'] == 0 and p['confidence'] < 1])
+
+				total_true_positive += true_positive
+				total_true_negative += true_negative
+				total_fake_positive += fake_positive
+				total_fake_negative += fake_negative
 
 				error_rate = (fake_positive + fake_negative) / max(1, true_positive + fake_negative)
-				print('error_rate:', error_rate, fake_positive, fake_negative, true_positive, len(graph['points']))
+				#print('error_rate:', error_rate, fake_positive, fake_negative, true_positive, len(graph['points']))
+				logging.info('error rate: %.4f', error_rate)
 
 				semantics.data['points'].sort(key=lambda p: p['x'])
 
 				self.saveFaultGraph(name, semantics.json())
+
+		error_rate = (total_fake_positive + total_fake_negative) / max(1, total_true_positive + total_fake_negative)
+
+		with open(os.path.join(self.root, FAULT, '.stat.yaml'), 'w') as file:
+			yaml.dump({
+				'total_true_positive': total_true_positive,
+				'total_true_negative': total_true_negative,
+				'total_fake_positive': total_fake_positive,
+				'total_fake_negative': total_fake_negative,
+				'error_rate': error_rate,
+			}, file)
 
 	def saveFaultGraph (self, name, graph):
 		content = json.dumps(graph)
@@ -80,7 +108,7 @@ class FaultyGenerator (Predictor):
 		with open(path, 'w') as file:
 			file.write(content)
 
-		print('fault saved:', path)
+		logging.info('fault saved: %s', path)
 
 
 def main ():
@@ -89,7 +117,7 @@ def main ():
 	parser.add_argument('data', type=str)
 	parser.add_argument('-m', '--multiple', type=int, default=1, help='how many samples for one staff')
 	parser.add_argument('-d', '--device', type=str, default='cuda')
-	#parser.add_argument('-b', '--batch-size', type=int, default=1)
+	parser.add_argument('-s', '--split', type=str, default='0/1')
 
 	args = parser.parse_args()
 
@@ -97,12 +125,11 @@ def main ():
 
 	config = Configuration(args.config)
 	config['data'] = data_config['data']
-	config['data.splits'] = '0/1'
-	#config['data.batch_size'] = args.batch_size
+	#config['data.splits'] = args.splits
 
 	#data, = loadDataset(config, data_dir=VISION_DATA_DIR, device=args.device)
 	root = os.path.join(VISION_DATA_DIR, config['data.root'])
-	dataset = GraphScore(root, shuffle=False, device=args.device, multiple=args.multiple, **config['data.args'])
+	dataset = GraphScore(root, shuffle=False, device=args.device, split=args.split, multiple=args.multiple, **config['data.args'])
 	generator = FaultyGenerator(config, root=config['data.root'])
 	generator.run(iter(dataset))
 
