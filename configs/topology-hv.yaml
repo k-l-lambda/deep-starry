@@ -26,6 +26,7 @@ model:
     d_v:                  64
     dropout:              0.1
     scale_emb:            False
+    with_temperature:     True
 
 optim:
   lr_mul:             2.

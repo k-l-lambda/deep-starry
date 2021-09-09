@@ -1,7 +1,13 @@
 
 TODO:
+	trainable temperature parameter in jointer
 	semantic rectification model
 
+
+
+2021.9.9
+
+	+	topology/modules.py: parameter of temperature added.
 
 
 2021.9.8

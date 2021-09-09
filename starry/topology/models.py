@@ -155,7 +155,7 @@ class TransformJointerHLoss (nn.Module):
 class TransformJointerHV (nn.Module):
 	def __init__ (self, d_model=512, d_inner=2048,
 			n_source_layers=6, n_target_layers=(0, 1, 1),
-			n_head=8, d_k=64, d_v=64, dropout=0.1, scale_emb=False):
+			n_head=8, d_k=64, d_v=64, dropout=0.1, scale_emb=False, with_temperature=False):
 		super().__init__()
 
 		self.d_model = d_model
@@ -164,8 +164,8 @@ class TransformJointerHV (nn.Module):
 		self.source_encoder = Encoder1(d_word_vec, n_source_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
 		self.target_encoder = EncoderBranch2(d_word_vec, n_target_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
 
-		self.jointerH = Jointer(d_model)
-		self.jointerV = Jointer(d_model, triu_mask=True)
+		self.jointerH = Jointer(d_model, name='jointerH', with_temperature=with_temperature)
+		self.jointerV = Jointer(d_model, name='jointerV', triu_mask=True, with_temperature=with_temperature)
 
 
 	def forward (self, seq_id, seq_position, mask):

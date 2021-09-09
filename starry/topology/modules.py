@@ -210,7 +210,7 @@ class Decoder1 (nn.Module):
 
 
 class Jointer (nn.Module):
-	def __init__ (self, d_model, triu_mask=False):
+	def __init__ (self, d_model, name='jointer', triu_mask=False, with_temperature=False):
 		super().__init__()
 
 		self.d_model = d_model
@@ -220,6 +220,10 @@ class Jointer (nn.Module):
 			self.register_buffer('triu_mask', mask, persistent=False)
 		else:
 			self.triu_mask = None
+
+		self.temperature = torch.zeros((1,))
+		if with_temperature:
+			self.temperature = nn.Parameter(self.temperature)
 
 	def forward (self, source, target, mask_src, mask_tar):
 		# normalize for inner product
@@ -246,6 +250,8 @@ class Jointer (nn.Module):
 				result = result.squeeze(-1).squeeze(-1).masked_select(self.triu_mask[:result.shape[0], :result.shape[1]])
 			else:
 				result = result.flatten()
+			result *= torch.exp(self.temperature)
+
 			results.append(result)
 
 		return results
