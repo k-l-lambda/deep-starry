@@ -67,14 +67,14 @@ class FaultyGenerator (Predictor):
 
 				heatmap = None
 				if self.by_render:
-					heatmap = renderTargetFromGraph(graph, labels, source.shape[2:], unit_size=unit_size, name=name)
+					heatmap = renderTargetFromGraph(graph, labels, (source.shape[2], source.shape[0] * source.shape[3]), unit_size=unit_size, name=name)
 					heatmap = np.moveaxis(heatmap, -1, 0)
 				else:
 					pred = self.model(source)
 					#print('pred:', pred.shape)
 					heatmap = splicePieces(pred.cpu().numpy(), MARGIN_DIVIDER, pad_margin=True)
 					heatmap = np.uint8(heatmap * 255)
-				print('heatmap:', heatmap.shape, source.shape)
+				#print('heatmap:', heatmap.shape, source.shape)
 
 				semantics = ScoreSemantic(heatmap, labels, confidence_table=self.confidence_table)
 				semantics.discern(graph)
