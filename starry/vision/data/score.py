@@ -11,6 +11,7 @@ MASK = '_Mask'
 PAGE = '_Page'
 PAGE_LAYOUT = '_PageLayout'
 FAULT = '_Fault'
+FAULT_TARGET = '_FaultTarget'
 
 
 def makeReader (root):

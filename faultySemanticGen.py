@@ -16,7 +16,8 @@ from starry.vision import contours
 from starry.vision.images import MARGIN_DIVIDER, splicePieces
 from starry.vision.data import GraphScore
 from starry.vision.score_semantic import ScoreSemantic
-from starry.vision.data.score import FAULT
+from starry.vision.data.score import FAULT, FAULT_TARGET
+from starry.vision.data.renderScore import renderTargetFromGraph
 
 
 
@@ -27,16 +28,21 @@ VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR')
 
 
 class FaultyGenerator (Predictor):
-	def __init__(self, config, root, load_confidence_path=False):
+	def __init__(self, config, root, load_confidence_path=False, by_render=False):
 		super().__init__()
 
 		self.root = os.path.join(VISION_DATA_DIR, root)
 		self.config = config
-		self.loadModel(config)
 
-		self.compounder = contours.Compounder(config)
+		if not by_render:
+			self.loadModel(config)
 
-		os.makedirs(os.path.join(self.root, FAULT), exist_ok=True)
+		#self.composer = composer
+
+		self.by_render = by_render
+		self.output_dir = FAULT_TARGET if by_render else FAULT
+
+		os.makedirs(os.path.join(self.root, self.output_dir), exist_ok=True)
 
 		self.confidence_table = None
 		if load_confidence_path:
@@ -59,11 +65,16 @@ class FaultyGenerator (Predictor):
 				#print('graph:', graph)
 				#print('graph:', len(graph['points']))
 
-				pred = self.model(source)
-				#print('pred:', pred.shape)
-				heatmap = splicePieces(pred.cpu().numpy(), MARGIN_DIVIDER, pad_margin=True)
-				heatmap = np.uint8(heatmap * 255)
-				#print('heatmap:', heatmap.shape)
+				heatmap = None
+				if self.by_render:
+					heatmap = renderTargetFromGraph(graph, labels, source.shape[2:], unit_size=unit_size, name=name)
+					heatmap = np.moveaxis(heatmap, -1, 0)
+				else:
+					pred = self.model(source)
+					#print('pred:', pred.shape)
+					heatmap = splicePieces(pred.cpu().numpy(), MARGIN_DIVIDER, pad_margin=True)
+					heatmap = np.uint8(heatmap * 255)
+				print('heatmap:', heatmap.shape, source.shape)
 
 				semantics = ScoreSemantic(heatmap, labels, confidence_table=self.confidence_table)
 				semantics.discern(graph)
@@ -89,7 +100,7 @@ class FaultyGenerator (Predictor):
 
 		error_rate = (total_fake_positive + total_fake_negative) / max(1, total_true_positive + total_fake_negative)
 
-		with open(os.path.join(self.root, FAULT, '.stat.yaml'), 'w') as file:
+		with open(os.path.join(self.root, self.output_dir, '.stat.yaml'), 'w') as file:
 			yaml.dump({
 				'total_true_positive': total_true_positive,
 				'total_true_negative': total_true_negative,
@@ -104,7 +115,7 @@ class FaultyGenerator (Predictor):
 		hash = '{0:0{1}x}'.format(hash, 8)
 		#print('fault:', self.root, name, hash)
 
-		path = os.path.join(self.root, FAULT, f'{name}.{hash}.json')
+		path = os.path.join(self.root, self.output_dir, f'{name}.{hash}.json')
 		with open(path, 'w') as file:
 			file.write(content)
 
@@ -118,6 +129,7 @@ def main ():
 	parser.add_argument('-m', '--multiple', type=int, default=1, help='how many samples for one staff')
 	parser.add_argument('-d', '--device', type=str, default='cuda')
 	parser.add_argument('-s', '--split', type=str, default='0/1')
+	parser.add_argument('-r', '--render', action='store_true', help='by rendering target, rather than model prediciton')
 
 	args = parser.parse_args()
 
@@ -130,7 +142,7 @@ def main ():
 	#data, = loadDataset(config, data_dir=VISION_DATA_DIR, device=args.device)
 	root = os.path.join(VISION_DATA_DIR, config['data.root'])
 	dataset = GraphScore(root, shuffle=False, device=args.device, split=args.split, multiple=args.multiple, **config['data.args'])
-	generator = FaultyGenerator(config, root=config['data.root'])
+	generator = FaultyGenerator(config, root=config['data.root'], by_render=args.render)
 	generator.run(iter(dataset))
 
 
