@@ -66,7 +66,7 @@ def detectVLines (heatmap, vertical_units = 24, otsu = False):
 				confidence += heatmap[py, px] / 255.
 
 		length = max(height, 2.5)
-		confidence /= length
+		confidence /= length * 0.8
 		#print('confidence:', confidence)
 
 		lines.append({
@@ -155,7 +155,7 @@ def detectBoxes (heatmap, vertical_units = 24, otsu = False):
 	return rects
 
 
-POINT_NEAR_DISTANCE = 0.2
+POINT_NEAR_DISTANCE = 0.3
 
 LINE_TOLERANCE_X = 0.5
 LINE_TOLERANCE_Y = 0.8
