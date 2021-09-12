@@ -4,6 +4,11 @@ TODO:
 
 
 
+2021.9.12
+
+	+	topology/modules.py: added protection in JaggedLoss.
+
+
 2021.9.10
 
 	+	faultySemanticGen.py: option of by_render added.

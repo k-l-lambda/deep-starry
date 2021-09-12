@@ -221,9 +221,9 @@ class Jointer (nn.Module):
 		else:
 			self.triu_mask = None
 
-		self.temperature = torch.zeros((1,))
-		if with_temperature:
-			self.temperature = nn.Parameter(self.temperature)
+		#self.temperature = torch.zeros((1,))
+		#if with_temperature:
+		#	self.temperature = nn.Parameter(self.temperature)
 
 	def forward (self, source, target, mask_src, mask_tar):
 		# normalize for inner product
@@ -250,7 +250,7 @@ class Jointer (nn.Module):
 				result = result.squeeze(-1).squeeze(-1).masked_select(self.triu_mask[:result.shape[0], :result.shape[1]])
 			else:
 				result = result.flatten()
-			result *= torch.exp(self.temperature)
+			#result *= torch.exp(self.temperature)
 
 			results.append(result)
 
@@ -313,6 +313,10 @@ class JaggedLoss (nn.Module):
 			# skip empty prediction
 			if len(pred_i) == 0:
 				continue
+
+			# protect NAN in pred
+			pred_i = torch.where(torch.isnan(pred_i), torch.zeros_like(pred_i), pred_i)
+			pred_i = torch.where(torch.isinf(pred_i), torch.zeros_like(pred_i), pred_i)
 
 			truth_i = truth_i[:len(pred_i)]
 			loss += nn.functional.binary_cross_entropy(pred_i, truth_i)
