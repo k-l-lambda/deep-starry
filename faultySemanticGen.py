@@ -91,12 +91,13 @@ class FaultyGenerator (Predictor):
 				total_fake_negative += fake_negative
 
 				error_rate = (fake_positive + fake_negative) / max(1, true_positive + fake_negative)
-				#print('error_rate:', error_rate, fake_positive, fake_negative, true_positive, len(graph['points']))
-				logging.info('error rate: %.4f', error_rate)
+				noise_rate = true_negative / max(1, true_positive + fake_negative)
+				logging.info('error rate: %.4f, %.4f', error_rate, noise_rate)
 
-				semantics.data['points'].sort(key=lambda p: p['x'])
+				if noise_rate < 1 and error_rate > 0:
+					semantics.data['points'].sort(key=lambda p: p['x'])
 
-				self.saveFaultGraph(name, semantics.json())
+					self.saveFaultGraph(name, semantics.json())
 
 		error_rate = (total_fake_positive + total_fake_negative) / max(1, total_true_positive + total_fake_negative)
 
