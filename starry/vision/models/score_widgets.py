@@ -1,4 +1,5 @@
 
+import math
 import torch
 import torch.nn as nn
 
@@ -79,6 +80,22 @@ class ScoreWidgetsMask (ScoreWidgets):
 		x = self.mask(x)
 		x = torch.sigmoid(x)
 		return x
+
+
+class ScoreWidgetsMaskLoss (nn.Module):
+	def __init__(self, **kw_args):
+		super().__init__()
+
+		self.deducer = ScoreWidgetsMask(**kw_args)
+
+	def forward (self, batch):
+		feature, target = batch
+		pred = self.deducer(feature)
+		loss = nn.functional.binary_cross_entropy(pred, target)
+
+		return loss, {
+			'acc': -math.log(loss),
+		}
 
 
 class ScoreWidgetsInspection (ScoreWidgets):

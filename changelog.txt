@@ -6,6 +6,8 @@ TODO:
 
 2021.9.18
 
+	+	trainVision.py created.
+
 	+	vision/data: dataset class of ScoreMask added.
 
 

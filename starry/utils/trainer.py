@@ -18,7 +18,7 @@ def print_acc (acc):
 	if type(acc) == float or type(acc) == torch.Tensor:
 		return f'accuracy: {acc*100:3.3f}%'
 	elif type(acc) == dict:
-		return ', '.join(map(lambda item: f'{item[0]}: {item[1]*100:3.3f}%', acc.items()))
+		return ', '.join(map(lambda item: f'{item[0]}: {item[1]:3.3f}', acc.items()))
 	else:
 		return str(acc)
 

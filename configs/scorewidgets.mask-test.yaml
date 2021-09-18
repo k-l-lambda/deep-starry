@@ -41,3 +41,20 @@ data:
         scale_sigma:          0.2
         intensity:            0.06
         intensity_sigma:      0.4
+
+trainer:
+  device:         cpu
+  save_mode:      best
+  epoch:          2
+
+optim:
+  type:               Adam
+  args:
+    betas:            [0.9, 0.98]
+    eps:              1.e-9
+  scheduler:
+    type:             InvSqrt
+    args:
+      lr_mul:             2.
+      n_warmup_steps:     4000
+      d_model:            512
