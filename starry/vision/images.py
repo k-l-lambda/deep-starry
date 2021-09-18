@@ -136,7 +136,7 @@ def randomSliceImage (source, target, width):	# (256, w, 3), (256, w, labels)
 	return sliced_source, sliced_target
 
 
-def iterateSliceImage (source, target, width, overlapping = 0.25, crop_margin = 0):
+def iterateSliceImage (source, target, width, overlapping=0.25, crop_margin=0):
 	ratio = source.shape[0] // target.shape[0]
 	tw = width // ratio
 	step = math.floor(width - overlapping * source.shape[0])

@@ -97,7 +97,7 @@ class SlicedScore (CachedIterableDataset):
 
 				yield src, tar
 			else:
-				for src, tar in iterateSliceImage(source, target, self.slicing_width, crop_margin = self.crop_margin):
+				for src, tar in iterateSliceImage(source, target, self.slicing_width, crop_margin=self.crop_margin):
 					batches += 1
 
 					np.random.seed(batches)

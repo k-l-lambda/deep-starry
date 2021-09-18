@@ -25,3 +25,6 @@ data:
                               AccDoublesharp, AccFlatflat, TimesigOne, TimesigNine, Rest5, Rest6, SlurBegin, SlurEnd, VoltaLeft, VoltaRight, vline_BarTerminal, vline_BarSegment, TempoNotehead, GraceNotehead,
                               f, p, m, ScriptFermata, ScriptSforzato, ScriptStaccato, ScriptStaccatissimo, ScriptTurn, ScriptTrill, ScriptSegno, ScriptCoda, ScriptArpeggio, ScriptPrall, ScriptMordent, ScriptTenuto, PedalStar, PedalPed, TimesigFive, TimesigSeven, TimesigZero, One, Two, Three, Four, Five, rect_Text, rect_Lyric, BeamLeft, BeamRight, BeamContinue, CrescendoBegin, CrescendoEnd, DecrescendoBegin, DecrescendoEnd,
                             ]
+
+trainer:
+  device:         cpu

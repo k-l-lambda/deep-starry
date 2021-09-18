@@ -23,7 +23,7 @@ def main ():
 
 	args = parser.parse_args()
 
-	config = Configuration.create(args.config) if args.config.endswith('.yaml') else Configuration(args.config)
+	config = Configuration.createdOrLoad(args.config)
 
 	logging.info('*	Loading data.')
 	train, val = loadDataset(config, data_dir=VISION_DATA_DIR, device=config['trainer.device'])
