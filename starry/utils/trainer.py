@@ -44,7 +44,7 @@ class Trainer:
 
 	def train (self, training_data, validation_data):
 		def print_performances(header, loss, accu, start_time, lr):
-			print('  - {header:12} loss: {loss: 8.5f}, {accu}, lr: {lr:8.5f}, elapse: {elapse:3.3f} min'
+			print('  - {header:12} loss: {loss: .4e}, {accu}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
 				.format(header=f"({header})", loss=loss, accu=print_acc(accu), elapse=(time.time()-start_time)/60, lr=lr))
 
 		#val_losses = []
