@@ -53,8 +53,30 @@ class InvSqrtScheduler (BaseScheduler):
 		return lr_mul * (d_model ** -0.5) * min(n_steps ** (-0.5), n_steps * n_warmup_steps ** (-1.5))
 
 
+class ExpScheduler (BaseScheduler):
+	name = 'Exp'
+
+	def __init__ (self, optimizer, lr_mul, decay_rate, min_lr=0, n_warmup_steps=1, init_step=0):
+		super().__init__(optimizer, init_step)
+
+		self.lr_mul = lr_mul
+		self.decay_rate = decay_rate
+		self.min_lr = min_lr
+		self.n_warmup_steps = n_warmup_steps
+
+	# overload
+	def _get_lr (self):
+		lr = pow(self.decay_rate, self.n_steps / 1000)
+		lr = min(lr, self.n_steps * pow(self.decay_rate, self.n_warmup_steps / 1000) / self.n_warmup_steps)
+		lr *= self.lr_mul
+		lr = max(lr, self.min_lr)
+
+		return lr
+
+
 scheduler_dict = dict(map(lambda cls: (cls.name, cls), [
 	InvSqrtScheduler,
+	ExpScheduler,
 ]))
 
 

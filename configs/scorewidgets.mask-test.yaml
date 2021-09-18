@@ -48,13 +48,13 @@ trainer:
   epoch:          2
 
 optim:
-  type:               Adam
+  type:                   Adam
   args:
-    betas:            [0.9, 0.98]
-    eps:              1.e-9
+    betas:                [0.9, 0.9999]
+    eps:                  1.e-8
   scheduler:
-    type:             InvSqrt
+    type:                 Exp
     args:
-      lr_mul:             2.
-      n_warmup_steps:     4000
-      d_model:            512
+      lr_mul:             1.e-4
+      decay_rate:         0.92
+      n_warmup_steps:     200
