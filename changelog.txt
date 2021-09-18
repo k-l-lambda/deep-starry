@@ -4,6 +4,11 @@ TODO:
 
 
 
+2021.9.18
+
+	+	vision/data: dataset class of ScoreMask added.
+
+
 2021.9.17
 
 	+	utils/trainer.py created.
