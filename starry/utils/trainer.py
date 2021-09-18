@@ -35,8 +35,9 @@ class Trainer:
 
 		self.optimizer = optim(config['optim'], self.model.parameters(), init_step=self.options.get('steps', 0))
 
-		if self.config['best']:
-			self.loadCheckpoint(self.config['best'])
+		weights = self.config['best'] or self.config['trainer.pretrained_weights']
+		if weights:
+			self.loadCheckpoint(weights)
 
 		self.tb_writer = SummaryWriter(log_dir=os.path.join(LOG_DIR, config.id))
 
@@ -160,3 +161,5 @@ class Trainer:
 
 		if 'optim' in checkpoint:
 			self.optimizer._optimizer.load_state_dict(checkpoint['optim'])
+
+		logging.info('Checkpoint loaded: %s', self.config.localPath(filename))
