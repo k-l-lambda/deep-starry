@@ -1,7 +1,6 @@
 
 import sys
 import os
-import torch
 import numpy as np
 import random
 import time
@@ -11,32 +10,12 @@ import re
 
 from ..transform import Composer
 from ..images import randomSliceImage, iterateSliceImage
+from .utils import collateBatch, loadSplittedDatasets
 from .cacheData import CachedIterableDataset
 from .imageReader import CachedImageReader, _S
 from .augmentor import Augmentor
 from .score import makeReader, listAllScoreNames, GRAPH, MASK, STAFF
 
-
-
-def collateBatch (batch, trans, device, by_numpy=False):
-	images = list()
-	labels = list()
-
-	for b in batch:
-		im,lb = b
-		images.append(im)
-		labels.append(lb)
-
-	images = np.stack(images, axis=0)
-	labels = np.stack(labels, axis=0)
-	if trans != None:
-		images, labels = trans(images, labels)
-
-	if by_numpy:
-		return images, labels
-
-	labels = torch.from_numpy(labels).to(device)
-	images = torch.from_numpy(images).to(device)
 
 
 # target: (height, width, channel)
@@ -103,14 +82,15 @@ def renderTargetFromGraph (graph, labels, size, unit_size=16, point_radius=2 / 1
 class RenderScore (CachedIterableDataset):
 	@staticmethod
 	def load (root, args, splits, device='cpu'):
-		splits = splits.split(':')
-		return tuple(map(lambda split: RenderScore(root, split=split, shuffle=split.startswith('*'), device=device, **args), splits))
+		return loadSplittedDatasets(RenderScore, root=root, args=args, splits=splits, device=device)
+
 
 	def __init__ (self, root, split='0/1', device='cpu', trans=[],
 		labels=[], shuffle=False, slicing_width=256, blur_scale=None,
 		crop_margin=0, input_mask=False, unit_size=8, cache_labels=False, augmentor=None,
+		cache_batches=False,
 	):
-		super().__init__(enable_cache=not shuffle)
+		super().__init__(enable_cache=cache_batches and not shuffle)
 
 		self.reader, self.root = makeReader(root)
 
@@ -141,7 +121,7 @@ class RenderScore (CachedIterableDataset):
 
 
 	def collateBatchImpl (self, batch):
-		return collateBatch(batch, self.trans, self.device, by_numpy = True)
+		return collateBatch(batch, self.trans, self.device, by_numpy=True)
 
 
 	def iterImpl (self):
