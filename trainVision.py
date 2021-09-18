@@ -26,7 +26,7 @@ def main ():
 	config = Configuration.create(args.config) if args.config.endswith('.yaml') else Configuration(args.config)
 
 	logging.info('*	Loading data.')
-	train, val = loadDataset(config, data_dir=VISION_DATA_DIR)
+	train, val = loadDataset(config, data_dir=VISION_DATA_DIR, device=config['trainer.device'])
 
 	logging.info('*	Training.')
 	trainer = Trainer(config)
