@@ -1,6 +1,5 @@
 
 import sys
-import os
 from argparse import ArgumentParser
 import torch
 import logging

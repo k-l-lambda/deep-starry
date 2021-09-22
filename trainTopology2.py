@@ -24,7 +24,7 @@ def main ():
 
 	args = parser.parse_args()
 
-	config = Configuration.create(args.config) if args.config.endswith('.yaml') else Configuration(args.config)
+	config = Configuration.createdOrLoad(args.config)
 
 	logging.info('Loading data.')
 	data_file = open(os.path.join(DATA_DIR, config['data.file_name']), 'rb')
