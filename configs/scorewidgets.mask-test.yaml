@@ -1,5 +1,5 @@
 
-id:     score-vison/{date}-{filename}
+id:     score-vision/{date}-{filename}
 
 model:
   type:                     ScoreWidgetsMask
@@ -56,5 +56,6 @@ optim:
     type:                 Exp
     args:
       lr_mul:             1.e-4
+      min_lr:             1.e-6
       decay_rate:         0.92
       n_warmup_steps:     200
