@@ -64,6 +64,54 @@ class ScoreWidgets (nn.Module):
 			self.backbone.train(mode)
 
 
+class ScoreWidgetsLoss (nn.Module):
+	need_states = True
+
+
+	def __init__(self, out_channels, channel_weights_rate=1e-4, clip_margin=12, **kw_args):
+		super().__init__()
+
+		self.channel_weights_rate = channel_weights_rate
+		self.clip_margin = clip_margin
+
+		self.deducer = ScoreWidgets(out_channels=out_channels, **kw_args)
+
+		self.channel_weights = torch.ones(out_channels)
+		self.channel_weights_target = torch.ones(out_channels)
+
+
+	def forward (self, batch):
+		weights = self.channel_weights.reshape((1, -1, 1, 1))
+
+		feature, target = batch
+		pred = self.deducer(feature)
+
+		target = target[:, :, :, self.clip_margin:-self.clip_margin] * weights
+		pred = pred[:, :, :, self.clip_margin:-self.clip_margin] * weights
+
+		loss = nn.functional.binary_cross_entropy(pred, target)
+
+		# update channel weights
+		if self.training:
+			self.channel_weights = self.channel_weights * (1 - self.channel_weights_rate) + self.channel_weights_target * self.channel_weights_rate
+
+		# TODO: contours metric
+
+		return loss, {'bce': loss}
+
+
+	def state_dict (self, destination=None, prefix='', keep_vars=False):
+		return {
+			'channel_weights': self.channel_weights,
+			'channel_weights_target': self.channel_weights_target,
+		}
+
+
+	def load_state_dict (self, state_dict):
+		self.channel_weights = state_dict['channel_weights']
+		self.channel_weights_target = state_dict['channel_weights_target']
+
+
 class ScoreWidgetsMask (ScoreWidgets):
 	def __init__ (self, **kw_args):
 		super().__init__(out_channels=1, freeze_mask=False, **kw_args)
