@@ -37,23 +37,29 @@ class Configuration:
 		self.dir = dir
 		self.data = data
 
-		copy_fileds = data.get('_copy_fileds')
-		if copy_fileds is not None:
-			for fields in copy_fileds:
-				field_target, field_source = fields
-				self[field_target] = self[field_source]
-			self.data.pop('_copy_fileds')
-
 		if data is None:
 			self.load()
-		elif not volatile:
-			self.save()
+			self.preprocess()
+		else:
+			self.preprocess()
+
+			if not volatile:
+				self.save()
 
 		if self['env'] is not None:
 			for key, value in self['env'].items():
 				if os.environ.get(key) is None:
 					os.environ[key] = str(value)
 					#print('env set:', key, value)
+
+
+	def preprocess (self):
+		copy_fileds = self.data.get('_copy_fileds')
+		if copy_fileds is not None:
+			for fields in copy_fileds:
+				field_target, field_source = fields
+				self[field_target] = self[field_source]
+			self.data.pop('_copy_fileds')
 
 
 	def localPath (self, name):
