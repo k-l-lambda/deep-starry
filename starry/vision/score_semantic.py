@@ -104,8 +104,8 @@ class ScoreSemanticDual:
 		layers = [[] for label in labels]
 		true_count = 0
 
-		int_pred = np.uint8(pred * 255)
-		int_target = np.uint8(target * 255)
+		int_pred = np.uint8(pred.cpu() * 255)
+		int_target = np.uint8(target.cpu() * 255)
 		for pred_map, target_map in zip(int_pred, int_target): # pred_map: (channel, height, width)
 			for i, label, in enumerate(labels):
 				pred_layer = pred_map[i]
