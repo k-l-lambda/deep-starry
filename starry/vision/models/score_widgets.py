@@ -106,16 +106,22 @@ class ScoreWidgetsLoss (nn.Module):
 
 
 	def stat (self, metrics, n_batch):
-		bce = metrics['bce'] / n_batch
+		result = {
+			'bce': metrics['bce'] / n_batch,
+		}
 
 		semantic = metrics.get('semantic')
 		if semantic is not None:
 			stats = metrics['semantic'].stat()
 			self.stats = stats
 
-			return {'bce': bce, 'contours': stats['accuracy']}
+			result['contours'] = stats['accuracy']
+			result['channel_weights'] = dict([(label, self.channel_weights[i].item()) for i, label in enumerate(self.labels)])
+			result['channel_weights_target'] = dict([(label, self.channel_weights_target[i].item()) for i, label in enumerate(self.labels)])
 
-		return {'bce': bce}
+			#print('result:', result)
+
+		return result
 
 
 	def updateStates (self):

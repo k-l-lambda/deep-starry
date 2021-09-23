@@ -18,7 +18,10 @@ def print_acc (acc):
 	if type(acc) == float or type(acc) == torch.Tensor:
 		return f'accuracy: {acc*100:3.3f}%'
 	elif type(acc) == dict:
-		return ', '.join(map(lambda item: f'{item[0]}: {item[1]:3.3f}', acc.items()))
+		items = map(lambda item: f'{item[0]}: {item[1]:3.3f}',
+			filter(lambda item: type(item) in [int, float],
+				acc.items()))
+		return ', '.join(items)
 	else:
 		return str(acc)
 
@@ -98,9 +101,15 @@ class Trainer:
 			self.tb_writer.add_scalar('loss', train_loss, epoch_i)
 			self.tb_writer.add_scalar('val_loss', val_loss, epoch_i)
 			for k, v in train_acc.items():
-				self.tb_writer.add_scalar(k, v, epoch_i)
+				if type(v) == dict:
+					self.tb_writer.add_scalars(k, v, epoch_i)
+				else:
+					self.tb_writer.add_scalar(k, v, epoch_i)
 			for k, v in val_acc.items():
-				self.tb_writer.add_scalar('val_' + k, v, epoch_i)
+				if type(v) == dict:
+					self.tb_writer.add_scalars('val_' + k, v, epoch_i)
+				else:
+					self.tb_writer.add_scalar('val_' + k, v, epoch_i)
 			self.tb_writer.add_scalar('learning_rate', lr, epoch_i)
 
 			self.options['steps'] = self.optimizer.n_steps
