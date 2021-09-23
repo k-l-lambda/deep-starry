@@ -7,6 +7,7 @@ import time
 import cv2
 import json
 import re
+import zlib
 
 from ..transform import Composer
 from ..images import randomSliceImage, iterateSliceImage
@@ -16,6 +17,14 @@ from .imageReader import CachedImageReader, _S
 from .augmentor import Augmentor
 from .score import makeReader, listAllScoreNames, GRAPH, MASK, STAFF
 
+
+
+def hashName (name):
+	hash = zlib.crc32(name.encode())
+	hash = hash & 0xffffffff
+	hash = hex(hash)[2:]
+
+	return hash
 
 
 # target: (height, width, channel)
@@ -34,7 +43,7 @@ def renderTargetFromGraph (graph, labels, size, unit_size=16, point_radius=2 / 1
 	for i, label in enumerate(labels):
 		#cache_path = os.path.join(cache_dir, label, name + ".png") if cache_dir else None
 		#layer = cv2.imread(cache_path) if cache_path else None
-		file_path = os.path.join(label, name + ".png")
+		file_path = os.path.join(label, hashName(name) + ".png")
 		layer = reader.readImage(file_path) if reader and reader.exists(file_path) else None
 		assert layer is None or layer.shape == size, f'layer shape mismatch: {layer.shape}, {size}'
 
@@ -167,8 +176,8 @@ class RenderScore (CachedIterableDataset):
 
 			labels = [self.labels[c] for c in self.chosen_channels]
 
-			target = renderTargetFromGraph(graph, labels, source.shape[:2], blur_scale = self.blur_scale, unit_size = self.unit_size,
-				reader = self.cachedReader, name = name)
+			target = renderTargetFromGraph(graph, labels, source.shape[:2], blur_scale=self.blur_scale, unit_size=self.unit_size,
+				reader=self.cachedReader, name=name)
 
 			if self.shuffle:
 				batches += 1
