@@ -19,6 +19,7 @@ VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR')
 def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('config', type=str)
+	parser.add_argument('-d', '--data', type=str, help='data configuration file')
 	parser.add_argument('-s', '--splits', type=str, default='0/10')
 	parser.add_argument('-k', '--skip', action='store_true', help='skip perfect samples')
 	parser.add_argument('-g', '--gauge', action='store_true', help='gauge mode')
@@ -27,6 +28,11 @@ def main ():
 	args = parser.parse_args()
 
 	config = Configuration(args.config)
+
+	if args.data:
+		data_config = Configuration.createdOrLoad(args.data, volatile=True)
+		config['data'] = data_config['data']
+
 	if args.splits is not None:
 		config['data.splits'] = args.splits
 
