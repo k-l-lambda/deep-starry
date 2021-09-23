@@ -74,6 +74,10 @@ class Trainer:
 				'optim': self.optimizer._optimizer.state_dict(),
 			}
 
+			if hasattr(self.model, 'need_states'):
+				self.model.updateStates()
+				checkpoint['extra'] = self.model.state_dict()
+
 			val_acc_value = next(iter(val_acc.values()))
 
 			model_name = f'model_{epoch_i:02}_acc_{100*val_acc_value:3.3f}.chkpt'
@@ -160,6 +164,9 @@ class Trainer:
 		checkpoint = torch.load(self.config.localPath(filename), map_location=self.options['device'])
 		self.model.deducer.load_state_dict(checkpoint['model'])
 		self.start_epoch = checkpoint['epoch'] + 1
+
+		if hasattr(self.model, 'need_states'):
+			self.model.load_state_dict(checkpoint['extra'])
 
 		if 'optim' in checkpoint:
 			self.optimizer._optimizer.load_state_dict(checkpoint['optim'])

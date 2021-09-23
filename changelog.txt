@@ -4,6 +4,11 @@ TODO:
 
 
 
+2021.9.23
+
+	+	utils/trainer.py: loss model states updating added.
+
+
 2021.9.22
 
 	+	score_widgets.py: model class of ScoreWidgetsLoss added.

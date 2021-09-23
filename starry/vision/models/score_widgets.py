@@ -4,11 +4,12 @@ import torch
 import torch.nn as nn
 
 from ...unet import UNet
+from ..score_semantic import ScoreSemanticDual
 
 
 
 class ScoreWidgets (nn.Module):
-	def __init__ (self, in_channels, out_channels, mask, backbone, freeze_mask, mask_channels = 2):
+	def __init__ (self, in_channels, out_channels, mask, backbone, freeze_mask, mask_channels = 2, **kw_args):
 		super().__init__()
 
 		if mask['type'] == 'unet':
@@ -68,9 +69,11 @@ class ScoreWidgetsLoss (nn.Module):
 	need_states = True
 
 
-	def __init__(self, out_channels, channel_weights_rate=1e-4, clip_margin=12, **kw_args):
+	def __init__(self, labels, unit_size, out_channels, channel_weights_rate=1e-4, clip_margin=12, **kw_args):
 		super().__init__()
 
+		self.labels = labels
+		self.unit_size = unit_size
 		self.channel_weights_rate = channel_weights_rate
 		self.clip_margin = clip_margin
 
@@ -81,23 +84,45 @@ class ScoreWidgetsLoss (nn.Module):
 
 
 	def forward (self, batch):
-		weights = self.channel_weights.reshape((1, -1, 1, 1))
-
 		feature, target = batch
 		pred = self.deducer(feature)
+
+		weights = self.channel_weights.reshape((1, -1, 1, 1)).to(feature.device)
 
 		target = target[:, :, :, self.clip_margin:-self.clip_margin] * weights
 		pred = pred[:, :, :, self.clip_margin:-self.clip_margin] * weights
 
 		loss = nn.functional.binary_cross_entropy(pred, target)
 
+		metric = {'bce': loss}
+
 		# update channel weights
 		if self.training:
 			self.channel_weights = self.channel_weights * (1 - self.channel_weights_rate) + self.channel_weights_target * self.channel_weights_rate
+		else:
+			metric['semantic'] = ScoreSemanticDual.create(self.labels, self.unit_size, pred, target)
 
-		# TODO: contours metric
+		return loss, metric
 
-		return loss, {'bce': loss}
+
+	def stat (self, metrics, n_batch):
+		bce = metrics['bce'] / n_batch
+
+		semantic = metrics.get('semantic')
+		if semantic is not None:
+			stats = metrics['semantic'].stat()
+			self.stats = stats
+
+			return {'bce': bce, 'contours': stats['accuracy']}
+
+		return {'bce': bce}
+
+
+	def updateStates (self):
+		# update channel weights target
+		wws = self.stats['loss_weights'] ** 2
+		ww_sum = max(wws.sum(), 1e-9)
+		self.channel_weights_target = torch.tensor(wws / ww_sum)
 
 
 	def state_dict (self, destination=None, prefix='', keep_vars=False):

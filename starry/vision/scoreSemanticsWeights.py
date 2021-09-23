@@ -9,7 +9,7 @@ def normalWeights (N, P, magnitude=1):
 	return (N * factor, P * factor)
 
 
-loss_weights = {	# (negative_weight, positive_weight)
+LOSS_WEIGHTS = {	# (negative_weight, positive_weight)
 	'vline_Stem':                normalWeights(2.5, 1),
 	'Flag3':                     normalWeights(1.4, 1),
 	'rect_Text':                 normalWeights(1, 1, 0.1),

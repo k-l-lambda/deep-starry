@@ -1,11 +1,9 @@
 
-import json
-import cv2
 import numpy as np
-import math
 import re
 
-from .contours import detectPoints, detectVLines, detectRectangles, detectBoxes, labelToDetector
+from .contours import detectPoints, detectVLines, detectRectangles, detectBoxes, labelToDetector, countHeatmaps, statPoints
+from .scoreSemanticsWeights import LOSS_WEIGHTS
 
 
 
@@ -98,3 +96,72 @@ class ScoreSemantic:
 
 	def json (self):
 		return self.data
+
+
+class ScoreSemanticDual:
+	@staticmethod
+	def create (labels, unit_size, pred, target):	# pred: (batch, channel, height, width)
+		layers = [[] for label in labels]
+		true_count = 0
+
+		int_pred = np.uint8(pred * 255)
+		int_target = np.uint8(target * 255)
+		for pred_map, target_map in zip(int_pred, int_target): # pred_map: (channel, height, width)
+			for i, label, in enumerate(labels):
+				pred_layer = pred_map[i]
+				target_layer = target_map[i]
+
+				points = countHeatmaps(target_layer, pred_layer, label, unit_size=unit_size)
+				layers[i] += points
+				true_count += len([p for p in points if p['value'] > 0])
+
+		return ScoreSemanticDual(labels, layers, true_count)
+
+
+	def __init__ (self, labels, layers, true_count):
+		self.labels = labels
+		self.layers = layers
+		self.true_count = true_count
+
+
+	def __add__(self, other):
+		layers = [l1 + l2 for l1, l2 in zip(self.layers, other.layers)]
+
+		return ScoreSemanticDual(self.labels, layers, self.true_count + other.true_count)
+
+
+	def stat (self):
+		total_error = 0
+		total_true_count = 0
+
+		details = {}
+		loss_weights = []
+		for i, layer in enumerate(self.layers):
+			label = self.labels[i]
+			neg_weight, pos_weight = LOSS_WEIGHTS.get(label, (1, 1))
+
+			true_count = len([p for p in layer if p['value'] > 0])
+
+			confidence, error, precision, feasibility, fake_neg, fake_pos, true_neg, true_pos = statPoints(layer, true_count, neg_weight, pos_weight)
+			total_error += error
+			total_true_count += true_count
+
+			details[label] = {
+				'confidence': confidence,
+				'precision': precision,
+				'feasibility': feasibility,
+				'true_count': true_count,
+				'errors': f'{fake_neg}-|+{fake_pos}'
+			}
+
+			loss_weights.append(1 - feasibility)
+
+		accuracy = -np.log(max(total_error / max(total_true_count, 1), 1e-100))
+
+		return {
+			'total_error': total_error,
+			'total_true_count': total_true_count,
+			'accuracy': accuracy,
+			'details': details,
+			'loss_weights': np.array(loss_weights),
+		}

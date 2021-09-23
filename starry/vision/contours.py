@@ -323,7 +323,7 @@ class Compounder:
 		return image
 
 
-class Contour:
+'''class Contour:
 	def __init__(self, config):
 		self.name = 'contour'
 
@@ -381,4 +381,4 @@ class Contour:
 		self.layers = [[] for label in self.compounder.labels]
 		self.true_count = 0
 
-		return -math.log(max(total_error / max(total_true_count, 1), 1e-100))
+		return -math.log(max(total_error / max(total_true_count, 1), 1e-100))'''

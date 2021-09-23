@@ -21,7 +21,7 @@ model:
 data:
   type:           RenderScore
   root:           test7/
-  splits:         '*1,2,3,4,5,6,7,8/10:9/10'
+  splits:         '*1,2,3,4,5,6,7,8/10:0/10'
   batch_size:     1
   args:
     labels:                   [
