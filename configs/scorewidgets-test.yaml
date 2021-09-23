@@ -61,6 +61,9 @@ trainer:
   device:         cpu
   save_mode:      best
   epoch:          2
+  moniter:
+    field:        contour
+    mode:         max
 
 optim:
   type:                   Adam

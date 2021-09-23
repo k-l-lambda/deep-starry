@@ -1,4 +1,5 @@
 
+import math
 import numpy as np
 import re
 
@@ -156,7 +157,7 @@ class ScoreSemanticDual:
 
 			loss_weights.append(1 - feasibility)
 
-		accuracy = -np.log(max(total_error / max(total_true_count, 1), 1e-100))
+		accuracy = -math.log(max(total_error / max(total_true_count, 1), 1e-100))
 
 		return {
 			'total_error': total_error,

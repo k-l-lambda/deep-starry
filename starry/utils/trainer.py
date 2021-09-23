@@ -30,10 +30,38 @@ def stat_average (data, n_batch):
 	return dict([(k, v / n_batch) for k, v in data.items()])
 
 
+class Moniter:
+	def __init__ (self, field='loss', mode='min', best_value=None):
+		self.field = field
+		self.mode = mode
+
+		self.best_value = best_value
+
+
+	def update (self, metrics):
+		value = metrics[self.field]
+		new_record = False
+
+		if self.best_value is None:
+			new_record = True
+		elif self.mode == 'min':
+			new_record = value < self.best_value
+		elif self.mode == 'max':
+			new_record = value > self.best_value
+		else:
+			assert False, f'unexpected moniter mode: {self.mode}'
+
+		if new_record:
+			self.best_value = value
+
+		return value, new_record
+
+
 class Trainer:
 	def __init__ (self, config):
 		self.config = config
 		self.options = config['trainer']
+		self.moniter = Moniter(**self.options.get('moniter', {}))
 
 		self.start_epoch = 0
 
@@ -54,8 +82,6 @@ class Trainer:
 			print('  - {header:12} loss: {loss: .4e}, {accu}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
 				.format(header=f"({header})", loss=loss, accu=print_acc(accu), elapse=(time.time()-start_time)/60, lr=lr))
 
-		#val_losses = []
-		best_acc = 0
 		for epoch_i in range(self.start_epoch, self.options['epoch']):
 			logging.info(f'[Epoch {epoch_i}]')
 
@@ -81,22 +107,23 @@ class Trainer:
 				self.model.updateStates()
 				checkpoint['extra'] = self.model.state_dict()
 
-			val_acc_value = next(iter(val_acc.values()))
+			#moniter_value = next(iter(val_acc.values()))
+			moniter_value, new_record = self.moniter.update({
+				**val_acc,
+				'loss': val_loss,
+			})
 
-			model_name = f'model_{epoch_i:02}_acc_{100*val_acc_value:3.3f}.chkpt'
+			model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3f}.chkpt'
 			if self.options['save_mode'] == 'all':
 				torch.save(checkpoint, self.config.localPath(model_name))
 			elif self.options['save_mode'] == 'best':
-				#if val_loss <= min(val_losses):
-				if val_acc_value > best_acc or epoch_i == 0:
+				if new_record or epoch_i == 0:
 					torch.save(checkpoint, self.config.localPath(model_name))
 					logging.info('	- [Info] The checkpoint file has been updated.')
 
-			if val_acc_value > best_acc or self.config['best'] is None:
+			if new_record or self.config['best'] is None:
 				self.config['best'] = model_name
-
-			#val_losses.append(val_loss)
-			best_acc = max(best_acc, val_acc_value)
+				self.config['trainer.moniter.best_value'] = self.moniter.best_value
 
 			self.tb_writer.add_scalar('loss', train_loss, epoch_i)
 			self.tb_writer.add_scalar('val_loss', val_loss, epoch_i)
