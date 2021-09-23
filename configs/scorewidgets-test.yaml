@@ -21,7 +21,7 @@ model:
 data:
   type:           RenderScore
   root:           test7/
-  splits:         '*1,2,3,4,5,6,7,8/40:9/40'
+  splits:         '*1,2,3,4,5,6,7,8/10:9/10'
   batch_size:     1
   args:
     labels:                   [
@@ -74,3 +74,8 @@ optim:
       min_lr:             1.e-6
       decay_rate:         0.92
       n_warmup_steps:     200
+
+
+_copy_fileds:
+- [model.args.labels,         data.args.labels]
+- [model.args.unit_size,      data.args.unit_size]

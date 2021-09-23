@@ -37,6 +37,13 @@ class Configuration:
 		self.dir = dir
 		self.data = data
 
+		copy_fileds = data.get('_copy_fileds')
+		if copy_fileds is not None:
+			for fields in copy_fileds:
+				field_target, field_source = fields
+				self[field_target] = self[field_source]
+			self.data.pop('_copy_fileds')
+
 		if data is None:
 			self.load()
 		elif not volatile:
