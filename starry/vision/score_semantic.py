@@ -131,6 +131,11 @@ class ScoreSemanticDual:
 		return ScoreSemanticDual(self.labels, layers, self.true_count + other.true_count)
 
 
+	@property
+	def points_count (self):
+		return sum(map(lambda points: len(points), self.layers))
+
+
 	def stat (self):
 		total_error = 0
 		total_true_count = 0

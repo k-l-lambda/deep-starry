@@ -69,18 +69,20 @@ class ScoreWidgetsLoss (nn.Module):
 	need_states = True
 
 
-	def __init__(self, labels, unit_size, out_channels, channel_weights_rate=1e-4, clip_margin=12, **kw_args):
+	def __init__(self, labels, unit_size, out_channels, metric_quota=100, channel_weights_rate=1e-4, clip_margin=12, **kw_args):
 		super().__init__()
 
 		self.labels = labels
 		self.unit_size = unit_size
 		self.channel_weights_rate = channel_weights_rate
 		self.clip_margin = clip_margin
+		self.metric_quota = metric_quota
 
 		self.deducer = ScoreWidgets(out_channels=out_channels, **kw_args)
 
 		self.channel_weights = torch.ones(out_channels)
 		self.channel_weights_target = torch.ones(out_channels)
+		self.metric_cost = 0
 
 
 	def forward (self, batch):
@@ -100,7 +102,13 @@ class ScoreWidgetsLoss (nn.Module):
 		if self.training:
 			self.channel_weights = self.channel_weights * (1 - self.channel_weights_rate) + self.channel_weights_target * self.channel_weights_rate
 		else:
-			metric['semantic'] = ScoreSemanticDual.create(self.labels, self.unit_size, pred, target)
+			if self.metric_cost < self.metric_quota:
+				metric['semantic'] = ScoreSemanticDual.create(self.labels, self.unit_size, pred, target)
+
+				cost = (metric['semantic'].points_count - metric['semantic'].true_count) / metric['semantic'].true_count
+				cost = (cost ** 1.4) * feature.shape[0]
+				self.metric_cost += cost
+				#print('metric_cost:', self.metric_cost)
 
 		return loss, metric
 
@@ -129,6 +137,7 @@ class ScoreWidgetsLoss (nn.Module):
 		wws = self.stats['loss_weights'] ** 2
 		ww_sum = max(wws.sum(), 1e-9)
 		self.channel_weights_target = torch.tensor(wws * len(wws) / ww_sum)
+		self.metric_cost = 0
 
 
 	def state_dict (self, destination=None, prefix='', keep_vars=False):
