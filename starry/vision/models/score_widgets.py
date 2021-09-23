@@ -89,10 +89,10 @@ class ScoreWidgetsLoss (nn.Module):
 
 		weights = self.channel_weights.reshape((1, -1, 1, 1)).to(feature.device)
 
-		target = target[:, :, :, self.clip_margin:-self.clip_margin] * weights
-		pred = pred[:, :, :, self.clip_margin:-self.clip_margin] * weights
+		target = target[:, :, :, self.clip_margin:-self.clip_margin]
+		pred = pred[:, :, :, self.clip_margin:-self.clip_margin]
 
-		loss = nn.functional.binary_cross_entropy(pred, target)
+		loss = nn.functional.binary_cross_entropy(pred, target, weight=weights)
 
 		metric = {'bce': loss}
 
@@ -115,7 +115,7 @@ class ScoreWidgetsLoss (nn.Module):
 			stats = metrics['semantic'].stat()
 			self.stats = stats
 
-			result['contours'] = stats['accuracy']
+			result['contour'] = stats['accuracy']
 			result['channel_weights'] = dict([(label, self.channel_weights[i].item()) for i, label in enumerate(self.labels)])
 			result['channel_weights_target'] = dict([(label, self.channel_weights_target[i].item()) for i, label in enumerate(self.labels)])
 
@@ -128,7 +128,7 @@ class ScoreWidgetsLoss (nn.Module):
 		# update channel weights target
 		wws = self.stats['loss_weights'] ** 2
 		ww_sum = max(wws.sum(), 1e-9)
-		self.channel_weights_target = torch.tensor(wws / ww_sum)
+		self.channel_weights_target = torch.tensor(wws * len(wws) / ww_sum)
 
 
 	def state_dict (self, destination=None, prefix='', keep_vars=False):
@@ -139,8 +139,8 @@ class ScoreWidgetsLoss (nn.Module):
 
 
 	def load_state_dict (self, state_dict):
-		self.channel_weights = state_dict['channel_weights']
-		self.channel_weights_target = state_dict['channel_weights_target']
+		self.channel_weights = state_dict['channel_weights'].cpu()
+		self.channel_weights_target = state_dict['channel_weights_target'].cpu()
 
 
 class ScoreWidgetsMask (ScoreWidgets):
