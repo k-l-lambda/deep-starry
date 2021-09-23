@@ -124,19 +124,22 @@ class Trainer:
 				self.config['best'] = model_name
 				self.config['trainer.moniter.best_value'] = self.moniter.best_value
 
-			self.tb_writer.add_scalar('loss', train_loss, epoch_i)
-			self.tb_writer.add_scalar('val_loss', val_loss, epoch_i)
-			for k, v in train_acc.items():
+			# write tensorboard scalars
+			#general = lambda v: {'_general': v}
+			scalars = {
+				'loss': train_loss,
+				'val_loss': val_loss,
+				'learning_rate': lr,
+				**train_acc,
+			}
+			for k, v in val_acc.items():
+				scalars['val_' + k] = v
+
+			for k, v in scalars.items():
 				if type(v) == dict:
 					self.tb_writer.add_scalars(k, v, epoch_i)
 				else:
-					self.tb_writer.add_scalars(k, {'_general': v}, epoch_i)
-			for k, v in val_acc.items():
-				if type(v) == dict:
-					self.tb_writer.add_scalars('val_' + k, v, epoch_i)
-				else:
-					self.tb_writer.add_scalars('val_' + k, {'_general': v}, epoch_i)
-			self.tb_writer.add_scalar('learning_rate', lr, epoch_i)
+					self.tb_writer.add_scalar(k, v, epoch_i)
 
 			self.options['steps'] = self.optimizer.n_steps
 
