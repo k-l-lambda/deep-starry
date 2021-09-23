@@ -14,16 +14,16 @@ from .model_factory import loadModel
 LOG_DIR = os.environ.get('LOG_DIR', './logs')
 
 
-def print_acc (acc):
-	if type(acc) == float or type(acc) == torch.Tensor:
-		return f'accuracy: {acc*100:3.3f}%'
-	elif type(acc) == dict:
-		items = map(lambda item: f'{item[0]}: {item[1]:3.3f}',
-			filter(lambda item: type(item) in [int, float],
-				acc.items()))
+def print_metric (metric):
+	if type(metric) == float or type(metric) == torch.Tensor:
+		return f'accuracy: {metric*100:3.3f}%'
+	elif type(metric) == dict:
+		items = map(lambda item: f'{item[0]}: {item[1]:.4f}',
+			filter(lambda item: type(item[1]) in [int, float],
+				metric.items()))
 		return ', '.join(items)
 	else:
-		return str(acc)
+		return str(metric)
 
 
 def stat_average (data, n_batch):
@@ -78,9 +78,9 @@ class Trainer:
 
 
 	def train (self, training_data, validation_data):
-		def print_performances(header, loss, accu, start_time, lr):
-			print('  - {header:12} loss: {loss: .4e}, {accu}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
-				.format(header=f"({header})", loss=loss, accu=print_acc(accu), elapse=(time.time()-start_time)/60, lr=lr))
+		def print_performances(header, loss, metric, start_time, lr):
+			print('  - {header:12} loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
+				.format(header=f"({header})", loss=loss, metric=print_metric(metric), elapse=(time.time()-start_time)/60, lr=lr))
 
 		for epoch_i in range(self.start_epoch, self.options['epoch']):
 			logging.info(f'[Epoch {epoch_i}]')
@@ -107,7 +107,6 @@ class Trainer:
 				self.model.updateStates()
 				checkpoint['extra'] = self.model.state_dict()
 
-			#moniter_value = next(iter(val_acc.values()))
 			moniter_value, new_record = self.moniter.update({
 				**val_acc,
 				'loss': val_loss,
@@ -131,12 +130,12 @@ class Trainer:
 				if type(v) == dict:
 					self.tb_writer.add_scalars(k, v, epoch_i)
 				else:
-					self.tb_writer.add_scalar(k, v, epoch_i)
+					self.tb_writer.add_scalars(k, {'_general': v}, epoch_i)
 			for k, v in val_acc.items():
 				if type(v) == dict:
 					self.tb_writer.add_scalars('val_' + k, v, epoch_i)
 				else:
-					self.tb_writer.add_scalar('val_' + k, v, epoch_i)
+					self.tb_writer.add_scalars('val_' + k, {'_general': v}, epoch_i)
 			self.tb_writer.add_scalar('learning_rate', lr, epoch_i)
 
 			self.options['steps'] = self.optimizer.n_steps
