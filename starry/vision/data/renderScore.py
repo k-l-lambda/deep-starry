@@ -19,12 +19,8 @@ from .score import makeReader, listAllScoreNames, GRAPH, MASK, STAFF
 
 
 
-def hashName (name):
-	hash = zlib.crc32(name.encode())
-	hash = hash & 0xffffffff
-	hash = hex(hash)[2:]
-
-	return hash
+def normalizeName (name):
+	return name.split('.')[-1]
 
 
 # target: (height, width, channel)
@@ -43,7 +39,7 @@ def renderTargetFromGraph (graph, labels, size, unit_size=16, point_radius=2 / 1
 	for i, label in enumerate(labels):
 		#cache_path = os.path.join(cache_dir, label, name + ".png") if cache_dir else None
 		#layer = cv2.imread(cache_path) if cache_path else None
-		file_path = os.path.join(label, hashName(name) + ".png")
+		file_path = os.path.join(label, normalizeName(name) + ".png")
 		layer = reader.readImage(file_path) if reader and reader.exists(file_path) else None
 		assert layer is None or layer.shape == size, f'layer shape mismatch: {layer.shape}, {size}'
 
