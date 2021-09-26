@@ -131,7 +131,10 @@ class ScoreWidgetsLoss (nn.Module):
 			result['channel_weights'] = dict([(label, self.channel_weights[i].item()) for i, label in enumerate(self.labels)])
 			result['channel_weights_target'] = dict([(label, self.channel_weights_target[i].item()) for i, label in enumerate(self.labels)])
 
-			#print('result:', result)
+			details = stats['details']
+			result['channel_error'] = dict([(label, 1 - details[label]['feasibility']) for label in self.labels])
+
+			#print('result:', result['channel_error'])
 
 		return result
 
