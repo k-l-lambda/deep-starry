@@ -180,7 +180,7 @@ class JitterY(TransWrapper):
 	def __init__(self):
 		super().__init__(jitter_y)
 
-class GradientY(TransWrapper):
+class Tar_GradientY(TransWrapper):
 	def __init__(self):
 		super().__init__(gradient_y)
 
@@ -205,7 +205,7 @@ class TransformFactory():
 			Tar_HWC2CHW, Tar_Half_Down, Tar_STDgray,
 			To_Float32, Nan_Check,
 			Mono, Normalize, Invert,
-			JitterY, GradientY,
+			JitterY, Tar_GradientY,
 		]
 		self.trans_dict = dict([(c.__name__, c()) for c in trans_classes])
 

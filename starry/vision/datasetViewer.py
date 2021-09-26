@@ -137,7 +137,7 @@ image_staff_frame = None
 def gaugeToFrame (gauge):	# gauge: [Y(h, w), K(h, w)]
 	global image_staff_frame
 	if image_staff_frame is None:
-		image_staff_frame = cv2.imread('./staff-frame.png')
+		image_staff_frame = cv2.imread('./assets/staff-frame.png')
 		image_staff_frame = image_staff_frame[:, :, ::-1]
 
 	# integrate to make X map

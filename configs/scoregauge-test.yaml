@@ -14,5 +14,34 @@ model:
       unet_init_width:      32
 
 data:
-  trans:                    [HWC2CHW, Tar_HWC2CHW, Tar_GradientY]
-  slicing_width:            512
+  type:           ScoreGauge
+  root:           test7/
+  splits:         '*1,2,3,4,5,6,7,8/10:0/10'
+  batch_size:     1
+  args:
+    trans:                    [HWC2CHW, Tar_HWC2CHW, Tar_GradientY]
+    slicing_width:            512
+    labels:                   ['y', k]
+    crop_margin:              136
+    y_unit:                   8
+    with_mask:                True
+    augmentor:
+      tinter:
+        fore_pow:             5.
+        fore_sigma:           0.2
+        fore_scale_range:     [40, 100]
+        fore_blur_range:      [0, 1]
+        back_pow:             8.
+        back_sigma:           0.14
+        back_scale_range:     [0.02, 0.2]
+        back_blur_range:      [0, 8]
+      gaussian_noise:
+        sigma:                0.01
+      gaussian_blur:
+        sigma:                0.6
+      distortion: 
+        scale:                2.
+        scale_sigma:          0.6
+        intensity:            1.4
+        intensity_sigma:      0.5
+        noise:                [temp/perlin.npy, temp/perlin-4.npy, temp/perlin-8.npy]
