@@ -9,20 +9,24 @@ from ..score_semantic import ScoreSemanticDual
 
 
 class ScoreWidgets (nn.Module):
-	def __init__ (self, in_channels, out_channels, mask, backbone, freeze_mask, mask_channels = 2, **kw_args):
+	def __init__ (self, in_channels, out_channels, mask, backbone, freeze_mask, mask_channels=2, wide_mask=False, **kw_args):
 		super().__init__()
 
+		mask_out_channels = mask_channels
 		if mask['type'] == 'unet':
 			depth = mask['unet_depth']
 			init_width = mask['unet_init_width']
-			self.mask = UNet(in_channels, mask_channels, depth = depth, init_width = init_width)
+			self.mask = UNet(in_channels, mask_channels, depth=depth, init_width=init_width, classify_out=not wide_mask)
 
-		trunk_channels = in_channels + mask_channels
+			if wide_mask:
+				mask_out_channels = init_width
+
+		trunk_channels = in_channels + mask_out_channels
 
 		if backbone['type'] == 'unet':
 			depth = backbone['unet_depth']
 			init_width = backbone['unet_init_width']
-			self.backbone = UNet(trunk_channels, out_channels, depth = depth, init_width = init_width)
+			self.backbone = UNet(trunk_channels, out_channels, depth=depth, init_width=init_width)
 		else:
 			self.backbone = None
 

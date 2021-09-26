@@ -7,10 +7,11 @@ from .parts import *
 
 
 class UNet(nn.Module):
-	def __init__(self, n_channels, n_classes, bilinear=True, depth = 4, init_width = 64):
+	def __init__(self, n_channels, n_classes, classify_out=True, bilinear=True, depth=4, init_width=64):
 		super(UNet, self).__init__()
 		self.n_channels = n_channels
 		self.n_classes = n_classes
+		self.classify_out = classify_out
 		self.depth = depth
 		factor = 2 if bilinear else 1
 
@@ -52,6 +53,9 @@ class UNet(nn.Module):
 
 		for xi, up in zip(xs, self.ups):
 			x = up(x, xi)
+
+		if not self.classify_out:
+			return x
 
 		logits = self.outc(x)
 
