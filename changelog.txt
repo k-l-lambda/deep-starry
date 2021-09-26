@@ -6,6 +6,8 @@ TODO:
 
 2021.9.26
 
+	+	vision/data/scorePage.py created.
+
 	+	score_widgets.py: added option of wide_mask.
 
 

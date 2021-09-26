@@ -7,7 +7,6 @@ import time
 import cv2
 import json
 import re
-import zlib
 
 from ..transform import Composer
 from ..images import randomSliceImage, iterateSliceImage
