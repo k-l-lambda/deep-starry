@@ -1,4 +1,4 @@
 
-from .score_widgets import *
-from .score_regression import *
-from .score_residue import *
+from .scoreWidgets import *
+from .scoreRegression import *
+from .scoreResidue import *

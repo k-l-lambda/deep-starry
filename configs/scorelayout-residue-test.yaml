@@ -27,7 +27,7 @@ data:
     augmentor:
       tinter:
         fore_pow:         6.
-        fore_sigma:       0.2
+        fore_sigma:       0.6
         fore_scale_range: [40, 100]
         fore_blur_range:  [0, 1]
         back_pow:         8.
@@ -35,7 +35,7 @@ data:
         back_scale_range: [0.02, 0.2]
         back_blur_range:  [0, 8]
       gaussian_noise:
-        sigma:            0.01
+        sigma:            0.03
       affine:
         padding_scale:    1.06
         angle_sigma:      1.
@@ -44,7 +44,7 @@ data:
         scale_limit:      1.
         size_limit:       780
       gaussian_blur:
-        sigma:            0.6
+        sigma:            1.5
       flip_mark:
         intensity_range:  [0, 0.1]
       distortion:
