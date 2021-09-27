@@ -20,8 +20,8 @@ class ScorePage (CachedIterableDataset):
 		return loadSplittedDatasets(ScorePage, root=root, args=args, splits=splits, device=device)
 
 
-	def __init__ (self, root, split='0/1', device='cpu', trans=[], shuffle=False, augmentor=None, **kwargs):
-		super().__init__(enable_cache=not shuffle)
+	def __init__ (self, root, split='0/1', device='cpu', trans=[], shuffle=False, augmentor=None, cache_batches=False, **kwargs):
+		super().__init__(enable_cache=cache_batches and not shuffle)
 
 		self.reader, self.root = makeReader(root)
 
