@@ -25,8 +25,7 @@ class Validator (Predictor):
 		self.compounder = contours.Compounder(config)
 
 	def run(self, dataset):
-		labels = self.config['data.args.labels']
-		unit_size = self.config['data.args.unit_size']
+		unit_size = self.config['data.args.unit_size'] or 1
 
 		with torch.no_grad():
 			for batch, (feature, target) in enumerate(dataset):
@@ -97,12 +96,12 @@ class Validator (Predictor):
 
 								break
 
-					# confusion matrix
-					print(f'confusion:\n  {true_positive}\t{fake_positive}\n  {fake_negative}\t{true_negative}')
-
 					if perfect:
 						print('.', end='', flush=True)	# . stand for skipping a perfect sample
 						continue
+					else:
+						# confusion matrix
+						print(f'confusion:\n  {true_positive}\t{fake_positive}\n  {fake_negative}\t{true_negative}')
 
 				if self.chromatic:
 					scoreAnnoChromatic(image, target, heatmap / 255.)

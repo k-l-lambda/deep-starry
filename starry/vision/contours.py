@@ -162,6 +162,8 @@ LINE_TOLERANCE_Y = 1.2
 
 RECT_TOLERANCE = 0.8
 
+BOX_POINTS_TOLERANCE = 10
+
 
 def findNearPoint (point, points):
 	for p in points:
@@ -215,7 +217,7 @@ def findBox (rect, rects):
 	for rc in rects:
 		b = rectPoints(rc)
 		distance = pointsDistance(b, box)
-		if distance < 6 * 6:
+		if distance < BOX_POINTS_TOLERANCE * BOX_POINTS_TOLERANCE:
 			return rc
 
 	return None
@@ -233,12 +235,10 @@ def labelToDetector (label):
 
 
 def pointBrief (point):
-	info = {'x': point['x'], 'y': point['y']}
-	if point.get('extension') is not None:
-		info['y1'] = point['extension'].get('y1')
-		info['y2'] = point['extension'].get('y2')
-		info['width'] = point['extension'].get('width')
-		info['height'] = point['extension'].get('height')
+	info = {
+		'x': point['x'], 'y': point['y'],
+		**point.get('extension', {}),
+	}
 
 	return info
 
