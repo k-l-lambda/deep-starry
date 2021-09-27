@@ -50,17 +50,17 @@ class Validator (Predictor):
 				if self.splice:
 					heatmap = np.uint8(splicePieces(hms, MARGIN_DIVIDER) * 255)
 					image = splicePieces(img, MARGIN_DIVIDER)[0]
-					target = splicePieces(tar, MARGIN_DIVIDER)
+					tarmap = splicePieces(tar, MARGIN_DIVIDER)
 				else:
 					heatmap = np.uint8(hms[0] * 255)
 					image = img[0][0]
-					target = tar[0]
+					tarmap = tar[0]
 
 				image = np.clip(image, 0., 1.)
 				image = np.uint8(image * 255)
-				#print(f'heatmap shape:{heatmap.shape} image shape:{image.shape} target:{target.shape}')
+				#print(f'heatmap shape:{heatmap.shape} image shape:{image.shape} tarmap:{tarmap.shape}')
 
-				target = np.uint8(target * 255)
+				tarmap = np.uint8(tarmap * 255)
 
 				if self.skip_perfect:
 					perfect = True
@@ -68,10 +68,10 @@ class Validator (Predictor):
 					fake_negative, fake_positive, true_negative, true_positive = 0, 0, 0, 0
 
 					for c, label in enumerate(self.compounder.labels):
-						tar = target[c]
-						pred = heatmap[c]
+						tar = tarmap[c]
+						prd = heatmap[c]
 
-						points = contours.countHeatmaps(tar, pred, label, unit_size = unit_size)
+						points = contours.countHeatmaps(tar, prd, label, unit_size = unit_size)
 						true_count = len([p for p in points if p['value'] > 0])
 						if true_count > 0:
 							confidence, error, precision, feasibility, fake_neg, fake_pos, true_neg, true_pos = contours.statPoints(points, true_count, 1, 1)
@@ -91,7 +91,7 @@ class Validator (Predictor):
 									points))
 								for p in issue_points:
 									p['x'] *= unit_size
-									p['y'] = p['y'] * unit_size + pred.shape[0] // 2
+									p['y'] = p['y'] * unit_size + prd.shape[0] // 2
 								print(yaml.dump(issue_points))
 
 								break
@@ -103,8 +103,15 @@ class Validator (Predictor):
 						# confusion matrix
 						print(f'confusion:\n  {true_positive}\t{fake_positive}\n  {fake_negative}\t{true_negative}')
 
+				# decompound
+				if self.compounder.list:
+					heatmap = pred.cpu().numpy()
+					heatmap = np.uint8(heatmap[0] * 255)
+					tarmap = target.cpu().numpy()
+					tarmap = np.uint8(tarmap[0] * 255)
+
 				if self.chromatic:
-					scoreAnnoChromatic(image, target, heatmap / 255.)
+					scoreAnnoChromatic(image, tarmap, heatmap / 255.)
 				else:
-					target = np.moveaxis(target, 0, 2)
-					scoreAnno(heatmap, image, target=target, labels=self.compounder.labels)
+					tarmap = np.moveaxis(tarmap, 0, 2)
+					scoreAnno(heatmap, image, target=tarmap, labels=self.compounder.labels)
