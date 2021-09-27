@@ -2,8 +2,8 @@
 import re
 import math
 import numpy as np
+import torch
 import cv2
-import yaml
 
 
 
@@ -306,17 +306,17 @@ def statPoints (points, true_count, negative_weight = 1, positive_weight = 1):
 
 class Compounder:
 	def __init__ (self, config):
-		self.list = config['data.args.compound_labels']
-		self.labels = list(map(lambda item: item['label'], self.list)) if self.list else config['data.args.labels']
+		self.list = config['list']
+		self.labels = list(map(lambda item: item['label'], self.list))
 
-	def compound (self, image):	# (channel, h, w)
+	def compound (self, image):	# (n, channel, h, w)
 		if self.list is not None:
 			shape = image.shape
 			channels = len(self.list)
-			result = np.zeros((channels, shape[1], shape[2]), dtype=np.uint8)
+			result = torch.zeros((shape[0], channels, shape[2], shape[3]), device=image.device)
 			for l in range(channels):
 				for c in self.list[l]['channels']:
-					result[l, :, :] = np.maximum(result[l, :, :], image[c, :, :])
+					result[:, l, :, :] = torch.max(result[:, l, :, :], image[:, c, :, :])
 
 			return result
 

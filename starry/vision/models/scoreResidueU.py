@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 
 from ...unet import UNet
+from ..score_semantic import ScoreSemanticDual
+from ..contours import Compounder
 
 
 
@@ -44,7 +46,7 @@ class ScoreResidueBlockUnetRes (ScoreResidueBlockUnet):
 class ScoreResidueU (nn.Module):
 	def __init__ (self, in_channels, out_channels, residue_blocks,
 		base_depth, base_init_width, residue_depth=4, residue_init_width=64,
-		freeze_base=False, frozen_res=0):
+		freeze_base=False, frozen_res=0, **args):
 		super().__init__()
 
 		self.freeze_base = freeze_base
@@ -104,19 +106,39 @@ class ScoreResidueU (nn.Module):
 
 
 class ScoreResidueULoss (nn.Module):
-	def __init__(self, **kw_args):
+	def __init__(self, compounder, **kw_args):
 		super().__init__()
 
 		self.deducer = ScoreResidueU(**kw_args)
+		self.compounder = Compounder(compounder)
 
 	def forward (self, batch):
 		feature, target = batch
 		pred = self.deducer(feature)
 		loss = nn.functional.binary_cross_entropy(pred, target)
 
-		return loss, {
-			'acc': -math.log(loss.item()),
+		metric = {'acc': -math.log(loss.item())}
+
+		if not self.training:
+			compound_pred = self.compounder.compound(pred)
+			metric['semantic'] = ScoreSemanticDual.create(self.compounder.labels, 1, compound_pred, target)
+
+		return loss, metric
+
+
+	def stat (self, metrics, n_batch):
+		result = {
+			'acc': metrics['acc'] / n_batch,
 		}
+
+		semantic = metrics.get('semantic')
+		if semantic is not None:
+			stats = metrics['semantic'].stat()
+			#self.stats = stats
+
+			result['contour'] = stats['accuracy']
+
+		return result
 
 
 class ScoreResidueUInspection (ScoreResidueU):

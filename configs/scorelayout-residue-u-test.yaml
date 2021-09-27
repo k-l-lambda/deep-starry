@@ -10,6 +10,12 @@ model:
     base_depth:             4
     base_init_width:        64
     freeze_base:            False
+    compounder:
+      list:
+        - label:              box_Staff
+          channels:           [1]
+        - label:              box_System
+          channels:           [0, 1]
 
 data:
   type:           ScorePage
@@ -18,12 +24,6 @@ data:
   batch_size:     1
   args:
     trans:                    [HWC2CHW, Tar_STDgray, Tar_HWC2CHW]
-    compound_labels:
-      list:
-        - label:              box_Staff
-          channels:           [1]
-        - label:              box_System
-          channels:           [0, 1]
     augmentor:
       tinter:
         fore_pow:             6.

@@ -6,6 +6,8 @@ TODO:
 
 2021.9.27
 
+	+	scoreResidueU.py: metric of contour added.
+
 	+	vision/models/scoreResidueU.py created.
 
 
