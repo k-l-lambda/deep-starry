@@ -33,9 +33,12 @@ class Validator (Predictor):
 				#print(f'batch:{batch} feature:{feature.shape} target:{target.shape}')
 				pred = self.model(feature)
 
-				hms = pred.cpu().numpy()
+				pred_compound = self.compounder.compound(pred)
+				target_compound = self.compounder.compound(target)
+
+				hms = pred_compound.cpu().numpy()
 				img = feature.cpu().numpy()
-				tar = target.cpu().numpy()
+				tar = target_compound.cpu().numpy()
 
 				if self.gauge_mode:
 					for i in range(img.shape[0]):
@@ -58,8 +61,7 @@ class Validator (Predictor):
 				image = np.uint8(image * 255)
 				#print(f'heatmap shape:{heatmap.shape} image shape:{image.shape} target:{target.shape}')
 
-				pred_compound = self.compounder.compound(heatmap)
-				target_compound = self.compounder.compound(np.uint8(target * 255))
+				target = np.uint8(target * 255)
 
 				if self.skip_perfect:
 					perfect = True
@@ -67,8 +69,8 @@ class Validator (Predictor):
 					fake_negative, fake_positive, true_negative, true_positive = 0, 0, 0, 0
 
 					for c, label in enumerate(self.compounder.labels):
-						tar = target_compound[c]
-						pred = pred_compound[c]
+						tar = target[c]
+						pred = heatmap[c]
 
 						points = contours.countHeatmaps(tar, pred, label, unit_size = unit_size)
 						true_count = len([p for p in points if p['value'] > 0])
@@ -105,5 +107,5 @@ class Validator (Predictor):
 				if self.chromatic:
 					scoreAnnoChromatic(image, target, heatmap / 255.)
 				else:
-					target_compound = np.moveaxis(target_compound, 0, 2)
-					scoreAnno(pred_compound, image, target = target_compound, labels = self.compounder.labels)
+					target = np.moveaxis(target, 0, 2)
+					scoreAnno(heatmap, image, target=target, labels=self.compounder.labels)

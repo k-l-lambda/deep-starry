@@ -306,8 +306,8 @@ def statPoints (points, true_count, negative_weight = 1, positive_weight = 1):
 
 class Compounder:
 	def __init__ (self, config):
-		self.list = config['list']
-		self.labels = list(map(lambda item: item['label'], self.list))
+		self.list = config['list'] or config['model.args.compounder.list']
+		self.labels = list(map(lambda item: item['label'], self.list)) if self.list else config['data.args.labels']
 
 	def compound (self, image):	# (n, channel, h, w)
 		if self.list is not None:
