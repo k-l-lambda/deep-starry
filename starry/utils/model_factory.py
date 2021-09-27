@@ -24,6 +24,7 @@ def registerModels ():
 		vm.ScoreWidgetsMask, vm.ScoreWidgetsMaskLoss,
 		vm.ScoreRegression,
 		vm.ScoreResidue, vm.ScoreResidueInspection,
+		vm.ScoreResidueU, vm.ScoreResidueUInspection, vm.ScoreResidueULoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

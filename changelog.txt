@@ -4,6 +4,11 @@ TODO:
 
 
 
+2021.9.27
+
+	+	vision/models/scoreResidueU.py created.
+
+
 2021.9.26
 
 	+	vision/data/scoreGauge.py created.
