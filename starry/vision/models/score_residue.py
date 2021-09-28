@@ -51,7 +51,7 @@ class ScoreResidueBlockRes (ScoreResidueBlock):
 class ScoreResidue (nn.Module):
 	def __init__ (self, in_channels, out_channels, residue_blocks,
 		base_depth, base_stack_filters, residue_depth=1, residue_stack_filters=[8, 16, 24],
-		freeze_base=False, frozen_res=0):
+		freeze_base=False, frozen_res=0, **args):
 		super().__init__()
 
 		self.freeze_base = freeze_base
