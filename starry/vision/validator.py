@@ -60,7 +60,7 @@ class Validator (Predictor):
 				image = np.uint8(image * 255)
 				#print(f'heatmap shape:{heatmap.shape} image shape:{image.shape} tarmap:{tarmap.shape}')
 
-				tarmap = np.uint8(tarmap * 255)
+				#tarmap = np.uint8(tarmap * 255)
 
 				if self.skip_perfect:
 					perfect = True
@@ -69,6 +69,7 @@ class Validator (Predictor):
 
 					for c, label in enumerate(self.compounder.labels):
 						tar = tarmap[c]
+						tar = np.uint8(np.clip(tar, 0, 1) * 255)
 						prd = heatmap[c]
 
 						points = contours.countHeatmaps(tar, prd, label, unit_size = unit_size)
@@ -108,7 +109,8 @@ class Validator (Predictor):
 					heatmap = pred.cpu().numpy()
 					heatmap = np.uint8(heatmap[0] * 255)
 					tarmap = target.cpu().numpy()
-					tarmap = np.uint8(tarmap[0] * 255)
+					#tarmap = np.uint8(tarmap[0] * 255)
+					tarmap = tarmap[0]
 
 				if self.chromatic:
 					scoreAnnoChromatic(image, tarmap, heatmap / 255.)
