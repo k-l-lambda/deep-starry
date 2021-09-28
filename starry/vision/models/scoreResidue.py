@@ -29,7 +29,7 @@ class ScoreResidueBlock (nn.Module):
 		x = self.zoom(x)
 		x = self.heatOut(x)
 
-		return torch.sigmoid(input + x)
+		return torch.sigmoid(prev + x)
 
 
 class ScoreResidueBlockBase (ScoreResidueBlock):

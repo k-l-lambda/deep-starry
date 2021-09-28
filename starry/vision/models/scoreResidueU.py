@@ -22,9 +22,9 @@ class ScoreResidueBlockUnet (nn.Module):
 
 	def forwardRes (self, input, prev):
 		x = torch.cat([input, prev], dim = 1)
-		x = self.backbone(input)
+		x = self.backbone(x)
 
-		return torch.sigmoid(input + x)
+		return torch.sigmoid(prev + x)
 
 
 class ScoreResidueBlockUnetBase (ScoreResidueBlockUnet):
