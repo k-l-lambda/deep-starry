@@ -4,6 +4,11 @@ TODO:
 
 
 
+2021.9.28
+
+	+	layout_predictor.py: upscale hotmap for interval measuring.
+
+
 2021.9.27
 
 	+	scoreResidueU.py: metric of contour added.
