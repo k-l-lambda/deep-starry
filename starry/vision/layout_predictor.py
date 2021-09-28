@@ -48,8 +48,13 @@ class PageLayout:
 
 	@staticmethod
 	def measureInterval (hotmap):
+		UPSCALE = 4
+
 		width = hotmap.shape[1]
-		interval_min, interval_max = round(width * 0.004), round(width * 0.025)
+		hotmap = cv2.resize(hotmap, (hotmap.shape[1] // UPSCALE, hotmap.shape[0] * UPSCALE))
+		#print('upscale hotmap:', hotmap.shape)
+
+		interval_min, interval_max = round(width * 0.002 * UPSCALE), round(width * 0.025 * UPSCALE)
 
 		brights = []
 		for y in range(interval_min, interval_max):
@@ -57,7 +62,18 @@ class PageLayout:
 			p = np.multiply(m1, m2)
 			brights.append(np.mean(p))
 
-		return interval_min + int(np.argmax(brights))
+		# minus scale x2, to weaken 2 intervals activation
+		brights = np.array([brights])
+		brights2 = cv2.resize(brights, (brights.shape[1] * 2, 1))
+
+		brights = brights.flatten()[interval_min:]
+		brights2 = brights2.flatten()[:len(brights)]
+
+		brights -= brights2 * 0.5
+		#print('interval_min:', interval_min * 2)
+		#print('brights:', brights)
+
+		return (interval_min * 2 + int(np.argmax(brights))) / UPSCALE
 
 
 class LayoutPredictor (Predictor):
