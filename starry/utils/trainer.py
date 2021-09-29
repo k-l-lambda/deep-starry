@@ -119,6 +119,8 @@ class Trainer:
 				if new_record or epoch_i == 0:
 					torch.save(checkpoint, self.config.localPath(model_name))
 					logging.info('	- [Info] The checkpoint file has been updated.')
+				else:
+					torch.save(checkpoint, self.config.localPath('latest.chkpt'))
 
 			if new_record or self.config['best'] is None:
 				self.config['best'] = model_name
