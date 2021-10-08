@@ -51,7 +51,7 @@ class PageLayout:
 		UPSCALE = 4
 
 		width = hotmap.shape[1]
-		hotmap = cv2.resize(hotmap, (hotmap.shape[1] // UPSCALE, hotmap.shape[0] * UPSCALE))
+		hotmap = cv2.resize(hotmap, (hotmap.shape[1] // UPSCALE, hotmap.shape[0] * UPSCALE), interpolation=cv2.INTER_LINEAR)
 		#print('upscale hotmap:', hotmap.shape)
 
 		interval_min, interval_max = round(width * 0.002 * UPSCALE), round(width * 0.025 * UPSCALE)
