@@ -128,7 +128,7 @@ def main ():
 	parser.add_argument('config', type=str)
 	parser.add_argument('data', type=str)
 	parser.add_argument('-m', '--multiple', type=int, default=1, help='how many samples for one staff')
-	parser.add_argument('-d', '--device', type=str, default='cuda')
+	parser.add_argument('-dv', '--device', type=str, default='cuda')
 	parser.add_argument('-s', '--split', type=str, default='0/1')
 	parser.add_argument('-r', '--render', action='store_true', help='by rendering target, rather than model prediciton')
 

@@ -148,13 +148,13 @@ class ScoreSemanticDual:
 
 			true_count = len([p for p in layer if p['value'] > 0])
 
-			confidence, error, precision, feasibility, fake_neg, fake_pos, true_neg, true_pos = statPoints(layer, true_count, neg_weight, pos_weight)
+			confidence, error, acc, feasibility, fake_neg, fake_pos, true_neg, true_pos = statPoints(layer, true_count, neg_weight, pos_weight)
 			total_error += error
 			total_true_count += true_count
 
 			details[label] = {
 				'confidence': confidence,
-				'precision': precision,
+				'accuracy': acc,
 				'feasibility': feasibility,
 				'true_count': true_count,
 				'errors': f'{fake_neg}-|+{fake_pos}'
