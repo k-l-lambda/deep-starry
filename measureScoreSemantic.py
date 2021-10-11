@@ -24,6 +24,11 @@ class MeasureDataset:
 		super().__init__()
 
 		self.model = loadModel(config['model'], postfix='Loss')
+
+		checkpoint = torch.load(config.localPath(config['best']), map_location=device)
+		self.model.load_state_dict(checkpoint['model'])
+		logging.info(f'checkpoint loaded: {config["best"]}')
+
 		self.model.to(device)
 		self.model.eval()
 

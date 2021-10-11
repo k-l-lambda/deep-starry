@@ -155,8 +155,10 @@ class ScoreWidgetsLoss (nn.Module):
 
 
 	def load_state_dict (self, state_dict):
-		self.channel_weights = state_dict['channel_weights'].cpu()
-		self.channel_weights_target = state_dict['channel_weights_target'].cpu()
+		if state_dict.get('channel_weights'):
+			self.channel_weights = state_dict['channel_weights'].cpu()
+		if state_dict.get('channel_weights_target'):
+			self.channel_weights_target = state_dict['channel_weights_target'].cpu()
 
 
 class ScoreWidgetsMask (ScoreWidgets):
