@@ -56,6 +56,7 @@ def main ():
 	parser.add_argument('-d', '--data', type=str, help='data configuration file')
 	parser.add_argument('-dv', '--device', type=str, default='cuda')
 	parser.add_argument('-s', '--splits', type=str, default='0/10')
+	parser.add_argument('-b', '--batch-size', type=int)
 	parser.add_argument('-o', '--confidence-table', action='store_true', help='Output confidence normalization table')
 
 	args = parser.parse_args()
@@ -67,6 +68,9 @@ def main ():
 		config['data'] = data_config['data']
 
 	config['data.splits'] = args.splits
+
+	if args.batch_size is not None:
+		config['data.batch_size'] = args.batch_size
 
 	def log (file, message):
 		logging.info(message)
