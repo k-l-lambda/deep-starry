@@ -73,7 +73,7 @@ class ScoreWidgetsLoss (nn.Module):
 	need_states = True
 
 
-	def __init__(self, labels, unit_size, out_channels, metric_quota=1000, channel_weights_rate=1e-4, clip_margin=12, **kw_args):
+	def __init__(self, labels, unit_size, out_channels, metric_quota=float('inf'), channel_weights_rate=1e-4, clip_margin=12, **kw_args):
 		super().__init__()
 
 		self.labels = labels

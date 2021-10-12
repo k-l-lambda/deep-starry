@@ -17,6 +17,7 @@ model:
       unet_init_width:      64
     channel_weights_rate:   1.e-5
     clip_margin:            12
+    metric_quota:           4000
 
 data:
   type:           RenderScore

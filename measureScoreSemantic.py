@@ -73,6 +73,7 @@ def main ():
 		config['data'] = data_config['data']
 
 	config['data.splits'] = args.splits
+	config['model.args.metric_quota'] = float('inf')
 
 	if args.batch_size is not None:
 		config['data.batch_size'] = args.batch_size
