@@ -69,18 +69,18 @@ class CameraPredictor (Predictor):
 			frame = frame[:, margin_x:-margin_x, :]
 		frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-		pieces = sliceFeature(np.expand_dims(frame, axis = 2), width = self.image_width)
-		pieces = np.array(list(pieces), dtype = np.float32) / 255.
+		pieces = sliceFeature(np.expand_dims(frame, axis=2), width=self.image_width)
+		pieces = np.array(list(pieces), dtype=np.float32) / 255.
 		pieces = np.moveaxis(pieces, 3, 1)
 		feature = torch.from_numpy(pieces).to(self.device)
 
-		origin = np.stack([frame, frame, frame], axis = 2)
+		origin = np.stack([frame, frame, frame], axis=2)
 		self.images[0].set_data(origin)
 
 		with torch.no_grad():
 			if self.show_mask or self.show_page:
 				mask = self.model(feature).cpu().numpy()
-				mask = splicePieces(mask, 8, keep_margin = True)[:, :, :frame.shape[1]]
+				mask = splicePieces(mask, 8, keep_margin=True)[:, :, :frame.shape[1]]
 				float_frame = frame / 255.
 				if mask.shape[0] == 2:
 					mask_plot = np.stack([mask[1, : , :] + float_frame, mask[0, : , :] + float_frame, float_frame], axis = 2)
@@ -91,7 +91,7 @@ class CameraPredictor (Predictor):
 
 			if self.show_semantic:
 				pred = self.model(feature).cpu().numpy()
-				pred = splicePieces(pred, 8, keep_margin = True)
+				pred = splicePieces(pred, 8, keep_margin=False)
 				pred = pred[:, :, :frame.shape[1]]
 				semantic_plot = composeChromaticMap(pred)
 
