@@ -14,6 +14,10 @@ from starry.vision.datasetViewer import gaugeToRGB, gaugeToFrameFeature
 
 
 
+# workaround cuda unavailable issue
+torch.cuda.is_available()
+
+
 class CameraPredictor (Predictor):
 	def __init__ (self, args, request_resolution=(512, 192)):
 		super().__init__(device=args.device)
