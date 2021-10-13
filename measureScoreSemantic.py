@@ -89,10 +89,11 @@ def main ():
 
 		details = list(stat['details'].items())
 		log(file, f'{"LABEL":<24}\t{"ERRORS":<12}\tTRUE_COUNT\tACCURACY\tFEASIBILITY\tCONFIDENCE')
-		lines = list(map(lambda item: f'{item[0]:<24}\t{item[1]["errors"]:<12}\t{item[1]["true_count"]}\t\t{item[1]["accuracy"]:.3f}\t\t{item[1]["feasibility"]:.3f}\t\t{item[1]["confidence"]:.4f}', details))
+		lines = list(map(lambda item: f'{item[0]:<24}\t{item[1]["errors"]:<12}\t{item[1]["true_count"]}\t\t{item[1]["accuracy"]}\t\t{item[1]["feasibility"]:.3f}\t\t{item[1]["confidence"]:.4f}', details))
 		log(file, '\n'.join(lines))
 
 		log(file, f'accuracy: {stat["accuracy"]}')
+		log(file, f'total_error_rate: {stat["total_error_rate"]}')
 		log(file, f'total_true_count: {stat["total_true_count"]}')
 
 	if args.confidence_table:

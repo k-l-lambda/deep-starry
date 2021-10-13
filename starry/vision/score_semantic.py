@@ -3,7 +3,7 @@ import math
 import numpy as np
 import re
 
-from .contours import detectPoints, detectVLines, detectRectangles, detectBoxes, labelToDetector, countHeatmaps, statPoints
+from .contours import detectPoints, detectVLines, detectRectangles, detectBoxes, labelToDetector, countHeatmaps, statPoints, logAccuracy
 from .scoreSemanticsWeights import LOSS_WEIGHTS
 
 
@@ -162,11 +162,12 @@ class ScoreSemanticDual:
 
 			loss_weights.append(1 - feasibility)
 
-		accuracy = -math.log(max(total_error / max(total_true_count, 1), 1e-100))
+		accuracy = logAccuracy(total_error, total_true_count)
 
 		return {
 			'total_error': total_error,
 			'total_true_count': total_true_count,
+			'total_error_rate': total_error / total_true_count,
 			'accuracy': accuracy,
 			'details': details,
 			'loss_weights': np.array(loss_weights),

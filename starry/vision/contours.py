@@ -10,6 +10,13 @@ import cv2
 POINT_RADIUS_MAX = 8
 
 
+def logAccuracy (errors, total) -> str:
+	zero = errors == 0
+	value = -math.log(max(errors, 1) / max(total, 1))
+
+	return f'{value:.3f}{"+" if zero else ""}'
+
+
 def detectPoints(heatmap, vertical_units = 24, otsu = False):
 	unit = heatmap.shape[0] / vertical_units
 	y0 = heatmap.shape[0] / 2.0
@@ -298,10 +305,9 @@ def statPoints (points, true_count, negative_weight = 1, positive_weight = 1):
 	error = fake_negative_count * negative_weight + fake_positive_count * positive_weight
 	feasibility = 1 - error / true_count
 
-	pe = max((fake_negative_count + fake_positive_count) / true_count, 1e-100)
-	precision = -math.log(pe)
+	acc = logAccuracy(fake_negative_count + fake_positive_count, true_count)
 
-	return confidence, error, precision, feasibility, fake_negative_count, fake_positive_count, true_negative_count, true_positive_count
+	return confidence, error, acc, feasibility, fake_negative_count, fake_positive_count, true_negative_count, true_positive_count
 
 
 class Compounder:
