@@ -30,7 +30,7 @@ def main ():
 	config = Configuration(args.config)
 
 	if args.data:
-		data_config = Configuration.createdOrLoad(args.data, volatile=True)
+		data_config = Configuration.createOrLoad(args.data, volatile=True)
 		config['data'] = data_config['data']
 
 	if args.splits is not None:

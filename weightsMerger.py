@@ -21,7 +21,7 @@ if __name__ == "__main__":
 
 	args = parser.parse_args()
 
-	main = Configuration.createdOrLoad(args.main)
+	main = Configuration.createOrLoad(args.main)
 	increment = Configuration(args.increment)
 
 	main_model, checkpoint = loadModelAndWeights(main, main['best'])

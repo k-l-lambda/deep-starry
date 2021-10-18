@@ -23,7 +23,7 @@ def main ():
 
 	args = parser.parse_args()
 
-	config = Configuration.createdOrLoad(args.config)
+	config = Configuration.createOrLoad(args.config)
 
 	logging.info('*	Loading data.')
 	train, val = loadDataset(config, data_dir=VISION_DATA_DIR, device=config['trainer.device'])

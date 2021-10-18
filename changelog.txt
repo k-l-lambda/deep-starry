@@ -5,6 +5,11 @@ TODO:
 
 
 
+2021.10.18
+
+	+	checkpointConverter.py: compat with new checkpoint format.
+
+
 2021.10.11
 
 	+	measureScoreSemantic.py created.
