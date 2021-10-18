@@ -1,5 +1,5 @@
 
-id:     score-vison/{date}-{filename}
+id:     score-vision/{date}-{filename}
 
 model:
   type:                     ScoreResidue
@@ -12,10 +12,43 @@ model:
     freeze_base:            False
 
 data:
-  trans:                    [HWC2CHW, Tar_STDgray, Tar_HWC2CHW]
-  compound_labels:
-    list:
-      - label:              box_Staff
-        channels:           [1]
-      - label:              box_System
-        channels:           [0, 1]
+  type:           ScorePage
+  root:           testPage/
+  splits:         '*1,2,3,4,5,6,7,8/10:0/10'
+  batch_size:     1
+  args:
+    trans:                    [HWC2CHW, Tar_STDgray, Tar_HWC2CHW]
+    compound_labels:
+      list:
+        - label:              box_Staff
+          channels:           [1]
+        - label:              box_System
+          channels:           [0, 1]
+    augmentor:
+      tinter:
+        fore_pow:         6.
+        fore_sigma:       0.6
+        fore_scale_range: [40, 100]
+        fore_blur_range:  [0, 1]
+        back_pow:         8.
+        back_sigma:       0.14
+        back_scale_range: [0.02, 0.2]
+        back_blur_range:  [0, 8]
+      gaussian_noise:
+        sigma:            0.03
+      affine:
+        padding_scale:    1.06
+        angle_sigma:      1.
+        scale_sigma:      0.2
+        scale_mu:         0.6
+        scale_limit:      1.
+        size_limit:       780
+      gaussian_blur:
+        sigma:            1.5
+      flip_mark:
+        intensity_range:  [0, 0.1]
+      distortion:
+        scale:            2
+        scale_sigma:      0.4
+        intensity:        1.6
+        intensity_sigma:  0.6

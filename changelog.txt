@@ -1,7 +1,101 @@
 
 TODO:
-	semantic picking model
+	construct score topology data by semantic predictor
+	semantic rectification model
 
+
+
+2021.10.11
+
+	+	measureScoreSemantic.py created.
+
+
+2021.9.28
+
+	+	layout_predictor.py: upscale hotmap for interval measuring.
+
+
+2021.9.27
+
+	+	scoreResidueU.py: metric of contour added.
+
+	+	vision/models/scoreResidueU.py created.
+
+
+2021.9.26
+
+	+	vision/data/scoreGauge.py created.
+	+	vision/data/scorePage.py created.
+
+	+	score_widgets.py: added option of wide_mask.
+
+
+2021.9.23
+
+	+	utils/trainer.py: Moniter added.
+
+	+	utils/trainer.py: loss model states updating added.
+
+
+2021.9.22
+
+	+	score_widgets.py: model class of ScoreWidgetsLoss added.
+
+
+2021.9.18
+
+	+	weightsMerger.py created.
+
+	+	utils/optim.py: ExpScheduler added.
+
+	+	trainVision.py created.
+
+	+	vision/data: dataset class of ScoreMask added.
+
+
+2021.9.17
+
+	+	utils/trainer.py created.
+
+	+	utils/optim.py created.
+
+
+2021.9.12
+
+	+	topology/modules.py: added protection in JaggedLoss.
+
+
+2021.9.10
+
+	+	faultySemanticGen.py: option of by_render added.
+
+
+2021.9.9
+
+	+	faultySemanticGen.py: statistics saving added.
+
+	+	topology/modules.py: parameter of temperature added.
+
+
+2021.9.8
+
+	+	faultySemanticGen.py: fault json file saving implemented.
+
+	+	graphScore.py: argument of multiple added.
+
+	+	score_semantic.py: ScoreSemantic.discern added.
+
+
+2021.9.6
+
+	+	validateVision.py created.
+
+
+2021.9.3
+
+	+	viewDataset.py created.
+
+	+	starry/vision/data folder created.
 
 
 2021.8.28

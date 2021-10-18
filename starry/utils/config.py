@@ -12,7 +12,12 @@ TRAINING_DIR = os.environ.get('TRAINING_DIR', 'training')
 
 class Configuration:
 	@staticmethod
-	def create (file_path):
+	def createdOrLoad (config_path, volatile=False):
+		return Configuration.create(config_path, volatile=volatile) if config_path.endswith('.yaml') else Configuration(config_path, volatile=volatile)
+
+
+	@staticmethod
+	def create (file_path, volatile=False):
 		filename = os.path.basename(file_path)
 		filename = os.path.splitext(filename)[0]
 		if filename.endswith('.local'):
@@ -25,23 +30,36 @@ class Configuration:
 		dir = os.path.join(TRAINING_DIR, data['id'])
 		os.makedirs(dir, exist_ok=True)
 
-		return Configuration(dir, data)
+		return Configuration(dir, data, volatile=volatile)
 
 
-	def __init__ (self, dir, data=None):
+	def __init__ (self, dir, data=None, volatile=False):
 		self.dir = dir
 		self.data = data
 
 		if data is None:
 			self.load()
+			self.preprocess()
 		else:
-			self.save()
+			self.preprocess()
+
+			if not volatile:
+				self.save()
 
 		if self['env'] is not None:
 			for key, value in self['env'].items():
 				if os.environ.get(key) is None:
 					os.environ[key] = str(value)
 					#print('env set:', key, value)
+
+
+	def preprocess (self):
+		copy_fileds = self.data.get('_copy_fileds')
+		if copy_fileds is not None:
+			for fields in copy_fileds:
+				field_target, field_source = fields
+				self[field_target] = self[field_source]
+			self.data.pop('_copy_fileds')
 
 
 	def localPath (self, name):

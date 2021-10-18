@@ -6,6 +6,7 @@ import math
 import PIL.Image
 import cv2
 import numpy as np
+import random
 
 
 
@@ -58,9 +59,9 @@ def sliceFeature (source, width, overlapping=0.25, padding=False):	# source: (he
 		yield sliced_source
 
 
-def splicePieces (pieces, magin_divider, keep_margin = False):	# pieces: (batch, channel, height, width)
+def splicePieces (pieces, margin_divider, keep_margin=False, pad_margin=False):	# pieces: (batch, channel, height, width)
 	piece_height, piece_width = pieces.shape[2:]
-	margin_width = piece_height // magin_divider
+	margin_width = piece_height // margin_divider
 	patch_width = piece_width - margin_width * 2
 	result = np.zeros((pieces.shape[1], pieces.shape[2], patch_width * pieces.shape[0]), dtype=np.float32)
 
@@ -69,13 +70,17 @@ def splicePieces (pieces, magin_divider, keep_margin = False):	# pieces: (batch,
 
 	if keep_margin:
 		return np.concatenate((pieces[0, :, :, :margin_width], result, pieces[-1, :, :, -margin_width:]), axis = 2)
+	elif pad_margin:
+		entire = np.zeros((pieces.shape[1], pieces.shape[2], patch_width * pieces.shape[0] + margin_width * 2), dtype=np.float32)
+		entire[:, :, margin_width:-margin_width] = result
+		return entire
 
 	return result	# (channel, height, width)
 
 
-def softSplicePieces (pieces, magin_divider):
+def softSplicePieces (pieces, margin_divider):
 	batches, channels, piece_height, piece_width = pieces.shape
-	overlap_width = piece_height * 2 // magin_divider
+	overlap_width = piece_height * 2 // margin_divider
 	segment_width = piece_width - overlap_width
 
 	slope = np.arange(overlap_width, dtype = np.float32) / overlap_width
@@ -105,6 +110,51 @@ def spliceOutputTensor (tensor, keep_margin=False, soft=False, margin_divider=MA
 		return softSplicePieces(arr, margin_divider)
 
 	return splicePieces(arr, margin_divider, keep_margin=keep_margin)
+
+
+def randomSliceImage (source, target, width):	# (256, w, 3), (256, w, labels)
+	ratio = source.shape[0] // target.shape[0]
+	tw = width // ratio
+
+	sliced_source, sliced_target = None, None
+
+	# fill zeros for right residue
+	if target.shape[1] < tw:
+		sliced_target = np.zeros((target.shape[0], tw, target.shape[2]), dtype=np.float32)
+		sliced_target[:, :target.shape[1], :] = target
+
+		sliced_source = np.ones((source.shape[0], width, source.shape[2]), dtype=np.float32)
+		sliced_source[:, :source.shape[1], :] = source
+	else:
+		target_width = target.shape[1]
+		target_start = random.randint(0, target_width - tw)
+		source_start = target_start * ratio
+
+		sliced_target = target[:, target_start:target_start + tw, :]
+		sliced_source = source[:, source_start:source_start + width, :]
+
+	return sliced_source, sliced_target
+
+
+def iterateSliceImage (source, target, width, overlapping=0.25, crop_margin=0):
+	ratio = source.shape[0] // target.shape[0]
+	tw = width // ratio
+	step = math.floor(width - overlapping * source.shape[0])
+
+	for x in range(crop_margin, source.shape[1] - crop_margin, step):
+		sliced_source = np.ones((source.shape[0], width, source.shape[2]), dtype=np.float32)
+		sliced_target = np.zeros((target.shape[0], tw, target.shape[2]), dtype=np.float32)
+
+		tx = x // ratio
+		if x + width <= source.shape[1]:
+			sliced_source = source[:, x:x + width, :]
+			sliced_target = target[:, tx:tx + tw, :]
+		else:
+			# fill zeros for right residue
+			sliced_source[:, :source.shape[1] - x, :] = source[:, x:, :]
+			sliced_target[:, :target.shape[1] - tx, :] = target[:, tx:, :]
+
+		yield sliced_source, sliced_target
 
 
 def maskToAlpha (mask, frac_y = False):	# mask: [fore(h, w), back(h, w)]

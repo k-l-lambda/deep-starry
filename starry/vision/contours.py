@@ -2,12 +2,19 @@
 import re
 import math
 import numpy as np
+import torch
 import cv2
-import yaml
 
 
 
 POINT_RADIUS_MAX = 8
+
+
+def logAccuracy (errors, total) -> str:
+	zero = errors == 0
+	value = -math.log(max(errors, 1) / max(total, 1))
+
+	return f'{value:.3f}{"+" if zero else ""}'
 
 
 def detectPoints(heatmap, vertical_units = 24, otsu = False):
@@ -66,7 +73,7 @@ def detectVLines (heatmap, vertical_units = 24, otsu = False):
 				confidence += heatmap[py, px] / 255.
 
 		length = max(height, 2.5)
-		confidence /= length
+		confidence /= length * 0.8
 		#print('confidence:', confidence)
 
 		lines.append({
@@ -155,12 +162,14 @@ def detectBoxes (heatmap, vertical_units = 24, otsu = False):
 	return rects
 
 
-POINT_NEAR_DISTANCE = 0.2
+POINT_NEAR_DISTANCE = 0.3
 
-LINE_TOLERANCE_X = 0.3
-LINE_TOLERANCE_Y = 0.5
+LINE_TOLERANCE_X = 0.5
+LINE_TOLERANCE_Y = 1.2
 
 RECT_TOLERANCE = 0.8
+
+BOX_POINTS_TOLERANCE = 10
 
 
 def findNearPoint (point, points):
@@ -215,7 +224,7 @@ def findBox (rect, rects):
 	for rc in rects:
 		b = rectPoints(rc)
 		distance = pointsDistance(b, box)
-		if distance < 6 * 6:
+		if distance < BOX_POINTS_TOLERANCE * BOX_POINTS_TOLERANCE:
 			return rc
 
 	return None
@@ -233,12 +242,10 @@ def labelToDetector (label):
 
 
 def pointBrief (point):
-	info = {'x': point['x'], 'y': point['y']}
-	if point.get('extension') is not None:
-		info['y1'] = point['extension'].get('y1')
-		info['y2'] = point['extension'].get('y2')
-		info['width'] = point['extension'].get('width')
-		info['height'] = point['extension'].get('height')
+	info = {
+		'x': point['x'], 'y': point['y'],
+		**point.get('extension', {}),
+	}
 
 	return info
 
@@ -292,35 +299,37 @@ def statPoints (points, true_count, negative_weight = 1, positive_weight = 1):
 
 	true_count = max(true_count, 1)
 
+	true_positive_count = len(points) - fake_positive_count
+	true_negative_count = len([p for p in points if p['confidence'] < confidence and p['value'] < 0])
+
 	error = fake_negative_count * negative_weight + fake_positive_count * positive_weight
 	feasibility = 1 - error / true_count
 
-	pe = max((fake_negative_count + fake_positive_count) / true_count, 1e-100)
-	precision = -math.log(pe)
+	acc = logAccuracy(fake_negative_count + fake_positive_count, true_count)
 
-	return confidence, error, precision, feasibility, fake_negative_count, fake_positive_count
+	return confidence, error, acc, feasibility, fake_negative_count, fake_positive_count, true_negative_count, true_positive_count
 
 
 class Compounder:
 	def __init__ (self, config):
-		self.list = config.DATASET_PROTOTYPE.COMPOUND_LABELS.LIST if hasattr(config.DATASET_PROTOTYPE.COMPOUND_LABELS, 'LIST') else None
-		self.labels = list(map(lambda item: item['LABEL'], self.list)) if self.list else config.DATASET_PROTOTYPE.LABELS
+		self.list = config['list'] or config['model.args.compounder.list']
+		self.labels = list(map(lambda item: item['label'], self.list)) if self.list else config['data.args.labels']
 
-	def compound (self, image):	# (channel, h, w)
+	def compound (self, image):	# (n, channel, h, w)
 		if self.list is not None:
 			shape = image.shape
 			channels = len(self.list)
-			result = np.zeros((channels, shape[1], shape[2]), dtype=np.uint8)
+			result = torch.zeros((shape[0], channels, shape[2], shape[3]), device=image.device)
 			for l in range(channels):
-				for c in self.list[l]['CHANNELS']:
-					result[l, :, :] = np.maximum(result[l, :, :], image[c, :, :])
+				for c in self.list[l]['channels']:
+					result[:, l, :, :] = torch.max(result[:, l, :, :], image[:, c, :, :])
 
 			return result
 
 		return image
 
 
-class Contour:
+'''class Contour:
 	def __init__(self, config):
 		self.name = 'contour'
 
@@ -378,4 +387,4 @@ class Contour:
 		self.layers = [[] for label in self.compounder.labels]
 		self.true_count = 0
 
-		return -math.log(max(total_error / max(total_true_count, 1), 1e-100))
+		return -math.log(max(total_error / max(total_true_count, 1), 1e-100))'''

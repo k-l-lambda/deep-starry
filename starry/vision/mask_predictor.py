@@ -27,9 +27,11 @@ class MaskPredictor (Predictor):
 
 		self.loadModel(config)
 
-		self.slicing_width = config['data.slicing_width']
+		data_args = config['data.args'] or config['data']
 
-		trans = [t for t in config['data.trans'] if not t.startswith('Tar_')]
+		self.slicing_width = data_args['slicing_width']
+
+		trans = [t for t in data_args['trans'] if not t.startswith('Tar_')]
 		self.composer = transform.Composer(trans)
 
 

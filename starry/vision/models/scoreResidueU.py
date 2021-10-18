@@ -1,38 +1,33 @@
 
+import math
 import torch
 import torch.nn as nn
 
-from ...flu_net import HeatMapOut, ConIn, ZoomInOutSeq
+from ...unet import UNet
+from ..score_semantic import ScoreSemanticDual
+from ..contours import Compounder
 
 
 
-class ScoreResidueBlock (nn.Module):
-	def __init__ (self, in_channels=1, out_channels=3, depth=2, stack_filters=[8, 16, 24]):
+class ScoreResidueBlockUnet (nn.Module):
+	def __init__ (self, in_channels=1, out_channels=3, depth=4, init_width=64):
 		super().__init__()
 
-		self.conIn = ConIn(stack_filters, channels=in_channels)
-		self.zoom = ZoomInOutSeq(depth, stack_filters)
-		self.heatOut = HeatMapOut(stack_filters, out_channels)
+		self.backbone = UNet(in_channels, out_channels, depth=depth, init_width=init_width)
 
 	def forwardBase (self, input):
-		x = self.conIn(input)
-		x = self.zoom(x)
-		x = self.heatOut(x)
+		x = self.backbone(input)
 
 		return torch.sigmoid(x)
 
-	def forwardRes (self, xs):
-		input, prev = xs
-
+	def forwardRes (self, input, prev):
 		x = torch.cat([input, prev], dim = 1)
-		x = self.conIn(x)
-		x = self.zoom(x)
-		x = self.heatOut(x)
+		x = self.backbone(x)
 
-		return torch.sigmoid(input + x)
+		return torch.sigmoid(prev + x)
 
 
-class ScoreResidueBlockBase (ScoreResidueBlock):
+class ScoreResidueBlockUnetBase (ScoreResidueBlockUnet):
 	def __init__ (self, **args):
 		super().__init__(**args)
 
@@ -40,26 +35,26 @@ class ScoreResidueBlockBase (ScoreResidueBlock):
 		return self.forwardBase(input)
 
 
-class ScoreResidueBlockRes (ScoreResidueBlock):
+class ScoreResidueBlockUnetRes (ScoreResidueBlockUnet):
 	def __init__ (self, **args):
 		super().__init__(**args)
 
-	def forward (self, input):
-		return self.forwardRes(input)
+	def forward (self, input, prev):
+		return self.forwardRes(input, prev)
 
 
-class ScoreResidue (nn.Module):
+class ScoreResidueU (nn.Module):
 	def __init__ (self, in_channels, out_channels, residue_blocks,
-		base_depth, base_stack_filters, residue_depth=1, residue_stack_filters=[8, 16, 24],
+		base_depth, base_init_width, residue_depth=4, residue_init_width=64,
 		freeze_base=False, frozen_res=0, **args):
 		super().__init__()
 
 		self.freeze_base = freeze_base
 		self.frozen_res = frozen_res
 
-		self.base_block = ScoreResidueBlockBase(in_channels=in_channels, out_channels=out_channels, depth=base_depth, stack_filters=base_stack_filters)
+		self.base_block = ScoreResidueBlockUnetBase(in_channels=in_channels, out_channels=out_channels, depth=base_depth, init_width=base_init_width)
 		self.res_blocks = nn.ModuleList(modules=[
-			ScoreResidueBlockRes(in_channels=in_channels + out_channels, out_channels=out_channels, depth=residue_depth, stack_filters=residue_stack_filters)
+			ScoreResidueBlockUnetRes(in_channels=in_channels + out_channels, out_channels=out_channels, depth=residue_depth, init_width=residue_init_width)
 				for i in range(residue_blocks)
 		])
 
@@ -75,19 +70,9 @@ class ScoreResidue (nn.Module):
 		x = self.base_block(input)
 
 		for block in self.res_blocks:
-			x = block((input, x))
+			x = block(input, x)
 
 		return x
-
-	'''def loss (self, input, target, loss_func):
-		x = self.base_block(input)
-		loss = loss_func(x, target)
-
-		for block in self.res_blocks:
-			x = block((input, x))
-			loss += loss_func(x, target)
-
-		return loss'''
 
 	# overload
 	def state_dict (self, destination=None, prefix='', keep_vars=False):
@@ -120,7 +105,43 @@ class ScoreResidue (nn.Module):
 			block.train(mode and not frozen)
 
 
-class ScoreResidueInspection (ScoreResidue):
+class ScoreResidueULoss (nn.Module):
+	def __init__(self, compounder, **kw_args):
+		super().__init__()
+
+		self.deducer = ScoreResidueU(**kw_args)
+		self.compounder = Compounder(compounder)
+
+	def forward (self, batch):
+		feature, target = batch
+		pred = self.deducer(feature)
+		loss = nn.functional.binary_cross_entropy(pred, target)
+
+		metric = {'acc': -math.log(loss.item())}
+
+		if not self.training:
+			compound_pred = self.compounder.compound(pred)
+			metric['semantic'] = ScoreSemanticDual.create(self.compounder.labels, 1, compound_pred, target)
+
+		return loss, metric
+
+
+	def stat (self, metrics, n_batch):
+		result = {
+			'acc': metrics['acc'] / n_batch,
+		}
+
+		semantic = metrics.get('semantic')
+		if semantic is not None:
+			stats = metrics['semantic'].stat()
+			#self.stats = stats
+
+			result['contour'] = stats['accuracy']
+
+		return result
+
+
+class ScoreResidueUInspection (ScoreResidueU):
 	def __init__ (self, **kw_args):
 		super().__init__(**kw_args)
 

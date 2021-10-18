@@ -51,7 +51,7 @@ class PageLayout:
 		UPSCALE = 4
 
 		width = hotmap.shape[1]
-		hotmap = cv2.resize(hotmap, (hotmap.shape[1] // UPSCALE, hotmap.shape[0] * UPSCALE))
+		hotmap = cv2.resize(hotmap, (hotmap.shape[1] // UPSCALE, hotmap.shape[0] * UPSCALE), interpolation=cv2.INTER_LINEAR)
 		#print('upscale hotmap:', hotmap.shape)
 
 		interval_min, interval_max = round(width * 0.002 * UPSCALE), round(width * 0.025 * UPSCALE)
@@ -86,7 +86,9 @@ class LayoutPredictor (Predictor):
 
 		self.loadModel(config)
 
-		trans = [t for t in config['data.trans'] if not t.startswith('Tar_')]
+		data_args = config['data.args'] or config['data']
+
+		trans = [t for t in data_args['trans'] if not t.startswith('Tar_')]
 		self.composer = transform.Composer(trans)
 
 

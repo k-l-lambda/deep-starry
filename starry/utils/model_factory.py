@@ -1,4 +1,8 @@
 
+import torch
+
+
+
 model_dict = None
 
 
@@ -16,16 +20,18 @@ def registerModels ():
 		tpm.TransformJointerHV_EDD, tpm.TransformJointerHV_EDDLoss,
 		tpm.TransformSieveJointerH, tpm.TransformSieveJointerHLoss,
 		tpm.TransformSieveJointerHV, tpm.TransformSieveJointerHVLoss,
-		vm.ScoreWidgets, vm.ScoreWidgetsMask, vm.ScoreWidgetsInspection,
+		vm.ScoreWidgets, vm.ScoreWidgetsInspection, vm.ScoreWidgetsLoss,
+		vm.ScoreWidgetsMask, vm.ScoreWidgetsMaskLoss,
 		vm.ScoreRegression,
 		vm.ScoreResidue, vm.ScoreResidueInspection,
+		vm.ScoreResidueU, vm.ScoreResidueUInspection, vm.ScoreResidueULoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])
 
 
 
-def loadModel (config, postfix = ''):
+def loadModel (config, postfix=''):
 	global model_dict
 	if model_dict is None:
 		registerModels()
@@ -38,3 +44,15 @@ def loadModel (config, postfix = ''):
 	model_class = model_dict[model_type]
 
 	return model_class(**config['args'])
+
+
+
+def loadModelAndWeights (config, checkpoint_name=None, device='cpu'):
+	model = loadModel(config['model'])
+
+	checkpoint = {}
+	if checkpoint_name is not None:
+		checkpoint = torch.load(config.localPath(checkpoint_name), map_location=device)
+		model.load_state_dict(checkpoint['model'])
+
+	return model, checkpoint
