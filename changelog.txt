@@ -5,6 +5,11 @@ TODO:
 
 
 
+2021.10.21
+
+	+	utils/trainer.py: save latest.chkpt before validation epoch.
+
+
 2021.10.18
 
 	+	checkpointConverter.py: compat with new checkpoint format.
