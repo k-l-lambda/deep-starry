@@ -1,12 +1,12 @@
 
 import os
 import sys
-import io
 import platform
 import numpy as np
 from fs import open_fs
 from fs.copy import copy_file
 import PIL.Image
+import logging
 
 
 
@@ -54,12 +54,15 @@ class CachedImageReader:
 
 
 	def cache (self, path):
-		path = _S(path)
-		dir = _S(os.path.dirname(path))
-		if not self.cache_reader.fs.exists(dir):
-			self.cache_reader.fs.makedir(dir)
+		try:
+			path = _S(path)
+			dir = _S(os.path.dirname(path))
+			if not self.cache_reader.fs.exists(dir):
+				self.cache_reader.fs.makedir(dir)
 
-		copy_file(self.source_reader.fs, path, self.cache_reader.fs, path)
+			copy_file(self.source_reader.fs, path, self.cache_reader.fs, path)
+		except:
+			logging.warn('error to cache file: %s, %s', path, sys.exc_info()[1])
 
 
 	def writeImage (self, path, data):
