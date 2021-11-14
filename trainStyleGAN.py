@@ -1,11 +1,22 @@
 
+import sys
+import os
+import logging
+
 from starry.stylegan.training_loop import training_loop
 
 
 
+logging.basicConfig(stream=sys.stdout, filename='/safe/training/stylegan/test/log.txt', level=logging.INFO)
+
+
+
 if __name__ == '__main__':
+	run_dir = '/safe/training/stylegan/test'
+	os.makedirs(run_dir)
+
 	training_loop(
-		run_dir='/safe/training/stylegan/test',
+		run_dir=run_dir,
 		training_set_kwargs={
 			'class_name': 'starry.stylegan.dataset.ImageFolderDataset',
 			'path': '/fast/data/metfaces/metfaces-256x256.zip',

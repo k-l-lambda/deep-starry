@@ -134,11 +134,11 @@ def training_loop(
 	training_set_sampler = misc.InfiniteSampler(dataset=training_set, rank=rank, num_replicas=num_gpus, seed=random_seed)
 	training_set_iterator = iter(torch.utils.data.DataLoader(dataset=training_set, sampler=training_set_sampler, batch_size=batch_size//num_gpus, **data_loader_kwargs))
 	if rank == 0:
-		logging.info()
+		logging.info('')
 		logging.info('Num images: %d', len(training_set))
 		logging.info('Image shape: %s', training_set.image_shape)
 		logging.info('Label shape: %s', training_set.label_shape)
-		logging.info()
+		logging.info('')
 
 	# Construct networks.
 	if rank == 0:
@@ -238,7 +238,7 @@ def training_loop(
 	# Train.
 	if rank == 0:
 		logging.info(f'Training for {total_kimg} kimg...')
-		logging.info()
+		logging.info('')
 	cur_nimg = resume_kimg * 1000
 	cur_tick = 0
 	tick_start_nimg = cur_nimg
@@ -341,7 +341,7 @@ def training_loop(
 		if (not done) and (abort_fn is not None) and abort_fn():
 			done = True
 			if rank == 0:
-				logging.info()
+				logging.info('')
 				logging.info('Aborting...')
 
 		# Save image snapshot.
@@ -417,7 +417,7 @@ def training_loop(
 
 	# Done.
 	if rank == 0:
-		logging.info()
+		logging.info('')
 		logging.info('Exiting...')
 
 #----------------------------------------------------------------------------
