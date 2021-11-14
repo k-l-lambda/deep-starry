@@ -7,7 +7,7 @@ from starry.stylegan.training_loop import training_loop
 
 
 
-logging.basicConfig(filename='/safe/training/stylegan/test/log.txt', level=logging.INFO)
+logging.basicConfig(filename='/safe/training/stylegan/test/log.txt', format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 
@@ -30,7 +30,7 @@ if __name__ == '__main__':
 		data_loader_kwargs={
 			'pin_memory': True,
 			'prefetch_factor': 2,
-			'num_workers': 3,
+			'num_workers': 1,	# multiple workers result in zipfile reading CRC-32 error?
 		},
 		G_kwargs={
 			'class_name': 'starry.stylegan.models.networks_stylegan3.Generator',

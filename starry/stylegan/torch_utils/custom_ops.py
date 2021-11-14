@@ -66,7 +66,7 @@ def get_plugin(module_name, sources, headers=None, source_dir=None, **build_kwar
 	if verbosity == 'full':
 		logging.info(f'Setting up PyTorch plugin "{module_name}"...')
 	elif verbosity == 'brief':
-		logging.info(f'Setting up PyTorch plugin "{module_name}"... ', end='', flush=True)
+		logging.info(f'Setting up PyTorch plugin "{module_name}"... ')
 	verbose_build = (verbosity == 'full')
 
 	# Compile and load.
