@@ -7,7 +7,7 @@ if __name__ == '__main__':
 	training_loop(
 		run_dir='/safe/training/stylegan/test',
 		training_set_kwargs={
-			'class_name': 'training.dataset.ImageFolderDataset',
+			'class_name': 'starry.stylegan.dataset.ImageFolderDataset',
 			'path': '/fast/data/metfaces/metfaces-256x256.zip',
 			'use_labels': False,
 			'max_size': 1336,
@@ -21,7 +21,7 @@ if __name__ == '__main__':
 			'num_workers': 3,
 		},
 		G_kwargs={
-			'class_name': 'training.networks_stylegan3.Generator',
+			'class_name': 'starry.stylegan.models.networks_stylegan3.Generator',
 			'z_dim': 512,
 			'w_dim': 512,
 			'mapping_kwargs': {
@@ -34,7 +34,7 @@ if __name__ == '__main__':
 			'use_radial_filters': True,
 		},
 		D_kwargs={
-			'class_name': 'training.networks_stylegan2.Discriminator',
+			'class_name': 'starry.stylegan.models.networks_stylegan2.Discriminator',
 			'block_kwargs': {
 				'freeze_layers': 0
 			},
@@ -58,7 +58,7 @@ if __name__ == '__main__':
 			'lr': 0.002,
 		},
 		augment_kwargs={
-			'class_name': 'training.augment.AugmentPipe',
+			'class_name': 'starry.stylegan.augment.AugmentPipe',
 			'xflip': 1,
 			'rotate90': 1,
 			'xint': 1,
@@ -73,7 +73,7 @@ if __name__ == '__main__':
 			'saturation': 1,
 		},
 		loss_kwargs             = {
-			'class_name': 'training.loss.StyleGAN2Loss',
+			'class_name': 'starry.stylegan.models.loss.StyleGAN2Loss',
 			'r1_gamma': 6.6,
 			'blur_init_sigma': 10,
 			'blur_fade_kimg': 100.0,
