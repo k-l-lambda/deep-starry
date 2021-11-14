@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import uuid
+import logging
 
 import torch
 import torch.utils.cpp_extension
@@ -63,9 +64,9 @@ def get_plugin(module_name, sources, headers=None, source_dir=None, **build_kwar
 
 	# Print status.
 	if verbosity == 'full':
-		print(f'Setting up PyTorch plugin "{module_name}"...')
+		logging.info(f'Setting up PyTorch plugin "{module_name}"...')
 	elif verbosity == 'brief':
-		print(f'Setting up PyTorch plugin "{module_name}"... ', end='', flush=True)
+		logging.info(f'Setting up PyTorch plugin "{module_name}"... ', end='', flush=True)
 	verbose_build = (verbosity == 'full')
 
 	# Compile and load.
@@ -136,14 +137,14 @@ def get_plugin(module_name, sources, headers=None, source_dir=None, **build_kwar
 
 	except:
 		if verbosity == 'brief':
-			print('Failed!')
+			logging.warn('Failed!')
 		raise
 
 	# Print status and add to cache dict.
 	if verbosity == 'full':
-		print(f'Done setting up PyTorch plugin "{module_name}".')
+		logging.info(f'Done setting up PyTorch plugin "{module_name}".')
 	elif verbosity == 'brief':
-		print('Done.')
+		logging.info('Done.')
 	_cached_plugins[module_name] = module
 	return module
 

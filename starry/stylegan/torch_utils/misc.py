@@ -4,6 +4,7 @@ import contextlib
 import numpy as np
 import torch
 import warnings
+import logging
 
 from .. import dnnlib
 
@@ -251,10 +252,10 @@ def print_module_summary(module, inputs, max_nesting=3, skip_redundant=True):
 
 	# Print table.
 	widths = [max(len(cell) for cell in column) for column in zip(*rows)]
-	print()
+	logging.info('')
 	for row in rows:
-		print('  '.join(cell + ' ' * (width - len(cell)) for cell, width in zip(row, widths)))
-	print()
+		logging.info('  '.join(cell + ' ' * (width - len(cell)) for cell, width in zip(row, widths)))
+	logging.info('')
 	return outputs
 
 #----------------------------------------------------------------------------
