@@ -7,13 +7,14 @@ from starry.stylegan.training_loop import training_loop
 
 
 
-logging.basicConfig(stream=sys.stdout, filename='/safe/training/stylegan/test/log.txt', level=logging.INFO)
+logging.basicConfig(filename='/safe/training/stylegan/test/log.txt', level=logging.INFO)
+logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 
 
 if __name__ == '__main__':
 	run_dir = '/safe/training/stylegan/test'
-	os.makedirs(run_dir)
+	os.makedirs(run_dir, exist_ok=True)
 
 	training_loop(
 		run_dir=run_dir,
