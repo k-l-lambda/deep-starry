@@ -1,5 +1,6 @@
 
 TODO:
+	trainStyleGAN: resume from checkpoint
 	construct score topology data by semantic predictor
 	semantic rectification model
 
