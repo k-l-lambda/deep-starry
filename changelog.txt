@@ -5,6 +5,11 @@ TODO:
 
 
 
+2021.11.17
+
+	+	trainStyleGAN.py: configuration added.
+
+
 2021.10.21
 
 	+	utils/trainer.py: save latest.chkpt before validation epoch.

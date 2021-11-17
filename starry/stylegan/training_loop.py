@@ -82,40 +82,41 @@ def save_image_grid(img, fname, drange, grid_size):
 
 #----------------------------------------------------------------------------
 
-def training_loop(
-	run_dir                 = '.',      # Output directory.
-	training_set_kwargs     = {},       # Options for training set.
-	data_loader_kwargs      = {},       # Options for torch.utils.data.DataLoader.
-	G_kwargs                = {},       # Options for generator network.
-	D_kwargs                = {},       # Options for discriminator network.
-	G_opt_kwargs            = {},       # Options for generator optimizer.
-	D_opt_kwargs            = {},       # Options for discriminator optimizer.
-	augment_kwargs          = None,     # Options for augmentation pipeline. None = disable.
-	loss_kwargs             = {},       # Options for loss function.
-	#metrics                 = [],       # Metrics to evaluate during training.
-	random_seed             = 0,        # Global random seed.
-	num_gpus                = 1,        # Number of GPUs participating in the training.
-	rank                    = 0,        # Rank of the current process in [0, num_gpus[.
-	batch_size              = 4,        # Total batch size for one training iteration. Can be larger than batch_gpu * num_gpus.
-	batch_gpu               = 4,        # Number of samples processed at a time by one GPU.
-	ema_kimg                = 10,       # Half-life of the exponential moving average (EMA) of generator weights.
-	ema_rampup              = 0.05,     # EMA ramp-up coefficient. None = no rampup.
-	G_reg_interval          = None,     # How often to perform regularization for G? None = disable lazy regularization.
-	D_reg_interval          = 16,       # How often to perform regularization for D? None = disable lazy regularization.
-	augment_p               = 0,        # Initial value of augmentation probability.
-	ada_target              = None,     # ADA target value. None = fixed p.
-	ada_interval            = 4,        # How often to perform ADA adjustment?
-	ada_kimg                = 500,      # ADA adjustment speed, measured in how many kimg it takes for p to increase/decrease by one unit.
-	total_kimg              = 25000,    # Total length of the training, measured in thousands of real images.
-	kimg_per_tick           = 4,        # Progress snapshot interval.
-	image_snapshot_ticks    = 50,       # How often to save image snapshots? None = disable.
-	network_snapshot_ticks  = 50,       # How often to save network snapshots? None = disable.
-	resume_pkl              = None,     # Network pickle to resume training from.
-	resume_kimg             = 0,        # First kimg to report when resuming training.
-	cudnn_benchmark         = True,     # Enable torch.backends.cudnn.benchmark?
+def training_loop(config,
 	abort_fn                = None,     # Callback function for determining whether to abort training. Must return consistent results across ranks.
 	progress_fn             = None,     # Callback function for updating training progress. Called for all ranks.
 ):
+	trainerConfig = config['trainer']
+	training_set_kwargs = trainerConfig['training_set_kwargs']
+	data_loader_kwargs = trainerConfig['data_loader_kwargs']
+	G_kwargs = trainerConfig['G_kwargs']
+	D_kwargs = trainerConfig['D_kwargs']
+	G_opt_kwargs = trainerConfig['G_opt_kwargs']
+	D_opt_kwargs = trainerConfig['D_opt_kwargs']
+	augment_kwargs = trainerConfig['augment_kwargs']
+	loss_kwargs = trainerConfig['loss_kwargs']
+	#metrics = trainerConfig['metrics']
+	random_seed = trainerConfig['random_seed']
+	num_gpus = trainerConfig['num_gpus']
+	rank = trainerConfig['rank']
+	batch_size = trainerConfig['batch_size']
+	batch_gpu = trainerConfig['batch_gpu']
+	ema_kimg = trainerConfig['ema_kimg']
+	ema_rampup = trainerConfig['ema_rampup']
+	G_reg_interval = trainerConfig['G_reg_interval']
+	D_reg_interval = trainerConfig['D_reg_interval']
+	augment_p = trainerConfig['augment_p']
+	ada_target = trainerConfig['ada_target']
+	ada_interval = trainerConfig['ada_interval']
+	ada_kimg = trainerConfig['ada_kimg']
+	total_kimg = trainerConfig['total_kimg']
+	kimg_per_tick = trainerConfig['kimg_per_tick']
+	image_snapshot_ticks = trainerConfig['image_snapshot_ticks']
+	network_snapshot_ticks = trainerConfig['network_snapshot_ticks']
+	resume_pkl = trainerConfig['resume_pkl']
+	resume_kimg = trainerConfig['resume_kimg'] or 0
+	cudnn_benchmark = trainerConfig['cudnn_benchmark']
+
 	# Initialize.
 	start_time = time.time()
 	device = torch.device('cuda', rank)
@@ -214,11 +215,11 @@ def training_loop(
 	if rank == 0:
 		logging.info('Exporting sample images...')
 		grid_size, images, labels = setup_snapshot_image_grid(training_set=training_set)
-		save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[0,255], grid_size=grid_size)
+		save_image_grid(images, config.localPath('reals.png'), drange=[0,255], grid_size=grid_size)
 		grid_z = torch.randn([labels.shape[0], G.z_dim], device=device).split(batch_gpu)
 		grid_c = torch.from_numpy(labels).to(device).split(batch_gpu)
 		images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
-		save_image_grid(images, os.path.join(run_dir, 'fakes_init.png'), drange=[-1,1], grid_size=grid_size)
+		save_image_grid(images, config.localPath('fakes_init.png'), drange=[-1,1], grid_size=grid_size)
 
 	# Initialize logs.
 	if rank == 0:
@@ -228,10 +229,10 @@ def training_loop(
 	stats_jsonl = None
 	stats_tfevents = None
 	if rank == 0:
-		stats_jsonl = open(os.path.join(run_dir, 'stats.jsonl'), 'wt')
+		stats_jsonl = open(config.localPath('stats.jsonl'), 'wt')
 		try:
 			import torch.utils.tensorboard as tensorboard
-			stats_tfevents = tensorboard.SummaryWriter(run_dir)
+			stats_tfevents = tensorboard.SummaryWriter(config.dir)
 		except ImportError as err:
 			logging.info('Skipping tfevents export: %s', err)
 
@@ -347,7 +348,7 @@ def training_loop(
 		# Save image snapshot.
 		if (rank == 0) and (image_snapshot_ticks is not None) and (done or cur_tick % image_snapshot_ticks == 0):
 			images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
-			save_image_grid(images, os.path.join(run_dir, f'fakes{cur_nimg//1000:06d}.png'), drange=[-1,1], grid_size=grid_size)
+			save_image_grid(images, config.localPath(f'fakes{cur_nimg//1000:06d}.png'), drange=[-1,1], grid_size=grid_size)
 
 		# Save network snapshot.
 		snapshot_pkl = None
@@ -363,7 +364,7 @@ def training_loop(
 							torch.distributed.broadcast(param, src=0)
 					snapshot_data[key] = value.cpu()
 				del value # conserve memory
-			snapshot_pkl = os.path.join(run_dir, f'network-snapshot-{cur_nimg//1000:06d}.pkl')
+			snapshot_pkl = config.localPath(f'network-snapshot-{cur_nimg//1000:06d}.pkl')
 			if rank == 0:
 				with open(snapshot_pkl, 'wb') as f:
 					pickle.dump(snapshot_data, f)
