@@ -83,6 +83,7 @@ def save_image_grid(img, fname, drange, grid_size):
 #----------------------------------------------------------------------------
 
 def training_loop(config,
+	rank                    = 0,        # Rank of the current process in [0, num_gpus].
 	abort_fn                = None,     # Callback function for determining whether to abort training. Must return consistent results across ranks.
 	progress_fn             = None,     # Callback function for updating training progress. Called for all ranks.
 ):
@@ -98,7 +99,6 @@ def training_loop(config,
 	#metrics = trainerConfig['metrics']
 	random_seed = trainerConfig['random_seed']
 	num_gpus = trainerConfig['num_gpus']
-	rank = trainerConfig['rank']
 	batch_size = trainerConfig['batch_size']
 	batch_gpu = trainerConfig['batch_gpu']
 	ema_kimg = trainerConfig['ema_kimg']
@@ -113,8 +113,8 @@ def training_loop(config,
 	kimg_per_tick = trainerConfig['kimg_per_tick']
 	image_snapshot_ticks = trainerConfig['image_snapshot_ticks']
 	network_snapshot_ticks = trainerConfig['network_snapshot_ticks']
-	resume_pkl = trainerConfig['resume_pkl']
-	resume_kimg = trainerConfig['resume_kimg'] or 0
+	resume_pkl = trainerConfig.get('resume_pkl')
+	resume_kimg = trainerConfig.get('resume_kimg', 0)
 	cudnn_benchmark = trainerConfig['cudnn_benchmark']
 
 	# Initialize.

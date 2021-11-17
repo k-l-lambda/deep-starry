@@ -44,13 +44,13 @@ trainer:
   G_opt_kwargs:                         # Options for generator optimizer.
     class_name:               torch.optim.Adam
     betas:                    [0, 0.99]
-    eps:                      1e-08
+    eps:                      1.e-08
     lr:                       0.0025
 
   D_opt_kwargs:                         # Options for discriminator optimizer.
     class_name:               torch.optim.Adam
     betas:                    [0, 0.99]
-    eps:                      1e-08
+    eps:                      1.e-08
     lr:                       0.002
 
   augment_kwargs:                       # Options for augmentation pipeline. None = disable.

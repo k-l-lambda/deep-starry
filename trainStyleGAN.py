@@ -9,9 +9,6 @@ from starry.stylegan.training_loop import training_loop
 
 
 
-logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
-
-
 def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('config', type=str)
@@ -20,8 +17,9 @@ def main ():
 
 	config = Configuration.createOrLoad(args.config)
 
-	logging.basicConfig(filename=config.localPath('log.txt'),
+	logging.basicConfig(filename=config.localPath('trainer.log'),
 		format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%H:%M:%S', level=logging.INFO)
+	logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 	training_loop(config)
 
