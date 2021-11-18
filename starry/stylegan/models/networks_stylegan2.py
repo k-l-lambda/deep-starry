@@ -84,7 +84,7 @@ def modulated_conv2d(
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class FullyConnectedLayer(torch.nn.Module):
 	def __init__(self,
 		in_features,                # Number of input features.
@@ -123,7 +123,7 @@ class FullyConnectedLayer(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class Conv2dLayer(torch.nn.Module):
 	def __init__(self,
 		in_channels,                    # Number of input channels.
@@ -181,7 +181,7 @@ class Conv2dLayer(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class MappingNetwork(torch.nn.Module):
 	def __init__(self,
 		z_dim,                      # Input latent (Z) dimensionality, 0 = no latent.
@@ -264,7 +264,7 @@ class MappingNetwork(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class SynthesisLayer(torch.nn.Module):
 	def __init__(self,
 		in_channels,                    # Number of input channels.
@@ -328,7 +328,7 @@ class SynthesisLayer(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class ToRGBLayer(torch.nn.Module):
 	def __init__(self, in_channels, out_channels, w_dim, kernel_size=1, conv_clamp=None, channels_last=False):
 		super().__init__()
@@ -353,7 +353,7 @@ class ToRGBLayer(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class SynthesisBlock(torch.nn.Module):
 	def __init__(self,
 		in_channels,                            # Number of input channels, 0 = first block.
@@ -457,7 +457,7 @@ class SynthesisBlock(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class SynthesisNetwork(torch.nn.Module):
 	def __init__(self,
 		w_dim,                      # Intermediate latent (W) dimensionality.
@@ -517,7 +517,7 @@ class SynthesisNetwork(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class Generator(torch.nn.Module):
 	def __init__(self,
 		z_dim,                      # Input latent (Z) dimensionality.
@@ -545,7 +545,7 @@ class Generator(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class DiscriminatorBlock(torch.nn.Module):
 	def __init__(self,
 		in_channels,                        # Number of input channels, 0 = first block.
@@ -634,7 +634,7 @@ class DiscriminatorBlock(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class MinibatchStdLayer(torch.nn.Module):
 	def __init__(self, group_size, num_channels=1):
 		super().__init__()
@@ -663,7 +663,7 @@ class MinibatchStdLayer(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class DiscriminatorEpilogue(torch.nn.Module):
 	def __init__(self,
 		in_channels,                    # Number of input channels.
@@ -724,7 +724,7 @@ class DiscriminatorEpilogue(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class Discriminator(torch.nn.Module):
 	def __init__(self,
 		c_dim,                          # Conditioning label (C) dimensionality.

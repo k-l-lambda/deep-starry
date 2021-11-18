@@ -59,7 +59,7 @@ def modulated_conv2d(
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class FullyConnectedLayer(torch.nn.Module):
 	def __init__(self,
 		in_features,                # Number of input features.
@@ -99,7 +99,7 @@ class FullyConnectedLayer(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class MappingNetwork(torch.nn.Module):
 	def __init__(self,
 		z_dim,                      # Input latent (Z) dimensionality.
@@ -159,7 +159,7 @@ class MappingNetwork(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class SynthesisInput(torch.nn.Module):
 	def __init__(self,
 		w_dim,          # Intermediate latent (W) dimensionality.
@@ -243,7 +243,7 @@ class SynthesisInput(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class SynthesisLayer(torch.nn.Module):
 	def __init__(self,
 		w_dim,                          # Intermediate latent (W) dimensionality.
@@ -389,7 +389,7 @@ class SynthesisLayer(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class SynthesisNetwork(torch.nn.Module):
 	def __init__(self,
 		w_dim,                          # Intermediate latent (W) dimensionality.
@@ -480,7 +480,7 @@ class SynthesisNetwork(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-@persistence.persistent_class
+#@persistence.persistent_class
 class Generator(torch.nn.Module):
 	def __init__(self,
 		z_dim,                      # Input latent (Z) dimensionality.
