@@ -214,7 +214,7 @@ def training_loop(config,
 	grid_size = None
 	grid_z = None
 	grid_c = None
-	if rank == 0:
+	if rank == 0 and resume_pkl is None:
 		logging.info('Exporting sample images...')
 		grid_size, images, labels = setup_snapshot_image_grid(training_set=training_set)
 		save_image_grid(images, config.localPath('reals.png'), drange=[0,255], grid_size=grid_size)
