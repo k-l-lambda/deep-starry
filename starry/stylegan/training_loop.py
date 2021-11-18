@@ -115,7 +115,7 @@ def training_loop(config,
 	network_snapshot_ticks = trainerConfig['network_snapshot_ticks']
 	cudnn_benchmark = trainerConfig['cudnn_benchmark']
 
-	stats = config['stats']
+	stats = config['stats'] or {}
 	resume_pkl = stats.get('checkpoint')
 	resume_kimg = stats.get('kimg', 0)
 
