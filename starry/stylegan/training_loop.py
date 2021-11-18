@@ -113,9 +113,11 @@ def training_loop(config,
 	kimg_per_tick = trainerConfig['kimg_per_tick']
 	image_snapshot_ticks = trainerConfig['image_snapshot_ticks']
 	network_snapshot_ticks = trainerConfig['network_snapshot_ticks']
-	resume_pkl = trainerConfig.get('resume_pkl')
-	resume_kimg = trainerConfig.get('resume_kimg', 0)
 	cudnn_benchmark = trainerConfig['cudnn_benchmark']
+
+	stats = config['stats']
+	resume_pkl = stats.get('checkpoint')
+	resume_kimg = stats.get('kimg', 0)
 
 	# Initialize.
 	start_time = time.time()
@@ -152,7 +154,7 @@ def training_loop(config,
 	# Resume from existing pickle.
 	if (resume_pkl is not None) and (rank == 0):
 		logging.info(f'Resuming from "{resume_pkl}"')
-		with dnnlib.open_url(resume_pkl) as f:
+		with dnnlib.open_url(config.localPath(resume_pkl)) as f:
 			#resume_data = legacy.load_network_pkl(f)
 			resume_data = pickle.load(f)
 		for name, module in [('G', G), ('D', D), ('G_ema', G_ema)]:
@@ -364,10 +366,15 @@ def training_loop(config,
 							torch.distributed.broadcast(param, src=0)
 					snapshot_data[key] = value.cpu()
 				del value # conserve memory
-			snapshot_pkl = config.localPath(f'network-snapshot-{cur_nimg//1000:06d}.pkl')
+			checkpoint_name = f'network-snapshot-{cur_nimg//1000:06d}.pkl'
+			snapshot_pkl = config.localPath(checkpoint_name)
 			if rank == 0:
 				with open(snapshot_pkl, 'wb') as f:
 					pickle.dump(snapshot_data, f)
+
+				config['stats.checkpoint'] = checkpoint_name
+				config['stats.kimg'] = cur_nimg//1000
+				config.save()
 
 		# Evaluate metrics.
 		'''if (snapshot_data is not None) and (len(metrics) > 0):
