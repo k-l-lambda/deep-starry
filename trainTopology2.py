@@ -11,9 +11,6 @@ from starry.topology.data import Dataset
 
 
 
-logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-
-
 DATA_DIR = os.environ.get('DATA_DIR')
 
 
@@ -25,6 +22,10 @@ def main ():
 	args = parser.parse_args()
 
 	config = Configuration.createOrLoad(args.config)
+
+	logging.basicConfig(filename=config.localPath('trainer.log'),
+		format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%H:%M:%S', level=logging.INFO)
+	logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 	logging.info('Loading data.')
 	data_file = open(os.path.join(DATA_DIR, config['data.file_name']), 'rb')
