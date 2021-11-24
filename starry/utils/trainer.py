@@ -11,7 +11,7 @@ from .model_factory import loadModel
 
 
 
-LOG_DIR = os.environ.get('LOG_DIR', './logs')
+#LOG_DIR = os.environ.get('LOG_DIR', './logs')
 
 
 def print_metric (metric):
@@ -74,7 +74,7 @@ class Trainer:
 		if weights:
 			self.loadCheckpoint(weights)
 
-		self.tb_writer = SummaryWriter(log_dir=os.path.join(LOG_DIR, config.id))
+		self.tb_writer = SummaryWriter(log_dir=config.dir)
 
 
 	def train (self, training_data, validation_data):

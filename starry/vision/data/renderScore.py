@@ -7,6 +7,7 @@ import time
 import cv2
 import json
 import re
+import logging
 
 from ..transform import Composer
 from ..images import randomSliceImage, iterateSliceImage
@@ -123,6 +124,9 @@ class RenderScore (CachedIterableDataset):
 
 		self.augmentor = Augmentor(augmentor, shuffle = self.shuffle)
 
+		if len(self.names) == 0:
+			logging.warn('[RenderScore]	dataset is empty for split "%s"', split)
+
 
 	def collateBatchImpl (self, batch):
 		return collateBatch(batch, self.trans, self.device, by_numpy=True)
@@ -140,7 +144,7 @@ class RenderScore (CachedIterableDataset):
 			source_path = os.path.join(STAFF, name + ".png")
 			if not self.reader.exists(source_path):
 				self.names.remove(name)
-				print('staff file missing, removed:', source_path)
+				logging.warn('staff file missing, removed: %s', source_path)
 				continue
 			source = self.reader.readImage(source_path)
 
@@ -152,21 +156,21 @@ class RenderScore (CachedIterableDataset):
 			if self.input_mask:
 				mask_path = os.path.join(MASK, name + ".png")
 				if not self.reader.exists(mask_path):
-					print('mask file missing:', mask_path)
+					logging.warn('mask file missing: %s', mask_path)
 					continue
 				mask = self.reader.readImage(mask_path)[:, :, :2]
 				source[:, :, 1:] = mask[:, :source.shape[1], ::-1]
 
 			graph_path = _S(os.path.join(GRAPH, name + ".json"))
 			if not self.reader.exists(graph_path):
-				print('graph file missing:', graph_path)
+				logging.warn('graph file missing: %s', graph_path)
 				continue
 			graph = None
 			with self.reader.fs.open(graph_path, 'rt', encoding='UTF-8') as graph_file:
 				try:
 					graph = json.load(graph_file, strict=False)
 				except:
-					print('error to load graph:', graph_path, sys.exc_info()[1])
+					logging.warn('error to load graph: %s, %s', graph_path, sys.exc_info()[1])
 					continue
 
 			labels = [self.labels[c] for c in self.chosen_channels]
