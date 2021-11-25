@@ -3,6 +3,7 @@ import torch
 import logging
 
 from .data import exampleToTensors, Dataset
+from .semantic_element import SemanticElementType
 from ..utils.predictor import Predictor
 
 
@@ -58,6 +59,10 @@ class TopologyPredictorHV (Predictor):
 
 
 	def predict(self, clusters):
+		# filter out new elements out of SemanticElementType.MAX
+		for cluster in clusters:
+			cluster['elements'] = list(filter(lambda e: e['type'] < SemanticElementType.MAX, cluster['elements']))
+
 		n_seq_max = max(len(cluster['elements']) for cluster in clusters)
 		examples = list(map(lambda ex: exampleToTensors(ex, n_seq_max, self.d_model, matrix_placeholder=True, pruned_maskv=True), clusters))
 		dataset = Dataset(examples, self.batch_size, self.device)

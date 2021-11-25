@@ -5,6 +5,11 @@ TODO:
 
 
 
+2021.11.25
+
+	+	topology/predictor.py: keep compatible with new semantic element types.
+
+
 2021.10.22
 
 	+	imageReader.py: added protection on image caching.
