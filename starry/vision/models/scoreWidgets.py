@@ -109,7 +109,7 @@ class ScoreWidgetsLoss (nn.Module):
 			if self.metric_cost < self.metric_quota:
 				metric['semantic'] = ScoreSemanticDual.create(self.labels, self.unit_size, pred, target)
 
-				cost = (metric['semantic'].points_count - metric['semantic'].true_count) / metric['semantic'].true_count
+				cost = (metric['semantic'].points_count - metric['semantic'].true_count) / max(metric['semantic'].true_count, 1)
 				cost = (cost ** 1.2) * feature.shape[0]
 				self.metric_cost += cost
 				#print('metric_cost:', cost, self.metric_cost)
