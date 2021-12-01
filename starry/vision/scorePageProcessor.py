@@ -21,6 +21,10 @@ SYSTEM_HEIGHT_ENLARGE = 0.02
 SYSTEM_LEFT_ENLARGE = 0.03
 SYSTEM_RIGHT_ENLARGE = 0.01
 
+PADDING_LEFT_UNITS = 32
+STAFF_HEIGHT_UNITS = 24
+UNIT_SIZE = 8
+
 
 def detectSystems (image):
 	height, width = image.shape
@@ -161,7 +165,7 @@ def detectStavesFromHBL (HB, HL, interval):
 		#logging.info('convolutionLine: %s', convolutionLine)
 
 		convolutionLineMax = np.max(convolutionLine)
-		middleY = i2 + np.where(convolutionLine == convolutionLineMax)[0][0]
+		middleY = np.where(convolutionLine == convolutionLineMax)[0][0]
 
 		middleRhos.append(y + middleY / UPSCALE)
 
@@ -218,23 +222,47 @@ class ScorePageProcessor (Predictor):
 					# rotation correction
 					rot_mat = cv2.getRotationMatrix2D((original_size[0] / 2, original_size[1] / 2), layout.theta * 180 / np.pi, 1)
 					image = cv2.warpAffine(image, rot_mat, original_size, flags=cv2.INTER_CUBIC)
-					cv2.imwrite('./output/image.png', image)
+					#cv2.imwrite('./output/image.png', image)
 
 					heatmap = np.moveaxis(np.uint8(heatmap * 255), 0, -1)
 					heatmap = cv2.resize(heatmap, original_size)
 					heatmap = cv2.warpAffine(heatmap, rot_mat, original_size, flags=cv2.INTER_LINEAR)
-					cv2.imwrite('./output/heatmap.png', heatmap)
+					#cv2.imwrite('./output/heatmap.png', heatmap)
 
 					HB = heatmap[:, :, 1]
 					HL = heatmap[:, :, 2]
 					block = heatmap.max(axis=2)
 					detection = detectSystems(block)
 
-					for area in detection['areas']:
+					for si, area in enumerate(detection['areas']):
 						l, r, t, b = map(round, (area['x'], area['x'] + area['width'], area['y'], area['y'] + area['height']))
 						hb = HB[t:b, l:r]
 						hl = HL[t:b, l:r]
-						area['staves'] = detectStavesFromHBL(hb, hl, layout.interval)
+						area['staves'] = detectStavesFromHBL(hb, hl, layout.interval * original_size[0] / RESIZE_WIDTH)
+						#cv2.imwrite(f'./output/hl-{si}.png', hl)
+
+						if area['staves'].get('middleRhos') is None:
+							continue
+
+						system_image = image[t:b, l:r, :]
+						#cv2.imwrite(f'./output/system-{si}.png', system_image)
+
+						interval = area['staves']['interval']
+						staff_size = (round(system_image.shape[1] * UNIT_SIZE / interval), STAFF_HEIGHT_UNITS * UNIT_SIZE)
+						for ssi, rho in enumerate(area['staves']['middleRhos']):
+							top = round(rho - STAFF_HEIGHT_UNITS * interval / 2)
+							bottom = round(rho + STAFF_HEIGHT_UNITS * interval / 2)
+							#logging.info('staff: %s, %s', top, bottom)
+
+							if top >= 0 and bottom < system_image.shape[0]:
+								staff_image = system_image[top:bottom, :, :]
+							else:
+								staff_image = np.ones((bottom - top, system_image.shape[1], system_image.shape[2]), dtype=np.uint8) * 255
+								bi = system_image.shape[0] - bottom if system_image.shape[0] - bottom < 0 else staff_image.shape[0]
+								staff_image[max(-top, 0):bi, :, :] = system_image[max(top, 0):min(bottom, system_image.shape[0]), :, :]
+							staff_image = cv2.resize(staff_image, staff_size, interpolation=cv2.INTER_CUBIC)
+
+							cv2.imwrite(f'./output/staff-{si}-{ssi}.png', staff_image)
 
 					yield {
 						'theta': layout.theta, 'interval': layout.interval,
