@@ -7,6 +7,7 @@ import logging
 import PIL.Image
 import cv2
 import hashlib
+import shutil
 
 from ..utils.predictor import Predictor
 from .layout_predictor import PageLayout
@@ -14,7 +15,7 @@ from . import transform
 
 
 
-BATCH_SIZE = int(os.environ.get('SCORE_PAGE_PROCESSOR_BATCH_SIZE', '2'))
+BATCH_SIZE = int(os.environ.get('SCORE_PAGE_PROCESSOR_BATCH_SIZE', '1'))
 
 RESIZE_WIDTH = 600
 
@@ -180,6 +181,26 @@ def detectStavesFromHBL (HB, HL, interval):
 	}
 
 
+def loadImageWithHash (path):
+	bytes = open(path, 'rb').read()
+	hash = hashlib.md5(bytes).hexdigest()
+	image = PIL.Image.open(io.BytesIO(bytes))
+	arr = np.array(image)
+	if len(arr.shape) > 2 and arr.shape[2] == 4:
+		alpha = arr[:, :, 3]
+		rgb = arr[:, :, :3]
+		rgb[alpha == 0] = 255
+
+		arr = rgb
+	elif len(arr.shape) == 2:
+		max_brightness = np.max(arr)
+		if max_brightness < 255:
+			arr *= 255 // max_brightness
+		arr = np.stack([arr] * 3, axis=2)
+
+	return arr, hash
+
+
 def arrayToImageFile (arr, ext='.png'):
 	image = PIL.Image.fromarray(arr, 'RGB' if len(arr.shape) == 3 and arr.shape[2] == 3 else 'L')
 	fp = io.BytesIO()
@@ -209,7 +230,23 @@ class ScorePageProcessor (Predictor):
 			os.makedirs(output_folder, exist_ok=True)
 
 		for i in range(0, len(input_paths), BATCH_SIZE):
-			images = list(map(lambda path: cv2.imread(path), input_paths[i:i + BATCH_SIZE]))
+			image_hashes = list(map(loadImageWithHash, input_paths[i:i + BATCH_SIZE]))
+			page_filenames = None
+			if output_folder:
+				page_filenames = []
+				for ii, ih in enumerate(image_hashes):
+					input_path = input_paths[i + ii]
+					_, hash = ih
+					# get extension name from input path
+					ext = os.path.splitext(input_path)[1]
+					filename = hash + ext
+					page_filenames.append(filename)
+					shutil.copyfile(input_path, os.path.join(output_folder, filename))
+
+					logging.info('Page image copied: %s', filename)
+
+			images = list(map(lambda ih: ih[0], image_hashes))
+			#cv2.imwrite('./output/image0.png', images[0])
 
 			# unify images' dimensions
 			ratio = min(map(lambda img: img.shape[0] / img.shape[1], images))
@@ -296,7 +333,10 @@ class ScorePageProcessor (Predictor):
 									f.write(bytes)
 								logging.info('Staff image wrote: %s.png', hash)
 
+					page_name = 'md5:' + page_filenames[j] if page_filenames is not None else None
+
 					yield {
 						'theta': layout.theta, 'interval': layout.interval,
 						'detection': detection,
+						'page_name': page_name,
 					}
