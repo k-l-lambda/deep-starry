@@ -1,10 +1,12 @@
 
 import os
+import io
 import numpy as np
 import torch
 import logging
 import PIL.Image
 import cv2
+import hashlib
 
 from ..utils.predictor import Predictor
 from .layout_predictor import PageLayout
@@ -178,6 +180,14 @@ def detectStavesFromHBL (HB, HL, interval):
 	}
 
 
+def arrayToImageFile (arr, ext='.png'):
+	image = PIL.Image.fromarray(arr, 'RGB' if len(arr.shape) == 3 and arr.shape[2] == 3 else 'L')
+	fp = io.BytesIO()
+	image.save(fp, PIL.Image.registered_extensions()[ext])
+
+	return fp
+
+
 class ScorePageProcessor (Predictor):
 	def __init__(self, config, device='cpu', inspect=False):
 		super().__init__(device=device)
@@ -195,6 +205,9 @@ class ScorePageProcessor (Predictor):
 
 
 	def predict (self, input_paths, output_folder=None):
+		if output_folder is not None:
+			os.makedirs(output_folder, exist_ok=True)
+
 		for i in range(0, len(input_paths), BATCH_SIZE):
 			images = list(map(lambda path: cv2.imread(path), input_paths[i:i + BATCH_SIZE]))
 
@@ -262,7 +275,14 @@ class ScorePageProcessor (Predictor):
 								staff_image[max(-top, 0):bi, :, :] = system_image[max(top, 0):min(bottom, system_image.shape[0]), :, :]
 							staff_image = cv2.resize(staff_image, staff_size, interpolation=cv2.INTER_CUBIC)
 
-							cv2.imwrite(f'./output/staff-{si}-{ssi}.png', staff_image)
+							#cv2.imwrite(f'./output/staff-{si}-{ssi}.png', staff_image)
+							bytes = arrayToImageFile(staff_image).getvalue()
+							hash = hashlib.md5(bytes).hexdigest()
+
+							if output_folder is not None:
+								with open(os.path.join(output_folder, hash + '.png'), 'wb') as f:
+									f.write(bytes)
+								logging.info('Staff image wrote: %s.png', hash)
 
 					yield {
 						'theta': layout.theta, 'interval': layout.interval,
