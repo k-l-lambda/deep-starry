@@ -59,7 +59,7 @@ def detectSystems (image):
 
 	# enlarge heights
 	marginY = SYSTEM_HEIGHT_ENLARGE * width
-	maginYMax = marginY * 4
+	maginYMax = marginY * 8
 
 	def enlarge(args):
 		i, area = args
