@@ -83,6 +83,97 @@ def detectSystems (image):
 	}
 
 
+def panProductLine (line, pan):
+	assert len(line) > pan, f'invalid line length: {pan}, {line}'
+
+	line1 = line[:-pan]
+	line2 = line[pan:]
+	products = line1 * line2
+
+	return products
+
+
+def detectStavesFromHBL (HB, HL, interval):
+	_, HB = cv2.threshold(HB, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+	contours, _ = cv2.findContours(HB, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+	height, width = HB.shape
+
+	STAFF_SIZE_MIN = width * 0.02
+	UPSCALE = 4
+
+	upInterval = interval * UPSCALE
+
+	rects = map(cv2.boundingRect, contours)
+	rects = filter(lambda rect: rect[2] > STAFF_SIZE_MIN and rect[3] > STAFF_SIZE_MIN, rects)
+	rects = sorted(rects, key=lambda rect: rect[1])
+
+	preRects = []
+	for rect in rects:
+		x, y, w, h = rect
+
+		ri = next((i for i, rc in enumerate(preRects)
+			if (y + h / 2) - (rc[1] + rc[3] / 2) < (h + rc[3]) / 2), -1)
+		if ri < 0:
+			preRects.append(rect)
+		else:
+			rc = preRects[ri]
+			if w > rc[2]:
+				rect[0] = min(x, rc[0])
+				rect[2] = max(x + w, rc[0] + rc[2]) - x
+				preRects[ri] = rect
+			else:
+				rc[0] = min(x, rc[0])
+				rc[2] = max(x + w, rc[0] + rc[2]) - rc[0]
+
+	if len(preRects) == 0:
+		return { 'reason': '1. no block rectanges detected' }
+
+	phi1 = min(map(lambda rc: rc[0], preRects))
+	phi2 = min(map(lambda rc: rc[0] + rc[2], preRects))
+
+	middleRhos = []
+	for rect in preRects:
+		#logging.info('rect: %s', rect)
+		rx, ry, rw, rh = rect
+		x = max(rx, 0)
+		y = max(round(ry - interval), 0)
+		roi = (
+			x,
+			y,
+			min(rw, width - x),
+			min(round(rh + interval + ry - y), height - y),
+		)
+		staffLines = HL[roi[1]:roi[1] + roi[3], roi[0]:roi[0] + roi[2]]
+
+		hlineColumn = cv2.resize(staffLines, (1, staffLines.shape[0] * UPSCALE), 0, 0, cv2.INTER_LINEAR).flatten()
+
+		i2 = round(upInterval * 2)
+		productionLine2 = panProductLine(hlineColumn, i2)
+		productionLine2Max = np.max(productionLine2)
+		#logging.info('productionLine2Max: %s', productionLine2Max)
+		productionLine2Normalized = np.vectorize(lambda x: np.tanh(x * 4 / productionLine2Max))(productionLine2)
+		#logging.info('productionLine2Normalized: %s', productionLine2Normalized)
+
+		convolutionLine = np.zeros(productionLine2.shape)
+		convolutionLine += productionLine2Normalized
+		convolutionLine[i2:] += productionLine2Normalized[:-i2]
+		#logging.info('convolutionLine: %s', convolutionLine)
+
+		convolutionLineMax = np.max(convolutionLine)
+		middleY = i2 + np.where(convolutionLine == convolutionLineMax)[0][0]
+
+		middleRhos.append(y + middleY / UPSCALE)
+
+	return {
+		#'theta': 0,
+		'interval': interval,
+		'phi1': phi1,
+		'phi2': phi2,
+		'middleRhos': middleRhos,
+	}
+
+
 class ScorePageProcessor (Predictor):
 	def __init__(self, config, device='cpu', inspect=False):
 		super().__init__(device=device)
@@ -121,9 +212,29 @@ class ScorePageProcessor (Predictor):
 				for j, heatmap in enumerate(output):
 					layout = PageLayout(heatmap)
 
-					VL, HB, HL = heatmap
-					block = (heatmap.max(axis = 0) * 255).astype(np.uint8)
+					image = images[j]
+					original_size = (image.shape[1], int(image.shape[1] * ratio))
+
+					# rotation correction
+					rot_mat = cv2.getRotationMatrix2D((original_size[0] / 2, original_size[1] / 2), layout.theta * 180 / np.pi, 1)
+					image = cv2.warpAffine(image, rot_mat, original_size, flags=cv2.INTER_CUBIC)
+					cv2.imwrite('./output/image.png', image)
+
+					heatmap = np.moveaxis(np.uint8(heatmap * 255), 0, -1)
+					heatmap = cv2.resize(heatmap, original_size)
+					heatmap = cv2.warpAffine(heatmap, rot_mat, original_size, flags=cv2.INTER_LINEAR)
+					cv2.imwrite('./output/heatmap.png', heatmap)
+
+					HB = heatmap[:, :, 1]
+					HL = heatmap[:, :, 2]
+					block = heatmap.max(axis=2)
 					detection = detectSystems(block)
+
+					for area in detection['areas']:
+						l, r, t, b = map(round, (area['x'], area['x'] + area['width'], area['y'], area['y'] + area['height']))
+						hb = HB[t:b, l:r]
+						hl = HL[t:b, l:r]
+						area['staves'] = detectStavesFromHBL(hb, hl, layout.interval)
 
 					yield {
 						'theta': layout.theta, 'interval': layout.interval,
