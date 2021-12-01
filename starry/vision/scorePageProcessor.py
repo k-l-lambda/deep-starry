@@ -50,53 +50,33 @@ def detectSystems (image):
 			})
 	areas.sort(key=lambda a: a['y'])
 
-	'''// enlarge heights
-	const marginY = SYSTEM_HEIGHT_ENLARGE * matSize.width;
-	const maginYMax = marginY * 4;
-	const enlarges = areas.map((area, i) => {
-		let top = area.y;
-		let bottom = area.y + area.height;
+	# enlarge heights
+	marginY = SYSTEM_HEIGHT_ENLARGE * width
+	maginYMax = marginY * 4
 
-		if (i > 0) {
-			const lastArea = areas[i - 1];
-			top = Math.max(0, Math.min(top - marginY, Math.max(lastArea.y + lastArea.height, top - maginYMax)));
-		}
-		else
-			top = Math.min(top, Math.max(marginY, top - maginYMax));
+	def enlarge(args):
+		i, area = args
+		top = area['y']
+		bottom = top + area['height']
 
-		if (i < areas.length - 1) {
-			const nextArea = areas[i + 1];
-			bottom = Math.min(matSize.height, Math.max(bottom + marginY, nextArea.y), bottom + maginYMax);
-		}
-		else
-			bottom = Math.min(matSize.height, bottom + maginYMax);
+		if i > 0:
+			lastArea = areas[i - 1]
+			top = max(0, min(top - marginY, max(lastArea['y'] + lastArea['height'], top - maginYMax)))
+		else:
+			top = min(top, max(marginY, top - maginYMax))
 
-		return { top, bottom };
-	});
+		if i < len(areas) - 1:
+			nextArea = areas[i + 1]
+			bottom = min(height, max(bottom + marginY, nextArea['y']), bottom + maginYMax)
+		else:
+			bottom = min(height, bottom + maginYMax)
 
-	areas.forEach((area, i) => {
-		area.y = enlarges[i].top;
-		area.height = enlarges[i].bottom - enlarges[i].top;
-	});
+		return { 'top': top, 'bottom': bottom }
+	enlarges = list(map(enlarge, enumerate(areas)))
 
-	if (options.log) {
-		const MARK_COLOR1 = new cv2.Scalar(0, 255, 0);
-		const MARK_COLOR2 = new cv2.Scalar(255, 0, 0);
-
-		const graph = new cv2.Mat();
-		cv2.cvtColor(mat, graph, cv2.COLOR_BGR2RGB);
-
-		for (let i = 0; i < (contours.size() as any); ++i) {
-			const contour = contours.get(i);
-			const rect = cv2.boundingRect(contour);
-
-			cv2.rectangle(graph, new cv2.Point(rect.x, rect.y), new cv2.Point(rect.x + rect.width, rect.y + rect.height),
-				MARK_COLOR1, 1);
-		}
-		areas.forEach(rect => cv2.rectangle(graph, new cv2.Point(rect.x, rect.y), new cv2.Point(rect.x + rect.width, rect.y + rect.height),
-			MARK_COLOR2, 2));
-		options.reportMat("contours", graph);
-	}'''
+	for i, area in enumerate(areas):
+		area['y'] = enlarges[i]['top']
+		area['height'] = enlarges[i]['bottom'] - enlarges[i]['top']
 
 	return {
 		'areas': areas,
