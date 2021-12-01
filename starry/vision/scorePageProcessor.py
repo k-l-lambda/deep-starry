@@ -260,6 +260,8 @@ class ScorePageProcessor (Predictor):
 						system_image = image[t:b, l:r, :]
 						#cv2.imwrite(f'./output/system-{si}.png', system_image)
 
+						area['staff_images'] = []
+
 						interval = area['staves']['interval']
 						staff_size = (round(system_image.shape[1] * UNIT_SIZE / interval), STAFF_HEIGHT_UNITS * UNIT_SIZE)
 						for ssi, rho in enumerate(area['staves']['middleRhos']):
@@ -278,6 +280,16 @@ class ScorePageProcessor (Predictor):
 							#cv2.imwrite(f'./output/staff-{si}-{ssi}.png', staff_image)
 							bytes = arrayToImageFile(staff_image).getvalue()
 							hash = hashlib.md5(bytes).hexdigest()
+
+							area['staff_images'].append({
+								'hash': f'md5:{hash}',
+								'position': {
+									'x': -area['staves']['phi1'] * UNIT_SIZE / interval,
+									'y': -STAFF_HEIGHT_UNITS * UNIT_SIZE / 2,
+									'width': staff_size[0],
+									'height': staff_size[1],
+								},
+							})
 
 							if output_folder is not None:
 								with open(os.path.join(output_folder, hash + '.png'), 'wb') as f:
