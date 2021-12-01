@@ -13,6 +13,7 @@ from starry.vision.semantic_predictor import SemanticPredictor
 from starry.vision.mask_predictor import MaskPredictor
 from starry.vision.gauge_predictor import GaugePredictor
 from starry.vision.layout_predictor import LayoutPredictor
+from starry.vision.scorePageProcessor import ScorePageProcessor
 
 
 
@@ -26,6 +27,7 @@ PREDICTOR_FACTORY = {
 	'mask':			MaskPredictor,
 	'gauge':		GaugePredictor,
 	'layout':		LayoutPredictor,
+	'scorePage':	ScorePageProcessor,
 }
 
 
@@ -90,7 +92,7 @@ def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('config', type=str)
 	parser.add_argument('-m', '--mode', type=str, default='topology', help='predictor mode')
-	parser.add_argument('-d', '--device', type=str, default='cpu', help='cpu or cuda')
+	parser.add_argument('-dv', '--device', type=str, default='cuda', help='cpu or cuda')
 	parser.add_argument('-i', '--inspect', action='store_true', help='inspect mode')
 
 	args = parser.parse_args()

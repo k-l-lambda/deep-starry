@@ -5,6 +5,11 @@ TODO:
 
 
 
+2021.12.1
+
+	+	vision/scorePageProcessor.py created.
+
+
 2021.11.26
 
 	+	measureScoreSemantic.py: refined logging.

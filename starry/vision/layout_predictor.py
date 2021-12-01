@@ -118,7 +118,7 @@ class LayoutPredictor (Predictor):
 					for i, layout in enumerate(output[1:]):
 						layout = np.clip(np.uint8(layout * 255), 0, 255)
 						layout = np.moveaxis(layout, 0, -1)[:, :, ::-1]
-						writeImageFileFormat(layout, output_path, begin_index, f'layout-{i}')
+						writeImageFileFormat(layout, output_path, i, 'layout')
 
 				yield PageLayout(hotmap).json()
 
