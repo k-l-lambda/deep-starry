@@ -298,11 +298,13 @@ class ScorePageProcessor (Predictor):
 					block = heatmap.max(axis=2)
 					detection = detectSystems(block)
 
+					page_interval = layout.interval * original_size[0] / RESIZE_WIDTH
+
 					for si, area in enumerate(detection['areas']):
 						l, r, t, b = map(round, (area['x'], area['x'] + area['width'], area['y'], area['y'] + area['height']))
 						hb = HB[t:b, l:r]
 						hl = HL[t:b, l:r]
-						area['staves'] = detectStavesFromHBL(hb, hl, layout.interval * original_size[0] / RESIZE_WIDTH)
+						area['staves'] = detectStavesFromHBL(hb, hl, page_interval)
 						#cv2.imwrite(f'./output/hl-{si}.png', hl)
 
 						if area['staves'].get('middleRhos') is None:
@@ -353,7 +355,8 @@ class ScorePageProcessor (Predictor):
 					}
 
 					yield {
-						'theta': layout.theta, 'interval': layout.interval,
+						'theta': layout.theta,
+						'interval': page_interval,
 						'detection': detection,
 						'page_info': page_info,
 					}
