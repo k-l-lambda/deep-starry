@@ -333,10 +333,13 @@ class ScorePageProcessor (Predictor):
 									f.write(bytes)
 								logging.info('Staff image wrote: %s.png', hash)
 
-					page_name = 'md5:' + page_filenames[j] if page_filenames is not None else None
+					page_info = {
+						'url': 'md5:' + page_filenames[j] if page_filenames is not None else None,
+						'size': original_size,
+					}
 
 					yield {
 						'theta': layout.theta, 'interval': layout.interval,
 						'detection': detection,
-						'page_name': page_name,
+						'page_info': page_info,
 					}
