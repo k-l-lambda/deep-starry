@@ -5,6 +5,11 @@ TODO:
 
 
 
+2021.12.2
+
+	+	trainDist.py created.
+
+
 2021.12.1
 
 	+	vision/scorePageProcessor.py created.

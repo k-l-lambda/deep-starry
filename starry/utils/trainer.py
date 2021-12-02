@@ -1,5 +1,4 @@
 
-import os
 import torch
 from tensorboardX import SummaryWriter
 import time
@@ -9,9 +8,6 @@ import logging
 from .optim import optim
 from .model_factory import loadModel
 
-
-
-#LOG_DIR = os.environ.get('LOG_DIR', './logs')
 
 
 def print_metric (metric):
