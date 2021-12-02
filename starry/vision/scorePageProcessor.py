@@ -209,6 +209,20 @@ def arrayToImageFile (arr, ext='.png'):
 	return fp
 
 
+def resizePageImage (img, size):
+	w, h = size
+	filled_height = img.shape[0] * w // img.shape[1]
+	img = cv2.resize(img, (w, filled_height), interpolation=cv2.INTER_AREA)
+
+	if filled_height < h:
+		result = np.ones((h, w, img.shape[2]), dtype=np.uint8) * 255
+		result[:filled_height] = img
+
+		return result
+
+	return img[:h]
+
+
 class ScorePageProcessor (Predictor):
 	def __init__(self, config, device='cpu', inspect=False):
 		super().__init__(device=device)
@@ -249,10 +263,10 @@ class ScorePageProcessor (Predictor):
 			#cv2.imwrite('./output/image0.png', images[0])
 
 			# unify images' dimensions
-			ratio = min(map(lambda img: img.shape[0] / img.shape[1], images))
+			ratio = max(map(lambda img: img.shape[0] / img.shape[1], images))
 			height = int(RESIZE_WIDTH * ratio)
-			height -= height % 4
-			unified_images = list(map(lambda img: cv2.resize(img, (RESIZE_WIDTH, img.shape[0] * RESIZE_WIDTH // img.shape[1]))[:height], images))
+			height += -height % 4
+			unified_images = list(map(lambda img: resizePageImage(img, (RESIZE_WIDTH, height)), images))
 			image_array = np.stack(unified_images, axis=0)
 
 			batch, _ = self.composer(image_array, np.ones((1, 4, 4, 2)))
@@ -277,7 +291,7 @@ class ScorePageProcessor (Predictor):
 					heatmap = np.moveaxis(np.uint8(heatmap * 255), 0, -1)
 					heatmap = cv2.resize(heatmap, original_size)
 					heatmap = cv2.warpAffine(heatmap, rot_mat, original_size, flags=cv2.INTER_LINEAR)
-					#cv2.imwrite('./output/heatmap.png', heatmap)
+					#cv2.imwrite(f'./output/heatmap-{i+j}.png', heatmap)
 
 					HB = heatmap[:, :, 1]
 					HL = heatmap[:, :, 2]
