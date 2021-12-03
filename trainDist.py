@@ -3,6 +3,7 @@ import os
 import argparse
 #import logging
 import torch
+import tempfile
 
 from starry.utils.config import Configuration
 from starry.utils.trainerQuantitative import Trainer
@@ -26,8 +27,11 @@ def main ():
 		print('Config created:', config.dir)
 		return
 
-	torch.multiprocessing.set_start_method('spawn')
-	torch.multiprocessing.spawn(fn=Trainer.run, args=(config, VISION_DATA_DIR, args.backend), nprocs=Trainer.PROC_COUNT)
+	with tempfile.TemporaryDirectory(dir=config.dir) as temp_dir:
+		init_file = os.path.abspath(os.path.join(temp_dir, '.torch_distributed_init'))
+
+		torch.multiprocessing.set_start_method('spawn')
+		torch.multiprocessing.spawn(fn=Trainer.run, args=(config, VISION_DATA_DIR, init_file, args.backend), nprocs=Trainer.PROC_COUNT)
 
 
 if __name__ == '__main__':

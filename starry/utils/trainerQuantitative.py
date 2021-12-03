@@ -21,14 +21,11 @@ class Trainer:
 
 
 	@staticmethod
-	def run (rank, config, data_dir, backend='nccl'):
+	def run (rank, config, data_dir, init_file, backend='nccl'):
 		logging.basicConfig(filename=config.localPath('trainer.log'),
 			format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 		logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-		init_file = os.path.abspath(config.localPath('.torch_distributed_init'))
-		if os.path.exists(init_file):
-			os.remove(init_file)
 		init_method = f'file:///{init_file}' if os.name == 'nt' else f'file://{init_file}'
 		torch.distributed.init_process_group(backend=backend, init_method=init_method, rank=rank, world_size=Trainer.PROC_COUNT)
 
