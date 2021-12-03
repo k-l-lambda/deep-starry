@@ -108,7 +108,7 @@ class Trainer:
 			metric_data = {}
 
 			for batch in tqdm(self.finiteTraverse(data_it, self.options['epoch_size']), mininterval=1,
-				desc='  - (Training)   ', leave=False, position=self.rank):
+				total=self.options['epoch_size'] // self.config['data.batch_size'], desc='  - (Training)   ', position=self.rank):
 				# forward
 				self.optimizer.zero_grad()
 				loss, metric = self.model(batch)
