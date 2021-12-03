@@ -58,7 +58,7 @@ class Trainer:
 		self.start_epoch = 0
 
 		self.model = loadModel(config['model'], postfix='Loss')
-		self.model.to(self.options['device'])
+		self.model.to(self.device)
 
 		self.tb_writer = SummaryWriter(log_dir=config.localPath(self.role))
 
@@ -264,7 +264,7 @@ class Trainer:
 
 
 	def loadCheckpoint (self, filename):
-		checkpoint = torch.load(self.config.localPath(filename), map_location=self.options['device'])
+		checkpoint = torch.load(self.config.localPath(filename), map_location=self.device)
 		self.model.deducer.load_state_dict(checkpoint['model'])
 		self.start_epoch = checkpoint['epoch'] + 1
 
