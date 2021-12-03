@@ -27,6 +27,8 @@ class Trainer:
 		logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 		init_file = os.path.abspath(config.localPath('.torch_distributed_init'))
+		if os.path.exists(init_file):
+			os.remove(init_file)
 		init_method = f'file:///{init_file}' if os.name == 'nt' else f'file://{init_file}'
 		torch.distributed.init_process_group(backend=backend, init_method=init_method, rank=rank, world_size=Trainer.PROC_COUNT)
 
