@@ -30,7 +30,7 @@ class Trainer:
 		init_method = f'file:///{init_file}' if os.name == 'nt' else f'file://{init_file}'
 		torch.distributed.init_process_group(backend=backend, init_method=init_method, rank=rank, world_size=Trainer.PROC_COUNT)
 
-		gpus = config['trainer.gpu_count'] or 2
+		gpus = config['trainer.gpus'] or Trainer.PROC_COUNT
 		device = torch.device(config['trainer.device'], rank % gpus)
 		trainer = Trainer(config, device=device, rank=rank)
 
@@ -118,7 +118,7 @@ class Trainer:
 			total_loss, n_batch = 0, 0
 			metric_data = {}
 
-			for batch in tqdm(self.finiteTraverse(data_it, self.options['epoch_size']), mininterval=1,
+			for batch in tqdm(self.finiteTraverse(data_it, self.options['epoch_size']), mininterval=1, leave=False,
 				total=self.options['epoch_size'] // self.config['data.batch_size'], desc='  - (Training)   ', position=self.rank):
 				# forward
 				self.optimizer.zero_grad()
@@ -258,7 +258,7 @@ class Trainer:
 		i = 0
 		while i < count:
 			batch = next(iter)
-			i += len(batch)
+			i += self.config['data.batch_size']
 
 			yield batch
 
