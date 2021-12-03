@@ -27,9 +27,11 @@ class Trainer:
 		logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 		init_file = os.path.abspath(config.localPath('.torch_distributed_init'))
-		torch.distributed.init_process_group(backend=backend, init_method=f'file://{init_file}', rank=rank, world_size=Trainer.PROC_COUNT)
+		init_method = f'file:///{init_file}' if os.name == 'nt' else f'file://{init_file}'
+		torch.distributed.init_process_group(backend=backend, init_method=init_method, rank=rank, world_size=Trainer.PROC_COUNT)
 
-		device = torch.device(config['trainer.device'], rank)
+		gpus = config['trainer.gpu_count'] or 2
+		device = torch.device(config['trainer.device'], rank % gpus)
 		trainer = Trainer(config, device=device, rank=rank)
 
 		trainer.log('*	Loading data.')
