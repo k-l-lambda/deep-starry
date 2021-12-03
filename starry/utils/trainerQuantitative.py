@@ -29,12 +29,13 @@ class Trainer:
 		init_file = os.path.abspath(config.localPath('.torch_distributed_init'))
 		torch.distributed.init_process_group(backend=backend, init_method=f'file://{init_file}', rank=rank, world_size=Trainer.PROC_COUNT)
 
-		trainer = Trainer(config, rank=rank)
+		device = torch.device(config['trainer.device'], rank)
+		trainer = Trainer(config, device=device, rank=rank)
 
 		trainer.log('*	Loading data.')
 
 		splits = config['data.splits'].split(':')
-		data, = loadDataset(config, data_dir=data_dir, device=config['trainer.device'],
+		data, = loadDataset(config, data_dir=data_dir, device=device,
 			splits=splits[rank], batch_size=config['trainer.val_batch_size'] if rank == Trainer.VALIDATOR_RANK else None)
 
 		if rank == Trainer.TRAINER_RANK:
@@ -45,9 +46,10 @@ class Trainer:
 		torch.distributed.destroy_process_group()
 
 
-	def __init__ (self, config, rank=0):
+	def __init__ (self, config, device, rank=0):
 		self.config = config
 		self.options = config['trainer']
+		self.device = device
 		self.rank = rank
 		self.role = 'TR' if rank == Trainer.TRAINER_RANK else 'VA'
 
@@ -68,12 +70,12 @@ class Trainer:
 
 	def broadcastModule (self, module, src):
 		for param in module.parameters():
-			torch.distributed.broadcast(param.data, src=src)
+			torch.distributed.broadcast(param.data.to(self.device), src=src)
 
 
 	def broadcastParam (self, parameters, src):
 		for param in parameters:
-			torch.distributed.broadcast(param.data, src=src)
+			torch.distributed.broadcast(param.data.to(self.device), src=src)
 
 
 	def train (self, data):
@@ -155,6 +157,9 @@ class Trainer:
 		self.moniter = Moniter(**self.options.get('moniter', {}))
 		need_states = hasattr(self.model, 'need_states')
 
+		if not self.config['trainer.latest']:
+			self.start_epoch += 1
+
 		for epoch_i in range(self.start_epoch, self.options['epochs'] + 1):
 			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 			self.log('Model training parameters synchronized.')
@@ -194,6 +199,7 @@ class Trainer:
 			if need_states and epoch_i < self.options['epochs']:
 				self.model.updateStates()
 				#checkpoint['extra'] = self.model.state_dict()
+				#self.log(f'epoch_i: {epoch_i}, {self.options["epochs"]}')
 
 				self.broadcastParam(self.model.validation_parameters(), src=Trainer.VALIDATOR_RANK)
 
