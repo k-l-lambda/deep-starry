@@ -81,6 +81,13 @@ class Trainer:
 			torch.distributed.broadcast(param.data.to(self.device), src=src)
 
 
+	def broadcastScalar (self, scalar=None, src=0):
+		t = torch.tensor(scalar or 0, device=self.device)
+		torch.distributed.broadcast(t, src=src)
+
+		return t.cpu().item()
+
+
 	def reportScalars (self, scalars, epoch_i):
 		for k, v in scalars.items():
 			if type(v) == dict:
@@ -99,6 +106,9 @@ class Trainer:
 		if weights:
 			self.loadCheckpoint(weights)
 
+		self.broadcastScalar(self.start_epoch, src=self.rank)
+
+		if self.config['trainer.latest']:
 			self.log('Syncing training model parameters...')
 			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 
@@ -174,10 +184,13 @@ class Trainer:
 		self.moniter = Moniter(**self.options.get('moniter', {}))
 		need_states = hasattr(self.model, 'need_states')
 
-		if not self.config['trainer.latest']:
-			self.start_epoch += 1
+		self.start_epoch = self.broadcastScalar(src=Trainer.TRAINER_RANK)
 
-		for epoch_i in range(self.start_epoch, self.options['epochs'] + 1):
+		if self.config['trainer.latest']:
+			self.start_epoch -= 1
+		self.log('start_epoch: %d', self.start_epoch)
+
+		for epoch_i in range(self.start_epoch, self.options['epochs']):
 			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 			self.log('Model training parameters synchronized.')
 
@@ -213,7 +226,7 @@ class Trainer:
 				'model': self.model.deducer.state_dict(),
 			}
 
-			if need_states and epoch_i < self.options['epochs']:
+			if need_states and epoch_i < self.options['epochs'] - 1:
 				self.model.updateStates()
 				#checkpoint['extra'] = self.model.state_dict()
 				#self.log(f'epoch_i: {epoch_i}, {self.options["epochs"]}')
@@ -263,8 +276,9 @@ class Trainer:
 
 
 	def loadCheckpoint (self, filename):
-		checkpoint = torch.load(self.config.localPath(filename), map_location=self.device)
+		checkpoint = torch.load(self.config.localPath(filename), map_location=self.options['device'])
 		self.model.deducer.load_state_dict(checkpoint['model'])
+		self.model.deducer.to(self.device)
 		self.start_epoch = checkpoint['epoch'] + 1
 
 		if hasattr(self.model, 'need_states') and checkpoint.get('extra') is not None:
