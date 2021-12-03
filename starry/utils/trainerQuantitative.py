@@ -58,6 +58,8 @@ class Trainer:
 		self.model = loadModel(config['model'], postfix='Loss')
 		self.model.to(self.options['device'])
 
+		self.tb_writer = SummaryWriter(log_dir=config.localPath(self.role))
+
 
 	def log (self, message, *args):
 		logging.info(f'[{self.role}]	' + message, *args)
@@ -78,6 +80,15 @@ class Trainer:
 			torch.distributed.broadcast(param.data.to(self.device), src=src)
 
 
+	def reportScalars (self, scalars, epoch_i):
+		for k, v in scalars.items():
+			if type(v) == dict:
+				for kk, vv in v.items():
+					self.tb_writer.add_scalar(f'{k}/{kk}', vv, epoch_i)
+			else:
+				self.tb_writer.add_scalar(k, v, epoch_i)
+
+
 	def train (self, data):
 		self.log('*	Initializing trainer.')
 
@@ -89,8 +100,6 @@ class Trainer:
 
 			self.log('Syncing training model parameters...')
 			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
-
-		#self.tb_writer = SummaryWriter(log_dir=config.dir)
 
 		data_it = self.infiniteTraverse(data)
 
@@ -151,6 +160,13 @@ class Trainer:
 			self.config['trainer.steps'] = self.optimizer.n_steps
 			self.config['trainer.latest'] = True
 			self.config.save()
+
+			# write tensorboard scalars
+			scalars = {
+				'loss': train_loss,
+				**metrics,
+			}
+			self.reportScalars(scalars, epoch_i)
 
 
 	def validate (self, data):
@@ -222,19 +238,12 @@ class Trainer:
 				self.config['trainer.moniter.best_value'] = self.moniter.best_value
 				self.config.save()
 
-			'''# write tensorboard scalars
+			# write tensorboard scalars
 			scalars = {
 				'val_loss': val_loss,
 				**metrics,
 			}
-			for k, v in metrics.items():
-				scalars['val_' + k] = v
-
-			for k, v in scalars.items():
-				if type(v) == dict:
-					self.tb_writer.add_scalars(k, v, epoch_i)
-				else:
-					self.tb_writer.add_scalar(k, v, epoch_i)'''
+			self.reportScalars(scalars, epoch_i)
 
 
 	def infiniteTraverse (self, dataset):
