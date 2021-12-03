@@ -126,9 +126,12 @@ def detectStavesFromHBL (HB, HL, interval):
 		else:
 			rc = list(preRects[ri])
 			if w > rc[2]:
-				rect[0] = min(x, rc[0])
-				rect[2] = max(x + w, rc[0] + rc[2]) - x
-				preRects[ri] = rect
+				preRects[ri] = (
+					min(x, rc[0]),
+					rect[1],
+					max(x + w, rc[0] + rc[2]) - x,
+					rect[3],
+				)
 			else:
 				rc[0] = min(x, rc[0])
 				rc[2] = max(x + w, rc[0] + rc[2]) - rc[0]
