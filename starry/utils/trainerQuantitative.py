@@ -42,11 +42,12 @@ class Trainer:
 		elif rank == Trainer.VALIDATOR_RANK:
 			trainer.validate(data)
 
+		torch.distributed.destroy_process_group()
+
 
 	def __init__ (self, config, rank=0):
 		self.config = config
 		self.options = config['trainer']
-		self.moniter = Moniter(**self.options.get('moniter', {}))
 		self.rank = rank
 		self.role = 'TR' if rank == Trainer.TRAINER_RANK else 'VA'
 
@@ -55,20 +56,23 @@ class Trainer:
 		self.model = loadModel(config['model'], postfix='Loss')
 		self.model.to(self.options['device'])
 
-		#self.tb_writer = SummaryWriter(log_dir=config.dir)
-
 
 	def log (self, message, *args):
 		logging.info(f'[{self.role}]	' + message, *args)
 
 
-	def print_performances(self, header, loss, metric, start_time, lr):
-		self.log('  - {header:12} loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
-			.format(header=f"({header})", loss=loss, metric=print_metric(metric), elapse=(time.time()-start_time)/60, lr=lr))
+	def print_performances(self, loss, metric, start_time, lr):
+		self.log('loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
+			.format(loss=loss, metric=print_metric(metric), elapse=(time.time()-start_time)/60, lr=lr))
 
 
 	def broadcastModule (self, module, src):
 		for param in module.parameters():
+			torch.distributed.broadcast(param.data, src=src)
+
+
+	def broadcastParam (self, parameters, src):
+		for param in parameters:
 			torch.distributed.broadcast(param.data, src=src)
 
 
@@ -77,20 +81,23 @@ class Trainer:
 
 		self.optimizer = optim(self.config['optim'], self.model.parameters(), init_step=self.options.get('steps', 0))
 
-		weights = self.config['best'] or self.config['trainer.pretrained_weights']
+		weights = 'latest.chkpt' if self.config['trainer.latest'] else self.config['trainer.pretrained_weights']
 		if weights:
 			self.loadCheckpoint(weights)
 
-		self.log('Syncing model parameters...')
-		self.broadcastModule(self.model, src=Trainer.TRAINER_RANK)
-		return
+			self.log('Syncing training model parameters...')
+			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
+
+		#self.tb_writer = SummaryWriter(log_dir=config.dir)
 
 		data_it = self.infiniteTraverse(data)
 
+		need_states = hasattr(self.model, 'need_states')
+
 		self.log('*	Training.')
 
-		for epoch_i in range(self.start_epoch, self.options['epoch']):
-			logging.info(f'[Epoch {epoch_i}]')
+		for epoch_i in range(self.start_epoch, self.options['epochs']):
+			self.log(f'[Epoch {epoch_i}]')
 
 			start = time.time()
 
@@ -121,37 +128,36 @@ class Trainer:
 			train_loss = total_loss / n_batch
 
 			lr = self.optimizer._optimizer.param_groups[0]['lr']
-			self.print_performances('Training', train_loss, metrics, start, lr)
+			self.print_performances(train_loss, metrics, start, lr)
+
+			if self.config['trainer.latest'] and need_states:
+				self.broadcastParam(self.model.validation_parameters(), src=Trainer.VALIDATOR_RANK)
+				self.log('Model validation parameters synchronized.')
 
 			checkpoint = {
 				'epoch': epoch_i,
 				'model': self.model.deducer.state_dict(),
 				'optim': self.optimizer._optimizer.state_dict(),
+				'extra': self.model.state_dict() if need_states else None,
 			}
 			torch.save(checkpoint, self.config.localPath('latest.chkpt'))
 
-			# TODO: receive parameters from validator process
+			#self.log('Syncing training model parameters...')
+			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 
-			#if hasattr(self.model, 'need_states'):
-			#	self.model.updateStates()
-			#	checkpoint['extra'] = self.model.state_dict()
-
-			self.options['steps'] = self.optimizer.n_steps
-
+			self.config.load()
+			self.config['trainer.steps'] = self.optimizer.n_steps
+			self.config['trainer.latest'] = True
 			self.config.save()
 
 
 	def validate (self, data):
-		self.broadcastModule(self.model, src=Trainer.TRAINER_RANK)
-		self.log('Model parameters synchronized.')
-		return
+		self.moniter = Moniter(**self.options.get('moniter', {}))
+		need_states = hasattr(self.model, 'need_states')
 
-		for epoch_i in range(self.start_epoch, self.options['epoch']):
-			checkpoint = {
-				'epoch': epoch_i,
-				'model': self.model.deducer.state_dict(),
-				'optim': self.optimizer._optimizer.state_dict(),
-			}
+		for epoch_i in range(self.start_epoch, self.options['epochs'] + 1):
+			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
+			self.log('Model training parameters synchronized.')
 
 			start = time.time()
 			#val_loss, val_acc = self.eval_epoch(data)
@@ -178,11 +184,18 @@ class Trainer:
 
 			val_loss = total_loss / n_batch
 
-			self.print_performances('Validation', val_loss, metrics, start, 0)
+			self.print_performances(val_loss, metrics, start, 0)
 
-			if hasattr(self.model, 'need_states'):
+			checkpoint = {
+				'epoch': epoch_i,
+				'model': self.model.deducer.state_dict(),
+			}
+
+			if need_states and epoch_i < self.options['epochs']:
 				self.model.updateStates()
-				checkpoint['extra'] = self.model.state_dict()
+				#checkpoint['extra'] = self.model.state_dict()
+
+				self.broadcastParam(self.model.validation_parameters(), src=Trainer.VALIDATOR_RANK)
 
 			moniter_value, new_record = self.moniter.update({
 				**metrics,
@@ -195,11 +208,13 @@ class Trainer:
 			elif self.options['save_mode'] == 'best':
 				if new_record or epoch_i == 0:
 					torch.save(checkpoint, self.config.localPath(model_name))
-					logging.info('	- [Info] The checkpoint file has been updated.')
+					self.log('The checkpoint file has been updated.')
 
 			if new_record or self.config['best'] is None:
+				self.config.load()
 				self.config['best'] = model_name
 				self.config['trainer.moniter.best_value'] = self.moniter.best_value
+				self.config.save()
 
 			'''# write tensorboard scalars
 			scalars = {
@@ -242,4 +257,4 @@ class Trainer:
 		if 'optim' in checkpoint:
 			self.optimizer._optimizer.load_state_dict(checkpoint['optim'])
 
-		logging.info('Checkpoint loaded: %s', self.config.localPath(filename))
+		self.log('Checkpoint loaded: %s', self.config.localPath(filename))

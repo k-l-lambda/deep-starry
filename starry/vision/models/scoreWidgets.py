@@ -84,8 +84,8 @@ class ScoreWidgetsLoss (nn.Module):
 
 		self.deducer = ScoreWidgets(out_channels=out_channels, **kw_args)
 
-		self.channel_weights = torch.ones(out_channels)
-		self.channel_weights_target = torch.ones(out_channels)
+		self.channel_weights = torch.ones(out_channels, dtype=torch.float32)
+		self.channel_weights_target = torch.ones(out_channels, dtype=torch.float32)
 		self.metric_cost = 0
 
 
@@ -143,7 +143,7 @@ class ScoreWidgetsLoss (nn.Module):
 		# update channel weights target
 		wws = self.stats['loss_weights'] ** 2
 		ww_sum = max(wws.sum(), 1e-9)
-		self.channel_weights_target = torch.tensor(wws * len(wws) / ww_sum)
+		self.channel_weights_target = torch.tensor(wws * len(wws) / ww_sum, dtype=self.channel_weights_target.dtype)
 		self.metric_cost = 0
 
 
@@ -159,6 +159,14 @@ class ScoreWidgetsLoss (nn.Module):
 			self.channel_weights = state_dict['channel_weights'].cpu()
 		if state_dict.get('channel_weights_target') is not None:
 			self.channel_weights_target = state_dict['channel_weights_target'].cpu()
+
+
+	def training_parameters (self, device='cpu'):
+		return list(self.deducer.parameters()) + [nn.parameter.Parameter(self.channel_weights.to(device), requires_grad=False)]
+
+
+	def validation_parameters (self, device='cpu'):
+		return [nn.parameter.Parameter(self.channel_weights_target.to(device), requires_grad=False)]
 
 
 class ScoreWidgetsMask (ScoreWidgets):

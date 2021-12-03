@@ -6,7 +6,6 @@ import torch
 
 from starry.utils.config import Configuration
 from starry.utils.trainerQuantitative import Trainer
-#from starry.utils.dataset_factory import loadDataset
 
 
 
@@ -17,18 +16,16 @@ def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('config', type=str)
 	parser.add_argument('-b', '--backend', type=str, default='nccl')
+	parser.add_argument('-c', '--config_only', action='store_true', help='create config, no training')
 
 	args = parser.parse_args()
 
 	config = Configuration.createOrLoad(args.config)
 
-	'''logging.info('*	Loading data.')
-	train, val = loadDataset(config, data_dir=VISION_DATA_DIR, device=config['trainer.device'])
+	if args.config_only:
+		print('Config created:', config.dir)
+		return
 
-	logging.info('*	Training.')
-	trainer = Trainer(config)
-	#trainer.train(train)
-	trainer.validate(val)'''
 	torch.multiprocessing.set_start_method('spawn')
 	torch.multiprocessing.spawn(fn=Trainer.run, args=(config, VISION_DATA_DIR, args.backend), nprocs=Trainer.PROC_COUNT)
 

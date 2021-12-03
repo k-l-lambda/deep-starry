@@ -73,7 +73,8 @@ data:
 trainer:
   device:         cpu
   save_mode:      best
-  epoch:          2
+  epochs:         2
+  epoch_size:     5
   moniter:
     field:        contour
     mode:         max
