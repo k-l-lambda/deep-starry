@@ -124,7 +124,7 @@ def detectStavesFromHBL (HB, HL, interval):
 		if ri < 0:
 			preRects.append(rect)
 		else:
-			rc = preRects[ri]
+			rc = list(preRects[ri])
 			if w > rc[2]:
 				rect[0] = min(x, rc[0])
 				rect[2] = max(x + w, rc[0] + rc[2]) - x
