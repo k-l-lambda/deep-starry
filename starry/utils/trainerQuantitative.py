@@ -1,4 +1,6 @@
 
+import os
+import sys
 import torch
 from tensorboardX import SummaryWriter
 import time
@@ -8,40 +10,84 @@ import logging
 from .optim import optim
 from .model_factory import loadModel
 from .trainer import Moniter, print_metric, stat_average
+from .dataset_factory import loadDataset
 
 
 
 class Trainer:
+	TRAINER_RANK = 0
+	VALIDATOR_RANK = 1
+	PROC_COUNT = 2
+
+
+	@staticmethod
+	def run (rank, config, data_dir, backend='nccl'):
+		logging.basicConfig(filename=config.localPath('trainer.log'),
+			format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%H:%M:%S', level=logging.INFO)
+		logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+
+		init_file = os.path.abspath(config.localPath('.torch_distributed_init'))
+		torch.distributed.init_process_group(backend=backend, init_method=f'file://{init_file}', rank=rank, world_size=Trainer.PROC_COUNT)
+
+		trainer = Trainer(config, rank=rank)
+
+		trainer.log('*	Loading data.')
+
+		splits = config['data.splits'].split(':')
+		data, = loadDataset(config, data_dir=data_dir, device=config['trainer.device'],
+			splits=splits[rank], batch_size=config['trainer.val_batch_size'] if rank == Trainer.VALIDATOR_RANK else None)
+
+		if rank == Trainer.TRAINER_RANK:
+			trainer.train(data)
+		elif rank == Trainer.VALIDATOR_RANK:
+			trainer.validate(data)
+
+
 	def __init__ (self, config, rank=0):
 		self.config = config
 		self.options = config['trainer']
 		self.moniter = Moniter(**self.options.get('moniter', {}))
 		self.rank = rank
+		self.role = 'TR' if rank == Trainer.TRAINER_RANK else 'VA'
 
 		self.start_epoch = 0
 
 		self.model = loadModel(config['model'], postfix='Loss')
 		self.model.to(self.options['device'])
 
-		if self.rank == 0:
-			self.optimizer = optim(config['optim'], self.model.parameters(), init_step=self.options.get('steps', 0))
-
-			weights = self.config['best'] or self.config['trainer.pretrained_weights']
-			if weights:
-				self.loadCheckpoint(weights)
-
-			# TODO: broadcast parameters
-
 		#self.tb_writer = SummaryWriter(log_dir=config.dir)
 
 
+	def log (self, message, *args):
+		logging.info(f'[{self.role}]	' + message, *args)
+
+
 	def print_performances(self, header, loss, metric, start_time, lr):
-		logging.info('  - {header:12} loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
+		self.log('  - {header:12} loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
 			.format(header=f"({header})", loss=loss, metric=print_metric(metric), elapse=(time.time()-start_time)/60, lr=lr))
 
 
+	def broadcastModule (self, module, src):
+		for param in module.parameters():
+			torch.distributed.broadcast(param.data, src=src)
+
+
 	def train (self, data):
+		self.log('*	Initializing trainer.')
+
+		self.optimizer = optim(self.config['optim'], self.model.parameters(), init_step=self.options.get('steps', 0))
+
+		weights = self.config['best'] or self.config['trainer.pretrained_weights']
+		if weights:
+			self.loadCheckpoint(weights)
+
+		self.log('Syncing model parameters...')
+		self.broadcastModule(self.model, src=Trainer.TRAINER_RANK)
+		return
+
 		data_it = self.infiniteTraverse(data)
+
+		self.log('*	Training.')
 
 		for epoch_i in range(self.start_epoch, self.options['epoch']):
 			logging.info(f'[Epoch {epoch_i}]')
@@ -96,6 +142,10 @@ class Trainer:
 
 
 	def validate (self, data):
+		self.broadcastModule(self.model, src=Trainer.TRAINER_RANK)
+		self.log('Model parameters synchronized.')
+		return
+
 		for epoch_i in range(self.start_epoch, self.options['epoch']):
 			checkpoint = {
 				'epoch': epoch_i,

@@ -23,7 +23,7 @@ def registerTypes ():
 
 
 
-def loadDataset (config, data_dir='.', device='cpu'):
+def loadDataset (config, data_dir='.', device='cpu', splits=None, batch_size=None):
 	global type_dict
 	if type_dict is None:
 		registerTypes()
@@ -36,10 +36,10 @@ def loadDataset (config, data_dir='.', device='cpu'):
 	dataset_class = type_dict[data_type]
 
 	root = os.path.join(data_dir, config['data.root'])
-	datasets = dataset_class.load(root, config['data.args'], splits=config['data.splits'], device=device)
+	datasets = dataset_class.load(root, config['data.args'], splits=splits or config['data.splits'], device=device)
 	loaders = tuple(map(
 		lambda dataset:
-			DataLoader(dataset, batch_size=config['data.batch_size'], collate_fn=dataset.collateBatch),
+			DataLoader(dataset, batch_size=batch_size or config['data.batch_size'], collate_fn=dataset.collateBatch),
 		datasets))
 
 	return loaders
