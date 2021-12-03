@@ -6,6 +6,7 @@ from tensorboardX import SummaryWriter
 import time
 from tqdm import tqdm
 import logging
+import shutil
 
 from .optim import optim
 from .model_factory import loadModel
@@ -44,6 +45,7 @@ class Trainer:
 		elif rank == Trainer.VALIDATOR_RANK:
 			trainer.validate(data)
 
+		trainer.tb_writer.close()
 		torch.distributed.destroy_process_group()
 
 
@@ -221,18 +223,6 @@ class Trainer:
 
 			self.print_performances(val_loss, metrics, start, 0)
 
-			checkpoint = {
-				'epoch': epoch_i,
-				'model': self.model.deducer.state_dict(),
-			}
-
-			if need_states and epoch_i < self.options['epochs'] - 1:
-				self.model.updateStates()
-				#checkpoint['extra'] = self.model.state_dict()
-				#self.log(f'epoch_i: {epoch_i}, {self.options["epochs"]}')
-
-				self.broadcastParam(self.model.validation_parameters(), src=Trainer.VALIDATOR_RANK)
-
 			moniter_value, new_record = self.moniter.update({
 				**metrics,
 				'loss': val_loss,
@@ -240,11 +230,25 @@ class Trainer:
 
 			model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3f}.chkpt'
 			if self.options['save_mode'] == 'all':
-				torch.save(checkpoint, self.config.localPath(model_name))
+				shutil.copyfile(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
 			elif self.options['save_mode'] == 'best':
 				if new_record or epoch_i == 0:
-					torch.save(checkpoint, self.config.localPath(model_name))
+					shutil.copyfile(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
+
+					checkpoint = {
+						'epoch': epoch_i,
+						'model': self.model.deducer.state_dict(),
+					}
+					torch.save(checkpoint, self.config.localPath('best.chkpt'))
+
 					self.log('The checkpoint file has been updated.')
+
+			if need_states and epoch_i < self.options['epochs'] - 1:
+				self.model.updateStates()
+				#checkpoint['extra'] = self.model.state_dict()
+				#self.log(f'epoch_i: {epoch_i}, {self.options["epochs"]}')
+
+				self.broadcastParam(self.model.validation_parameters(), src=Trainer.VALIDATOR_RANK)
 
 			if new_record or self.config['best'] is None:
 				self.config.load()
