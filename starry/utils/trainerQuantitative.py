@@ -7,6 +7,7 @@ import time
 from tqdm import tqdm
 import logging
 import shutil
+import time
 
 from .optim import optim
 from .model_factory import loadModel
@@ -59,6 +60,7 @@ class Trainer:
 		self.start_epoch = 0
 
 		self.model = loadModel(config['model'], postfix='Loss')
+		self.model.deducer.to(self.device)
 		self.model.to(self.device)
 
 		self.tb_writer = SummaryWriter(log_dir=config.localPath(self.role))
@@ -75,12 +77,12 @@ class Trainer:
 
 	def broadcastModule (self, module, src):
 		for param in module.parameters():
-			torch.distributed.broadcast(param.data.to(self.device), src=src)
+			torch.distributed.broadcast(param.data, src=src)
 
 
 	def broadcastParam (self, parameters, src):
 		for param in parameters:
-			torch.distributed.broadcast(param.data.to(self.device), src=src)
+			torch.distributed.broadcast(param.data, src=src)
 
 
 	def broadcastScalar (self, scalar=None, src=0):
@@ -112,7 +114,7 @@ class Trainer:
 
 		if self.config['trainer.latest']:
 			self.log('Syncing training model parameters...')
-			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
+			self.broadcastParam(self.model.training_parameters(device=self.device), src=Trainer.TRAINER_RANK)
 
 		data_it = self.infiniteTraverse(data)
 
@@ -155,7 +157,7 @@ class Trainer:
 			self.print_performances(train_loss, metrics, start, lr)
 
 			if self.config['trainer.latest'] and need_states:
-				self.broadcastParam(self.model.validation_parameters(), src=Trainer.VALIDATOR_RANK)
+				self.broadcastParam(self.model.validation_parameters(device=self.device), src=Trainer.VALIDATOR_RANK)
 				self.log('Model validation parameters synchronized.')
 
 			checkpoint = {
@@ -164,10 +166,10 @@ class Trainer:
 				'optim': self.optimizer._optimizer.state_dict(),
 				'extra': self.model.state_dict() if need_states else None,
 			}
-			torch.save(checkpoint, self.config.localPath('latest.chkpt'))
+			torch.save(checkpoint, self.config.localPath('latest.chkpt'))	# NOTE: nccl backend will stuck here
 
-			#self.log('Syncing training model parameters...')
-			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
+			self.log('Syncing training model parameters...')
+			self.broadcastParam(self.model.training_parameters(device=self.device), src=Trainer.TRAINER_RANK)
 
 			self.config.load()
 			self.config['trainer.steps'] = self.optimizer.n_steps
@@ -193,7 +195,8 @@ class Trainer:
 		self.log('start_epoch: %d', self.start_epoch)
 
 		for epoch_i in range(self.start_epoch, self.options['epochs']):
-			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
+			self.log('Waiting for training parameters...')
+			self.broadcastParam(self.model.training_parameters(device=self.device), src=Trainer.TRAINER_RANK)
 			self.log('Model training parameters synchronized.')
 
 			start = time.time()
@@ -230,10 +233,12 @@ class Trainer:
 
 			model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3f}.chkpt'
 			if self.options['save_mode'] == 'all':
-				shutil.copyfile(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
+				shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
+				time.sleep(1)
 			elif self.options['save_mode'] == 'best':
 				if new_record or epoch_i == 0:
-					shutil.copyfile(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
+					shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
+					time.sleep(1)
 
 					checkpoint = {
 						'epoch': epoch_i,
@@ -248,7 +253,7 @@ class Trainer:
 				#checkpoint['extra'] = self.model.state_dict()
 				#self.log(f'epoch_i: {epoch_i}, {self.options["epochs"]}')
 
-				self.broadcastParam(self.model.validation_parameters(), src=Trainer.VALIDATOR_RANK)
+				self.broadcastParam(self.model.validation_parameters(device=self.device), src=Trainer.VALIDATOR_RANK)
 
 			if new_record or self.config['best'] is None:
 				self.config.load()
@@ -282,7 +287,6 @@ class Trainer:
 	def loadCheckpoint (self, filename):
 		checkpoint = torch.load(self.config.localPath(filename), map_location=self.options['device'])
 		self.model.deducer.load_state_dict(checkpoint['model'])
-		self.model.deducer.to(self.device)
 		self.start_epoch = checkpoint['epoch'] + 1
 
 		if hasattr(self.model, 'need_states') and checkpoint.get('extra') is not None:

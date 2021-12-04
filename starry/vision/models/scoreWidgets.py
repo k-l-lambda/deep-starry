@@ -156,9 +156,9 @@ class ScoreWidgetsLoss (nn.Module):
 
 	def load_state_dict (self, state_dict):
 		if state_dict.get('channel_weights') is not None:
-			self.channel_weights = state_dict['channel_weights'].cpu()
+			self.channel_weights = state_dict['channel_weights'].float()
 		if state_dict.get('channel_weights_target') is not None:
-			self.channel_weights_target = state_dict['channel_weights_target'].cpu()
+			self.channel_weights_target = state_dict['channel_weights_target'].float()
 
 
 	def training_parameters (self, device='cpu'):
