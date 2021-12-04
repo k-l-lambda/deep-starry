@@ -1,5 +1,6 @@
 
 import os
+import sys
 import io
 import numpy as np
 import torch
@@ -124,11 +125,14 @@ def detectStavesFromHBL (HB, HL, interval):
 		if ri < 0:
 			preRects.append(rect)
 		else:
-			rc = preRects[ri]
+			rc = list(preRects[ri])
 			if w > rc[2]:
-				rect[0] = min(x, rc[0])
-				rect[2] = max(x + w, rc[0] + rc[2]) - x
-				preRects[ri] = rect
+				preRects[ri] = (
+					min(x, rc[0]),
+					rect[1],
+					max(x + w, rc[0] + rc[2]) - x,
+					rect[3],
+				)
 			else:
 				rc[0] = min(x, rc[0])
 				rc[2] = max(x + w, rc[0] + rc[2]) - rc[0]
@@ -243,120 +247,142 @@ class ScorePageProcessor (Predictor):
 		if output_folder is not None:
 			os.makedirs(output_folder, exist_ok=True)
 
-		for i in range(0, len(input_paths), BATCH_SIZE):
-			image_hashes = list(map(loadImageWithHash, input_paths[i:i + BATCH_SIZE]))
-			page_filenames = None
-			if output_folder:
-				page_filenames = []
-				for ii, ih in enumerate(image_hashes):
-					input_path = input_paths[i + ii]
-					_, hash = ih
-					# get extension name from input path
-					ext = os.path.splitext(input_path)[1]
-					filename = hash + ext
-					page_filenames.append(filename)
-					shutil.copyfile(input_path, os.path.join(output_folder, filename))
+		try:
+			for i in range(0, len(input_paths), BATCH_SIZE):
+				image_hashes = list(map(loadImageWithHash, input_paths[i:i + BATCH_SIZE]))
+				page_filenames = None
+				if output_folder:
+					page_filenames = []
+					for ii, ih in enumerate(image_hashes):
+						input_path = input_paths[i + ii]
+						_, hash = ih
+						# get extension name from input path
+						ext = os.path.splitext(input_path)[1]
+						filename = hash + ext
+						page_filenames.append(filename)
+						shutil.copyfile(input_path, os.path.join(output_folder, filename))
 
-					logging.info('Page image copied: %s', filename)
+						logging.debug('Page image copied: %s', filename)
 
-			images = list(map(lambda ih: ih[0], image_hashes))
-			#cv2.imwrite('./output/image0.png', images[0])
+				images = list(map(lambda ih: ih[0], image_hashes))
+				#cv2.imwrite('./output/image0.png', images[0])
 
-			# unify images' dimensions
-			ratio = max(map(lambda img: img.shape[0] / img.shape[1], images))
-			height = int(RESIZE_WIDTH * ratio)
-			height += -height % 4
-			unified_images = list(map(lambda img: resizePageImage(img, (RESIZE_WIDTH, height)), images))
-			image_array = np.stack(unified_images, axis=0)
+				# unify images' dimensions
+				ratio = max(map(lambda img: img.shape[0] / img.shape[1], images))
+				height = int(RESIZE_WIDTH * ratio)
+				height += -height % 4
+				unified_images = list(map(lambda img: resizePageImage(img, (RESIZE_WIDTH, height)), images))
+				image_array = np.stack(unified_images, axis=0)
 
-			batch, _ = self.composer(image_array, np.ones((1, 4, 4, 2)))
-			batch = torch.from_numpy(batch)
-			batch = batch.to(self.device)
+				batch, _ = self.composer(image_array, np.ones((1, 4, 4, 2)))
+				batch = torch.from_numpy(batch)
+				batch = batch.to(self.device)
 
-			with torch.no_grad():
-				output = self.model(batch)
-				output = output.cpu().numpy()
+				with torch.no_grad():
+					output = self.model(batch)
+					output = output.cpu().numpy()
 
-				for j, heatmap in enumerate(output):
-					layout = PageLayout(heatmap)
+					for j, heatmap in enumerate(output):
+						try:
+							layout = PageLayout(heatmap)
 
-					image = images[j]
-					original_size = (image.shape[1], int(image.shape[1] * ratio))
+							if layout.theta is None:
+								yield {
+									'theta': None,
+									'interval': None,
+									'detection': None,
+									'page_info': None,
+								}
+								continue
 
-					# rotation correction
-					rot_mat = cv2.getRotationMatrix2D((original_size[0] / 2, original_size[1] / 2), layout.theta * 180 / np.pi, 1)
-					image = cv2.warpAffine(image, rot_mat, original_size, flags=cv2.INTER_CUBIC)
-					#cv2.imwrite('./output/image.png', image)
+							image = images[j]
+							original_size = (image.shape[1], int(image.shape[1] * ratio))
 
-					heatmap = np.moveaxis(np.uint8(heatmap * 255), 0, -1)
-					heatmap = cv2.resize(heatmap, original_size)
-					heatmap = cv2.warpAffine(heatmap, rot_mat, original_size, flags=cv2.INTER_LINEAR)
-					#cv2.imwrite(f'./output/heatmap-{i+j}.png', heatmap)
+							# rotation correction
+							rot_mat = cv2.getRotationMatrix2D((original_size[0] / 2, original_size[1] / 2), layout.theta * 180 / np.pi, 1)
+							image = cv2.warpAffine(image, rot_mat, original_size, flags=cv2.INTER_CUBIC)
+							#cv2.imwrite('./output/image.png', image)
 
-					HB = heatmap[:, :, 1]
-					HL = heatmap[:, :, 2]
-					block = heatmap.max(axis=2)
-					detection = detectSystems(block)
+							heatmap = np.moveaxis(np.uint8(heatmap * 255), 0, -1)
+							heatmap = cv2.resize(heatmap, original_size)
+							heatmap = cv2.warpAffine(heatmap, rot_mat, original_size, flags=cv2.INTER_LINEAR)
+							#cv2.imwrite(f'./output/heatmap-{i+j}.png', heatmap)
 
-					page_interval = layout.interval * original_size[0] / RESIZE_WIDTH
+							HB = heatmap[:, :, 1]
+							HL = heatmap[:, :, 2]
+							block = heatmap.max(axis=2)
+							detection = detectSystems(block)
 
-					for si, area in enumerate(detection['areas']):
-						l, r, t, b = map(round, (area['x'], area['x'] + area['width'], area['y'], area['y'] + area['height']))
-						hb = HB[t:b, l:r]
-						hl = HL[t:b, l:r]
-						area['staves'] = detectStavesFromHBL(hb, hl, page_interval)
-						#cv2.imwrite(f'./output/hl-{si}.png', hl)
+							page_interval = layout.interval * original_size[0] / RESIZE_WIDTH
 
-						if area['staves'].get('middleRhos') is None:
-							continue
+							for si, area in enumerate(detection['areas']):
+								l, r, t, b = map(round, (area['x'], area['x'] + area['width'], area['y'], area['y'] + area['height']))
+								hb = HB[t:b, l:r]
+								hl = HL[t:b, l:r]
+								area['staves'] = detectStavesFromHBL(hb, hl, page_interval)
+								#cv2.imwrite(f'./output/hl-{si}.png', hl)
 
-						system_image = image[t:b, l:r, :]
-						#cv2.imwrite(f'./output/system-{si}.png', system_image)
+								if area['staves'].get('middleRhos') is None:
+									continue
 
-						area['staff_images'] = []
+								system_image = image[t:b, l:r, :]
+								#cv2.imwrite(f'./output/system-{si}.png', system_image)
 
-						interval = area['staves']['interval']
-						staff_size = (round(system_image.shape[1] * UNIT_SIZE / interval), STAFF_HEIGHT_UNITS * UNIT_SIZE)
-						for ssi, rho in enumerate(area['staves']['middleRhos']):
-							top = round(rho - STAFF_HEIGHT_UNITS * interval / 2)
-							bottom = round(rho + STAFF_HEIGHT_UNITS * interval / 2)
-							#logging.info('staff: %s, %s', top, bottom)
+								area['staff_images'] = []
 
-							if top >= 0 and bottom < system_image.shape[0]:
-								staff_image = system_image[top:bottom, :, :]
-							else:
-								staff_image = np.ones((bottom - top, system_image.shape[1], system_image.shape[2]), dtype=np.uint8) * 255
-								bi = system_image.shape[0] - bottom if system_image.shape[0] - bottom < 0 else staff_image.shape[0]
-								staff_image[max(-top, 0):bi, :, :] = system_image[max(top, 0):min(bottom, system_image.shape[0]), :, :]
-							staff_image = cv2.resize(staff_image, staff_size, interpolation=cv2.INTER_CUBIC)
+								interval = area['staves']['interval']
+								staff_size = (round(system_image.shape[1] * UNIT_SIZE / interval), STAFF_HEIGHT_UNITS * UNIT_SIZE)
+								for ssi, rho in enumerate(area['staves']['middleRhos']):
+									top = round(rho - STAFF_HEIGHT_UNITS * interval / 2)
+									bottom = round(rho + STAFF_HEIGHT_UNITS * interval / 2)
+									#logging.info('staff: %s, %s', top, bottom)
 
-							#cv2.imwrite(f'./output/staff-{si}-{ssi}.png', staff_image)
-							bytes = arrayToImageFile(staff_image).getvalue()
-							hash = hashlib.md5(bytes).hexdigest()
+									if top >= 0 and bottom < system_image.shape[0]:
+										staff_image = system_image[top:bottom, :, :]
+									else:
+										staff_image = np.ones((bottom - top, system_image.shape[1], system_image.shape[2]), dtype=np.uint8) * 255
+										bi = system_image.shape[0] - bottom if system_image.shape[0] - bottom < 0 else staff_image.shape[0]
+										staff_image[max(-top, 0):bi, :, :] = system_image[max(top, 0):min(bottom, system_image.shape[0]), :, :]
+									staff_image = cv2.resize(staff_image, staff_size, interpolation=cv2.INTER_CUBIC)
 
-							area['staff_images'].append({
-								'hash': f'md5:{hash}',
-								'position': {
-									'x': -area['staves']['phi1'] * UNIT_SIZE / interval,
-									'y': -STAFF_HEIGHT_UNITS * UNIT_SIZE / 2,
-									'width': staff_size[0],
-									'height': staff_size[1],
-								},
-							})
+									#cv2.imwrite(f'./output/staff-{si}-{ssi}.png', staff_image)
+									bytes = arrayToImageFile(staff_image).getvalue()
+									hash = hashlib.md5(bytes).hexdigest()
 
-							if output_folder is not None:
-								with open(os.path.join(output_folder, hash + '.png'), 'wb') as f:
-									f.write(bytes)
-								logging.info('Staff image wrote: %s.png', hash)
+									area['staff_images'].append({
+										'hash': f'md5:{hash}',
+										'position': {
+											'x': -area['staves']['phi1'] * UNIT_SIZE / interval,
+											'y': -STAFF_HEIGHT_UNITS * UNIT_SIZE / 2,
+											'width': staff_size[0],
+											'height': staff_size[1],
+										},
+									})
 
-					page_info = {
-						'url': 'md5:' + page_filenames[j] if page_filenames is not None else None,
-						'size': original_size,
-					}
+									if output_folder is not None:
+										with open(os.path.join(output_folder, hash + '.png'), 'wb') as f:
+											f.write(bytes)
+										#logging.info('Staff image wrote: %s.png', hash)
 
-					yield {
-						'theta': layout.theta,
-						'interval': page_interval,
-						'detection': detection,
-						'page_info': page_info,
-					}
+							page_info = {
+								'url': 'md5:' + page_filenames[j] if page_filenames is not None else None,
+								'size': original_size,
+							}
+
+							yield {
+								'theta': layout.theta,
+								'interval': page_interval,
+								'detection': detection,
+								'page_info': page_info,
+							}
+						except:
+							yield {
+								'theta': None,
+								'interval': None,
+								'detection': None,
+								'page_info': None,
+								'reason': str(sys.exc_info()[1]),
+							}
+		except:
+			logging.warn(sys.exc_info()[1])
+			yield None
