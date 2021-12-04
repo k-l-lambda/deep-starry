@@ -209,7 +209,7 @@ class Trainer:
 				total_loss, n_batch = 0, 0
 				metric_data = {}
 
-				for batch in tqdm(data, mininterval=2, desc='  - (Validation) ', leave=False, position=self.rank):
+				for batch in tqdm(data, mininterval=1, desc='  - (Validation) ', leave=False, position=self.rank):
 					# forward
 					loss, metric = self.model(batch)
 
