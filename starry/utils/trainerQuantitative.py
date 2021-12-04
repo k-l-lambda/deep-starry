@@ -77,12 +77,12 @@ class Trainer:
 
 	def broadcastModule (self, module, src):
 		for param in module.parameters():
-			torch.distributed.broadcast(param.data, src=src)
+			torch.distributed.broadcast(param, src=src)
 
 
 	def broadcastParam (self, parameters, src):
 		for param in parameters:
-			torch.distributed.broadcast(param.data, src=src)
+			torch.distributed.broadcast(param, src=src)
 
 
 	def broadcastScalar (self, scalar=None, src=0):
@@ -114,7 +114,8 @@ class Trainer:
 
 		if self.config['trainer.latest']:
 			self.log('Syncing training model parameters...')
-			self.broadcastParam(self.model.training_parameters(device=self.device), src=Trainer.TRAINER_RANK)
+			self.model.requires_grad_(False)
+			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 
 		data_it = self.infiniteTraverse(data)
 
@@ -127,7 +128,7 @@ class Trainer:
 
 			start = time.time()
 
-			self.model.train()
+			self.model.train().requires_grad_(True)
 			total_loss, n_batch = 0, 0
 			metric_data = {}
 
@@ -157,7 +158,7 @@ class Trainer:
 			self.print_performances(train_loss, metrics, start, lr)
 
 			if self.config['trainer.latest'] and need_states:
-				self.broadcastParam(self.model.validation_parameters(device=self.device), src=Trainer.VALIDATOR_RANK)
+				self.broadcastParam(self.model.validation_parameters(), src=Trainer.VALIDATOR_RANK)
 				self.log('Model validation parameters synchronized.')
 
 			checkpoint = {
@@ -169,7 +170,8 @@ class Trainer:
 			torch.save(checkpoint, self.config.localPath('latest.chkpt'))	# NOTE: nccl backend will stuck here
 
 			self.log('Syncing training model parameters...')
-			self.broadcastParam(self.model.training_parameters(device=self.device), src=Trainer.TRAINER_RANK)
+			self.model.requires_grad_(False)
+			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 
 			self.config.load()
 			self.config['trainer.steps'] = self.optimizer.n_steps
@@ -194,19 +196,19 @@ class Trainer:
 			self.start_epoch -= 1
 		self.log('start_epoch: %d', self.start_epoch)
 
-		for epoch_i in range(self.start_epoch, self.options['epochs']):
-			self.log('Waiting for training parameters...')
-			self.broadcastParam(self.model.training_parameters(device=self.device), src=Trainer.TRAINER_RANK)
-			self.log('Model training parameters synchronized.')
+		with torch.no_grad():
+			self.model.eval().requires_grad_(False)
+			for epoch_i in range(self.start_epoch, self.options['epochs']):
+				self.log('Waiting for training parameters...')
+				self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
+				self.log('Model training parameters synchronized.')
 
-			start = time.time()
-			#val_loss, val_acc = self.eval_epoch(data)
+				start = time.time()
+				#val_loss, val_acc = self.eval_epoch(data)
 
-			self.model.eval()
-			total_loss, n_batch = 0, 0
-			metric_data = {}
+				total_loss, n_batch = 0, 0
+				metric_data = {}
 
-			with torch.no_grad():
 				for batch in tqdm(data, mininterval=2, desc='  - (Validation) ', leave=False, position=self.rank):
 					# forward
 					loss, metric = self.model(batch)
@@ -219,54 +221,54 @@ class Trainer:
 					for k, v in metric.items():
 						metric_data[k] = metric_data[k] + v if k in metric_data else v
 
-			stat = self.model.stat if hasattr(self.model, 'stat') else stat_average
-			metrics = stat(metric_data, n_batch)
+				stat = self.model.stat if hasattr(self.model, 'stat') else stat_average
+				metrics = stat(metric_data, n_batch)
 
-			val_loss = total_loss / n_batch
+				val_loss = total_loss / n_batch
 
-			self.print_performances(val_loss, metrics, start, 0)
+				self.print_performances(val_loss, metrics, start, 0)
 
-			moniter_value, new_record = self.moniter.update({
-				**metrics,
-				'loss': val_loss,
-			})
+				moniter_value, new_record = self.moniter.update({
+					**metrics,
+					'loss': val_loss,
+				})
 
-			model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3f}.chkpt'
-			if self.options['save_mode'] == 'all':
-				shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
-				time.sleep(1)
-			elif self.options['save_mode'] == 'best':
-				if new_record or epoch_i == 0:
+				model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3f}.chkpt'
+				if self.options['save_mode'] == 'all':
 					shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
 					time.sleep(1)
+				elif self.options['save_mode'] == 'best':
+					if new_record or epoch_i == 0:
+						shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
+						time.sleep(1)
 
-					checkpoint = {
-						'epoch': epoch_i,
-						'model': self.model.deducer.state_dict(),
-					}
-					torch.save(checkpoint, self.config.localPath('best.chkpt'))
+						checkpoint = {
+							'epoch': epoch_i,
+							'model': self.model.deducer.state_dict(),
+						}
+						torch.save(checkpoint, self.config.localPath('best.chkpt'))
 
-					self.log('The checkpoint file has been updated.')
+						self.log('The checkpoint file has been updated.')
 
-			if need_states and epoch_i < self.options['epochs'] - 1:
-				self.model.updateStates()
-				#checkpoint['extra'] = self.model.state_dict()
-				#self.log(f'epoch_i: {epoch_i}, {self.options["epochs"]}')
+				if need_states and epoch_i < self.options['epochs'] - 1:
+					self.model.updateStates()
+					#checkpoint['extra'] = self.model.state_dict()
+					#self.log(f'epoch_i: {epoch_i}, {self.options["epochs"]}')
 
-				self.broadcastParam(self.model.validation_parameters(device=self.device), src=Trainer.VALIDATOR_RANK)
+					self.broadcastParam(self.model.validation_parameters(), src=Trainer.VALIDATOR_RANK)
 
-			if new_record or self.config['best'] is None:
-				self.config.load()
-				self.config['best'] = model_name
-				self.config['trainer.moniter.best_value'] = self.moniter.best_value
-				self.config.save()
+				if new_record or self.config['best'] is None:
+					self.config.load()
+					self.config['best'] = model_name
+					self.config['trainer.moniter.best_value'] = self.moniter.best_value
+					self.config.save()
 
-			# write tensorboard scalars
-			scalars = {
-				'val_loss': val_loss,
-				**metrics,
-			}
-			self.reportScalars(scalars, epoch_i)
+				# write tensorboard scalars
+				scalars = {
+					'val_loss': val_loss,
+					**metrics,
+				}
+				self.reportScalars(scalars, epoch_i)
 
 
 	def infiniteTraverse (self, dataset):

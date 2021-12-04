@@ -5,6 +5,11 @@ TODO:
 
 
 
+2021.12.4
+
+	+	ScoreWidgets.py: register channel weights as module buffer.
+
+
 2021.12.3
 
 	+	trainerQuantitative.py: tensorboard writer added.

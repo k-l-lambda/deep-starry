@@ -84,8 +84,8 @@ class ScoreWidgetsLoss (nn.Module):
 
 		self.deducer = ScoreWidgets(out_channels=out_channels, **kw_args)
 
-		self.channel_weights = torch.ones(out_channels, dtype=torch.float32)
-		self.channel_weights_target = torch.ones(out_channels, dtype=torch.float32)
+		self.register_buffer('channel_weights', torch.ones(out_channels, dtype=torch.float32))
+		self.register_buffer('channel_weights_target', torch.ones(out_channels, dtype=torch.float32))
 		self.metric_cost = 0
 
 
@@ -161,12 +161,12 @@ class ScoreWidgetsLoss (nn.Module):
 			self.channel_weights_target = state_dict['channel_weights_target'].float()
 
 
-	def training_parameters (self, device='cpu'):
-		return list(self.deducer.parameters()) + [nn.parameter.Parameter(self.channel_weights.to(device), requires_grad=False)]
+	def training_parameters (self):
+		return list(self.deducer.parameters()) + [self.channel_weights]
 
 
-	def validation_parameters (self, device='cpu'):
-		return [nn.parameter.Parameter(self.channel_weights_target.to(device), requires_grad=False)]
+	def validation_parameters (self):
+		return [self.channel_weights_target]
 
 
 class ScoreWidgetsMask (ScoreWidgets):
