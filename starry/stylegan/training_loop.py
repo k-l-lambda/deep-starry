@@ -373,6 +373,7 @@ def training_loop(config,
 				with open(snapshot_pkl, 'wb') as f:
 					pickle.dump(snapshot_data, f)
 
+				config['trainer.augment_p'] = augment_pipe.p.item()
 				config['stats.checkpoint'] = checkpoint_name
 				config['stats.kimg'] = cur_nimg//1000
 				config.save()
