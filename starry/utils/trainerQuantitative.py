@@ -63,6 +63,13 @@ class Trainer:
 		self.model.deducer.to(self.device)
 		self.model.to(self.device)
 
+		self.optimizer = optim(self.config['optim'], self.model.parameters(),
+			init_step=self.options.get('steps', 0)) if self.rank == Trainer.TRAINER_RANK else None
+
+		weights = 'latest.chkpt' if self.config['trainer.latest'] else self.config['trainer.pretrained_weights']
+		if weights:
+			self.loadCheckpoint(weights)
+
 		self.tb_writer = SummaryWriter(log_dir=config.localPath(self.role))
 
 
@@ -104,13 +111,7 @@ class Trainer:
 	def train (self, data):
 		self.log('*	Initializing trainer.')
 
-		self.optimizer = optim(self.config['optim'], self.model.parameters(), init_step=self.options.get('steps', 0))
-
-		weights = 'latest.chkpt' if self.config['trainer.latest'] else self.config['trainer.pretrained_weights']
-		if weights:
-			self.loadCheckpoint(weights)
-
-		self.broadcastScalar(self.start_epoch, src=self.rank)
+		#self.broadcastScalar(self.start_epoch, src=self.rank)
 
 		if self.config['trainer.latest']:
 			self.log('Syncing training model parameters...')
@@ -190,7 +191,7 @@ class Trainer:
 		self.moniter = Moniter(**self.options.get('moniter', {}))
 		need_states = hasattr(self.model, 'need_states')
 
-		self.start_epoch = self.broadcastScalar(src=Trainer.TRAINER_RANK)
+		#self.start_epoch = self.broadcastScalar(src=Trainer.TRAINER_RANK)
 
 		if self.config['trainer.latest']:
 			self.start_epoch -= 1
@@ -294,7 +295,7 @@ class Trainer:
 		if hasattr(self.model, 'need_states') and checkpoint.get('extra') is not None:
 			self.model.load_state_dict(checkpoint['extra'])
 
-		if 'optim' in checkpoint:
+		if 'optim' in checkpoint and self.optimizer is not None:
 			self.optimizer._optimizer.load_state_dict(checkpoint['optim'])
 
 		self.log('Checkpoint loaded: %s', self.config.localPath(filename))
