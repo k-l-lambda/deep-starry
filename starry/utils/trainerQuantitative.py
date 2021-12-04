@@ -236,11 +236,11 @@ class Trainer:
 
 				model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3f}.chkpt'
 				if self.options['save_mode'] == 'all':
-					shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
+					shutil.copy(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
 					time.sleep(1)
 				elif self.options['save_mode'] == 'best':
 					if new_record or epoch_i == 0:
-						shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
+						shutil.copy(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
 						time.sleep(1)
 
 						checkpoint = {
