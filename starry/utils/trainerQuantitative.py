@@ -197,6 +197,10 @@ class Trainer:
 
 		if self.config['trainer.latest']:
 			self.start_epoch -= 1
+		else:
+			# sleep for the first training epoch
+			epoch_duration = self.options.get('epoch_duration', 18000)
+			time.sleep(epoch_duration)
 		#self.log('start_epoch: %d', self.start_epoch)
 
 		with torch.no_grad():
