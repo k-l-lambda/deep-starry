@@ -252,18 +252,18 @@ class Trainer:
 
 						self.log('The checkpoint file has been updated.')
 
+				if new_record or self.config['best'] is None:
+					self.config.load()
+					self.config['best'] = model_name
+					self.config['trainer.moniter.best_value'] = self.moniter.best_value
+					self.config.save()
+
 				if need_states and epoch_i < self.options['epochs'] - 1:
 					self.model.updateStates()
 					#checkpoint['extra'] = self.model.state_dict()
 					#self.log(f'epoch_i: {epoch_i}, {self.options["epochs"]}')
 
 					self.broadcastParam(self.model.validation_parameters(), src=Trainer.VALIDATOR_RANK)
-
-				if new_record or self.config['best'] is None:
-					self.config.load()
-					self.config['best'] = model_name
-					self.config['trainer.moniter.best_value'] = self.moniter.best_value
-					self.config.save()
 
 				# write tensorboard scalars
 				scalars = {
