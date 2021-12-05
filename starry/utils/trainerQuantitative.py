@@ -199,7 +199,7 @@ class Trainer:
 			self.start_epoch -= 1
 		else:
 			# sleep for the first training epoch
-			epoch_duration = self.options.get('epoch_duration', 18000)
+			epoch_duration = self.options.get('epoch_duration', 1800)
 			time.sleep(epoch_duration)
 		#self.log('start_epoch: %d', self.start_epoch)
 
