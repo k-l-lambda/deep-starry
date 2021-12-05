@@ -183,6 +183,7 @@ class Trainer:
 			# write tensorboard scalars
 			scalars = {
 				'loss': train_loss,
+				'learning_rate': lr,
 				**metrics,
 			}
 			self.reportScalars(scalars, epoch_i)
