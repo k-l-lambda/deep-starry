@@ -162,7 +162,7 @@ class ScoreWidgetsLoss (nn.Module):
 
 
 	def training_parameters (self):
-		return list(self.deducer.parameters()) + [self.channel_weights]
+		return list(self.deducer.parameters()) + list(self.deducer.buffers()) + [self.channel_weights]
 
 
 	def validation_parameters (self):
