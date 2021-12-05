@@ -5,6 +5,13 @@ TODO:
 
 
 
+2021.12.4
+
+	*!	Torch module parameters didn't cover entire of static_dict.
+
+	+	ScoreWidgets.py: register channel weights as module buffer.
+
+
 2021.12.3
 
 	+	trainerQuantitative.py: tensorboard writer added.

@@ -16,7 +16,7 @@ VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR')
 def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('config', type=str)
-	parser.add_argument('-b', '--backend', type=str, default='nccl')
+	parser.add_argument('-b', '--backend', type=str, default='gloo')
 	parser.add_argument('-c', '--config_only', action='store_true', help='create config, no training')
 
 	args = parser.parse_args()
