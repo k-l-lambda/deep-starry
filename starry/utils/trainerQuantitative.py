@@ -66,9 +66,10 @@ class Trainer:
 		self.optimizer = optim(self.config['optim'], self.model.parameters(),
 			init_step=self.options.get('steps', 0)) if self.rank == Trainer.TRAINER_RANK else None
 
-		weights = 'latest.chkpt' if self.config['trainer.latest'] else self.config['trainer.pretrained_weights']
-		if weights:
-			self.loadCheckpoint(weights)
+		latest_path = 'latest.chkpt' if os.path.exists(self.config.localPath('latest.chkpt')) else self.config['best']
+		weights_path = latest_path if self.config['trainer.latest'] else self.config['trainer.pretrained_weights']
+		if weights_path:
+			self.loadCheckpoint(weights_path)
 
 		self.tb_writer = SummaryWriter(log_dir=config.localPath(self.role))
 
@@ -236,11 +237,11 @@ class Trainer:
 
 				model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3f}.chkpt'
 				if self.options['save_mode'] == 'all':
-					shutil.copy(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
+					shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
 					time.sleep(1)
 				elif self.options['save_mode'] == 'best':
 					if new_record or epoch_i == 0:
-						shutil.copy(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
+						shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
 						time.sleep(1)
 
 						checkpoint = {
