@@ -92,7 +92,7 @@ def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('config', type=str)
 	parser.add_argument('-m', '--mode', type=str, default='topology', help='predictor mode')
-	parser.add_argument('-dv', '--device', type=str, default='cuda', help='cpu or cuda')
+	parser.add_argument('-dv', '--device', type=str, default='cpu', help='cpu or cuda')
 	parser.add_argument('-i', '--inspect', action='store_true', help='inspect mode')
 
 	args = parser.parse_args()
