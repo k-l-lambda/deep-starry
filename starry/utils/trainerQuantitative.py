@@ -197,7 +197,7 @@ class Trainer:
 
 		if self.config['trainer.latest']:
 			self.start_epoch -= 1
-		self.log('start_epoch: %d', self.start_epoch)
+		#self.log('start_epoch: %d', self.start_epoch)
 
 		with torch.no_grad():
 			self.model.eval().requires_grad_(False)
