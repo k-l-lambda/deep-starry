@@ -200,6 +200,7 @@ class Trainer:
 		else:
 			# sleep for the first training epoch
 			epoch_duration = self.options.get('epoch_duration', 1800)
+			self.log('Sleep %s seconds for the first training epoch...', epoch_duration)
 			time.sleep(epoch_duration)
 		#self.log('start_epoch: %d', self.start_epoch)
 
