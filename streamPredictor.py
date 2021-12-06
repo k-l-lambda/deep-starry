@@ -14,6 +14,7 @@ from starry.vision.mask_predictor import MaskPredictor
 from starry.vision.gauge_predictor import GaugePredictor
 from starry.vision.layout_predictor import LayoutPredictor
 from starry.vision.scorePageProcessor import ScorePageProcessor
+from starry.vision.scoreSemanticProcessor import ScoreSemanticProcessor
 
 
 
@@ -21,13 +22,14 @@ logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
 
 PREDICTOR_FACTORY = {
-	'topology':		TopologyPredictorH,
-	'topologyHV':	TopologyPredictorHV,
-	'semantic':		SemanticPredictor,
-	'mask':			MaskPredictor,
-	'gauge':		GaugePredictor,
-	'layout':		LayoutPredictor,
-	'scorePage':	ScorePageProcessor,
+	'topology':			TopologyPredictorH,
+	'topologyHV':		TopologyPredictorHV,
+	'semantic':			SemanticPredictor,
+	'mask':				MaskPredictor,
+	'gauge':			GaugePredictor,
+	'layout':			LayoutPredictor,
+	'scorePage':		ScorePageProcessor,
+	'semanticBatch':	ScoreSemanticProcessor,
 }
 
 

@@ -5,6 +5,11 @@ TODO:
 
 
 
+2021.12.6
+
+	+	vision/scoreSemanticProcessor.py created.
+
+
 2021.12.4
 
 	*!	Torch module parameters didn't cover entire of static_dict.
