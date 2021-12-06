@@ -72,20 +72,26 @@ class ScoreSemanticProcessor(Predictor):
 	def predict (self, input_paths):
 		images = list(map(loadImage, input_paths))
 		stack, piece_segments = self.concatImages(images)
-		yield piece_segments
-		yield stack.shape
 
-		'''for i, image in enumerate(images):
-			pieces = sliceFeature(image, width=self.slicing_width, overlapping = 2 / MARGIN_DIVIDER, padding=True)
-			pieces = np.array(list(pieces), dtype=np.uint8)
-			staves, _ = self.composer(pieces, np.ones((1, 4, 4, 2)))
-
-			with torch.no_grad():
-				batch = torch.from_numpy(staves)
-				batch = batch.to(self.device)
+		# run model
+		outputs = []
+		with torch.no_grad():
+			for i in range(0, stack.shape[0], BATCH_SIZE):
+				batch = stack[i:i + BATCH_SIZE]
+				batch = torch.from_numpy(batch).to(self.device)
 
 				output = self.model(batch)
-				semantic = spliceOutputTensor(output)
+				outputs.append(output)
+		outputs = torch.cat(outputs, dim=0)
 
-				ss = ScoreSemantic(np.uint8(semantic * 255), self.labels, confidence_table=self.confidence_table)
-				yield ss.json()'''
+		# find contours and to score semantic
+		layer = 0
+		for seg in piece_segments:
+			output = outputs[layer:layer + seg]
+			layer += seg
+
+			semantic = spliceOutputTensor(output)
+			semantic = np.uint8(semantic * 255)
+
+			ss = ScoreSemantic(semantic, self.labels, confidence_table=self.confidence_table)
+			yield ss.json()
