@@ -377,6 +377,7 @@ class ScorePageProcessor (Predictor):
 								'page_info': page_info,
 							}
 						except:
+							logging.warn(sys.exc_info()[1])
 							yield {
 								'theta': None,
 								'interval': None,
