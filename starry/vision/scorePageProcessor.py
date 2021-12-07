@@ -367,6 +367,7 @@ class ScorePageProcessor (Predictor):
 							page_info = {
 								'url': 'md5:' + page_filenames[j] if page_filenames is not None else None,
 								'size': original_size,
+								'path': input_paths[i + j],
 							}
 
 							yield {
