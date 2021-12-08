@@ -47,6 +47,8 @@ def parseInputLine (line):
 		return {'buffer': io.BytesIO(buffer)}
 	elif protocol == 'json':
 		return json.loads(body)
+	elif protocol == 'echo':
+		return {'_echo': body[:-1]}
 	else:
 		raise ValueError(f'unexpected input protocol: {protocol}')
 
@@ -75,6 +77,12 @@ def session (predictor):
 			args[0].append(data['buffer'])
 		else:
 			kwarg = {**kwarg, **data}
+
+	if kwarg.get('_echo'):
+		print(kwarg['_echo'], end='\n\n', flush = True)
+		logging.info(f'Echoed: "{kwarg["_echo"]}"')
+
+		return True
 
 	logging.info('Predicting...')
 	t0 = time.time()

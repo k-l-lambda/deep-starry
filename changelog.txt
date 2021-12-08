@@ -5,6 +5,11 @@ TODO:
 
 
 
+2021.12.8
+
+	+	streamPredictor.py: echo protocol added.
+
+
 2021.12.6
 
 	+	vision/scoreSemanticProcessor.py created.
