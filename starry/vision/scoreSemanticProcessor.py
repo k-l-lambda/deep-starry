@@ -80,7 +80,7 @@ class ScoreSemanticProcessor(Predictor):
 				batch = stack[i:i + BATCH_SIZE]
 				batch = torch.from_numpy(batch).to(self.device)
 
-				output = self.model(batch)
+				output = self.model(batch).cpu()
 				outputs.append(output)
 		outputs = torch.cat(outputs, dim=0)
 
