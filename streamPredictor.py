@@ -54,7 +54,8 @@ def parseInputLine (line):
 
 
 def outputData (data):
-	logging.info('output json: %d', len(data))
+	assert not ('\n' in data), 'stream output data contains "\\n"'
+	logging.debug('output json: %d', len(data))
 	print(data, end='\n')
 
 
