@@ -1,4 +1,5 @@
 
+import sys
 import os
 import numpy as np
 import torch
@@ -72,30 +73,33 @@ class ScoreSemanticProcessor(Predictor):
 
 
 	def predict (self, input_paths):
-		for bi in range(0, len(input_paths), PATH_BATCH_SIZE):
-			batch_input_paths = input_paths[bi:bi + PATH_BATCH_SIZE]
-			images = list(map(loadImage, batch_input_paths))
-			stack, piece_segments = self.concatImages(images)
+		try:
+			for bi in range(0, len(input_paths), PATH_BATCH_SIZE):
+				batch_input_paths = input_paths[bi:bi + PATH_BATCH_SIZE]
+				images = list(map(loadImage, batch_input_paths))
+				stack, piece_segments = self.concatImages(images)
 
-			# run model
-			outputs = []
-			with torch.no_grad():
-				for i in range(0, stack.shape[0], BATCH_SIZE):
-					batch = stack[i:i + BATCH_SIZE]
-					batch = torch.from_numpy(batch).to(self.device)
+				# run model
+				outputs = []
+				with torch.no_grad():
+					for i in range(0, stack.shape[0], BATCH_SIZE):
+						batch = stack[i:i + BATCH_SIZE]
+						batch = torch.from_numpy(batch).to(self.device)
 
-					output = self.model(batch).cpu()
-					outputs.append(output)
-			outputs = torch.cat(outputs, dim=0)
+						output = self.model(batch).cpu()
+						outputs.append(output)
+				outputs = torch.cat(outputs, dim=0)
 
-			# find contours and to score semantic
-			layer = 0
-			for seg in piece_segments:
-				output = outputs[layer:layer + seg]
-				layer += seg
+				# find contours and to score semantic
+				layer = 0
+				for seg in piece_segments:
+					output = outputs[layer:layer + seg]
+					layer += seg
 
-				semantic = spliceOutputTensor(output)
-				semantic = np.uint8(semantic * 255)
+					semantic = spliceOutputTensor(output)
+					semantic = np.uint8(semantic * 255)
 
-				ss = ScoreSemantic(semantic, self.labels, confidence_table=self.confidence_table)
-				yield ss.json()
+					ss = ScoreSemantic(semantic, self.labels, confidence_table=self.confidence_table)
+					yield ss.json()
+		except:
+			logging.warn(sys.exc_info()[1])
