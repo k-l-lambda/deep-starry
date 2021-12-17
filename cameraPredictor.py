@@ -29,7 +29,7 @@ class CameraPredictor (Predictor):
 		self.show_gauge = args.gauge
 		self.image_width = request_resolution[0]
 
-		config = Configuration.createdOrLoad(args.config)
+		config = Configuration.createOrLoad(args.config)
 		self.loadModel(config)
 
 		PLOTS = 3

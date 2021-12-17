@@ -141,7 +141,7 @@ def iterateSliceImage (source, target, width, overlapping=0.25, crop_margin=0):
 	tw = width // ratio
 	step = math.floor(width - overlapping * source.shape[0])
 
-	for x in range(crop_margin, source.shape[1] - crop_margin, step):
+	for x in range(crop_margin, source.shape[1] - crop_margin * 2, step):
 		sliced_source = np.ones((source.shape[0], width, source.shape[2]), dtype=np.float32)
 		sliced_target = np.zeros((target.shape[0], tw, target.shape[2]), dtype=np.float32)
 

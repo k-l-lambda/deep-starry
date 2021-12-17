@@ -13,6 +13,8 @@ from starry.vision.semantic_predictor import SemanticPredictor
 from starry.vision.mask_predictor import MaskPredictor
 from starry.vision.gauge_predictor import GaugePredictor
 from starry.vision.layout_predictor import LayoutPredictor
+from starry.vision.scorePageProcessor import ScorePageProcessor
+from starry.vision.scoreSemanticProcessor import ScoreSemanticProcessor
 
 
 
@@ -20,12 +22,14 @@ logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
 
 PREDICTOR_FACTORY = {
-	'topology':		TopologyPredictorH,
-	'topologyHV':	TopologyPredictorHV,
-	'semantic':		SemanticPredictor,
-	'mask':			MaskPredictor,
-	'gauge':		GaugePredictor,
-	'layout':		LayoutPredictor,
+	'topology':			TopologyPredictorH,
+	'topologyHV':		TopologyPredictorHV,
+	'semantic':			SemanticPredictor,
+	'mask':				MaskPredictor,
+	'gauge':			GaugePredictor,
+	'layout':			LayoutPredictor,
+	'scorePage':		ScorePageProcessor,
+	'semanticBatch':	ScoreSemanticProcessor,
 }
 
 
@@ -43,12 +47,15 @@ def parseInputLine (line):
 		return {'buffer': io.BytesIO(buffer)}
 	elif protocol == 'json':
 		return json.loads(body)
+	elif protocol == 'echo':
+		return {'_echo': body[:-1]}
 	else:
 		raise ValueError(f'unexpected input protocol: {protocol}')
 
 
 def outputData (data):
-	logging.info('output json: %d', len(data))
+	assert not ('\n' in data), 'stream output data contains "\\n"'
+	logging.debug('output json: %d', len(data))
 	print(data, end='\n')
 
 
@@ -72,6 +79,12 @@ def session (predictor):
 		else:
 			kwarg = {**kwarg, **data}
 
+	if kwarg.get('_echo'):
+		print(kwarg['_echo'], end='\n\n', flush = True)
+		logging.info(f'Echoed: "{kwarg["_echo"]}"')
+
+		return True
+
 	logging.info('Predicting...')
 	t0 = time.time()
 	count = 0
@@ -90,7 +103,7 @@ def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('config', type=str)
 	parser.add_argument('-m', '--mode', type=str, default='topology', help='predictor mode')
-	parser.add_argument('-d', '--device', type=str, default='cpu', help='cpu or cuda')
+	parser.add_argument('-dv', '--device', type=str, default='cpu', help='cpu or cuda')
 	parser.add_argument('-i', '--inspect', action='store_true', help='inspect mode')
 
 	args = parser.parse_args()

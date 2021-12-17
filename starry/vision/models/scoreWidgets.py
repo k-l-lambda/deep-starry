@@ -84,8 +84,8 @@ class ScoreWidgetsLoss (nn.Module):
 
 		self.deducer = ScoreWidgets(out_channels=out_channels, **kw_args)
 
-		self.channel_weights = torch.ones(out_channels)
-		self.channel_weights_target = torch.ones(out_channels)
+		self.register_buffer('channel_weights', torch.ones(out_channels, dtype=torch.float32))
+		self.register_buffer('channel_weights_target', torch.ones(out_channels, dtype=torch.float32))
 		self.metric_cost = 0
 
 
@@ -109,7 +109,7 @@ class ScoreWidgetsLoss (nn.Module):
 			if self.metric_cost < self.metric_quota:
 				metric['semantic'] = ScoreSemanticDual.create(self.labels, self.unit_size, pred, target)
 
-				cost = (metric['semantic'].points_count - metric['semantic'].true_count) / metric['semantic'].true_count
+				cost = (metric['semantic'].points_count - metric['semantic'].true_count) / max(metric['semantic'].true_count, 1)
 				cost = (cost ** 1.2) * feature.shape[0]
 				self.metric_cost += cost
 				#print('metric_cost:', cost, self.metric_cost)
@@ -143,7 +143,7 @@ class ScoreWidgetsLoss (nn.Module):
 		# update channel weights target
 		wws = self.stats['loss_weights'] ** 2
 		ww_sum = max(wws.sum(), 1e-9)
-		self.channel_weights_target = torch.tensor(wws * len(wws) / ww_sum)
+		self.channel_weights_target = torch.tensor(wws * len(wws) / ww_sum, dtype=self.channel_weights_target.dtype)
 		self.metric_cost = 0
 
 
@@ -155,10 +155,18 @@ class ScoreWidgetsLoss (nn.Module):
 
 
 	def load_state_dict (self, state_dict):
-		if state_dict.get('channel_weights'):
-			self.channel_weights = state_dict['channel_weights'].cpu()
-		if state_dict.get('channel_weights_target'):
-			self.channel_weights_target = state_dict['channel_weights_target'].cpu()
+		if state_dict.get('channel_weights') is not None:
+			self.channel_weights = state_dict['channel_weights'].float()
+		if state_dict.get('channel_weights_target') is not None:
+			self.channel_weights_target = state_dict['channel_weights_target'].float()
+
+
+	def training_parameters (self):
+		return list(self.deducer.parameters()) + list(self.deducer.buffers()) + [self.channel_weights]
+
+
+	def validation_parameters (self):
+		return [self.channel_weights_target]
 
 
 class ScoreWidgetsMask (ScoreWidgets):

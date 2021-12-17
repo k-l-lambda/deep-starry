@@ -5,6 +5,65 @@ TODO:
 
 
 
+2021.12.8
+
+	+	streamPredictor.py: echo protocol added.
+
+
+2021.12.6
+
+	+	vision/scoreSemanticProcessor.py created.
+
+
+2021.12.4
+
+	*!	Torch module parameters didn't cover entire of static_dict.
+
+	+	ScoreWidgets.py: register channel weights as module buffer.
+
+
+2021.12.3
+
+	+	trainerQuantitative.py: tensorboard writer added.
+
+	+	trainerQuantitative.py: torch distributed sychronization added.
+
+
+2021.12.2
+
+	+	trainDist.py created.
+
+
+2021.12.1
+
+	+	vision/scorePageProcessor.py created.
+
+
+2021.11.26
+
+	+	measureScoreSemantic.py: refined logging.
+
+
+2021.11.25
+
+	+	topology/predictor.py: keep compatible with new semantic element types.
+
+
+2021.10.22
+
+	+	imageReader.py: added protection on image caching.
+
+
+2021.10.21
+
+	+	utils/trainer.py: save latest.chkpt before validation epoch.
+
+
+2021.10.18
+
+	+	checkpointConverter.py: compat with new checkpoint format.
+
+
 2021.10.11
 
 	+	measureScoreSemantic.py created.

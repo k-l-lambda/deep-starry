@@ -15,7 +15,7 @@ def main ():
 
 	args = parser.parse_args()
 
-	config = Configuration.create(args.target) if args.target.endswith('.yaml') else Configuration(args.target)
+	config = Configuration.createOrLoad(args.target)
 	model = model_factory.loadModel(config['model'])
 
 	checkpoint = torch.load(args.source, map_location='cpu')
@@ -23,7 +23,7 @@ def main ():
 
 	# read data from checkpoint of old format
 	epoch = checkpoint['epoch']
-	model.load_state_dict(checkpoint['model_state_dict'])
+	model.load_state_dict(checkpoint.get('model_state_dict', checkpoint.get('model')))
 	#print('model:', model)
 
 	filename = os.path.basename(args.source)

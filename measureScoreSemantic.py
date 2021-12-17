@@ -13,9 +13,6 @@ from starry.utils.model_factory import loadModel
 
 
 
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-
-
 VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR')
 
 
@@ -68,8 +65,13 @@ def main ():
 
 	config = Configuration(args.config)
 
+	logging.basicConfig(filename=config.localPath(f'measureScoreSemantic-{config["best"]}.log'),
+		format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%H:%M:%S', level=logging.INFO)
+	logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+
 	if args.data:
-		data_config = Configuration.createdOrLoad(args.data, volatile=True)
+		logging.info('Data: %s', args.data)
+		data_config = Configuration.createOrLoad(args.data, volatile=True)
 		config['data'] = data_config['data']
 
 	config['data.splits'] = args.splits
@@ -78,23 +80,18 @@ def main ():
 	if args.batch_size is not None:
 		config['data.batch_size'] = args.batch_size
 
-	def log (file, message):
-		logging.info(message)
-		file.write(message + '\n')
-
 	measurer = MeasureDataset(config, device=args.device)
 
-	with open(config.localPath(config['best'] + '.metric.log'), 'wt') as file:
-		stat = measurer.run()
+	stat = measurer.run()
 
-		details = list(stat['details'].items())
-		log(file, f'{"LABEL":<24}\t{"ERRORS":<12}\tTRUE_COUNT\tACCURACY\tFEASIBILITY\tCONFIDENCE')
-		lines = list(map(lambda item: f'{item[0]:<24}\t{item[1]["errors"]:<12}\t{item[1]["true_count"]}\t\t{item[1]["accuracy"]}\t\t{item[1]["feasibility"]:.3f}\t\t{item[1]["confidence"]:.4f}', details))
-		log(file, '\n'.join(lines))
+	details = list(stat['details'].items())
+	logging.info(f'\n{"LABEL":<24}\t{"ERRORS":<12}\tTRUE_COUNT\tACCURACY\tFEASIBILITY\tCONFIDENCE')
+	lines = list(map(lambda item: f'{item[0]:<24}\t{item[1]["errors"]:<12}\t{item[1]["true_count"]}\t\t{item[1]["accuracy"]}\t\t{item[1]["feasibility"]:.3f}\t\t{item[1]["confidence"]:.4f}', details))
+	logging.info('\n' + '\n'.join(lines))
 
-		log(file, f'accuracy: {stat["accuracy"]}')
-		log(file, f'total_error_rate: {stat["total_error_rate"]}')
-		log(file, f'total_true_count: {stat["total_true_count"]}')
+	logging.info(f'accuracy: {stat["accuracy"]}')
+	logging.info(f'total_error_rate: {stat["total_error_rate"]}')
+	logging.info(f'total_true_count: {stat["total_true_count"]}')
 
 	if args.confidence_table:
 		confidence_path = config.localPath('confidence.yaml')

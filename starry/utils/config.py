@@ -12,7 +12,7 @@ TRAINING_DIR = os.environ.get('TRAINING_DIR', 'training')
 
 class Configuration:
 	@staticmethod
-	def createdOrLoad (config_path, volatile=False):
+	def createOrLoad (config_path, volatile=False):
 		return Configuration.create(config_path, volatile=volatile) if config_path.endswith('.yaml') else Configuration(config_path, volatile=volatile)
 
 

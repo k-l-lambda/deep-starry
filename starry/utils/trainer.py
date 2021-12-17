@@ -1,5 +1,4 @@
 
-import os
 import torch
 from tensorboardX import SummaryWriter
 import time
@@ -9,9 +8,6 @@ import logging
 from .optim import optim
 from .model_factory import loadModel
 
-
-
-LOG_DIR = os.environ.get('LOG_DIR', './logs')
 
 
 def print_metric (metric):
@@ -74,7 +70,7 @@ class Trainer:
 		if weights:
 			self.loadCheckpoint(weights)
 
-		self.tb_writer = SummaryWriter(log_dir=os.path.join(LOG_DIR, config.id))
+		self.tb_writer = SummaryWriter(log_dir=config.dir)
 
 
 	def train (self, training_data, validation_data):
@@ -93,15 +89,16 @@ class Trainer:
 			lr = self.optimizer._optimizer.param_groups[0]['lr']
 			print_performances('Training', train_loss, train_acc, start, lr)
 
-			start = time.time()
-			val_loss, val_acc = self.eval_epoch(validation_data)
-			print_performances('Validation', val_loss, val_acc, start, lr)
-
 			checkpoint = {
 				'epoch': epoch_i,
 				'model': self.model.deducer.state_dict(),
 				'optim': self.optimizer._optimizer.state_dict(),
 			}
+			torch.save(checkpoint, self.config.localPath('latest.chkpt'))
+
+			start = time.time()
+			val_loss, val_acc = self.eval_epoch(validation_data)
+			print_performances('Validation', val_loss, val_acc, start, lr)
 
 			if hasattr(self.model, 'need_states'):
 				self.model.updateStates()
@@ -119,8 +116,6 @@ class Trainer:
 				if new_record or epoch_i == 0:
 					torch.save(checkpoint, self.config.localPath(model_name))
 					logging.info('	- [Info] The checkpoint file has been updated.')
-				else:
-					torch.save(checkpoint, self.config.localPath('latest.chkpt'))
 
 			if new_record or self.config['best'] is None:
 				self.config['best'] = model_name
