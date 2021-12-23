@@ -330,7 +330,7 @@ class ScorePageProcessor (Predictor):
 							#cv2.imwrite('./output/image.png', image)
 
 							heatmap = np.moveaxis(np.uint8(heatmap * 255), 0, -1)
-							heatmap = cv2.resize(heatmap, (canvas_size[0], round(canvas_size[0] * heatmap.shape[0] / heatmap.shape[1])))
+							heatmap = cv2.resize(heatmap, (canvas_size[0], round(canvas_size[0] * heatmap.shape[0] / heatmap.shape[1])), interpolation=cv2.INTER_CUBIC)
 							if heatmap.shape[0] > canvas_size[1]:
 								heatmap = heatmap[:canvas_size[1]]
 							elif heatmap.shape[0] < canvas_size[1]:
