@@ -317,6 +317,8 @@ class ScorePageProcessor (Predictor):
 
 							image = images[j]
 							original_size = (image.shape[1], int(image.shape[1] * ratio))
+							if image.shape[0] < original_size[1]:
+								image = np.pad(image, ((0, original_size[1] - image.shape[0]), (0, 0), (0,0)), mode='constant')
 							canvas_size = original_size
 							while canvas_size[0] < RESIZE_WIDTH:
 								canvas_size = (canvas_size[0] * 2, canvas_size[1] * 2)
@@ -327,7 +329,7 @@ class ScorePageProcessor (Predictor):
 							# rotation correction
 							rot_mat = cv2.getRotationMatrix2D((canvas_size[0] / 2, canvas_size[1] / 2), layout.theta * 180 / np.pi, 1)
 							image = cv2.warpAffine(image, rot_mat, canvas_size, flags=cv2.INTER_CUBIC)
-							#cv2.imwrite('./output/image.png', image)
+							#cv2.imwrite(f'./output/image-{i+j}.png', image)
 
 							heatmap = np.moveaxis(np.uint8(heatmap * 255), 0, -1)
 							heatmap = cv2.resize(heatmap, (canvas_size[0], round(canvas_size[0] * heatmap.shape[0] / heatmap.shape[1])), interpolation=cv2.INTER_CUBIC)
