@@ -188,7 +188,7 @@ def detectStavesFromHBL (HB, HL, interval):
 def loadImageWithHash (path):
 	bytes = open(path, 'rb').read()
 	hash = hashlib.md5(bytes).hexdigest()
-	image = PIL.Image.open(io.BytesIO(bytes))
+	image = PIL.Image.open(io.BytesIO(bytes)).convert('RGBA')
 	arr = np.array(image)
 	if len(arr.shape) > 2 and arr.shape[2] == 4:
 		alpha = arr[:, :, 3]
@@ -196,11 +196,13 @@ def loadImageWithHash (path):
 		rgb[alpha == 0] = 255
 
 		arr = rgb
-	elif len(arr.shape) == 2:
+	'''elif len(arr.shape) == 2:
 		max_brightness = np.max(arr)
+		min_brightness = np.min(arr)
+		logging.info('brightness: %d, %d', max_brightness, min_brightness)
 		if max_brightness < 255:
 			arr *= 255 // max_brightness
-		arr = np.stack([arr] * 3, axis=2)
+		arr = np.stack([arr] * 3, axis=2)'''
 
 	return arr, hash
 
