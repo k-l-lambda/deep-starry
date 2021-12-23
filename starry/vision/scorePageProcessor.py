@@ -345,13 +345,13 @@ class ScorePageProcessor (Predictor):
 								hb = HB[t:b, l:r]
 								hl = HL[t:b, l:r]
 								area['staves'] = detectStavesFromHBL(hb, hl, canvas_interval)
-								cv2.imwrite(f'./output/hl-{si}.png', hl)
+								#cv2.imwrite(f'./output/hl-{si}.png', hl)
 
 								if area['staves'].get('middleRhos') is None:
 									continue
 
 								system_image = image[t:b, l:r, :]
-								cv2.imwrite(f'./output/system-{si}.png', system_image)
+								#cv2.imwrite(f'./output/system-{si}.png', system_image)
 
 								area['staff_images'] = []
 
@@ -359,20 +359,9 @@ class ScorePageProcessor (Predictor):
 								unit_scaling = UNIT_SIZE / interval
 								staff_size = (round(system_image.shape[1] * unit_scaling), STAFF_HEIGHT_UNITS * UNIT_SIZE)
 								for ssi, rho in enumerate(area['staves']['middleRhos']):
-									'''top = round(rho - STAFF_HEIGHT_UNITS * interval / 2)
-									bottom = round(rho + STAFF_HEIGHT_UNITS * interval / 2)
-									#logging.info('staff: %s, %s', top, bottom)
-
-									if top >= 0 and bottom < system_image.shape[0]:
-										staff_image = system_image[top:bottom, :, :]
-									else:
-										staff_image = np.ones((bottom - top, system_image.shape[1], system_image.shape[2]), dtype=np.uint8) * 255
-										bi = system_image.shape[0] - bottom if system_image.shape[0] - bottom < 0 else staff_image.shape[0]
-										staff_image[max(-top, 0):bi, :, :] = system_image[max(top, 0):min(bottom, system_image.shape[0]), :, :]
-									staff_image = cv2.resize(staff_image, staff_size, interpolation=cv2.INTER_CUBIC)'''
 									map_x = np.tile(np.arange(staff_size[0], dtype=np.float32), (staff_size[1], 1)) / unit_scaling
 									map_y = (np.tile(np.arange(staff_size[1], dtype=np.float32), (staff_size[0], 1)).T - staff_size[1] / 2) / unit_scaling + rho
-									staff_image = cv2.remap(system_image, map_x, map_y, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+									staff_image = cv2.remap(system_image, map_x, map_y, cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
 
 									#cv2.imwrite(f'./output/staff-{si}-{ssi}.png', staff_image)
 									bytes = arrayToImageFile(staff_image).getvalue()
@@ -392,8 +381,6 @@ class ScorePageProcessor (Predictor):
 										with open(os.path.join(output_folder, hash + '.png'), 'wb') as f:
 											f.write(bytes)
 										#logging.info('Staff image wrote: %s.png', hash)
-
-								#area['staves']['interval'] = page_interval
 
 							page_info = {
 								'url': 'md5:' + page_filenames[j] if page_filenames is not None else None,
