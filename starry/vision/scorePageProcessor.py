@@ -227,6 +227,24 @@ def resizePageImage (img, size):
 	return img[:h]
 
 
+def scaleDetection (detection, scale):
+	areas = list(map(lambda a: {
+		'x': a['x'] * scale,
+		'y': a['y'] * scale,
+		'width': a['width'] * scale,
+		'height': a['height'] * scale,
+		'staff_images': a['staff_images'],
+		'staves': {
+			'interval': a['staves']['interval'] * scale,
+			'phi1': a['staves']['phi1'] * scale,
+			'phi2': a['staves']['phi2'] * scale,
+			'middleRhos': list(map(lambda x: x * scale, a['staves']['middleRhos'])),
+		},
+	}, detection['areas']))
+
+	return {'areas': areas}
+
+
 class ScorePageProcessor (Predictor):
 	def __init__(self, config, device='cpu', inspect=False):
 		super().__init__(device=device)
@@ -297,15 +315,21 @@ class ScorePageProcessor (Predictor):
 
 							image = images[j]
 							original_size = (image.shape[1], int(image.shape[1] * ratio))
+							canvas_size = original_size
+							while canvas_size[0] < RESIZE_WIDTH:
+								canvas_size = (canvas_size[0] * 2, canvas_size[1] * 2)
+
+							if canvas_size[0] > RESIZE_WIDTH:
+								image = cv2.resize(image, canvas_size)
 
 							# rotation correction
-							rot_mat = cv2.getRotationMatrix2D((original_size[0] / 2, original_size[1] / 2), layout.theta * 180 / np.pi, 1)
-							image = cv2.warpAffine(image, rot_mat, original_size, flags=cv2.INTER_CUBIC)
+							rot_mat = cv2.getRotationMatrix2D((canvas_size[0] / 2, canvas_size[1] / 2), layout.theta * 180 / np.pi, 1)
+							image = cv2.warpAffine(image, rot_mat, canvas_size, flags=cv2.INTER_CUBIC)
 							#cv2.imwrite('./output/image.png', image)
 
 							heatmap = np.moveaxis(np.uint8(heatmap * 255), 0, -1)
-							heatmap = cv2.resize(heatmap, original_size)
-							heatmap = cv2.warpAffine(heatmap, rot_mat, original_size, flags=cv2.INTER_LINEAR)
+							heatmap = cv2.resize(heatmap, canvas_size)
+							heatmap = cv2.warpAffine(heatmap, rot_mat, canvas_size, flags=cv2.INTER_LINEAR)
 							#cv2.imwrite(f'./output/heatmap-{i+j}.png', heatmap)
 
 							HB = heatmap[:, :, 1]
@@ -314,26 +338,28 @@ class ScorePageProcessor (Predictor):
 							detection = detectSystems(block)
 
 							page_interval = layout.interval * original_size[0] / RESIZE_WIDTH
+							canvas_interval = layout.interval * canvas_size[0] / RESIZE_WIDTH
 
 							for si, area in enumerate(detection['areas']):
 								l, r, t, b = map(round, (area['x'], area['x'] + area['width'], area['y'], area['y'] + area['height']))
 								hb = HB[t:b, l:r]
 								hl = HL[t:b, l:r]
-								area['staves'] = detectStavesFromHBL(hb, hl, page_interval)
-								#cv2.imwrite(f'./output/hl-{si}.png', hl)
+								area['staves'] = detectStavesFromHBL(hb, hl, canvas_interval)
+								cv2.imwrite(f'./output/hl-{si}.png', hl)
 
 								if area['staves'].get('middleRhos') is None:
 									continue
 
 								system_image = image[t:b, l:r, :]
-								#cv2.imwrite(f'./output/system-{si}.png', system_image)
+								cv2.imwrite(f'./output/system-{si}.png', system_image)
 
 								area['staff_images'] = []
 
 								interval = area['staves']['interval']
-								staff_size = (round(system_image.shape[1] * UNIT_SIZE / interval), STAFF_HEIGHT_UNITS * UNIT_SIZE)
+								unit_scaling = UNIT_SIZE / interval
+								staff_size = (round(system_image.shape[1] * unit_scaling), STAFF_HEIGHT_UNITS * UNIT_SIZE)
 								for ssi, rho in enumerate(area['staves']['middleRhos']):
-									top = round(rho - STAFF_HEIGHT_UNITS * interval / 2)
+									'''top = round(rho - STAFF_HEIGHT_UNITS * interval / 2)
 									bottom = round(rho + STAFF_HEIGHT_UNITS * interval / 2)
 									#logging.info('staff: %s, %s', top, bottom)
 
@@ -343,7 +369,10 @@ class ScorePageProcessor (Predictor):
 										staff_image = np.ones((bottom - top, system_image.shape[1], system_image.shape[2]), dtype=np.uint8) * 255
 										bi = system_image.shape[0] - bottom if system_image.shape[0] - bottom < 0 else staff_image.shape[0]
 										staff_image[max(-top, 0):bi, :, :] = system_image[max(top, 0):min(bottom, system_image.shape[0]), :, :]
-									staff_image = cv2.resize(staff_image, staff_size, interpolation=cv2.INTER_CUBIC)
+									staff_image = cv2.resize(staff_image, staff_size, interpolation=cv2.INTER_CUBIC)'''
+									map_x = np.tile(np.arange(staff_size[0], dtype=np.float32), (staff_size[1], 1)) / unit_scaling
+									map_y = (np.tile(np.arange(staff_size[1], dtype=np.float32), (staff_size[0], 1)).T - staff_size[1] / 2) / unit_scaling + rho
+									staff_image = cv2.remap(system_image, map_x, map_y, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
 									#cv2.imwrite(f'./output/staff-{si}-{ssi}.png', staff_image)
 									bytes = arrayToImageFile(staff_image).getvalue()
@@ -364,6 +393,8 @@ class ScorePageProcessor (Predictor):
 											f.write(bytes)
 										#logging.info('Staff image wrote: %s.png', hash)
 
+								#area['staves']['interval'] = page_interval
+
 							page_info = {
 								'url': 'md5:' + page_filenames[j] if page_filenames is not None else None,
 								'size': original_size,
@@ -373,7 +404,7 @@ class ScorePageProcessor (Predictor):
 							yield {
 								'theta': layout.theta,
 								'interval': page_interval,
-								'detection': detection,
+								'detection': scaleDetection(detection, original_size[0] / canvas_size[0]),
 								'page_info': page_info,
 							}
 						except:

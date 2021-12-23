@@ -5,6 +5,11 @@ TODO:
 
 
 
+2021.12.23
+
+	>	scorePageProcessor.py: refined for low resolution page images.
+
+
 2021.12.8
 
 	+	streamPredictor.py: echo protocol added.
