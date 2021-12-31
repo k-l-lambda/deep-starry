@@ -10,7 +10,7 @@ trainer:
   epoch:          2
 
 data:
-  file_name:      test.pkl
+  file_name:      test.zip
   splits:         '*1/3:2/3'
   batch_size:     1
 
@@ -28,5 +28,14 @@ model:
     scale_emb:            False
 
 optim:
-  lr_mul:             2.
-  n_warmup_steps:     4000
+  type:                   Adam
+  args:
+    betas:                [0.9, 0.9999]
+    eps:                  1.e-8
+  scheduler:
+    type:                 Exp
+    args:
+      lr_mul:             2.
+      min_lr:             1.e-6
+      decay_rate:         0.98
+      n_warmup_steps:     4000

@@ -458,6 +458,9 @@ def preprocessDatasetScatter (source_dir, target_path, name_id=re.compile(r'(.+)
 
 	logging.info('Dumping index.')
 	target.writestr('index.yaml', yaml.dump({
+		'd_word': d_word,
+		'n_seq_max': n_seq_max,
+		'n_augment': n_augment,
 		'examples': example_infos,
 		'groups': groups,
 	}))

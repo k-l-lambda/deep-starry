@@ -7,7 +7,7 @@ import logging
 
 from starry.utils.config import Configuration
 from starry.utils.trainer import Trainer
-from starry.topology.data import Dataset
+from starry.topology.data import DatasetScatter
 
 
 
@@ -28,16 +28,19 @@ def main ():
 	logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 	logging.info('Loading data.')
-	data_file = open(os.path.join(DATA_DIR, config['data.file_name']), 'rb')
+	data_path = os.path.join(DATA_DIR, config['data.file_name'])
 
-	meta = pickle.load(data_file)
-	config['model.args.d_model'] = meta['d_word']
+	if data_path.endswith('.zip'):
+		data_path = 'zip://' + data_path
 
-	train, val = Dataset.loadPackage(data_file, batch_size=config['data.batch_size'], splits=config['data.splits'], device=config['trainer.device'])
+	#meta = pickle.load(data_file)
+	#config['model.args.d_model'] = meta['d_word']
+
+	train, val = DatasetScatter.loadPackage(data_path, batch_size=config['data.batch_size'], splits=config['data.splits'], device=config['trainer.device'])
 
 	if args.truncate is not None:
-		train.examples = train.examples[:args.truncate]
-		val.examples = val.examples[:args.truncate]
+		train.entries = train.entries[:args.truncate]
+		val.entries = val.entries[:args.truncate]
 
 	logging.info('Training.')
 	trainer = Trainer(config)
