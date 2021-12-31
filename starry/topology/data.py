@@ -302,6 +302,38 @@ class Dataset:
 			}
 
 
+class DatasetScatter:
+	@staticmethod
+	def loadPackage (url, batch_size, splits='*1,2,3,4,5,6,7,8/10:9/10', device='cpu'):
+		splits = splits.split(':')
+		package = open_fs(url)
+		index_file = package.open('index.yaml', 'r')
+		index = yaml.load(index_file)
+
+		def loadEntries (split):
+			split = split[1:] if split[0] == '*' else split
+
+			phases, cycle = split.split('/')
+			phases = list(map(int, phases.split(',')))
+			cycle = int(cycle)
+
+			ids = [id for i, id in enumerate(index['groups']) if i % cycle in phases]
+
+			return [entry for entry in index['examples'] if entry['group'] in ids]
+
+		return tuple(map(lambda split: DatasetScatter(
+			package, loadEntries(split), batch_size, device, '*' in split,
+		), splits))
+
+
+	def __init__ (self, package, entries, batch_size, device, shuffle=False):
+		self.package = package
+		self.entries = entries
+		self.batch_size = batch_size
+		self.shuffle = shuffle
+		self.device = device
+
+
 # workaround fs path seperator issue
 _S = (lambda path: path.replace(os.path.sep, '/')) if platform.system() == 'Windows' else (lambda p: p)
 
