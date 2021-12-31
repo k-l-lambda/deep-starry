@@ -334,6 +334,37 @@ class DatasetScatter:
 		self.device = device
 
 
+	def __len__(self):
+		return len(self.entries)
+
+
+	def __iter__ (self):
+		if self.shuffle:
+			np.random.shuffle(self.entries)
+
+		for entry in self.entries:
+			with self.package.open(entry['filename'], 'rb') as file:
+				tensors = pickle.load(file)
+				seq_id, seq_position, masks, matrixH, matrixV = tensors
+
+				n_sample = min(self.batch_size, seq_position.shape[0])
+				samples = torch.multinomial(torch.ones(seq_position.shape[0]), n_sample)
+
+				seq_id = seq_id.repeat(n_sample, 1, 1).to(self.device)
+				seq_position = seq_position[samples].to(self.device)
+				masks = masks.repeat(n_sample, 1, 1).to(self.device)
+				matrixH = matrixH.repeat(n_sample, 1).to(self.device)
+				matrixV = matrixV.repeat(n_sample, 1).to(self.device)
+
+				yield {
+					'seq_id': seq_id,				# int32		(n, seq, 2)
+					'seq_position': seq_position,	# float32	(n, seq, d_word)
+					'mask': masks,					# bool		(n, 3, seq)
+					'matrixH': matrixH,				# float32	(n, max_batch_matricesH)
+					'matrixV': matrixV,				# float32	(n, max_batch_matricesV)
+				}
+
+
 # workaround fs path seperator issue
 _S = (lambda path: path.replace(os.path.sep, '/')) if platform.system() == 'Windows' else (lambda p: p)
 
@@ -417,12 +448,12 @@ def preprocessDatasetScatter (source_dir, target_path, name_id=re.compile(r'(.+)
 				target.writestr(target_filename, pickle.dumps(tensors))
 
 				id, pos, msk, H, V = tensors
-				length = sum(map(lambda t: t.nelement(), [id, msk, H, V])) + pos.nelement() // n_augment
+				length = (sum(map(lambda t: t.nelement(), [id, msk, H, V])) + pos.nelement() // n_augment) * 4
 
 				example_infos.append({
 					'filename': target_filename,
 					'group': group_id,
-					'length': length,
+					'length': length,	# in bytes
 				})
 
 	logging.info('Dumping index.')
