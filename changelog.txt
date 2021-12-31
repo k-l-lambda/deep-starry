@@ -1,8 +1,14 @@
 
 TODO:
+	topology data: expand a batch from 1 example by argument
 	construct score topology data by semantic predictor
 	semantic rectification model
 
+
+
+2021.12.31
+
+	+	topology/data.py: preprocessDatasetScatter added.
 
 
 2021.12.23

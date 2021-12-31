@@ -1,5 +1,6 @@
 
 import json
+import yaml
 import numpy as np
 import torch
 import os
@@ -262,3 +263,49 @@ def preprocessDataset (data_dir, output_file, name_id = re.compile(r'(.+)\.\w+$'
 
 	for id in tqdm(ids, desc='Preprocess groups'):
 		dumpData(id)
+
+
+def preprocessDatasetScatter (source_dir, output_url, name_id=re.compile(r'(.+)\.\w+$'), n_seq_max=0x100, d_word=0x200):
+	source = open_fs(source_dir)
+	target = open_fs(output_url)
+
+	file_list = list(filter(lambda name: source.isfile(name), source.listdir('/')))
+	#logging.info('file_list: %s', file_list)
+
+	identifier = lambda name: name_id.match(name).group(1)
+
+	example_infos = []
+	groups = []
+
+	for filename in file_list:
+		logging.info('Processing: %s', filename)
+
+		with source.open(filename, 'r') as file:
+			data = loadClusterSet(file)
+			clusters = data.get('clusters')
+			valid_clusters = list(filter(lambda cluster: any(map(lambda e: e['type'] in JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES, cluster['elements'])), clusters))
+
+			group_id = identifier(filename)
+			groups.append(group_id)
+
+			for ci, cluster in enumerate(valid_clusters):
+				target_filename = f'{group_id}-{ci}.pkl'
+
+				tensors = exampleToTensors(cluster, n_seq_max, d_word)
+				with target.open(target_filename, 'wb') as tar_file:
+					pickle.dump(tensors, tar_file)
+
+				length = tensors[3].size + tensors[4].size + n_seq_max * 5 + n_seq_max * d_word
+
+				example_infos.append({
+					'filename': target_filename,
+					'group': group_id,
+					'length': length,
+				})
+
+	logging.info('Dumping index.')
+	with target.open('index.yaml', 'w') as index_file:
+		yaml.dump({
+			'examples': example_infos,
+			'groups': groups,
+		}, index_file)
