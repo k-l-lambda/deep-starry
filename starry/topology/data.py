@@ -6,6 +6,7 @@ import torch
 import os
 import platform
 from fs import open_fs
+from zipfile import ZipFile, ZIP_DEFLATED
 import re
 from tqdm import tqdm
 import math
@@ -265,9 +266,9 @@ def preprocessDataset (data_dir, output_file, name_id = re.compile(r'(.+)\.\w+$'
 		dumpData(id)
 
 
-def preprocessDatasetScatter (source_dir, output_url, name_id=re.compile(r'(.+)\.\w+$'), n_seq_max=0x100, d_word=0x200):
+def preprocessDatasetScatter (source_dir, target_path, name_id=re.compile(r'(.+)\.\w+$'), n_seq_max=0x100, d_word=0x200):
 	source = open_fs(source_dir)
-	target = open_fs(output_url)
+	target = ZipFile(target_path, 'w', compression=ZIP_DEFLATED)
 
 	file_list = list(filter(lambda name: source.isfile(name), source.listdir('/')))
 	#logging.info('file_list: %s', file_list)
@@ -292,8 +293,9 @@ def preprocessDatasetScatter (source_dir, output_url, name_id=re.compile(r'(.+)\
 				target_filename = f'{group_id}-{ci}.pkl'
 
 				tensors = exampleToTensors(cluster, n_seq_max, d_word)
-				with target.open(target_filename, 'wb') as tar_file:
-					pickle.dump(tensors, tar_file)
+				#with target.open(target_filename, 'wb') as tar_file:
+				#	pickle.dump(tensors, tar_file)
+				target.writestr(target_filename, pickle.dumps(tensors))
 
 				length = tensors[3].size + tensors[4].size + n_seq_max * 5 + n_seq_max * d_word
 
@@ -304,8 +306,10 @@ def preprocessDatasetScatter (source_dir, output_url, name_id=re.compile(r'(.+)\
 				})
 
 	logging.info('Dumping index.')
-	with target.open('index.yaml', 'w') as index_file:
-		yaml.dump({
-			'examples': example_infos,
-			'groups': groups,
-		}, index_file)
+	#with target.open('index.yaml', 'w') as index_file:
+	target.writestr('index.yaml', yaml.dump({
+		'examples': example_infos,
+		'groups': groups,
+	}))
+
+	target.close()
