@@ -12,6 +12,7 @@ from tqdm import tqdm
 import math
 import logging
 import dill as pickle
+from perlin_noise import PerlinNoise
 
 from .semantic_element import JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES, JOINT_TARGET_SEMANTIC_ELEMENT_TYPES, ROOT_NOTE_SEMANTIC_ELEMENT_TYPES, STAFF_MAX
 
@@ -23,7 +24,7 @@ def loadClusterSet (file):
 
 ANGLE_CYCLE = 1000	# should be comparable with (but larger than) value's up limit
 
-def get_sinusoid_vec(x, d_hid):
+def get_sinusoid_vec (x, d_hid):
 	vec = np.array([x / np.power(ANGLE_CYCLE / 2 * np.pi, 2 * (hid_j // 2) / d_hid) for hid_j in range(d_hid)], dtype=np.float32)
 	vec[0::2] = np.sin(vec[0::2])
 	vec[1::2] = np.cos(vec[1::2])
@@ -31,19 +32,43 @@ def get_sinusoid_vec(x, d_hid):
 	return vec
 
 
-def elementToVector (elem, d_word):
+def distortElements (elements, noise, xfactor):
+	def distort (elem):
+		x = elem['x']
+		x *= xfactor
+		x += noise([elem['x'], elem['y1'] / 100])
+
+		return {
+			'x': x,
+			'y1': elem['y1'],
+			'y2': elem['y2'],
+		}
+
+	return list(map(distort, elements))
+
+
+def sinusoid_pos (x, y1, y2, d_word):
 	d_pos = d_word // 2
-	x_vec = get_sinusoid_vec(elem['x'], d_pos)
-	y1_vec = get_sinusoid_vec(elem['y1'], d_pos)
-	y2_vec = get_sinusoid_vec(elem['y2'], d_pos)
+	x_vec = get_sinusoid_vec(x, d_pos)
+	y1_vec = get_sinusoid_vec(y1, d_pos)
+	y2_vec = get_sinusoid_vec(y2, d_pos)
 
-	pos_vec = np.concatenate((x_vec, y1_vec + y2_vec))	# d_word
+	return np.concatenate((x_vec, y1_vec + y2_vec))	# d_word
 
+
+def element_token (elem):
 	se_type = elem['type']
 	staff = elem['staff']
 	staff = STAFF_MAX + staff if staff < 0 else staff
 
-	return (se_type, staff), pos_vec
+	return se_type, staff
+
+
+def elementToVector (elem, d_word):
+	pos_vec = sinusoid_pos(elem['x'], elem['y1'], elem['y2'], d_word)
+	token = element_token(elem)
+
+	return token, pos_vec
 
 
 def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False, pruned_maskv=False):
@@ -75,10 +100,65 @@ def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False, prun
 		matrixH = [[0]]
 		matrixV = [[0]]
 	else:
-		'''matrixH = [
-			[x for j, x in enumerate(line) if j < n_seq_max and masks[1][j]]
-				for i, line in enumerate(example['matrixH']) if i < n_seq_max and masks[0][i]
-		]'''
+		matrixH = example['compactMatrixH']
+
+		# matrixV
+		i2g = [next(g for g, group in enumerate(groupsV) if i in group) if masks[2][i] else -1 for i in range(n_seq_max)]
+		matrixV = [
+			[(1 if i2g[i] == i2g[j] else 0) for j, mj in enumerate(masks[2]) if mj]
+				for i, mi in enumerate(masks[2]) if mi
+		]
+	matrixH = np.array(matrixH, dtype=np.float32).flatten()
+
+	matrixV = np.array(matrixV, dtype=np.float32)
+	triu = np.triu(np.ones(matrixV.shape)) == 0
+	matrixV = matrixV[triu]
+
+	return (
+		seq_id,			# (n_seq_max, 2)
+		seq_position,	# (n_seq_max, d_word)
+		masks,			# (3, n_seq_max)
+		matrixH,		# n_source_joints * n_target_joints
+		matrixV,		# n_grouped * n_grouped
+	)
+
+
+def exampleToTensorsAugment (example, n_seq_max, d_word, n_augment, matrix_placeholder=False, pruned_maskv=False):
+	elements = example['elements']
+
+	seq_id = np.ones((n_seq_max, 2), dtype=np.int32)
+	for i, elem in enumerate(elements):
+		if i >= n_seq_max:
+			break
+		ids = element_token(elem)
+		seq_id[i, :] = ids
+
+	seq_position = np.zeros((n_augment, n_seq_max, d_word), dtype=np.float32)
+	for i in range(n_augment):
+		noise = PerlinNoise(octaves=1/8)
+		xfactor = math.exp(np.random.randn() * 0.3)
+		positions = distortElements(elements, noise, xfactor)
+
+		for j, pos in enumerate(positions):
+			seq_position[i, j, :] = sinusoid_pos(pos['x'], pos['y1'], pos['y2'], d_word)
+
+	groupsV = example.get('groupsV')
+	maskv = [
+			i < len(elements) and elements[i]['type'] in ROOT_NOTE_SEMANTIC_ELEMENT_TYPES for i in range(n_seq_max)
+		] if pruned_maskv else [
+			any(map(lambda group: i in group, groupsV)) for i in range(n_seq_max)
+		]
+
+	masks = (
+		[i < len(elements) and elements[i]['type'] in JOINT_SOURCE_SEMANTIC_ELEMENT_TYPES for i in range(n_seq_max)],
+		[i < len(elements) and elements[i]['type'] in JOINT_TARGET_SEMANTIC_ELEMENT_TYPES for i in range(n_seq_max)],
+		maskv,
+	)
+
+	if matrix_placeholder:
+		matrixH = [[0]]
+		matrixV = [[0]]
+	else:
 		matrixH = example['compactMatrixH']
 
 		# matrixV
@@ -266,7 +346,7 @@ def preprocessDataset (data_dir, output_file, name_id = re.compile(r'(.+)\.\w+$'
 		dumpData(id)
 
 
-def preprocessDatasetScatter (source_dir, target_path, name_id=re.compile(r'(.+)\.\w+$'), n_seq_max=0x100, d_word=0x200):
+def preprocessDatasetScatter (source_dir, target_path, name_id=re.compile(r'(.+)\.\w+$'), n_seq_max=0x100, d_word=0x200, n_augment=64):
 	source = open_fs(source_dir)
 	target = ZipFile(target_path, 'w', compression=ZIP_DEFLATED)
 
@@ -278,8 +358,10 @@ def preprocessDatasetScatter (source_dir, target_path, name_id=re.compile(r'(.+)
 	example_infos = []
 	groups = []
 
+	nl = int(math.log10(len(file_list))) + 1
+
 	for i, filename in enumerate(file_list):
-		logging.info('Processing: %d/%d	%s', i, len(file_list), filename)
+		logging.info(f'Processing: %0{nl}d/%d	%s', i, len(file_list), filename)
 
 		with source.open(filename, 'r') as file:
 			data = loadClusterSet(file)
@@ -292,9 +374,7 @@ def preprocessDatasetScatter (source_dir, target_path, name_id=re.compile(r'(.+)
 			for ci, cluster in enumerate(tqdm(valid_clusters, leave=False)):
 				target_filename = f'{group_id}-{ci}.pkl'
 
-				tensors = exampleToTensors(cluster, n_seq_max, d_word)
-				#with target.open(target_filename, 'wb') as tar_file:
-				#	pickle.dump(tensors, tar_file)
+				tensors = exampleToTensorsAugment(cluster, n_seq_max, d_word, n_augment)
 				target.writestr(target_filename, pickle.dumps(tensors))
 
 				length = tensors[3].size + tensors[4].size + n_seq_max * 5 + n_seq_max * d_word
@@ -306,7 +386,6 @@ def preprocessDatasetScatter (source_dir, target_path, name_id=re.compile(r'(.+)
 				})
 
 	logging.info('Dumping index.')
-	#with target.open('index.yaml', 'w') as index_file:
 	target.writestr('index.yaml', yaml.dump({
 		'examples': example_infos,
 		'groups': groups,

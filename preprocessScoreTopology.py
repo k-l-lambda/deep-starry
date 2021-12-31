@@ -24,6 +24,7 @@ def main ():
 	parser.add_argument('-d', '--d_word', type=int, default=0x200)
 	parser.add_argument('-n', '--name_id', type=str, default=r'^(.+)\.\d+\.[\w.]+$')
 	parser.add_argument('-v1', action='store_true')
+	parser.add_argument('-a', '--n_augment', type=int, default=64)
 
 	args = parser.parse_args()
 
@@ -36,7 +37,7 @@ def main ():
 		with open(target, 'wb') as file:
 			preprocessDataset(args.source, file, name_id=re.compile(args.name_id), n_seq_max=args.n_seq_max, d_word=args.d_word)
 	else:
-		preprocessDatasetScatter(args.source, target, name_id=re.compile(args.name_id), n_seq_max=args.n_seq_max, d_word=args.d_word)
+		preprocessDatasetScatter(args.source, target, name_id=re.compile(args.name_id), n_seq_max=args.n_seq_max, d_word=args.d_word, n_augment=args.n_augment)
 
 	logging.info('Done.')
 
