@@ -173,12 +173,19 @@ def exampleToTensorsAugment (example, n_seq_max, d_word, n_augment, matrix_place
 	triu = np.triu(np.ones(matrixV.shape)) == 0
 	matrixV = matrixV[triu]
 
+	# to torch tensors
+	seq_id = torch.from_numpy(seq_id).unsqueeze(0)
+	seq_position = torch.from_numpy(seq_position)
+	masks = torch.tensor(list(masks)).unsqueeze(0).repeat(n_augment, 1, 1)
+	matrixH = torch.from_numpy(matrixH).unsqueeze(0)
+	matrixV = torch.from_numpy(matrixV).unsqueeze(0)
+
 	return (
-		seq_id,			# (n_seq_max, 2)
-		seq_position,	# (n_seq_max, d_word)
-		masks,			# (3, n_seq_max)
-		matrixH,		# n_source_joints * n_target_joints
-		matrixV,		# n_grouped * n_grouped
+		seq_id,			# (1, n_seq_max, 2)
+		seq_position,	# (n_augment, n_seq_max, d_word)
+		masks,			# (1, 3, n_seq_max)
+		matrixH,		# (1, n_source_joints * n_target_joints)
+		matrixV,		# (1, n_grouped * n_grouped)
 	)
 
 
@@ -377,7 +384,8 @@ def preprocessDatasetScatter (source_dir, target_path, name_id=re.compile(r'(.+)
 				tensors = exampleToTensorsAugment(cluster, n_seq_max, d_word, n_augment)
 				target.writestr(target_filename, pickle.dumps(tensors))
 
-				length = tensors[3].size + tensors[4].size + n_seq_max * 5 + n_seq_max * d_word
+				id, pos, msk, H, V = tensors
+				length = sum(map(lambda t: t.nelement(), [id, msk, H, V])) + pos.nelement() // n_augment
 
 				example_infos.append({
 					'filename': target_filename,
