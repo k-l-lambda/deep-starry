@@ -278,8 +278,8 @@ def preprocessDatasetScatter (source_dir, target_path, name_id=re.compile(r'(.+)
 	example_infos = []
 	groups = []
 
-	for filename in file_list:
-		logging.info('Processing: %s', filename)
+	for i, filename in enumerate(file_list):
+		logging.info('Processing: %d/%d	%s', i, len(file_list), filename)
 
 		with source.open(filename, 'r') as file:
 			data = loadClusterSet(file)
@@ -289,7 +289,7 @@ def preprocessDatasetScatter (source_dir, target_path, name_id=re.compile(r'(.+)
 			group_id = identifier(filename)
 			groups.append(group_id)
 
-			for ci, cluster in enumerate(valid_clusters):
+			for ci, cluster in enumerate(tqdm(valid_clusters, leave=False)):
 				target_filename = f'{group_id}-{ci}.pkl'
 
 				tensors = exampleToTensors(cluster, n_seq_max, d_word)
