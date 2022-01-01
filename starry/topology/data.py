@@ -139,7 +139,7 @@ def exampleToTensorsAugment (example, n_seq_max, d_word, n_augment, matrix_place
 		xfactor = math.exp(np.random.randn() * 0.3)
 		positions = distortElements(elements, noise, xfactor)
 
-		for j, pos in enumerate(positions):
+		for j, pos in enumerate(positions[:n_seq_max]):
 			seq_position[i, j, :] = sinusoid_pos(pos['x'], pos['y1'], pos['y2'], d_word)
 
 	groupsV = example.get('groupsV')
