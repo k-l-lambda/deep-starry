@@ -32,16 +32,21 @@ def get_sinusoid_vec (x, d_hid):
 	return vec
 
 
+NOISE_Y_SIGMA = 0.12
+
 def distortElements (elements, noise, xfactor):
 	def distort (elem):
 		x = elem['x']
 		x *= xfactor
 		x += noise([elem['x'], elem['y1'] / 100])
 
+		dy1 = np.random.randn() * NOISE_Y_SIGMA
+		dy2 = dy1 if elem['y2'] == elem['y1'] else np.random.randn() * NOISE_Y_SIGMA
+
 		return {
 			'x': x,
-			'y1': elem['y1'],
-			'y2': elem['y2'],
+			'y1': elem['y1'] + dy1,
+			'y2': elem['y2'] + dy2,
 		}
 
 	return list(map(distort, elements))
