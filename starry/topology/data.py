@@ -91,7 +91,7 @@ def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False, prun
 	groupsV = example.get('groupsV')
 	maskv = [
 			i < len(elements) and elements[i]['type'] in ROOT_NOTE_SEMANTIC_ELEMENT_TYPES for i in range(n_seq_max)
-		] if pruned_maskv else [
+		] if pruned_maskv or groupsV is None else [
 			any(map(lambda group: i in group, groupsV)) for i in range(n_seq_max)
 		]
 
@@ -108,16 +108,18 @@ def exampleToTensors (example, n_seq_max, d_word, matrix_placeholder=False, prun
 		matrixH = example['compactMatrixH']
 
 		# matrixV
-		i2g = [next(g for g, group in enumerate(groupsV) if i in group) if masks[2][i] else -1 for i in range(n_seq_max)]
-		matrixV = [
-			[(1 if i2g[i] == i2g[j] else 0) for j, mj in enumerate(masks[2]) if mj]
-				for i, mi in enumerate(masks[2]) if mi
-		]
+		if groupsV is not None:
+			i2g = [next(g for g, group in enumerate(groupsV) if i in group) if masks[2][i] else -1 for i in range(n_seq_max)]
+			matrixV = [
+				[(1 if i2g[i] == i2g[j] else 0) for j, mj in enumerate(masks[2]) if mj]
+					for i, mi in enumerate(masks[2]) if mi
+			]
 	matrixH = np.array(matrixH, dtype=np.float32).flatten()
 
-	matrixV = np.array(matrixV, dtype=np.float32)
-	triu = np.triu(np.ones(matrixV.shape)) == 0
-	matrixV = matrixV[triu]
+	if matrixV is not None:
+		matrixV = np.array(matrixV, dtype=np.float32)
+		triu = np.triu(np.ones(matrixV.shape)) == 0
+		matrixV = matrixV[triu]
 
 	return (
 		seq_id,			# (n_seq_max, 2)
