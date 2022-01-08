@@ -1,9 +1,14 @@
 
 TODO:
-	topology data: expand a batch from 1 example by argument
+	topology data: stem Ys augment
 	construct score topology data by semantic predictor
 	semantic rectification model
 
+
+
+2022.1.8
+
+	+	topology/moduels.py: added parameters of n_type, n_staff to fit changing of SemanticElementType.MAX.
 
 
 2021.12.31

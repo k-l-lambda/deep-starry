@@ -316,16 +316,16 @@ class TransformSieveJointerHLoss (TransformJointerHLoss):
 class TransformSieveJointerHV (nn.Module):
 	def __init__ (self, d_model=512, d_inner=2048,
 			n_source_layers=6, n_target_layers=1, n_sieve_layers=1, n_v_layers=1,
-			n_head=8, d_k=64, d_v=64, dropout=0.1, scale_emb=False):
+			n_head=8, d_k=64, d_v=64, dropout=0.1, scale_emb=False, n_type=SemanticElementType.MAX, n_staff=STAFF_MAX):
 		super().__init__()
 
 		self.d_model = d_model
 		d_word_vec = d_model
 
-		self.source_encoder = Decoder1(d_word_vec, n_source_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
-		self.target_encoder = Encoder1(d_word_vec, n_target_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
-		self.sieve_encoder = Encoder1(d_word_vec, n_sieve_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
-		self.v_encoder = Decoder1(d_word_vec, n_v_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb)
+		self.source_encoder = Decoder1(d_word_vec, n_source_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb, n_type=n_type, n_staff=n_staff)
+		self.target_encoder = Encoder1(d_word_vec, n_target_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb, n_type=n_type, n_staff=n_staff)
+		self.sieve_encoder = Encoder1(d_word_vec, n_sieve_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb, n_type=n_type, n_staff=n_staff)
+		self.v_encoder = Decoder1(d_word_vec, n_v_layers, n_head, d_k, d_v, d_model, d_inner, dropout=dropout, scale_emb=scale_emb, n_type=n_type, n_staff=n_staff)
 
 		self.jointer_h = SieveJointer(d_model)
 		self.jointer_v = Jointer(d_model, triu_mask=True)
