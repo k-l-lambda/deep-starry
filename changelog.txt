@@ -1,6 +1,5 @@
 
 TODO:
-	topology data: stem Ys augment
 	construct score topology data by semantic predictor
 	semantic rectification model
 
