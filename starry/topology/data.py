@@ -64,7 +64,7 @@ def sinusoid_pos (x, y1, y2, d_word):
 def element_token (elem):
 	se_type = elem['type']
 	staff = elem['staff']
-	staff = STAFF_MAX + staff if staff < 0 else staff
+	staff = STAFF_MAX + staff if staff < 0 else staff % STAFF_MAX
 
 	return se_type, staff
 
