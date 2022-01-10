@@ -1,4 +1,5 @@
 
+import os
 import torch
 import logging
 
@@ -8,8 +9,11 @@ from ..utils.predictor import Predictor
 
 
 
+BATCH_SIZE = int(os.environ.get('TOPOLOGY_PREDICTOR_BATCH_SIZE', '1'))
+
+
 class TopologyPredictorH (Predictor):
-	def __init__(self, config, batch_size=4, device='cpu', **_):
+	def __init__(self, config, batch_size=BATCH_SIZE, device='cpu', **_):
 		super().__init__(batch_size=batch_size, device=device)
 
 		self.d_model = config['model.args.d_model']
@@ -50,7 +54,7 @@ class TopologyPredictorH (Predictor):
 
 
 class TopologyPredictorHV (Predictor):
-	def __init__(self, config, batch_size=4, device='cpu', **_):
+	def __init__(self, config, batch_size=BATCH_SIZE, device='cpu', **_):
 		super().__init__(batch_size=batch_size, device=device)
 
 		self.d_model = config['model.args.d_model']

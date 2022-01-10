@@ -8,9 +8,8 @@ import logging
 import PIL.Image
 
 from ..utils.predictor import Predictor
-from .images import arrayFromImageStream, writeImageFileFormat, sliceFeature, spliceOutputTensor, MARGIN_DIVIDER
+from .images import sliceFeature, spliceOutputTensor, MARGIN_DIVIDER
 from . import transform
-from .chromaticChannels import composeChromaticMap
 from .score_semantic import ScoreSemantic
 
 
