@@ -210,6 +210,9 @@ class Decoder1 (nn.Module):
 		return dec_output
 
 
+N_SEQ_MAX = 0x800
+
+
 class Jointer (nn.Module):
 	def __init__ (self, d_model, triu_mask=False, with_temperature=False):
 		super().__init__()
@@ -217,7 +220,7 @@ class Jointer (nn.Module):
 		self.d_model = d_model
 
 		if triu_mask:
-			mask = torch.triu(torch.ones((0x200, 0x200))) == 0
+			mask = torch.triu(torch.ones((N_SEQ_MAX, N_SEQ_MAX))) == 0
 			self.register_buffer('triu_mask', mask, persistent=False)
 		else:
 			self.triu_mask = None
@@ -248,7 +251,9 @@ class Jointer (nn.Module):
 
 			result = code_src.matmul(code_tar).clamp(min=0)							# (src_joint, tar_joint)
 			if self.triu_mask is not None:
-				result = result.squeeze(-1).squeeze(-1).masked_select(self.triu_mask[:result.shape[0], :result.shape[1]])
+				result = result.squeeze(-1).squeeze(-1)[:N_SEQ_MAX, :N_SEQ_MAX]
+				triu = self.triu_mask[:result.shape[0], :result.shape[1]]
+				result = result.masked_select(triu)
 			else:
 				result = result.flatten()
 			#result *= torch.exp(self.temperature)
