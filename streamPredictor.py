@@ -117,6 +117,9 @@ def main ():
 
 	predictor = predictorClass(config, device=args.device, inspect=args.inspect)
 
+	# the initialized signal
+	print('', end='\r', flush = True)
+
 	while session(predictor):
 		pass
 

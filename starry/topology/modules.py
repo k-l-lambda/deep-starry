@@ -25,10 +25,10 @@ class Embedder (nn.Module):
 
 class Encoder (nn.Module):
 	def __init__ (self, d_word_vec, n_layers, n_head, d_k, d_v,
-			d_model, d_inner, dropout=0.1, scale_emb=False):
+			d_model, d_inner, dropout=0.1, scale_emb=False, n_type=SemanticElementType.MAX, n_staff=STAFF_MAX):
 		super().__init__()
 
-		self.src_word_emb = Embedder(d_word_vec)
+		self.src_word_emb = Embedder(d_word_vec, n_type=n_type, n_staff=n_staff)
 
 		self.dropout = nn.Dropout(p=dropout)
 
