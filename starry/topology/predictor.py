@@ -33,7 +33,7 @@ class TopologyPredictorH (Predictor):
 				matrices += self.model(batch['seq_id'], batch['seq_position'], batch['mask'])
 				masks += batch['mask']
 
-		for matrix, mask in zip(matrices, masks):
+		for matrix, mask, cluster in zip(matrices, masks, clusters):
 			matrix = matrix.cpu().tolist()
 			mask = mask.cpu().tolist()
 
@@ -48,6 +48,7 @@ class TopologyPredictorH (Predictor):
 				yield full
 			else:
 				yield {
+					'index': cluster.get('index'),
 					'matrixH': matrix,
 					'mask': mask,
 				}
@@ -82,12 +83,13 @@ class TopologyPredictorHV (Predictor):
 
 				masks += batch['mask']
 
-		for matrixH, matrixV, mask in zip(matricesH, matricesV, masks):
+		for matrixH, matrixV, mask, cluster in zip(matricesH, matricesV, masks, clusters):
 			matrixH = matrixH.cpu().tolist()
 			matrixV = matrixV.cpu().tolist()
 			mask = mask.cpu().tolist()
 
 			yield {
+				'index': cluster.get('index'),
 				'matrixH': matrixH,
 				'matrixV': matrixV,
 				'mask': mask,
