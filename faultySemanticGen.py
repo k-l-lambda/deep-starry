@@ -12,7 +12,7 @@ import zlib
 from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
 from starry.utils.predictor import Predictor
-from starry.vision import contours
+#from starry.vision import contours
 from starry.vision.images import MARGIN_DIVIDER, splicePieces
 from starry.vision.data import GraphScore
 from starry.vision.score_semantic import ScoreSemantic
@@ -28,7 +28,7 @@ VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR')
 
 
 class FaultyGenerator (Predictor):
-	def __init__(self, config, root, load_confidence_path=False, by_render=False):
+	def __init__ (self, config, root, load_confidence_path=False, by_render=False):
 		super().__init__()
 
 		self.root = os.path.join(VISION_DATA_DIR, root)
@@ -52,7 +52,7 @@ class FaultyGenerator (Predictor):
 					self.confidence_table = yaml.safe_load(file)
 					logging.info('confidence_table loaded: %s', confidence_path)
 
-	def run(self, dataset):
+	def run (self, dataset):
 		labels = self.config['data.args.labels']
 		unit_size = self.config['data.args.unit_size']
 
