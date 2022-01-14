@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.1.14
+
+	+	modules/positionEncoder.py created.
+
+
 2022.1.8
 
 	+	topology/moduels.py: added parameters of n_type, n_staff to fit changing of SemanticElementType.MAX.
