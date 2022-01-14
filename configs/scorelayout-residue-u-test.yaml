@@ -31,8 +31,8 @@ data:
         fore_scale_range:     [40, 100]
         fore_blur_range:      [0, 1]
         back_pow:             8.
-        back_sigma:           0.14
-        back_scale_range:     [0.02, 0.2]
+        back_sigma:           0.24
+        back_scale_range:     [0.1, 1.6]
         back_blur_range:      [0, 8]
       gaussian_noise:
         sigma:                0.03
@@ -42,7 +42,7 @@ data:
         scale_sigma:          0.2
         scale_mu:             0.6
         scale_limit:          1.
-        size_limit:           120
+        size_limit:           400
       gaussian_blur:
         sigma:                1.5
       flip_mark:
