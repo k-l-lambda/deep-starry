@@ -32,13 +32,12 @@ class FaultyGenerator (Predictor):
 	def __init__ (self, config, root, load_confidence_path=False, by_render=False):
 		super().__init__()
 
+		root = os.path.splitext(root)[0] if root.endsWith('.zip') else root
 		self.root = os.path.join(VISION_DATA_DIR, root)
 		self.config = config
 
 		if not by_render:
 			self.loadModel(config)
-
-		#self.composer = composer
 
 		self.by_render = by_render
 		self.output_dir = FAULT_TARGET if by_render else FAULT
