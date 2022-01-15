@@ -11,9 +11,7 @@ import zlib
 from tqdm import tqdm
 
 from starry.utils.config import Configuration
-from starry.utils.dataset_factory import loadDataset
 from starry.utils.predictor import Predictor
-#from starry.vision import contours
 from starry.vision.images import MARGIN_DIVIDER, splicePieces
 from starry.vision.data import GraphScore
 from starry.vision.score_semantic import ScoreSemantic
@@ -29,10 +27,10 @@ VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR')
 
 
 class FaultyGenerator (Predictor):
-	def __init__ (self, config, root, load_confidence_path=False, by_render=False):
-		super().__init__()
+	def __init__ (self, config, root, load_confidence_path=False, by_render=False, device='cpu'):
+		super().__init__(device=device)
 
-		root = os.path.splitext(root)[0] if root.endsWith('.zip') else root
+		root = os.path.splitext(root)[0] if root.endswith('.zip') else root
 		self.root = os.path.join(VISION_DATA_DIR, root)
 		self.config = config
 
@@ -146,10 +144,9 @@ def main ():
 	config['data'] = data_config['data']
 	#config['data.splits'] = args.splits
 
-	#data, = loadDataset(config, data_dir=VISION_DATA_DIR, device=args.device)
 	root = os.path.join(VISION_DATA_DIR, config['data.root'])
 	dataset = GraphScore(root, shuffle=False, device=args.device, split=args.split, multiple=args.multiple, **config['data.args'])
-	generator = FaultyGenerator(config, root=config['data.root'], by_render=args.render)
+	generator = FaultyGenerator(config, root=config['data.root'], by_render=args.render, device=args.device)
 	generator.run(dataset)
 
 
