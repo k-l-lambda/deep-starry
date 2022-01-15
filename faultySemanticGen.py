@@ -8,6 +8,7 @@ import numpy as np
 import yaml
 import json
 import zlib
+from tqdm import tqdm
 
 from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
@@ -58,46 +59,52 @@ class FaultyGenerator (Predictor):
 
 		total_true_positive, total_true_negative, total_fake_positive, total_fake_negative = 0, 0, 0, 0
 
+		iterator = iter(dataset)
+
 		with torch.no_grad():
-			for name, source, graph in dataset:
-				#print('name:', name)
-				#print('source:', source.shape)
-				#print('graph:', graph)
-				#print('graph:', len(graph['points']))
+			with tqdm(total=len(dataset)) as progress_bar:
+				for name, source, graph in iterator:
+					#print('name:', name)
+					#print('source:', source.shape)
+					#print('graph:', graph)
+					#print('graph:', len(graph['points']))
 
-				heatmap = None
-				if self.by_render:
-					heatmap = renderTargetFromGraph(graph, labels, (source.shape[2], source.shape[0] * source.shape[3]), unit_size=unit_size, name=name)
-					heatmap = np.moveaxis(heatmap, -1, 0)
-				else:
-					pred = self.model(source)
-					#print('pred:', pred.shape)
-					heatmap = splicePieces(pred.cpu().numpy(), MARGIN_DIVIDER, pad_margin=True)
-					heatmap = np.uint8(heatmap * 255)
-				#print('heatmap:', heatmap.shape, source.shape)
+					heatmap = None
+					if self.by_render:
+						heatmap = renderTargetFromGraph(graph, labels, (source.shape[2], source.shape[0] * source.shape[3]), unit_size=unit_size, name=name)
+						heatmap = np.moveaxis(heatmap, -1, 0)
+					else:
+						pred = self.model(source)
+						#print('pred:', pred.shape)
+						heatmap = splicePieces(pred.cpu().numpy(), MARGIN_DIVIDER, pad_margin=True)
+						heatmap = np.uint8(heatmap * 255)
+					#print('heatmap:', heatmap.shape, source.shape)
 
-				semantics = ScoreSemantic(heatmap, labels, confidence_table=self.confidence_table)
-				semantics.discern(graph)
-				#print('semantics:', len(semantics.json()['points']))
+					semantics = ScoreSemantic(heatmap, labels, confidence_table=self.confidence_table)
+					semantics.discern(graph)
+					#print('semantics:', len(semantics.json()['points']))
 
-				fake_positive = len([p for p in semantics.data['points'] if p['value'] == 0 and p['confidence'] >= 1])
-				fake_negative = len([p for p in semantics.data['points'] if p['value'] > 0 and p['confidence'] < 1])
-				true_positive = len([p for p in semantics.data['points'] if p['value'] > 0 and p['confidence'] >= 1])
-				true_negative = len([p for p in semantics.data['points'] if p['value'] == 0 and p['confidence'] < 1])
+					fake_positive = len([p for p in semantics.data['points'] if p['value'] == 0 and p['confidence'] >= 1])
+					fake_negative = len([p for p in semantics.data['points'] if p['value'] > 0 and p['confidence'] < 1])
+					true_positive = len([p for p in semantics.data['points'] if p['value'] > 0 and p['confidence'] >= 1])
+					true_negative = len([p for p in semantics.data['points'] if p['value'] == 0 and p['confidence'] < 1])
 
-				total_true_positive += true_positive
-				total_true_negative += true_negative
-				total_fake_positive += fake_positive
-				total_fake_negative += fake_negative
+					total_true_positive += true_positive
+					total_true_negative += true_negative
+					total_fake_positive += fake_positive
+					total_fake_negative += fake_negative
 
-				error_rate = (fake_positive + fake_negative) / max(1, true_positive + fake_negative)
-				noise_rate = true_negative / max(1, true_positive + fake_negative)
-				logging.info('error rate: %.4f, %.4f', error_rate, noise_rate)
+					error_rate = (fake_positive + fake_negative) / max(1, true_positive + fake_negative)
+					noise_rate = true_negative / max(1, true_positive + fake_negative)
+					#logging.info('error rate: %.4f, %.4f', error_rate, noise_rate)
+					progress_bar.set_description(f'{name:<20}, err: {error_rate:.4f}, noise: {noise_rate:.4f}')
 
-				if noise_rate < 1 and error_rate > 0:
-					semantics.data['points'].sort(key=lambda p: p['x'])
+					if noise_rate < 1 and error_rate > 0:
+						semantics.data['points'].sort(key=lambda p: p['x'])
 
-					self.saveFaultGraph(name, semantics.json())
+						self.saveFaultGraph(name, semantics.json())
+
+					progress_bar.update()
 
 		error_rate = (total_fake_positive + total_fake_negative) / max(1, total_true_positive + total_fake_negative)
 
@@ -120,7 +127,7 @@ class FaultyGenerator (Predictor):
 		with open(path, 'w') as file:
 			file.write(content)
 
-		logging.info('fault saved: %s', path)
+		#logging.info('fault saved: %s', path)
 
 
 def main ():
@@ -144,7 +151,7 @@ def main ():
 	root = os.path.join(VISION_DATA_DIR, config['data.root'])
 	dataset = GraphScore(root, shuffle=False, device=args.device, split=args.split, multiple=args.multiple, **config['data.args'])
 	generator = FaultyGenerator(config, root=config['data.root'], by_render=args.render)
-	generator.run(iter(dataset))
+	generator.run(dataset)
 
 
 if __name__ == '__main__':
