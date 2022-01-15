@@ -94,7 +94,7 @@ class FaultyGenerator (Predictor):
 					error_rate = (fake_positive + fake_negative) / max(1, true_positive + fake_negative)
 					noise_rate = true_negative / max(1, true_positive + fake_negative)
 					#logging.info('error rate: %.4f, %.4f', error_rate, noise_rate)
-					progress_bar.set_description(f'{name:<20}, err: {error_rate:.4f}, noise: {noise_rate:.4f}')
+					progress_bar.set_description(f'{name[-20:]:<20}, err: {error_rate:.4f}, noise: {noise_rate:.4f}')
 
 					if noise_rate < 1 and error_rate > 0:
 						semantics.data['points'].sort(key=lambda p: p['x'])
