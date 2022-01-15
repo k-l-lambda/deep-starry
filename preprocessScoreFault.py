@@ -4,7 +4,7 @@ import sys
 import argparse
 import logging
 
-import starry.utils.env
+from starry.utils.config import Configuration
 from starry.vision.data.scoreFault import preprocessDataset
 
 
@@ -19,17 +19,19 @@ def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('source', type=str, help='input data directory path')
 	parser.add_argument('target', type=str, help='output path')
-	parser.add_argument('-seq', '--n_seq_max', type=int, default=0x100)
-	parser.add_argument('-d', '--d_word', type=int, default=0x200)
+	parser.add_argument('-s', '--semantics', type=str, help='config file with semantic labels')
 
 	args = parser.parse_args()
+
+	semantic_config = Configuration.createOrLoad(args.semantics, volatile=True)
+	semantics = semantic_config['data.args.labels']
 
 	target = args.target
 	if not os.path.isabs(target):
 		target = os.path.join(DATA_DIR, target)
 
 	logging.info('Building package from directory: %s', args.source)
-	preprocessDataset(args.source, target, n_seq_max=args.n_seq_max, d_word=args.d_word)
+	preprocessDataset(args.source, target, semantics=semantics)
 
 	logging.info('Done.')
 
