@@ -15,6 +15,7 @@ class ScoreSemantic:
 		self.data = dict({
 			'__prototype': 'SemanticGraph',
 			'points': [],
+			'staffY': None,
 		})
 
 		assert len(labels) == len(heatmaps), f'classes - heat maps count mismatch, {len(labels)} - {len(heatmaps)}'
@@ -92,6 +93,8 @@ class ScoreSemantic:
 				pp = finder(pt, points_pred)
 				if pp is not None:
 					pp['value'] = 1
+
+		self.data['staffY'] = truth_graph.get('staffY', 0)
 
 
 	def json (self):
