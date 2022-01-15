@@ -12,7 +12,7 @@ from starry.vision.data.scoreFault import preprocessDataset
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
 
-DATA_DIR = os.environ.get('DATA_DIR')
+DATA_DIR = os.environ.get('VISION_DATA_DIR')
 
 
 def main ():
