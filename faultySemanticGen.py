@@ -9,6 +9,7 @@ import yaml
 import json
 import zlib
 from tqdm import tqdm
+import re
 
 from starry.utils.config import Configuration
 from starry.utils.predictor import Predictor
@@ -120,9 +121,15 @@ class FaultyGenerator (Predictor):
 		hash = '{0:0{1}x}'.format(hash, 8)
 		#print('fault:', self.root, name, hash)
 
+		# remove unicode characters in name
+		name = re.sub(r'[^\x00-\x7F]', '', name)
+		name = re.sub(r'^\.+', '', name)
 		path = os.path.join(self.root, self.output_dir, f'{name}.{hash}.json')
-		with open(path, 'w') as file:
-			file.write(content)
+		try:
+			with open(path, 'w') as file:
+				file.write(content)
+		except:
+			logging.warn('error in saveFaultGraph: %s', sys.exc_info()[1])
 
 		#logging.info('fault saved: %s', path)
 
