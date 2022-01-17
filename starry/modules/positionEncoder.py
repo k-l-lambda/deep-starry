@@ -31,13 +31,13 @@ class SinusoidEncoderXYY (nn.Module):
 	def __init__(self, angle_cycle=1000, d_hid=0x200):
 		super().__init__()
 
-		self.encoder = SinusoidEncoder(angle_cycle, d_hid)
+		self.encoder = SinusoidEncoder(angle_cycle, d_hid // 2)
 
 
 	# pos: (batch, seq, 3)
-	def forward (self, pos):	# -> (batch, seq, 2, d_hid)
-		x = self.encoder(pos[:, :, 0])
-		y1 = self.encoder(pos[:, :, 1])
-		y2 = self.encoder(pos[:, :, 2])
+	def forward (self, x, y1, y2):	# -> (batch, seq, d_hid)
+		x = self.encoder(x)
+		y1 = self.encoder(y1)
+		y2 = self.encoder(y2)
 
-		return torch.stack((x, y1 + y2), dim=2)
+		return torch.cat((x, y1 + y2), dim=2)

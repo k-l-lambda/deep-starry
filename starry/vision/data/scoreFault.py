@@ -16,6 +16,7 @@ import logging
 SYSTEM_ID = re.compile(r'(.+)-\d+\.\w+\.\w+$')
 SCORE_ID = re.compile(r'(.+)-\d+-\d+\.\w+\.\w+$')
 
+SEMANTIC_MAX = 78
 STAFF_MAX = 64
 
 
@@ -144,9 +145,9 @@ class ScoreFault (IterableDataset):
 				result[key][i, :len(value)] = value
 			result[key].to(self.device)
 
-		result['mask'] = torch.ones((len(batch), n_seq), dtype=torch.bool)
+		result['mask'] = torch.ones((len(batch), n_seq), dtype=torch.float32)
 		for i, example in enumerate(batch):
-			result['mask'][i, len(example['semantic']):] = False
+			result['mask'][i, len(example['semantic']):] = 0
 
 		return result
 

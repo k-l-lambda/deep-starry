@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.1.17
+
+	+	vision/models/scoreTransformer.py created.
+
+
 2022.1.15
 
 	+	preprocessScoreFault.py created.
