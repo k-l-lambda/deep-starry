@@ -148,7 +148,6 @@ class ScoreFault (IterableDataset):
 			for i, example in enumerate(batch):
 				value = example[key]
 				result[key][i, :len(value)] = value
-			result[key].to(self.device)
 
 		# noise augment
 		if self.confidence_temperature > 0:
@@ -161,6 +160,9 @@ class ScoreFault (IterableDataset):
 		result['mask'] = torch.ones((len(batch), n_seq), dtype=torch.float32)
 		for i, example in enumerate(batch):
 			result['mask'][i, len(example['semantic']):] = 0
+
+		for key, tensor in result.items():
+			result[key] = tensor.to(self.device)
 
 		return result
 
