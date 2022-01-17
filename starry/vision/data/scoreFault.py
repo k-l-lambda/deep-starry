@@ -151,7 +151,7 @@ class ScoreFault (IterableDataset):
 
 		# noise augment
 		if self.confidence_temperature > 0:
-			result['confidence'] = torch.exp(torch.randn(len(batch), n_seq) * self.confidence_temperature)
+			result['confidence'] *= torch.exp(torch.randn(len(batch), n_seq) * self.confidence_temperature)
 		if self.position_drift > 0:
 			result['x'] += torch.randn(len(batch), n_seq) * self.position_drift
 			result['y1'] += torch.randn(len(batch), n_seq) * self.position_drift
