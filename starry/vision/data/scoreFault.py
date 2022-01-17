@@ -8,12 +8,15 @@ from zipfile import ZipFile, ZIP_STORED
 import dill as pickle
 import numpy as np
 import torch
+from torch.utils.data import IterableDataset
 import logging
 
 
 
 SYSTEM_ID = re.compile(r'(.+)-\d+\.\w+\.\w+$')
 SCORE_ID = re.compile(r'(.+)-\d+-\d+\.\w+\.\w+$')
+
+STAFF_MAX = 64
 
 
 def reduceIntervalIndices (indices, n, tolerance):
@@ -74,9 +77,9 @@ def segmentIntervals (indices, n, n_segment):
 	return list(map(lambda seg: (index_intervals[seg[0]][0], seg[1]), segments))
 
 
-class ScoreFault:
+class ScoreFault (IterableDataset):
 	@staticmethod
-	def loadPackage (url, batch_size, splits='*1,2,3,4,5,6,7,8/10:9/10', device='cpu', **kwargs):
+	def loadPackage (url, splits='*1,2,3,4,5,6,7,8/10:9/10', device='cpu', **kwargs):
 		splits = splits.split(':')
 		package = open_fs(url)
 		index_file = package.open('index.yaml', 'r')
@@ -94,24 +97,27 @@ class ScoreFault:
 			return [entry for entry in index['examples'] if entry['group'] in ids]
 
 		return tuple(map(lambda split: ScoreFault(
-			package, loadEntries(split), batch_size, device, shuffle='*' in split, **kwargs,
+			package, loadEntries(split), device, shuffle='*' in split, **kwargs,
 		), splits))
 
 
-	def __init__ (self, package, entries, batch_size, device, shuffle=False, n_seq_max=0x100, confidence_temperature=0, position_drift=0):
+	def __init__ (self, package, entries, device, shuffle=False, n_seq_max=0x100, confidence_temperature=0, position_drift=0):
 		self.package = package
 		self.entries = entries
-		self.batch_size = batch_size
 		self.shuffle = shuffle
 		self.device = device
 
-		self.n_seq_max = n_seq_max
+		#self.n_seq_max = n_seq_max
 		self.confidence_temperature = confidence_temperature
 		self.position_drift = position_drift
 
+		# segment entries
+		for entry in self.entries:
+			entry['segments'] = segmentIntervals(entry['intervals'], entry['points'], n_seq_max)
+
 
 	def __len__(self):
-		return len(self.entries)
+		return sum(len(entry['segments']) for entry in self.entries)
 
 
 	def __iter__ (self):
@@ -121,24 +127,28 @@ class ScoreFault:
 		for entry in self.entries:
 			with self.package.open(entry['filename'], 'rb') as file:
 				tensors = pickle.load(file)
-				'''seq_id, seq_position, masks, matrixH, matrixV = tensors
+				for i, length in entry['segments']:
+					seg = dict((key, tensor[i:i + length]) for key, tensor in tensors.items())
+					yield seg
 
-				n_sample = min(self.batch_size, seq_position.shape[0])
-				samples = torch.multinomial(torch.ones(seq_position.shape[0]), n_sample)
 
-				seq_id = seq_id.repeat(n_sample, 1, 1).to(self.device)
-				seq_position = seq_position[samples].to(self.device)
-				masks = masks.repeat(n_sample, 1, 1).to(self.device)
-				matrixH = matrixH.repeat(n_sample, 1).to(self.device)
-				matrixV = matrixV.repeat(n_sample, 1).to(self.device)
+	def collateBatch (self, batch):
+		keys = batch[0].keys()
+		n_seq = max([len(example['semantic']) for example in batch])
+		#print('collateBatch:', len(batch), n_seq, keys)
 
-				yield {
-					'seq_id': seq_id,				# int32		(n, seq, 2)
-					'seq_position': seq_position,	# float32	(n, seq, d_word)
-					'mask': masks,					# bool		(n, 3, seq)
-					'matrixH': matrixH,				# float32	(n, max_batch_matricesH)
-					'matrixV': matrixV,				# float32	(n, max_batch_matricesV)
-				}'''
+		result = {key: torch.zeros((len(batch), n_seq), dtype=batch[0][key].dtype) for key in keys}
+		for key in keys:
+			for i, example in enumerate(batch):
+				value = example[key]
+				result[key][i, :len(value)] = value
+			result[key].to(self.device)
+
+		result['mask'] = torch.ones((len(batch), n_seq), dtype=torch.bool)
+		for i, example in enumerate(batch):
+			result['mask'][i, len(example['semantic']):] = False
+
+		return result
 
 
 def vectorizePoints (points, semantics):
@@ -172,6 +182,8 @@ def vectorizePoints (points, semantics):
 
 
 def preprocessDataset (source_dir, target_path, semantics):
+	semantics = ['_PAD', *semantics]
+
 	source = open_fs(source_dir)
 	target = ZipFile(target_path, 'w', compression=ZIP_STORED)
 
@@ -197,7 +209,7 @@ def preprocessDataset (source_dir, target_path, semantics):
 
 			staff = re.match(r'.*-(\d+)\.\w+', filename).group(1)
 			staff = int(staff)
-			if staff in staves:
+			if staff in staves or staff >= STAFF_MAX:
 				continue
 			staves.add(staff)
 
@@ -239,6 +251,7 @@ def preprocessDataset (source_dir, target_path, semantics):
 	target.writestr('index.yaml', yaml.dump({
 		'examples': example_infos,
 		'groups': list(groups),
+		'semantic_max': len(semantics),
 	}))
 
 	target.close()
