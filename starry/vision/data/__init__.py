@@ -5,3 +5,4 @@ from .slicedScore import SlicedScore
 from .scoreMask import ScoreMask
 from .scoreGauge import ScoreGauge
 from .scorePage import ScorePage
+from .scoreFault import ScoreFault

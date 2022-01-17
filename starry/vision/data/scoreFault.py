@@ -100,6 +100,11 @@ class ScoreFault (IterableDataset):
 		), splits))
 
 
+	def load (root, args, splits, device='cpu'):
+		url = f'zip://{root}' if root.endswith('.zip') else root
+		return ScoreFault.loadPackage(url, splits, device, **args)
+
+
 	def __init__ (self, package, entries, device, shuffle=False, n_seq_max=0x100, confidence_temperature=0, position_drift=0):
 		self.package = package
 		self.entries = entries
