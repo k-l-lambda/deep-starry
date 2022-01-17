@@ -315,7 +315,7 @@ class DatasetScatter:
 		splits = splits.split(':')
 		package = open_fs(url)
 		index_file = package.open('index.yaml', 'r')
-		index = yaml.load(index_file)
+		index = yaml.load(index_file, Loader=yaml.FullLoader)
 
 		def loadEntries (split):
 			split = split[1:] if split[0] == '*' else split

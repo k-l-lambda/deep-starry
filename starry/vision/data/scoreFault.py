@@ -86,7 +86,7 @@ class ScoreFault (IterableDataset):
 		splits = splits.split(':')
 		package = open_fs(url)
 		index_file = package.open('index.yaml', 'r')
-		index = yaml.load(index_file)
+		index = yaml.load(index_file, Loader=yaml.FullLoader)
 
 		def loadEntries (split):
 			phases, cycle = parseFilterStr(split)
