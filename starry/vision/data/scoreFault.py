@@ -41,17 +41,18 @@ def reduceIntervalIndices (indices, n, tolerance):
 
 
 def segmentIntervals (indices, n, n_segment):
-	indices = reduceIntervalIndices(indices, n, n_segment // 4)
+	#indices = reduceIntervalIndices(indices, n, n_segment // 4)
 	sorted_indices = sorted(indices)
-	intervals = list(map(lambda i: (sorted_indices[i], (n if i == len(sorted_indices) - 1 else sorted_indices[i + 1]) - sorted_indices[i]),
+	index_intervals = list(map(lambda i: (sorted_indices[i], (n if i == len(sorted_indices) - 1 else sorted_indices[i + 1]) - sorted_indices[i]),
 		range(len(sorted_indices))))
+	intervals = list(map(lambda ii: ii[1], index_intervals))
 
 	def fetch (start):
 		length = 0
 		for i in range(start, len(intervals)):
-			if length + intervals[i][1] > n_segment:
-				return (max(i - 1, start + 1), length)
-			length += intervals[i][1]
+			if length + intervals[i] > n_segment:
+				return (min(filter(lambda ii: sum(intervals[ii:i]) < n_segment // 4, range(start + 1, i + 1))), length)
+			length += intervals[i]
 
 		return (None, length)
 
@@ -65,12 +66,12 @@ def segmentIntervals (indices, n, n_segment):
 	# extend last segment
 	if len(segments) > 1:
 		i, length = segments[-1]
-		while i > 0 and length + intervals[i - 1][1] < n_segment:
+		while i > 0 and length + intervals[i - 1] < n_segment:
 			i -= 1
-			length += intervals[i][1]
+			length += intervals[i]
 		segments[-1] = (i, length)
 
-	return list(map(lambda seg: (intervals[seg[0]][0], seg[1]), segments))
+	return list(map(lambda seg: (index_intervals[seg[0]][0], seg[1]), segments))
 
 
 class ScoreFault:
@@ -213,10 +214,11 @@ def preprocessDataset (source_dir, target_path, semantics):
 		intervals = list(map(lambda i: (i, points[i + 1]['x'] - points[i]['x']), range(len(points) - 1)))
 		intervals.sort(key=lambda interval: -interval[1])
 		interval_indices = list(map(lambda interval: interval[0], intervals))
-		interval_indices = reduceIntervalIndices(interval_indices, len(points), 32)
+		interval_indices = reduceIntervalIndices(interval_indices, len(points), 64)
 
 		#segments = segmentIntervals(interval_indices, len(points), 256)
 		#print('segments:', segments)
+		#print('interval_indices:', list(map(lambda i: points[i + 1]['x'] - points[i]['x'], interval_indices)))
 
 		#print('graph:', id, staves, len(points))
 		tensors = vectorizePoints(points, semantics)
