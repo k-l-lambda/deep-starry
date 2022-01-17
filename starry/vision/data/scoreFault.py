@@ -11,6 +11,8 @@ import torch
 from torch.utils.data import IterableDataset
 import logging
 
+from .score import parseFilterStr
+
 
 
 SYSTEM_ID = re.compile(r'(.+)-\d+\.\w+\.\w+$')
@@ -80,18 +82,14 @@ def segmentIntervals (indices, n, n_segment):
 
 class ScoreFault (IterableDataset):
 	@staticmethod
-	def loadPackage (url, splits='*1,2,3,4,5,6,7,8/10:9/10', device='cpu', **kwargs):
+	def loadPackage (url, splits='*0/1', device='cpu', **kwargs):
 		splits = splits.split(':')
 		package = open_fs(url)
 		index_file = package.open('index.yaml', 'r')
 		index = yaml.load(index_file)
 
 		def loadEntries (split):
-			split = split[1:] if split[0] == '*' else split
-
-			phases, cycle = split.split('/')
-			phases = list(map(int, phases.split(',')))
-			cycle = int(cycle)
+			phases, cycle = parseFilterStr(split)
 
 			ids = [id for i, id in enumerate(index['groups']) if i % cycle in phases]
 
@@ -124,6 +122,8 @@ class ScoreFault (IterableDataset):
 	def __iter__ (self):
 		if self.shuffle:
 			np.random.shuffle(self.entries)
+		else:
+			torch.manual_seed(0)
 
 		for entry in self.entries:
 			with self.package.open(entry['filename'], 'rb') as file:
