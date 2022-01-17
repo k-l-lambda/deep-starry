@@ -117,6 +117,38 @@ class ScoreSemanticValueLoss (nn.Module):
 
 		loss = nn.functional.binary_cross_entropy(pred, truth, weight=batch['mask'])
 
-		metric = {'bce': loss}
+		fake = torch.logical_and(batch['mask'], torch.logical_xor(batch['value'] > 0, batch['confidence'] >= 1))
+		rectified = torch.logical_and(fake, torch.logical_xor(batch['value'] > 0, pred < 0.5))
+
+		real = torch.logical_and(batch['mask'], torch.logical_xor(batch['value'] > 0, batch['confidence'] < 1))
+		degenerated = torch.logical_and(real, torch.logical_xor(batch['value'] > 0, pred >= 0.5))
+
+		accurate = torch.logical_and(batch['mask'], torch.logical_xor(batch['value'] > 0, pred < 0.5))
+
+		metric = {
+			'bce': loss,
+			'total': batch['mask'].sum().item(),
+			'accurate': accurate.sum().item(),
+			'fake': fake.sum().item(),
+			'real': real.sum().item(),
+			'rectified': rectified.sum().item(),
+			'degenerated': degenerated.sum().item(),
+		}
 
 		return loss, metric
+
+
+	def stat (self, metrics, n_batch):
+		total = metrics.get('total')
+		accurate = metrics.get('accurate')
+		fake = metrics.get('accurate')
+		real = metrics.get('real')
+		rectified = metrics.get('rectified')
+		degenerated = metrics.get('degenerated')
+
+		return {
+			'bce': metrics['bce'] / max(n_batch, 1),
+			'accuracy': accurate / max(total, 1),
+			'rectification': rectified / max(fake, 1),
+			'degeneration': degenerated / max(real, 1),
+		}
