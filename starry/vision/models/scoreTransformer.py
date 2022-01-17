@@ -149,6 +149,7 @@ class ScoreSemanticValueLoss (nn.Module):
 		return {
 			'bce': metrics['bce'] / max(n_batch, 1),
 			'accuracy': accurate / max(total, 1),
+			'base_acc': real / max(total, 1),
 			'rectification': rectified / max(fake, 1),
 			'degeneration': degenerated / max(real, 1),
 		}
