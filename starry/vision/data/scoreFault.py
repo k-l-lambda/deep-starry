@@ -145,6 +145,14 @@ class ScoreFault (IterableDataset):
 				result[key][i, :len(value)] = value
 			result[key].to(self.device)
 
+		# noise augment
+		if self.confidence_temperature > 0:
+			result['confidence'] = torch.exp(torch.randn(len(batch), n_seq) * self.confidence_temperature)
+		if self.position_drift > 0:
+			result['x'] += torch.randn(len(batch), n_seq) * self.position_drift
+			result['y1'] += torch.randn(len(batch), n_seq) * self.position_drift
+			result['y2'] += torch.randn(len(batch), n_seq) * self.position_drift
+
 		result['mask'] = torch.ones((len(batch), n_seq), dtype=torch.float32)
 		for i, example in enumerate(batch):
 			result['mask'][i, len(example['semantic']):] = 0
