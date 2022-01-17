@@ -73,6 +73,15 @@ class Trainer:
 		self.tb_writer = SummaryWriter(log_dir=config.dir)
 
 
+	def reportScalars (self, scalars, epoch_i):
+		for k, v in scalars.items():
+			if type(v) == dict:
+				for kk, vv in v.items():
+					self.tb_writer.add_scalar(f'{k}/{kk}', vv, epoch_i)
+			else:
+				self.tb_writer.add_scalar(k, v, epoch_i)
+
+
 	def train (self, training_data, validation_data):
 		def print_performances(header, loss, metric, start_time, lr):
 			print('  - {header:12} loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
@@ -132,11 +141,12 @@ class Trainer:
 			for k, v in val_acc.items():
 				scalars['val_' + k] = v
 
-			for k, v in scalars.items():
+			self.reportScalars(scalars, epoch_i)
+			'''for k, v in scalars.items():
 				if type(v) == dict:
 					self.tb_writer.add_scalars(k, v, epoch_i)
 				else:
-					self.tb_writer.add_scalar(k, v, epoch_i)
+					self.tb_writer.add_scalar(k, v, epoch_i)'''
 
 			self.options['steps'] = self.optimizer.n_steps
 
