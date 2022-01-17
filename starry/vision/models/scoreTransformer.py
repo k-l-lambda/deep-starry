@@ -126,7 +126,7 @@ class ScoreSemanticValueLoss (nn.Module):
 		accurate = torch.logical_and(batch['mask'], torch.logical_xor(batch['value'] > 0, pred < 0.5))
 
 		metric = {
-			'bce': loss,
+			'bce': loss.item(),
 			'total': batch['mask'].sum().item(),
 			'accurate': accurate.sum().item(),
 			'fake': fake.sum().item(),
