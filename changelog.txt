@@ -1,8 +1,12 @@
 
 TODO:
 	construct score topology data by semantic predictor
-	semantic rectification model
 
+
+
+2022.1.18
+
+	+	scoreTransformer.py: semantic detail metrics added.
 
 
 2022.1.17

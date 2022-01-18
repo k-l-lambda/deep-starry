@@ -99,10 +99,11 @@ class ScoreSemanticValue (ScoreTransformer):
 
 
 class ScoreSemanticValueLoss (nn.Module):
-	def __init__ (self, **kw_args):
+	def __init__ (self, semantics, **kw_args):
 		super().__init__()
 
-		self.deducer = ScoreSemanticValue(**kw_args)
+		self.semantics = semantics
+		self.deducer = ScoreSemanticValue(**kw_args, n_semantic=len(semantics))
 
 		# initialize parameters
 		for p in self.parameters():
@@ -125,6 +126,10 @@ class ScoreSemanticValueLoss (nn.Module):
 
 		accurate = torch.logical_and(batch['mask'] == 1, torch.logical_xor(batch['value'] > 0, pred < 0.5))
 
+		total_truth = torch.logical_and(batch['mask'] == 1, batch['value'] > 0)
+		fake_pos = torch.logical_and(batch['mask'] == 1, torch.logical_and(batch['value'] == 0, pred >= 0.5))
+		fake_neg = torch.logical_and(batch['mask'] == 1, torch.logical_and(batch['value'] > 0, pred < 0.5))
+
 		metric = {
 			'bce': loss.item(),
 			'total': batch['mask'].sum().item(),
@@ -133,7 +138,15 @@ class ScoreSemanticValueLoss (nn.Module):
 			'real': real.sum().item(),
 			'rectified': rectified.sum().item(),
 			'degenerated': degenerated.sum().item(),
+			'total_truth': total_truth.sum().item(),
+			'fake_pos': fake_pos.sum().item(),
+			'fake_neg': fake_neg.sum().item(),
 		}
+
+		if not self.training:
+			metric['semantic_total'] = torch.bincount(batch['semantic'].masked_select(batch['mask'] == 1), minlength=len(self.semantics))
+			metric['semantic_fake_pos'] = torch.bincount(batch['semantic'].masked_select(fake_pos), minlength=len(self.semantics))
+			metric['semantic_fake_neg'] = torch.bincount(batch['semantic'].masked_select(fake_neg), minlength=len(self.semantics))
 
 		return loss, metric
 
@@ -145,13 +158,34 @@ class ScoreSemanticValueLoss (nn.Module):
 		real = metrics.get('real')
 		rectified = metrics.get('rectified')
 		degenerated = metrics.get('degenerated')
+		total_truth = metrics.get('total_truth')
+		fake_pos = metrics.get('fake_pos')
+		fake_neg = metrics.get('fake_neg')
 
-		return {
+		semantic_total = metrics.get('semantic_total')
+		semantic_fake_pos = metrics.get('semantic_fake_pos')
+		semantic_fake_neg = metrics.get('semantic_fake_neg')
+
+		result = {
 			'bce': metrics['bce'] / max(n_batch, 1),
 			'metrics': {
 				'accuracy': accurate / max(total, 1),
 				'base_acc': real / max(total, 1),
 				'rectification': rectified / max(fake, 1),
 				'degeneration': degenerated / max(real, 1),
+				'fake_pos': fake_pos / max(total_truth, 1),
+				'fake_neg': fake_neg / max(total_truth, 1),
 			},
 		}
+
+		if semantic_fake_pos is not None and semantic_fake_neg is not None:
+			result['semantic_errors'] = {}
+			for i, semantic in enumerate(self.semantics):
+				total = semantic_total[i].item()
+				if total > 0:
+					result['semantic_errors'][semantic + 'X'] = semantic_fake_pos[i].item() / total
+					result['semantic_errors'][semantic + '-'] = semantic_fake_neg[i].item() / total
+
+			#print('semantic_errors:', result['semantic_errors'])
+
+		return result

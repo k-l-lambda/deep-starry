@@ -142,11 +142,6 @@ class Trainer:
 				scalars['val_' + k] = v
 
 			self.reportScalars(scalars, epoch_i)
-			'''for k, v in scalars.items():
-				if type(v) == dict:
-					self.tb_writer.add_scalars(k, v, epoch_i)
-				else:
-					self.tb_writer.add_scalar(k, v, epoch_i)'''
 
 			self.options['steps'] = self.optimizer.n_steps
 

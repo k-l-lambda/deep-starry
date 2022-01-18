@@ -13,7 +13,25 @@ model:
     n_layers:               1
     dropout:                0.1
     scale_emb:              False
-    n_semantic:             78
+    #n_semantic:             78
+    semantics:              [
+                              _PAD,
+                              ClefG, ClefF,
+                              NoteheadS0, NoteheadS1, NoteheadS2,
+                              Rest0, Rest1, Rest2, Rest3, Rest4, Rest5, Rest6,
+                              Dot, Flag3,
+                              AccNatural, AccSharp, AccFlat, AccDoublesharp, AccFlatflat,
+                              TimesigC44, TimesigC22, TimesigZero, TimesigOne, TimesigTwo, TimesigThree, TimesigFour, TimesigFive, TimesigSix, TimesigSeven, TimesigEight, TimesigNine,
+                              OctaveShift8, OctaveShift0,
+                              One, Two, Three, Four, Five,
+                              f, p, m,
+                              ScriptFermata, ScriptSforzato, ScriptStaccato, ScriptStaccatissimo, ScriptTurn, ScriptTrill, ScriptSegno, ScriptCoda, ScriptArpeggio, ScriptPrall, ScriptMordent, ScriptTenuto, PedalStar, PedalPed,
+                              VoltaLeft, VoltaRight,
+                              vline_BarMeasure, vline_Stem, vline_BarTerminal, vline_BarSegment,
+                              rect_Text, rect_Lyric,
+                              SlurBegin, SlurEnd, CrescendoBegin, CrescendoEnd, DecrescendoBegin, DecrescendoEnd,
+                              KeyAcc, TempoNotehead, GraceNotehead, BeamLeft, BeamRight, BeamContinue, SignLined, SignInterval,
+                            ]
 
 data:
   type:                     ScoreFault
