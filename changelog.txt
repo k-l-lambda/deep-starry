@@ -1,10 +1,13 @@
 
 TODO:
+	ScoreSemanticValue: unified validation set
 	construct score topology data by semantic predictor
 
 
 
 2022.1.18
+
+	+	scoreSemanticProcessor.py: rectifier predictor added.
 
 	+	scoreTransformer.py: semantic detail metrics added.
 

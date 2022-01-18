@@ -74,7 +74,7 @@ class ScoreTransformer (nn.Module):
 	def __init__ (self, out_channels, d_model=512, d_inner=2048,
 			angle_cycle=1000, n_layers=6,
 			n_head=8, d_k=64, d_v=64, dropout=0.1, scale_emb=False,
-			n_semantic=SEMANTIC_MAX, n_staff=STAFF_MAX):
+			n_semantic=SEMANTIC_MAX, n_staff=STAFF_MAX, **_):
 		super().__init__()
 
 		self.d_model = d_model

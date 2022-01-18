@@ -1,9 +1,11 @@
 
 import numpy as np
+import torch
 import re
 
 from .contours import detectPoints, detectVLines, detectRectangles, detectBoxes, labelToDetector, countHeatmaps, statPoints, logAccuracy
 from .scoreSemanticsWeights import LOSS_WEIGHTS
+from .data.scoreFault import reduceIntervalIndices, vectorizePoints, segmentIntervals
 
 
 
@@ -99,6 +101,82 @@ class ScoreSemantic:
 
 	def json (self):
 		return self.data
+
+
+class ScoreSystem:
+	def __init__ (self):
+		self.points = []
+
+
+	def appendStaff (self, staff):
+		staffY = staff['staffY']
+		for point in staff['points']:
+			point['staff'] = staff['staff']
+			point['original_y'] = point['y']
+			point['y'] += staffY
+			if 'extension' in point and 'y1' in point['extension']:
+				point['original_extension'] = {**point['extension']}
+				point['extension']['y1'] += staffY
+				point['extension']['y2'] += staffY
+			self.points.append(point)
+
+
+	def batchize (self, semantics, n_seq_max):
+		self.points.sort(key=lambda point: point['x'])
+		intervals = list(map(lambda i: (i, self.points[i + 1]['x'] - self.points[i]['x']), range(len(self.points) - 1)))
+		intervals.sort(key=lambda interval: -interval[1])
+		interval_indices = list(map(lambda interval: interval[0], intervals))
+		interval_indices = reduceIntervalIndices(interval_indices, len(self.points), 64)
+
+		segments = segmentIntervals(interval_indices, len(self.points), n_seq_max)
+		n_seq = max(segment[1] for segment in segments)
+
+		tensors = vectorizePoints(self.points, semantics)
+		keys = tensors.keys()
+		examples = [dict((key, tensor[i:i + length]) for key, tensor in tensors.items()) for i, length in segments]
+
+		batch = {key: torch.zeros((len(examples), n_seq), dtype=examples[0][key].dtype) for key in keys}
+		for key in keys:
+			for i, example in enumerate(examples):
+				value = example[key]
+				batch[key][i, :len(value)] = value
+
+		batch['mask'] = torch.ones((len(examples), n_seq), dtype=torch.bool)
+		for i, example in enumerate(examples):
+			batch['mask'][i, len(example['semantic']):] = False
+
+		return batch, segments
+
+
+	def assignValues (self, values, segments):
+		assert sum(seg[1] for seg in segments) == len(values), f'values length mismatched: {segments} != {len(values)}'
+
+		rb = 0
+		vi = 0
+		for si, length in segments:
+			lb = self.points[si]['x']
+			for i in range(si, si + length):
+				point = self.points[i]
+				if 'value' in point:
+					w = (point['x'] - lb) / (rb - lb)
+					point['value'] = values[vi] * w + point['value'] * (1 - w)
+				else:
+					point['value'] = values[vi]
+
+				vi +=1
+			rb = self.points[si + length - 1]['x']
+
+
+	def cleanup (self):
+		for point in self.points:
+			del point['staff']
+
+			point['y'] = point['original_y']
+			del point['original_y']
+
+			if 'original_extension' in point:
+				point['extension'] = point['original_extension']
+				del point['original_extension']
 
 
 class ScoreSemanticDual:

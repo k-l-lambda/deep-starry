@@ -184,17 +184,23 @@ def vectorizePoints (points, semantics):
 		y1.append(y1_)
 		y2.append(y2_)
 		confidence.append(point['confidence'])
-		value.append(point['value'])
 
-	return {
+		if 'value' in point:
+			value.append(point['value'])
+
+	result = {
 		'semantic': torch.tensor(semantic, dtype=torch.int32),
 		'staff': torch.tensor(staff, dtype=torch.int32),
 		'x': torch.tensor(x, dtype=torch.float32),
 		'y1': torch.tensor(y1, dtype=torch.float32),
 		'y2': torch.tensor(y2, dtype=torch.float32),
 		'confidence': torch.tensor(confidence, dtype=torch.float32),
-		'value': torch.tensor(value, dtype=torch.float32),
 	}
+
+	if len(value) > 0:
+		result['value'] = torch.tensor(value, dtype=torch.float32)
+
+	return result
 
 
 def preprocessDataset (source_dir, target_path, semantics):
@@ -236,6 +242,9 @@ def preprocessDataset (source_dir, target_path, semantics):
 				for point in graph['points']:
 					point['staff'] = staff
 					point['y'] += staffY
+					if 'extension' in point and 'y1' in point['extension']:
+						point['extension']['y1'] += staffY
+						point['extension']['y2'] += staffY
 					points.append(point)
 
 		points.sort(key=lambda point: point['x'])
