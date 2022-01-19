@@ -28,7 +28,8 @@ class Configuration:
 		data['id'] = data['id'].format(filename=filename, date=today)
 
 		dir = os.path.join(TRAINING_DIR, data['id'])
-		os.makedirs(dir, exist_ok=True)
+		if not volatile:
+			os.makedirs(dir, exist_ok=True)
 
 		return Configuration(dir, data, volatile=volatile)
 
