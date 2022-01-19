@@ -48,8 +48,8 @@ trainer:
   save_mode:                best
   epoch:                    2
   moniter:
-    field:                  bce
-    mode:                   min
+    field:                  accuracy
+    mode:                   max
 
 optim:
   type:                     Adam
