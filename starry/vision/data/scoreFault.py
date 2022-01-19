@@ -153,7 +153,7 @@ class ScoreFault (IterableDataset):
 		# noise augment
 		if self.confidence_temperature > 0:
 			result['confidence'] *= torch.exp(torch.randn(len(batch), n_seq) * self.confidence_temperature)
-		ox, oy = (np.random.random() - 0.5) * 16, (np.random.random() - 0.2) * 12
+		ox, oy = (np.random.random() - 0.5) * 24, (np.random.random() - 0.2) * 12
 		if self.position_drift > 0:
 			result['x'] += torch.randn(len(batch), n_seq) * self.position_drift + ox
 			result['y1'] += torch.randn(len(batch), n_seq) * self.position_drift + oy
@@ -240,10 +240,12 @@ def preprocessDataset (source_dir, target_path, semantics):
 			with source.open(filename, 'r') as file:
 				graph = json.load(file)
 
+				left = min(point['x'] for point in graph['points'])
 				staffY = graph['staffY']
 				for point in graph['points']:
 					point['staff'] = staff
 					point['y'] += staffY
+					point['x'] -= left
 					if 'extension' in point and 'y1' in point['extension']:
 						point['extension']['y1'] += staffY
 						point['extension']['y2'] += staffY
