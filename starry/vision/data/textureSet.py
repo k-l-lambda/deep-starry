@@ -10,6 +10,13 @@ def randint (low, high):
 	return np.random.randint(low, high) if high > low else 0
 
 
+def logrand (low, high):
+	ln_low = np.log(low)
+	ln_high = np.log(high)
+
+	return np.exp(ln_low + np.random.random() * (ln_high - ln_low))
+
+
 class TextureSetIterator:
 	def __init__ (self, frames):
 		self.frames = frames
@@ -26,7 +33,7 @@ class TextureSetIterator:
 	def get (self, size, scale_range = (0.5, 2), blur_range = (0, 5)):
 		frame = next(self)
 
-		scale = scale_range[0] + np.random.random() * (scale_range[1] - scale_range[0])
+		scale = logrand(scale_range[0], scale_range[1])
 
 		crop_size = (math.floor(size[0] * scale), math.floor(size[1] * scale))
 		tiling = (math.ceil(crop_size[0] / frame.shape[0]), math.ceil(crop_size[1] / frame.shape[1]), 1)

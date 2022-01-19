@@ -60,7 +60,7 @@ class ScoreTinter:
 		fore_tex_intensity = np.random.randn() * self.fore_sigma
 		fore_intensity = max(0.2, 1 - np.random.random() ** self.fore_pow)
 
-		composed = (back_intensity + back_texture * back_tex_intensity) + (source - 1) * (fore_intensity + fore_texture * fore_tex_intensity)
+		composed = np.minimum(back_intensity + (back_texture - back_intensity) * back_tex_intensity, 1) + (source - 1) * (fore_intensity + fore_texture * fore_tex_intensity)
 
 		return composed
 
