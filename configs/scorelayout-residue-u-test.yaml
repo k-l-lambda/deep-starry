@@ -43,6 +43,10 @@ data:
         scale_mu:             0.6
         scale_limit:          1.
         size_limit:           400
+      crease:
+        intensity:            0.9
+        margin:               0.01
+        width:                0.03
       gaussian_blur:
         sigma:                1.5
       flip_mark:

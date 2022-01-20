@@ -1,9 +1,13 @@
 
 TODO:
-	augmentor: margin gradient band
 	ScoreSemanticValue: unified validation set
 	construct score topology data by semantic predictor
 
+
+
+2022.1.20
+
+	+	augmentor.py: crease rendering added.
 
 
 2022.1.18

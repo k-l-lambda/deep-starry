@@ -71,6 +71,7 @@ class Augmentor:
 		self.distorter = None
 		self.gaussian_noise = 0
 		self.affine = None
+		self.crease = None
 		self.gaussian_blur = 0
 		self.flip_texture = None
 		self.flip_intensity_range = None
@@ -108,6 +109,14 @@ class Augmentor:
 					'size_fixed': AFFINE.get('size_fixed'),
 				}
 
+			if options.get('crease'):
+				CREASE = options['crease']
+				self.crease = {
+					'intensity': CREASE.get('intensity', 1),
+					'margin': CREASE.get('margin', 0.02),
+					'width': CREASE.get('width', 0.08),
+				}
+
 			if options.get('flip_mark'):
 				self.flip_intensity_range = options['flip_mark']['intensity_range']
 
@@ -126,6 +135,24 @@ class Augmentor:
 				#print('intensity:', intensity)
 
 			self.flip_texture = origin
+
+		if self.tinter:
+			source = self.tinter.tint(source)
+
+		# book crease
+		if self.crease:
+			intensity = np.exp(np.random.randn()) * self.crease['intensity']
+			width = source.shape[1] * np.exp(np.random.randn() * 1) * self.crease['width']
+			margin = source.shape[1] * np.exp(np.random.randn() * 1) * self.crease['margin']
+			bending = np.exp(np.random.randn() * 0.6) * 0.6
+			bar = np.arange(source.shape[1], dtype=np.float)
+			bar = np.maximum((bar - margin) / width, 0) ** bending
+			bar = np.clip(bar, 0, 1) * intensity + (1 - intensity)
+
+			if np.random.random() > 0.5:
+				bar = bar[::-1]
+
+			source[:, :, 0] = source[:, :, 0] * bar
 
 		if self.affine:
 			scale = min(math.exp(math.log(self.affine['scale_mu']) + np.random.randn() * self.affine['scale_sigma']), self.affine['scale_limit'])
@@ -148,14 +175,11 @@ class Augmentor:
 
 			rx, ry = np.random.random(), np.random.random()
 
-			source = self.affineTransform(source, (padding_y, padding_x), mat, scale, rx, ry)
-			target = self.affineTransform(target, (padding_y, padding_x), mat, scale, rx, ry) if target is not None else target
+			source = self.affineTransform(source, (padding_y, padding_x), mat, scale, rx, ry, cv2.BORDER_REFLECT_101)
+			target = self.affineTransform(target, (padding_y, padding_x), mat, scale, rx, ry, cv2.BORDER_REPLICATE) if target is not None else target
 			#print('target.2:', target.shape, (padding_y, padding_x))
 
 			source = np.expand_dims(source, -1)
-
-		if self.tinter:
-			source = self.tinter.tint(source)
 
 		if self.distorter:
 			scale = self.distortion['scale'] * math.exp(np.random.randn() * self.distortion['scale_sigma'])
@@ -179,8 +203,8 @@ class Augmentor:
 		return np.clip(source, 0, 1), target
 
 
-	def affineTransform (self, image, padding, mat, scale, rx, ry):
-		image = cv2.copyMakeBorder(image, padding[0], padding[0], padding[1], padding[1], cv2.BORDER_REPLICATE)
+	def affineTransform (self, image, padding, mat, scale, rx, ry, borderType):
+		image = cv2.copyMakeBorder(image, padding[0], padding[0], padding[1], padding[1], borderType)
 
 		size_limit = self.affine['size_limit']
 		size_fixed = self.affine['size_fixed']
