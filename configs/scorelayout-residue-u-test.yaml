@@ -44,8 +44,8 @@ data:
         scale_limit:          1.
         size_limit:           400
       crease:
-        intensity:            0.9
-        margin:               0.01
+        intensity:            1
+        margin:               0.02
         width:                0.03
       gaussian_blur:
         sigma:                1.5
