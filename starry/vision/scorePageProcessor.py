@@ -316,10 +316,11 @@ class ScorePageProcessor (Predictor):
 								continue
 
 							image = images[j]
-							original_size = (image.shape[1], int(image.shape[1] * ratio))
-							if image.shape[0] < original_size[1]:
-								image = np.pad(image, ((0, original_size[1] - image.shape[0]), (0, 0), (0,0)), mode='constant')
-							canvas_size = original_size
+							original_size = (image.shape[1], image.shape[0])
+							aligned_height = int(image.shape[1] * ratio)
+							if image.shape[0] < aligned_height:
+								image = np.pad(image, ((0, aligned_height - image.shape[0]), (0, 0), (0,0)), mode='constant')
+							canvas_size = (original_size[0], aligned_height)
 							while canvas_size[0] < RESIZE_WIDTH:
 								canvas_size = (canvas_size[0] * 2, canvas_size[1] * 2)
 
