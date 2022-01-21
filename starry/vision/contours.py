@@ -173,7 +173,7 @@ LINE_TOLERANCE_Y = 1.2
 
 RECT_TOLERANCE = 0.8
 
-BOX_POINTS_TOLERANCE = 10
+BOX_POINTS_TOLERANCE = 0.3
 
 
 def findNearPoint (point, points):
@@ -228,6 +228,7 @@ def findBox (rect, rects):
 	for rc in rects:
 		b = rectPoints(rc)
 		distance = pointsDistance(b, box)
+		distance /= rect['extension']['width'] * rect['extension']['height']
 		if distance < BOX_POINTS_TOLERANCE * BOX_POINTS_TOLERANCE:
 			return rc
 
