@@ -160,7 +160,7 @@ def detectStavesFromHBL (HB, HL, interval):
 
 		hlineColumn = cv2.resize(staffLines, (1, staffLines.shape[0] * UPSCALE), 0, 0, cv2.INTER_LINEAR).flatten()
 
-		i2 = round(upInterval * 2)
+		'''i2 = round(upInterval * 2)
 		productionLine2 = panProductLine(hlineColumn, i2)
 		productionLine2Max = np.max(productionLine2)
 		#logging.info('productionLine2Max: %s', productionLine2Max)
@@ -170,10 +170,16 @@ def detectStavesFromHBL (HB, HL, interval):
 		convolutionLine = np.zeros(productionLine2.shape)
 		convolutionLine += productionLine2Normalized
 		convolutionLine[i2:] += productionLine2Normalized[:-i2]
-		#logging.info('convolutionLine: %s', convolutionLine)
+		#logging.info('convolutionLine: %s', convolutionLine)'''
+		i1 = round(upInterval)
+		kernel = np.zeros(i1 * 4 + 1)	# the comb 0f 5
+		kernel[::i1] = 1
+		convolutionLine = np.convolve(hlineColumn, kernel)
+		#logging.info("hlineColumn: %s", hlineColumn)
+		#logging.info("convolutionLine: %s", convolutionLine)
 
 		convolutionLineMax = np.max(convolutionLine)
-		middleY = np.where(convolutionLine == convolutionLineMax)[0][0]
+		middleY = np.where(convolutionLine == convolutionLineMax)[0][0] - round(upInterval * 2)
 
 		middleRhos.append(y + middleY / UPSCALE)
 
@@ -355,16 +361,18 @@ class ScorePageProcessor (Predictor):
 
 							for si, area in enumerate(detection['areas']):
 								l, r, t, b = map(round, (area['x'], area['x'] + area['width'], area['y'], area['y'] + area['height']))
+
+								system_image = image[t:b, l:r, :]
+								#cv2.imwrite(f'./output/system-{si}.png', system_image)
+
 								hb = HB[t:b, l:r]
 								hl = HL[t:b, l:r]
+
 								area['staves'] = detectStavesFromHBL(hb, hl, canvas_interval)
 								#cv2.imwrite(f'./output/hl-{si}.png', hl)
 
 								if area['staves'].get('middleRhos') is None:
 									continue
-
-								system_image = image[t:b, l:r, :]
-								#cv2.imwrite(f'./output/system-{si}.png', system_image)
 
 								area['staff_images'] = []
 
