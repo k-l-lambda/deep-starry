@@ -57,6 +57,13 @@ data:
         scale_sigma:          0.4
         intensity:            1.6
         intensity_sigma:      0.6
+  args_variant:
+    1:
+      augmentor:
+        skip_p:                 0.5
+        distortion:
+          intensity:            0.01
+          intensity_sigma:      0.4
 
 trainer:
   device:         cpu
