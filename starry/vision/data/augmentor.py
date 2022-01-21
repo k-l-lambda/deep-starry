@@ -141,7 +141,7 @@ class Augmentor:
 
 		# book crease
 		if self.crease:
-			intensity = np.exp(np.random.randn()) * self.crease['intensity']
+			intensity = 1 - np.random.random() ** self.crease['intensity']
 			width = source.shape[1] * np.exp(np.random.randn() * 1) * self.crease['width']
 			margin = source.shape[1] * np.exp(np.random.randn() * 0.5) * self.crease['margin']
 			bending = np.exp(np.random.randn() * 0.6) * 0.6
