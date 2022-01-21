@@ -19,6 +19,7 @@ from . import transform
 BATCH_SIZE = int(os.environ.get('SCORE_PAGE_PROCESSOR_BATCH_SIZE', '1'))
 
 RESIZE_WIDTH = 600
+CANVAS_WIDTH_MIN = 1024
 
 
 SYSTEM_HEIGHT_ENLARGE = 0.02
@@ -320,11 +321,14 @@ class ScorePageProcessor (Predictor):
 							aligned_height = int(image.shape[1] * ratio)
 							if image.shape[0] < aligned_height:
 								image = np.pad(image, ((0, aligned_height - image.shape[0]), (0, 0), (0,0)), mode='constant')
-							canvas_size = (original_size[0], aligned_height)
-							while canvas_size[0] < RESIZE_WIDTH:
-								canvas_size = (canvas_size[0] * 2, canvas_size[1] * 2)
+							elif image.shape[0] > aligned_height:
+								image = image[:aligned_height]
 
-							if canvas_size[0] > RESIZE_WIDTH:
+							# determine canvas size
+							canvas_size = (original_size[0], aligned_height)
+							while canvas_size[0] < CANVAS_WIDTH_MIN:
+								canvas_size = (canvas_size[0] * 2, canvas_size[1] * 2)
+							if canvas_size[0] > original_size[0]:
 								image = cv2.resize(image, canvas_size)
 
 							# rotation correction
