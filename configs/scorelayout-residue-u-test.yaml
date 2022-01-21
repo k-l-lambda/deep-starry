@@ -25,6 +25,7 @@ data:
   args:
     trans:                    [HWC2CHW, Tar_STDgray, Tar_HWC2CHW]
     augmentor:
+      skip_p:                 0.1
       tinter:
         fore_pow:             6.
         fore_sigma:           0.6
@@ -42,7 +43,7 @@ data:
         scale_sigma:          0.2
         scale_mu:             0.6
         scale_limit:          1.
-        size_limit:           400
+        size_limit:           800
       crease:
         intensity:            4
         margin:               0.02

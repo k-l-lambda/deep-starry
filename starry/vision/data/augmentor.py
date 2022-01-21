@@ -77,6 +77,8 @@ class Augmentor:
 		self.flip_intensity_range = None
 
 		if options:
+			self.skip_p = options.get('skip_p', 0)
+
 			if options.get('tinter'):
 				size = min(TEXTURE_SET_SIZE, 4) if not shuffle else TEXTURE_SET_SIZE
 				self.tinter = ScoreTinter(TEXTURE_SET_DIR, size, options['tinter'], shuffle = shuffle)
@@ -124,6 +126,14 @@ class Augmentor:
 				self.gaussian_blur = options['gaussian_blur']['sigma']
 
 	def augment (self, source, target=None):
+		if self.skip_p > 0 and np.random.random() < self.skip_p:
+			if self.affine and (self.affine['size_limit'] or self.affine['size_fixed']):
+				rx, ry = np.random.random(), np.random.random()
+				source = self.affineTransform(source, rx=rx, ry=ry)
+				target = self.affineTransform(target, rx=rx, ry=ry)
+				source = np.expand_dims(source, -1)
+			return source, target
+
 		if self.flip_intensity_range is not None:
 			origin = source
 			if self.flip_texture is not None:
@@ -208,7 +218,7 @@ class Augmentor:
 		return np.clip(source, 0, 1), target
 
 
-	def affineTransform (self, image, padding, mat, scale, rx, ry, borderType):
+	def affineTransform (self, image, padding=(0, 0), mat=np.array([[1, 0, 0], [0, 1, 0]], dtype=np.float32), scale=1, rx=0, ry=0, borderType=cv2.BORDER_REPLICATE):
 		image = cv2.copyMakeBorder(image, padding[0], padding[0], padding[1], padding[1], borderType)
 
 		size_limit = self.affine['size_limit']
