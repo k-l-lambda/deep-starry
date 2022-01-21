@@ -143,11 +143,12 @@ class Augmentor:
 		if self.crease:
 			intensity = 1 - np.random.random() ** self.crease['intensity']
 			width = source.shape[1] * np.exp(np.random.randn() * 1) * self.crease['width']
-			margin = source.shape[1] * np.exp(np.random.randn() * 0.5) * self.crease['margin']
+			outter = np.random.random() > 0.5
+			margin = source.shape[1] * np.exp(np.random.randn() * 1) * self.crease['margin'] if outter else 0
 			bending = np.exp(np.random.randn() * 0.6) * 0.6
 			bar = np.arange(source.shape[1], dtype=np.float)
 			bar = (bar - margin) / width
-			if np.random.random() > 0.5:
+			if outter:
 				bar = -bar
 			bar[bar <= 0] = 1
 			bar = bar ** bending
