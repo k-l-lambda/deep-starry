@@ -121,7 +121,8 @@ class ScoreResidueULoss (nn.Module):
 
 		if not self.training:
 			compound_pred = self.compounder.compound(pred)
-			metric['semantic'] = ScoreSemanticDual.create(self.compounder.labels, 1, compound_pred, target)
+			compound_target = self.compounder.compound(target)
+			metric['semantic'] = ScoreSemanticDual.create(self.compounder.labels, 1, compound_pred, compound_target)
 
 		return loss, metric
 

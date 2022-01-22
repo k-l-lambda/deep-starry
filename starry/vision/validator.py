@@ -92,10 +92,10 @@ class Validator (Predictor):
 									points))
 								for p in issue_points:
 									p['x'] *= unit_size
-									p['y'] = p['y'] * unit_size + prd.shape[0] // 2
+									p['y'] = p['y'] * unit_size #+ prd.shape[0] // 2
 								print(yaml.dump(issue_points))
 
-								break
+								#break
 
 					if perfect:
 						print('.', end='', flush=True)	# . stand for skipping a perfect sample

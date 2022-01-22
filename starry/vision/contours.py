@@ -149,8 +149,12 @@ def detectBoxes (heatmap, vertical_units = 24, otsu = False):
 		pos, size, theta = rect
 		confidence = math.sqrt(size[0] * size[1])
 
-		area = size[0] * size[1]
-		if area > 100:
+		# clip tiny boxes
+		if min(*size) / unit < 8:
+			continue
+
+		#area = size[0] * size[1]
+		#if area > 100:
 			rects.append({
 				'x': pos[0],
 				'y': pos[1],
@@ -173,7 +177,7 @@ LINE_TOLERANCE_Y = 1.2
 
 RECT_TOLERANCE = 0.8
 
-BOX_POINTS_TOLERANCE = 0.3
+BOX_POINTS_TOLERANCE = 0.2
 
 
 def findNearPoint (point, points):
@@ -304,7 +308,7 @@ def statPoints (points, true_count, negative_weight = 1, positive_weight = 1):
 
 	true_count = max(true_count, 1)
 
-	true_positive_count = len(points) - fake_positive_count
+	true_positive_count = len([p for p in points if p['confidence'] >= confidence and p['value'] > 0])
 	true_negative_count = len([p for p in points if p['confidence'] < confidence and p['value'] < 0])
 
 	error = fake_negative_count * negative_weight + fake_positive_count * positive_weight
