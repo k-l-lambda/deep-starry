@@ -135,6 +135,8 @@ def detectRectangles (heatmap, vertical_units = 24, otsu = False):
 
 
 def detectBoxes (heatmap, vertical_units = 24, otsu = False):
+	unit = heatmap.shape[0] / vertical_units
+
 	if otsu:
 		_, thresh = cv2.threshold(heatmap, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 	else:
