@@ -134,7 +134,7 @@ def detectRectangles (heatmap, vertical_units = 24, otsu = False):
 	return rects
 
 
-def detectBoxes (heatmap, vertical_units = 24, otsu = False):
+def detectBoxes (heatmap, vertical_units, otsu = False):
 	unit = heatmap.shape[0] / vertical_units
 
 	if otsu:
@@ -155,19 +155,17 @@ def detectBoxes (heatmap, vertical_units = 24, otsu = False):
 		if min(*size) / unit < 8:
 			continue
 
-		#area = size[0] * size[1]
-		#if area > 100:
-			rects.append({
-				'x': pos[0],
-				'y': pos[1],
-				'extension': {
-					'width': size[0],
-					'height': size[1],
-					'theta': theta,
-				},
-				'confidence': confidence,
-				'mark': rect,
-			})
+		rects.append({
+			'x': pos[0],
+			'y': pos[1],
+			'extension': {
+				'width': size[0],
+				'height': size[1],
+				'theta': theta,
+			},
+			'confidence': confidence,
+			'mark': rect,
+		})
 
 	return rects
 
