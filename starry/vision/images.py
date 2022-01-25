@@ -13,7 +13,8 @@ import random
 MARGIN_DIVIDER = 8
 
 
-def arrayFromImageStream (stream):
+def arrayFromImageStream (buffer):
+	stream = io.BytesIO(buffer)
 	image = PIL.Image.open(stream)
 
 	arr = np.array(image)

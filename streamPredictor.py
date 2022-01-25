@@ -36,7 +36,7 @@ PREDICTOR_FACTORY = {
 def parseInputLine (line):
 	if not ':' in line:
 		buffer = base64.b64decode(line)
-		return {'buffer': io.BytesIO(buffer)}
+		return {'buffer': buffer}
 
 	colon = line.index(':')
 	protocol = line[:colon]
@@ -44,7 +44,7 @@ def parseInputLine (line):
 
 	if protocol == 'base64':
 		buffer = base64.b64decode(body)
-		return {'buffer': io.BytesIO(buffer)}
+		return {'buffer': buffer}
 	elif protocol == 'json':
 		return json.loads(body)
 	elif protocol == 'echo':
