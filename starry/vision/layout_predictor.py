@@ -47,7 +47,7 @@ class LayoutPredictor (Predictor):
 			for x in self.predictBasic(streams, **kwargs):
 				yield x
 		else:
-			for x in self.predictDetecion(streams):
+			for x in self.predictDetection(streams):
 				yield x
 
 
@@ -82,7 +82,7 @@ class LayoutPredictor (Predictor):
 				yield PageLayout(hotmap).json()
 
 
-	def predictDetecion (self, streams):
+	def predictDetection (self, streams):
 		images = [arrayFromImageStream(stream) for stream in streams]
 
 		ratio = max(img.shape[0] / img.shape[1] for img in images)
