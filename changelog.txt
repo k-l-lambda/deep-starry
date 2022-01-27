@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.1.27
+
+	+	vision/scorePageLayout.py created.
+
+
 2022.1.20
 
 	+	augmentor.py: crease rendering added.

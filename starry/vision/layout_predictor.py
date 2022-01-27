@@ -2,16 +2,17 @@
 import numpy as np
 import torch
 import logging
-import PIL.Image
-import cv2
+#import PIL.Image
+#import cv2
 
 from ..utils.predictor import Predictor
 from .images import arrayFromImageStream, encodeImageBase64, writeImageFileFormat
+from .scorePageLayout import PageLayout
 from . import transform
 
 
 
-class PageLayout:
+'''class PageLayout:
 	def __init__ (self, hotmap):	# channel semantic: [VL, StaffBox, HL]
 		lines_map = hotmap[2]
 		self.interval = PageLayout.measureInterval(lines_map)
@@ -74,7 +75,7 @@ class PageLayout:
 		#print('brights:', brights)
 
 		return (interval_min * 2 + int(np.argmax(brights))) / UPSCALE
-
+'''
 
 class LayoutPredictor (Predictor):
 	def __init__(self, config, device='cpu', inspect=False):
