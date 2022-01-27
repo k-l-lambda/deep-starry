@@ -3,79 +3,28 @@ import numpy as np
 import torch
 import logging
 #import PIL.Image
-#import cv2
+import cv2
 
 from ..utils.predictor import Predictor
 from .images import arrayFromImageStream, encodeImageBase64, writeImageFileFormat
-from .scorePageLayout import PageLayout
+from .scorePageLayout import PageLayout, RESIZE_WIDTH
 from . import transform
 
 
 
-'''class PageLayout:
-	def __init__ (self, hotmap):	# channel semantic: [VL, StaffBox, HL]
-		lines_map = hotmap[2]
-		self.interval = PageLayout.measureInterval(lines_map)
+def resizePageImage (img, size):
+	w, h = size
+	filled_height = img.shape[0] * w // img.shape[1]
+	img = cv2.resize(img, (w, filled_height), interpolation=cv2.INTER_AREA)
 
-		hotmap = np.uint8(hotmap * 255)
-		hotmap = np.moveaxis(hotmap, 0, -1)
-		self.image = PIL.Image.fromarray(hotmap, 'RGB')
+	if filled_height < h:
+		result = np.ones((h, w, img.shape[2]), dtype=np.uint8) * 255
+		result[:filled_height] = img
 
-		staves_map = hotmap[:, :, 1]
-		self.theta = PageLayout.measureTheta(staves_map)
+		return result
 
+	return img[:h]
 
-	def json (self):
-		image_code = encodeImageBase64(self.image)
-
-		return {
-			'image': image_code,
-			'theta': self.theta,
-			'interval': self.interval,
-		}
-
-
-	@staticmethod
-	def measureTheta (hotmap):
-		edges = cv2.Canny(hotmap, 50, 150, apertureSize = 3)
-		lines = cv2.HoughLines(edges, 1, np.pi/18000, round(hotmap.shape[1] * 0.4), min_theta = np.pi * 0.48, max_theta = np.pi * 0.52)
-		if lines is None:
-			return None
-
-		avg_theta = sum(map(lambda line: line[0][1], lines)) / len(lines)
-
-		return avg_theta - np.pi / 2
-
-
-	@staticmethod
-	def measureInterval (hotmap):
-		UPSCALE = 4
-
-		width = hotmap.shape[1]
-		hotmap = cv2.resize(hotmap, (hotmap.shape[1] // UPSCALE, hotmap.shape[0] * UPSCALE), interpolation=cv2.INTER_LINEAR)
-		#print('upscale hotmap:', hotmap.shape)
-
-		interval_min, interval_max = round(width * 0.002 * UPSCALE), round(width * 0.025 * UPSCALE)
-
-		brights = []
-		for y in range(interval_min, interval_max):
-			m1, m2 = hotmap[y:], hotmap[:-y]
-			p = np.multiply(m1, m2)
-			brights.append(np.mean(p))
-
-		# minus scale x2, to weaken 2 intervals activation
-		brights = np.array([brights])
-		brights2 = cv2.resize(brights, (brights.shape[1] * 2, 1))
-
-		brights = brights.flatten()[interval_min:]
-		brights2 = brights2.flatten()[:len(brights)]
-
-		brights -= brights2 * 0.5
-		#print('interval_min:', interval_min * 2)
-		#print('brights:', brights)
-
-		return (interval_min * 2 + int(np.argmax(brights))) / UPSCALE
-'''
 
 class LayoutPredictor (Predictor):
 	def __init__(self, config, device='cpu', inspect=False):
@@ -93,7 +42,16 @@ class LayoutPredictor (Predictor):
 		self.composer = transform.Composer(trans)
 
 
-	def predict (self, streams, output_path=None):
+	def predict (self, streams, advanced=False, **kwargs):
+		if not advanced:
+			for x in self.predictBasic(streams, **kwargs):
+				yield x
+		else:
+			for x in self.predictDetecion(streams):
+				yield x
+
+
+	def predictBasic (self, streams, output_path=None):
 		images = map(lambda stream: arrayFromImageStream(stream), streams)
 
 		for i, image in enumerate(images):
@@ -122,6 +80,33 @@ class LayoutPredictor (Predictor):
 						writeImageFileFormat(layout, output_path, i, 'layout')
 
 				yield PageLayout(hotmap).json()
+
+
+	def predictDetecion (self, streams):
+		images = [arrayFromImageStream(stream) for stream in streams]
+
+		ratio = max(img.shape[0] / img.shape[1] for img in images)
+		height = int(RESIZE_WIDTH * ratio)
+		height += -height % 4
+		unified_images = [resizePageImage(img, (RESIZE_WIDTH, height)) for img in images]
+		image_array = np.stack(unified_images, axis=0)
+
+		batch, _ = self.composer(image_array, np.ones((1, 4, 4, 2)))
+		batch = torch.from_numpy(batch)
+		batch = batch.to(self.device)
+
+		with torch.no_grad():
+			output = self.model(batch)
+			output = output.cpu().numpy()
+
+			for i, heatmap in enumerate(output):
+				image = images[i]
+
+				layout = PageLayout(heatmap)
+				result = layout.detect(image, ratio)
+				result['image'] = layout.json()['image']
+
+				yield result
 
 
 	@classmethod
