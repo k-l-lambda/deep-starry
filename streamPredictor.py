@@ -123,6 +123,7 @@ def main ():
 
 	if args.port:
 		app = ZeroServer(predictor)
+		print('service ready')
 		app.bind(args.port)
 	else:
 		while session(predictor):
