@@ -274,12 +274,18 @@ class PageLayout:
 				map_y = (np.tile(np.arange(staff_size[1], dtype=np.float32), (staff_size[0], 1)).T - staff_size[1] / 2) / unit_scaling + rho
 				staff_image = cv2.remap(system_image, map_x, map_y, cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
 
-				#cv2.imwrite(f'./output/staff-{si}-{ssi}.png', staff_image)
-				bytes = arrayToImageFile(staff_image).getvalue()
-				hash = hashlib.md5(bytes).hexdigest()
+				hash = None
+				if output_folder is not None:
+					#cv2.imwrite(f'./output/staff-{si}-{ssi}.png', staff_image)
+					bytes = arrayToImageFile(staff_image).getvalue()
+					hash = hashlib.md5(bytes).hexdigest()
+
+					with open(os.path.join(output_folder, hash + '.png'), 'wb') as f:
+						f.write(bytes)
+					#logging.info('Staff image wrote: %s.png', hash)
 
 				area['staff_images'].append({
-					'hash': f'md5:{hash}',
+					'hash': f'md5:{hash}' if hash else None,
 					'position': {
 						'x': -area['staves']['phi1'] * UNIT_SIZE / interval,
 						'y': -STAFF_HEIGHT_UNITS * UNIT_SIZE / 2,
@@ -287,11 +293,6 @@ class PageLayout:
 						'height': staff_size[1],
 					},
 				})
-
-				if output_folder is not None:
-					with open(os.path.join(output_folder, hash + '.png'), 'wb') as f:
-						f.write(bytes)
-					#logging.info('Staff image wrote: %s.png', hash)
 
 		return {
 			'theta': self.theta,
