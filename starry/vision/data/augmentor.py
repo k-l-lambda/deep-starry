@@ -127,10 +127,13 @@ class Augmentor:
 
 	def augment (self, source, target=None):
 		if self.skip_p > 0 and np.random.random() < self.skip_p:
-			if self.affine and (self.affine['size_limit'] or self.affine['size_fixed']):
+			if self.affine and (self.affine['size_limit'] or self.affine['size_fixed']) or self.affine['scale_mu'] != 1:
+				scale = min(math.exp(math.log(self.affine['scale_mu']) + np.random.randn() * self.affine['scale_sigma']), self.affine['scale_limit'])
+				center = (source.shape[1] // 2, source.shape[0] // 2)
+				mat = cv2.getRotationMatrix2D(center, 0, scale)
 				rx, ry = np.random.random(), np.random.random()
-				source = self.affineTransform(source, rx=rx, ry=ry)
-				target = self.affineTransform(target, rx=rx, ry=ry)
+				source = self.affineTransform(source, scale=scale, mat=mat, rx=rx, ry=ry)
+				target = self.affineTransform(target, scale=scale, mat=mat, rx=rx, ry=ry)
 				source = np.expand_dims(source, -1)
 			return source, target
 
