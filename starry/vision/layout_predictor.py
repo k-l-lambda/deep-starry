@@ -6,7 +6,7 @@ import logging
 import cv2
 
 from ..utils.predictor import Predictor
-from .images import arrayFromImageStream, encodeImageBase64, writeImageFileFormat
+from .images import arrayFromImageStream, writeImageFileFormat
 from .scorePageLayout import PageLayout, RESIZE_WIDTH
 from . import transform
 
@@ -104,7 +104,9 @@ class LayoutPredictor (Predictor):
 
 				layout = PageLayout(heatmap)
 				result = layout.detect(image, ratio)
-				result['image'] = layout.json()['image']
+
+				if self.inspect:
+					result['image'] = layout.json()['image']
 
 				yield result
 
