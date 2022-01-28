@@ -8,7 +8,7 @@ model:
     out_channels:           2
     residue_blocks:         0
     base_depth:             4
-    base_init_width:        64
+    base_init_width:        32
     freeze_base:            False
     compounder:
       list:
