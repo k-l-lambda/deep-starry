@@ -105,7 +105,7 @@ class LayoutPredictor (Predictor):
 				layout = PageLayout(heatmap)
 				result = layout.detect(image, ratio)
 
-				if self.inspect:
+				if result and self.inspect:
 					result['image'] = layout.json()['image']
 
 				yield result

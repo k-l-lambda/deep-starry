@@ -214,6 +214,13 @@ class PageLayout:
 
 
 	def detect (self, image, ratio, output_folder=None):
+		if self.theta is None:
+			return {
+				'theta': self.theta,
+				'interval': self.interval * image.shape[1] / RESIZE_WIDTH,
+				'detection': None,
+			}
+
 		original_size = (image.shape[1], image.shape[0])
 		aligned_height = int(image.shape[1] * ratio)
 		if image.shape[0] < aligned_height:
