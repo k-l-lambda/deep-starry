@@ -118,14 +118,13 @@ def main ():
 
 	predictor = predictorClass(config, device=args.device, inspect=args.inspect)
 
-	# the initialized signal
-	print('', end='\r', flush = True)
-
 	if args.port:
 		app = ZeroServer(predictor)
-		print('service ready')
 		app.bind(args.port)
 	else:
+		# the initialized signal
+		print('', end='\r', flush = True)
+
 		while session(predictor):
 			pass
 

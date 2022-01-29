@@ -1,4 +1,5 @@
 import sys
+import logging
 import zmq
 import types
 from msgpack import unpackb, packb
@@ -30,7 +31,9 @@ class ZeroServer:
 		}, use_bin_type=True))
 
 	def bind(self, port):
-		self.socket.bind(f"tcp://*:{port}")
+		address = f'tcp://*:{port}'
+		self.socket.bind(address)
+		logging.info('ZeroServer is online: %s', address)
 
 		while True:
 			buf = self.socket.recv()
