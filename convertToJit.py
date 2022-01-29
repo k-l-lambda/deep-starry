@@ -37,10 +37,8 @@ def main ():
 	if args.mobile:
 		scriptedm = optimize_for_mobile(scriptedm)
 		name += '-mobile'
-	if args.lite:
-		name += '-lite'
 
-	outpath = config.localPath(f'{name}.pt')
+	outpath = config.localPath(f'{name}.ptl' if args.lite else f'{name}.pt')
 	if args.lite:
 		scriptedm._save_for_lite_interpreter(outpath)
 	else:
