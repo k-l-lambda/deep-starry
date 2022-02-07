@@ -117,6 +117,8 @@ class Augmentor:
 					'intensity': CREASE.get('intensity', 1),
 					'margin': CREASE.get('margin', 0.02),
 					'width': CREASE.get('width', 0.08),
+					'flip_p': CREASE.get('flip_p', 0.5),
+					'outter_p': CREASE.get('outter_p', 0.5),
 				}
 
 			if options.get('flip_mark'):
@@ -156,7 +158,7 @@ class Augmentor:
 		if self.crease:
 			intensity = 1 - np.random.random() ** self.crease['intensity']
 			width = source.shape[1] * np.exp(np.random.randn() * 1) * self.crease['width']
-			outter = np.random.random() > 0.5
+			outter = np.random.random() < self.crease['outter_p']
 			margin = source.shape[1] * np.exp(np.random.randn() * 1) * self.crease['margin'] if outter else 0
 			bending = np.exp(np.random.randn() * 0.6) * 0.6
 			bar = np.arange(source.shape[1], dtype=np.float)
@@ -167,7 +169,7 @@ class Augmentor:
 			bar = bar ** bending
 			bar = np.clip(bar, 0, 1) * intensity + (1 - intensity)
 
-			if np.random.random() > 0.5:
+			if np.random.random() < self.crease['flip_p']:
 				bar = bar[::-1]
 
 			source[:, :, 0] = source[:, :, 0] * bar
@@ -204,7 +206,7 @@ class Augmentor:
 			intensity = self.distortion['intensity'] * math.exp(np.random.randn() * self.distortion['intensity_sigma'])
 			nx, ny = self.distorter.make_maps(source.shape, scale, intensity, self.distortion['noise_weights_sigma'])
 
-			source = self.distorter.distort(source, nx, ny)
+			source = self.distorter.distort(source, nx, ny, borderMode=cv2.BORDER_REFLECT_101)
 			target = self.distorter.distort(target, nx, ny) if target is not None else target
 			source = np.expand_dims(source, -1)
 
@@ -236,6 +238,6 @@ class Augmentor:
 			mat[1][2] = ry * -rest_y
 		#print('mat:', rest_x, rest_y, mat)
 
-		image = cv2.warpAffine(image, mat, scaled_shape, borderMode = cv2.BORDER_REPLICATE, flags = cv2.INTER_CUBIC)
+		image = cv2.warpAffine(image, mat, scaled_shape, borderMode=borderType, flags=cv2.INTER_LINEAR)
 
 		return image

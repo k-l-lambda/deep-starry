@@ -49,14 +49,15 @@ data:
         intensity:            4
         margin:               0.02
         width:                0.03
+        flip_p:               0.8
       gaussian_blur:
-        sigma:                1.5
+        sigma:                0.3
       flip_mark:
         intensity_range:      [0, 0.1]
       distortion:   
         scale:                2
         scale_sigma:          0.4
-        intensity:            1.6
+        intensity:            1.2
         intensity_sigma:      0.6
   args_variant:
     1:

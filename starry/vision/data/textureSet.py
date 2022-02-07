@@ -7,7 +7,9 @@ import numpy as np
 
 
 def randint (low, high):
-	return np.random.randint(low, high) if high > low else 0
+	#if high - low < 1:
+	#	return low + 1 if np.random.random() > high - low else low
+	return np.random.randint(low, high) if high > low else low
 
 
 def logrand (low, high):
