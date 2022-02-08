@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.2.8
+
+	+	datasetChecker.py created.
+
+
 2022.2.7
 
 	+	convertToOnnx.py created.
