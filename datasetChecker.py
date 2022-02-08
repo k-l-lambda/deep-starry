@@ -44,10 +44,14 @@ class Checker (Predictor):
 		with torch.no_grad():
 			for name, feature, target in tqdm(dataset, desc='Checking'):
 				pred = self.model(feature)
-				differ = mseGreen(pred, target)
+				differ = mseGreen(pred, target).item()
 				#logging.info('differ: %s, %.4f', name, differ.item())
 
-				results.append((name, differ.item()))
+				if differ > 0.01:
+					results.append((name, differ))
+
+				if differ > 0.1:
+					logging.info('differ: %s, %.4f', name, differ)
 
 		results.sort(key=lambda x: -x[1])
 		text = '\n'.join([f'{x[0]}:\t{x[1]}' for x in results])

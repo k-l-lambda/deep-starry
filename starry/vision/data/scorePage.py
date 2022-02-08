@@ -126,7 +126,7 @@ class ScorePageRaw (ScorePage):
 			target = self.loadTarget(name)
 
 			w, h = source.shape[:2]
-			ww = 400
+			ww = 800
 			hh = ww * h // w
 			hh += -hh % 4
 			source = cv2.resize(source, (ww, hh)).reshape((hh, ww, 1))
