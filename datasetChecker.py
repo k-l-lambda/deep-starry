@@ -22,6 +22,10 @@ def mse (pred, target):
 	return torch.mean((pred - target) ** 2)
 
 
+def mseGreen (pred, target):
+	return torch.mean((pred[:, 1] - target[:, 1]) ** 2)
+
+
 class Checker (Predictor):
 	def __init__(self, config, device='cuda'):
 		super().__init__(device=device)
@@ -36,12 +40,17 @@ class Checker (Predictor):
 		with torch.no_grad():
 			for name, feature, target in tqdm(dataset, desc='Checking'):
 				pred = self.model(feature)
-				differ = mse(pred, target)
+				differ = mseGreen(pred, target)
 				#logging.info('differ: %s, %.4f', name, differ.item())
 
 				results.append((name, differ.item()))
 
-		logging.info('results: %s', results)
+		results.sort(key=lambda x: -x[1])
+		text = '\n'.join([f'{x[0]}:\t{x[1]}' for x in results])
+		logging.info('results: %s', text)
+
+		with open(self.config.localPath('checker.txt'), 'w') as file:
+			file.write(text)
 
 
 def main ():

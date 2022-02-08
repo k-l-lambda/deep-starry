@@ -14,3 +14,5 @@ data:
           channels:           [1]
         - label:              box_System
           channels:           [0, 1]
+    augmentor:
+      channel_order:          [0, 1]
