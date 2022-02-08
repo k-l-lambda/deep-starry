@@ -12,6 +12,10 @@ from starry.utils.predictor import Predictor
 
 
 
+# workaround cuda unavailable issue
+torch.cuda.is_available()
+
+
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 
