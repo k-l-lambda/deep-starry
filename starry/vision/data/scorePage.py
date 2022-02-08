@@ -5,6 +5,7 @@ import random
 import time
 import cv2
 import logging
+import torch
 
 from ..transform import Composer
 from .utils import collateBatch, loadSplittedDatasets
@@ -15,9 +16,9 @@ from .augmentor import Augmentor
 
 
 class ScorePage (CachedIterableDataset):
-	@staticmethod
-	def load (root, args, splits, device='cpu', args_variant=None):
-		return loadSplittedDatasets(ScorePage, root=root, args=args, splits=splits, device=device, args_variant=args_variant)
+	@classmethod
+	def load (cls, root, args, splits, device='cpu', args_variant=None):
+		return loadSplittedDatasets(cls, root=root, args=args, splits=splits, device=device, args_variant=args_variant)
 
 
 	def __init__ (self, root, split='0/1', device='cpu', trans=[], shuffle=False, augmentor=None, cache_batches=False, **kwargs):
@@ -32,8 +33,8 @@ class ScorePage (CachedIterableDataset):
 		self.trans = Composer(trans) if len(trans) > 0 else None
 
 		self.gaussian_noise = 0
-		self.augmentor = Augmentor(augmentor, shuffle = self.shuffle)
-		self.channel_order = augmentor.get('channel_order')
+		self.augmentor = augmentor and Augmentor(augmentor, shuffle = self.shuffle)
+		self.channel_order = augmentor.get('channel_order') if augmentor else None
 
 
 	def collateBatchImpl (self, batch):
@@ -88,3 +89,41 @@ class ScorePage (CachedIterableDataset):
 
 	def __len__ (self):
 		return len(self.names)
+
+
+class ScorePageRaw (ScorePage):
+	def __init__ (self, root, **kwargs):
+		super().__init__(root, **kwargs)
+		logging.info('ScorePageRaw.__init__')
+
+
+	def collateBatch (self, batch):
+		name, image, label = batch[0]
+		images = np.stack([image], axis=0)
+		labels = np.stack([label], axis=0)
+
+		if self.trans is not None:
+			images, labels = self.trans(images, labels)
+		feature = torch.from_numpy(images).to(self.device)
+		target = torch.from_numpy(labels).to(self.device)
+
+		return name, feature, target
+
+
+	def iterImpl (self):
+		for i, name in enumerate(self.names):
+			source_path = os.path.join(PAGE, name + ".png")
+			if not self.reader.exists(source_path):
+				self.names.remove(name)
+				logging.warn('staff file missing, removed: %s', source_path)
+				continue
+			source = self.reader.readImage(source_path)
+
+			# to gray
+			source = cv2.cvtColor(source, cv2.COLOR_RGBA2GRAY)
+			source = (source / 255.0).astype(np.float32)
+			source = np.expand_dims(source, -1)
+
+			target = self.loadTarget(name)
+
+			yield name, source, target
