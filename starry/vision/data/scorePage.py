@@ -92,9 +92,8 @@ class ScorePage (CachedIterableDataset):
 
 
 class ScorePageRaw (ScorePage):
-	def __init__ (self, root, **kwargs):
-		super().__init__(root, **kwargs)
-		logging.info('ScorePageRaw.__init__')
+	#def __init__ (self, root, **kwargs):
+	#	super().__init__(root, **kwargs)
 
 
 	def collateBatch (self, batch):
