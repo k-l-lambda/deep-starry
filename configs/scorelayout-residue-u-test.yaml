@@ -40,7 +40,7 @@ data:
       affine:
         padding_scale:        1.06
         angle_sigma:          1.
-        scale_sigma:          0.2
+        scale_sigma:          0.6
         scale_mu:             0.6
         scale_limit:          1.
         size_limit:           800
@@ -48,6 +48,7 @@ data:
         intensity:            4
         margin:               0.02
         width:                0.03
+        flip_p:               0.7
       gaussian_blur:
         sigma:                1.5
       flip_mark:
@@ -55,7 +56,7 @@ data:
       distortion:   
         scale:                2
         scale_sigma:          0.4
-        intensity:            1.6
+        intensity:            1.2
         intensity_sigma:      0.6
   args_variant:
     1:

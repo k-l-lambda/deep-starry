@@ -41,7 +41,7 @@ data:
       affine:
         padding_scale:        1.06
         angle_sigma:          1.
-        scale_sigma:          0.2
+        scale_sigma:          0.6
         scale_mu:             0.3
         scale_limit:          1.
         size_limit:           800
