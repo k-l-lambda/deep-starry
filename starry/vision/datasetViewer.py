@@ -89,7 +89,7 @@ def scoreAnno (heatmap, srcimg, labels, target=[]):
 	ax[labels_count+1][0].imshow(srcimg)
 	plt.get_current_fig_manager().full_screen_toggle()
 	plt.show()
-	plt.close()
+	#plt.close()
 
 
 def scoreAnnoChromatic (feature, targets, predictions=None):
@@ -114,7 +114,7 @@ def scoreAnnoChromatic (feature, targets, predictions=None):
 
 	plt.get_current_fig_manager().full_screen_toggle()
 	plt.show()
-	plt.close()
+	#plt.close()
 
 
 def gaugeToRGB (gauge, frac_y = False):	# gauge: [Y(h, w), K(h, w)]
@@ -206,7 +206,7 @@ def scoreAnnoGauge (feature, targets, predictions=None):
 
 	plt.get_current_fig_manager().full_screen_toggle()
 	plt.show()
-	plt.close()
+	#plt.close()
 
 
 class DatasetViewer:

@@ -32,7 +32,6 @@ class ScorePage (CachedIterableDataset):
 		self.names = listAllScoreNames(self.reader, split, dir=PAGE)
 		self.trans = Composer(trans) if len(trans) > 0 else None
 
-		self.gaussian_noise = 0
 		self.augmentor = augmentor and Augmentor(augmentor, shuffle = self.shuffle)
 		self.channel_order = augmentor.get('channel_order') if augmentor else None
 
@@ -83,6 +82,7 @@ class ScorePage (CachedIterableDataset):
 			if not self.shuffle:
 				np.random.seed(i)
 			source, target = self.augmentor.augment(source, target)
+			logging.info('source: %s', source.shape)
 
 			yield source, target
 
