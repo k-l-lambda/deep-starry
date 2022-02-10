@@ -2,6 +2,7 @@
 import os
 from datetime import date
 import yaml
+import logging
 
 from .env import *
 
@@ -51,7 +52,7 @@ class Configuration:
 			for key, value in self['env'].items():
 				if os.environ.get(key) is None:
 					os.environ[key] = str(value)
-					#print('env set:', key, value)
+					logging.info('env set: %s=%s', key, value)
 
 
 	def preprocess (self):
