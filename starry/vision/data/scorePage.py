@@ -82,7 +82,6 @@ class ScorePage (CachedIterableDataset):
 			if not self.shuffle:
 				np.random.seed(i)
 			source, target = self.augmentor.augment(source, target)
-			logging.info('source: %s', source.shape)
 
 			yield source, target
 
