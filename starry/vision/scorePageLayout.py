@@ -302,6 +302,10 @@ class PageLayout:
 				})
 
 		return {
+			'sourceSize': {
+				'width': original_size[0],
+				'height': original_size[1],
+			},
 			'theta': self.theta,
 			'interval': page_interval,
 			'detection': scaleDetection(detection, original_size[0] / canvas_size[0]),
