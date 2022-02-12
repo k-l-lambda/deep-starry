@@ -26,6 +26,7 @@ data:
     trans:                    [HWC2CHW, Tar_STDgray, Tar_HWC2CHW]
     augmentor:
       skip_p:                 0.1
+      aa_scale:               2
       tinter:
         fore_pow:             6.
         fore_sigma:           0.6
