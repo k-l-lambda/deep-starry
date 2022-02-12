@@ -78,6 +78,7 @@ class Augmentor:
 
 		if options:
 			self.skip_p = options.get('skip_p', 0)
+			self.aa_scale = options.get('aa_scale', 1)	# anit-aliasing scale
 
 			if options.get('tinter'):
 				size = min(TEXTURE_SET_SIZE, 4) if not shuffle else TEXTURE_SET_SIZE
@@ -109,6 +110,7 @@ class Augmentor:
 					'scale_limit': AFFINE.get('scale_limit', float('inf')),
 					'size_limit': AFFINE.get('size_limit', float('inf')),
 					'size_fixed': AFFINE.get('size_fixed'),
+					'round': AFFINE.get('round', 4),
 				}
 
 			if options.get('crease'):
@@ -138,6 +140,9 @@ class Augmentor:
 				target = self.affineTransform(target, scale=scale, mat=mat, rx=rx, ry=ry)
 				source = np.expand_dims(source, -1)
 			return source, target
+
+		if self.aa_scale > 1 and target is not None:
+			target = cv2.resize(target, (target.shape[1] * self.aa_scale, target.shape[0] * self.aa_scale), interpolation=cv2.INTER_CUBIC)
 
 		if self.flip_intensity_range is not None:
 			origin = source
@@ -196,7 +201,7 @@ class Augmentor:
 			rx, ry = np.random.random(), np.random.random()
 
 			source = self.affineTransform(source, (padding_y, padding_x), mat, scale, rx, ry, cv2.BORDER_REFLECT_101)
-			target = self.affineTransform(target, (padding_y, padding_x), mat, scale, rx, ry, cv2.BORDER_REPLICATE) if target is not None else target
+			target = self.affineTransform(target, (padding_y, padding_x), mat, scale, rx, ry, cv2.BORDER_REPLICATE, aa_scale=self.aa_scale) if target is not None else target
 			#print('target.2:', target.shape, (padding_y, padding_x))
 
 			source = np.expand_dims(source, -1)
@@ -207,8 +212,15 @@ class Augmentor:
 			nx, ny = self.distorter.make_maps(source.shape, scale, intensity, self.distortion['noise_weights_sigma'])
 
 			source = self.distorter.distort(source, nx, ny, borderMode=cv2.BORDER_REFLECT_101)
-			target = self.distorter.distort(target, nx, ny) if target is not None else target
-			source = np.expand_dims(source, -1)
+
+			if target is not None:
+				if self.aa_scale > 1:
+					nx = cv2.resize(nx, (nx.shape[1] * self.aa_scale, nx.shape[0] * self.aa_scale), interpolation=cv2.INTER_LINEAR) * self.aa_scale
+					ny = cv2.resize(ny, (ny.shape[1] * self.aa_scale, ny.shape[0] * self.aa_scale), interpolation=cv2.INTER_LINEAR) * self.aa_scale
+				target = self.distorter.distort(target, nx, ny)
+
+			if len(source.shape) < 3:
+				source = np.expand_dims(source, -1)
 
 		if self.gaussian_blur > 0:
 			kernel = round(abs(np.random.randn() * self.gaussian_blur)) * 2 + 1
@@ -220,16 +232,19 @@ class Augmentor:
 		if self.gaussian_noise > 0:
 			source = appendGaussianNoise(source, self.gaussian_noise)
 
+		if self.aa_scale > 1 and target is not None:
+			target = cv2.resize(target, (source.shape[1], source.shape[0]), interpolation=cv2.INTER_AREA)
+
 		return np.clip(source, 0, 1), target
 
 
-	def affineTransform (self, image, padding=(0, 0), mat=np.array([[1, 0, 0], [0, 1, 0]], dtype=np.float32), scale=1, rx=0, ry=0, borderType=cv2.BORDER_REPLICATE):
-		image = cv2.copyMakeBorder(image, padding[0], padding[0], padding[1], padding[1], borderType)
+	def affineTransform (self, image, padding=(0, 0), mat=np.array([[1, 0, 0], [0, 1, 0]], dtype=np.float32), scale=1, rx=0, ry=0, borderType=cv2.BORDER_REPLICATE, aa_scale=1):
+		image = cv2.copyMakeBorder(image, padding[0] * aa_scale, padding[0] * aa_scale, padding[1] * aa_scale, padding[1] * aa_scale, borderType)
 
-		size_limit = self.affine['size_limit']
+		size_limit = self.affine['size_limit'] * aa_scale
 		size_fixed = self.affine['size_fixed']
-		scaled_shape = (size_fixed, size_fixed) if size_fixed is not None else (min(image.shape[1] * scale, size_limit), min(image.shape[0] * scale, size_limit))
-		scaled_shape = (roundn(scaled_shape[0], 4), roundn(scaled_shape[1], 4))
+		scaled_shape = (size_fixed * aa_scale, size_fixed * aa_scale) if size_fixed is not None else (min(image.shape[1] * scale, size_limit), min(image.shape[0] * scale, size_limit))
+		scaled_shape = (roundn(scaled_shape[0], self.affine['round'] * aa_scale), roundn(scaled_shape[1], self.affine['round'] * aa_scale))
 
 		rest_x, rest_y = math.floor(image.shape[1] * scale - scaled_shape[0]), math.floor(image.shape[0] * scale - scaled_shape[1])
 		if rest_x != 0:
@@ -238,6 +253,6 @@ class Augmentor:
 			mat[1][2] = ry * -rest_y
 		#print('mat:', rest_x, rest_y, mat)
 
-		image = cv2.warpAffine(image, mat, scaled_shape, borderMode=borderType, flags=cv2.INTER_LINEAR)
+		image = cv2.warpAffine(image, mat, scaled_shape, borderMode=borderType, flags=cv2.INTER_CUBIC)
 
 		return image
