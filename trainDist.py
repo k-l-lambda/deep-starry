@@ -1,13 +1,17 @@
 
+import sys
 import os
 import argparse
-#import logging
+import logging
 import torch
 import tempfile
 
 from starry.utils.config import Configuration
 from starry.utils.trainerQuantitative import Trainer
 
+
+
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 
 VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR')
