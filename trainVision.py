@@ -10,6 +10,9 @@ from starry.utils.dataset_factory import loadDataset
 
 
 
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+
+
 VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR')
 
 
@@ -21,9 +24,11 @@ def main ():
 
 	config = Configuration.createOrLoad(args.config)
 
-	logging.basicConfig(filename=config.localPath('trainer.log'),
-		format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%Y%m%d %H:%M:%S', level=logging.INFO)
-	logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+	logging.basicConfig(format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%Y%m%d %H:%M:%S', level=logging.INFO,
+		force=True, handlers=[
+			logging.StreamHandler(sys.stdout),
+			logging.FileHandler(config.localPath('trainer.log')),
+		])
 
 	logging.info('*	Loading data.')
 	train, val = loadDataset(config, data_dir=VISION_DATA_DIR, device=config['trainer.device'])
