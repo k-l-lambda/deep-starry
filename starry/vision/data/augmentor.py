@@ -76,7 +76,7 @@ class Augmentor:
 		self.flip_texture = None
 		self.flip_intensity_range = None
 
-		if options:
+		if options is not None:
 			self.skip_p = options.get('skip_p', 0)
 			self.aa_scale = options.get('aa_scale', 1)	# anit-aliasing scale
 

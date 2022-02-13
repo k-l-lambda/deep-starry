@@ -9,6 +9,7 @@ import pandas as pd
 
 from .utils import loadSplittedDatasets
 from .score import makeReader, parseFilterStr
+from .augmentor import Augmentor
 
 
 
@@ -27,10 +28,10 @@ def listAllImageNames (reader, filterStr, dir='/'):
 class PerisData:
 	@classmethod
 	def load (cls, root, args, splits, args_variant=None):
-		return loadSplittedDatasets(cls, root=root, args=args, splits=splits, args_variant=args_variant)
+		return loadSplittedDatasets(cls, root=root, args=args, splits=splits, augmentor=None, args_variant=args_variant)
 
 
-	def __init__ (self, root, labels, split='0/1', shuffle=False, **_):
+	def __init__ (self, root, labels, split='0/1', augmentor={}, shuffle=False, **_):
 		self.reader, self.root = makeReader(root)
 		self.shuffle = shuffle
 
@@ -38,6 +39,8 @@ class PerisData:
 
 		dataframes = pd.read_csv(labels)
 		self.labels = dict(zip(dataframes['hash'], dataframes.to_dict('records')))
+
+		self.augmentor = Augmentor(augmentor, shuffle=self.shuffle)
 
 
 	def __iter__ (self):
@@ -54,11 +57,11 @@ class PerisData:
 					continue
 				source = self.reader.readImage(filename)
 
-				#source = (source / 255.0).astype(np.float32)
-				#source = np.expand_dims(source, -1)
+				source = (source / 255.0).astype(np.float32)
 
 				labels = self.labels[name]
 
+				source, _ = self.augmentor.augment(source, None)
 				source = source.reshape((1,) + source.shape)
 
 				yield source, labels
