@@ -59,7 +59,7 @@ class PerisData:
 
 				source = (source / 255.0).astype(np.float32)
 
-				labels = self.labels[name]
+				labels = [self.labels[name]]
 
 				source, _ = self.augmentor.augment(source, None)
 				source = source.reshape((1,) + source.shape)
@@ -69,3 +69,6 @@ class PerisData:
 
 	def __len__ (self):
 		return len(self.names)
+
+
+	# TODO: convert to tensors in collate
