@@ -134,7 +134,9 @@ def detectRectangles (heatmap, vertical_units = 24, otsu = False):
 	return rects
 
 
-def detectBoxes (heatmap, vertical_units = 24, otsu = False):
+def detectBoxes (heatmap, vertical_units, otsu = False):
+	unit = heatmap.shape[0] / vertical_units
+
 	if otsu:
 		_, thresh = cv2.threshold(heatmap, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 	else:
@@ -149,19 +151,21 @@ def detectBoxes (heatmap, vertical_units = 24, otsu = False):
 		pos, size, theta = rect
 		confidence = math.sqrt(size[0] * size[1])
 
-		area = size[0] * size[1]
-		if area > 100:
-			rects.append({
-				'x': pos[0],
-				'y': pos[1],
-				'extension': {
-					'width': size[0],
-					'height': size[1],
-					'theta': theta,
-				},
-				'confidence': confidence,
-				'mark': rect,
-			})
+		# clip tiny boxes
+		if min(*size) / unit < 8:
+			continue
+
+		rects.append({
+			'x': pos[0],
+			'y': pos[1],
+			'extension': {
+				'width': size[0],
+				'height': size[1],
+				'theta': theta,
+			},
+			'confidence': confidence,
+			'mark': rect,
+		})
 
 	return rects
 
@@ -173,7 +177,7 @@ LINE_TOLERANCE_Y = 1.2
 
 RECT_TOLERANCE = 0.8
 
-BOX_POINTS_TOLERANCE = 10
+BOX_POINTS_TOLERANCE = 0.2
 
 
 def findNearPoint (point, points):
@@ -228,6 +232,7 @@ def findBox (rect, rects):
 	for rc in rects:
 		b = rectPoints(rc)
 		distance = pointsDistance(b, box)
+		distance /= rect['extension']['width'] * rect['extension']['height']
 		if distance < BOX_POINTS_TOLERANCE * BOX_POINTS_TOLERANCE:
 			return rc
 
@@ -303,7 +308,7 @@ def statPoints (points, true_count, negative_weight = 1, positive_weight = 1):
 
 	true_count = max(true_count, 1)
 
-	true_positive_count = len(points) - fake_positive_count
+	true_positive_count = len([p for p in points if p['confidence'] >= confidence and p['value'] > 0])
 	true_negative_count = len([p for p in points if p['confidence'] < confidence and p['value'] < 0])
 
 	error = fake_negative_count * negative_weight + fake_positive_count * positive_weight

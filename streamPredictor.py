@@ -1,7 +1,6 @@
 
 import sys
 import time
-import io
 import argparse
 import logging
 import json
@@ -15,6 +14,7 @@ from starry.vision.gauge_predictor import GaugePredictor
 from starry.vision.layout_predictor import LayoutPredictor
 from starry.vision.scorePageProcessor import ScorePageProcessor
 from starry.vision.scoreSemanticProcessor import ScoreSemanticProcessor
+from starry.utils.zero_server import ZeroServer
 
 
 
@@ -36,7 +36,7 @@ PREDICTOR_FACTORY = {
 def parseInputLine (line):
 	if not ':' in line:
 		buffer = base64.b64decode(line)
-		return {'buffer': io.BytesIO(buffer)}
+		return {'buffer': buffer}
 
 	colon = line.index(':')
 	protocol = line[:colon]
@@ -44,7 +44,7 @@ def parseInputLine (line):
 
 	if protocol == 'base64':
 		buffer = base64.b64decode(body)
-		return {'buffer': io.BytesIO(buffer)}
+		return {'buffer': buffer}
 	elif protocol == 'json':
 		return json.loads(body)
 	elif protocol == 'echo':
@@ -105,6 +105,7 @@ def main ():
 	parser.add_argument('-m', '--mode', type=str, default='topology', help='predictor mode')
 	parser.add_argument('-dv', '--device', type=str, default='cpu', help='cpu or cuda')
 	parser.add_argument('-i', '--inspect', action='store_true', help='inspect mode')
+	parser.add_argument('-p', '--port', type=int, help='zmq server port')
 
 	args = parser.parse_args()
 
@@ -117,8 +118,15 @@ def main ():
 
 	predictor = predictorClass(config, device=args.device, inspect=args.inspect)
 
-	while session(predictor):
-		pass
+	if args.port:
+		app = ZeroServer(predictor)
+		app.bind(args.port)
+	else:
+		# the initialized signal
+		print('', end='\r', flush = True)
+
+		while session(predictor):
+			pass
 
 
 if __name__ == '__main__':

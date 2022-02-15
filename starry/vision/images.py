@@ -13,7 +13,8 @@ import random
 MARGIN_DIVIDER = 8
 
 
-def arrayFromImageStream (stream):
+def arrayFromImageStream (buffer):
+	stream = io.BytesIO(buffer)
 	image = PIL.Image.open(stream)
 
 	arr = np.array(image)
@@ -165,12 +166,18 @@ def maskToAlpha (mask, frac_y = False):	# mask: [fore(h, w), back(h, w)]
 	return fore
 
 
-def encodeImageBase64 (image):
+def encodeImageBytes (image, ext='.png'):
 	fp = io.BytesIO()
-	image.save(fp, PIL.Image.registered_extensions()['.png'])
-	image_code = 'data:image/png;base64,' + base64.b64encode(fp.getvalue()).decode('ascii')
+	image.save(fp, PIL.Image.registered_extensions()[ext])
 
-	return image_code
+	return fp.getvalue()
+
+
+def encodeImageBase64 (image, ext='.png'):
+	bytes = encodeImageBytes(image, ext)
+	b64 = base64.b64encode(bytes)
+
+	return 'data:image/png;base64,' + b64.decode('ascii')
 
 
 def gaugeToRGB (gauge, frac_y=False):	# gauge: [Y(h, w), K(h, w)]

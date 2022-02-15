@@ -9,8 +9,8 @@ from .utils import loadSplittedDatasets
 
 class ScoreMask (SlicedScore):
 	@staticmethod
-	def load (root, args, splits, device='cpu'):
-		return loadSplittedDatasets(ScoreMask, root=root, args=args, splits=splits, device=device)
+	def load (root, args, splits, device='cpu', args_variant=None):
+		return loadSplittedDatasets(ScoreMask, root=root, args=args, splits=splits, device=device, args_variant=args_variant)
 
 
 	def __init__ (self, root, **kwargs):

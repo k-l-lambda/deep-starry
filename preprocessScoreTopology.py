@@ -6,7 +6,7 @@ import logging
 import re
 
 import starry.utils.env
-from starry.topology.data import preprocessDataset
+from starry.topology.data import preprocessDataset, preprocessDatasetScatter
 
 
 
@@ -23,6 +23,8 @@ def main ():
 	parser.add_argument('-seq', '--n_seq_max', type=int, default=0x100)
 	parser.add_argument('-d', '--d_word', type=int, default=0x200)
 	parser.add_argument('-n', '--name_id', type=str, default=r'^(.+)\.\d+\.[\w.]+$')
+	parser.add_argument('-v1', action='store_true')
+	parser.add_argument('-a', '--n_augment', type=int, default=64)
 
 	args = parser.parse_args()
 
@@ -31,8 +33,11 @@ def main ():
 		target = os.path.join(DATA_DIR, target)
 
 	logging.info('Building package from directory: %s', args.source)
-	with open(target, 'wb') as file:
-		preprocessDataset(args.source, file, name_id=re.compile(args.name_id), n_seq_max=args.n_seq_max, d_word=args.d_word)
+	if args.v1:
+		with open(target, 'wb') as file:
+			preprocessDataset(args.source, file, name_id=re.compile(args.name_id), n_seq_max=args.n_seq_max, d_word=args.d_word)
+	else:
+		preprocessDatasetScatter(args.source, target, name_id=re.compile(args.name_id), n_seq_max=args.n_seq_max, d_word=args.d_word, n_augment=args.n_augment)
 
 	logging.info('Done.')
 

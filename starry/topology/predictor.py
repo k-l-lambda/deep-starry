@@ -1,4 +1,5 @@
 
+import os
 import torch
 import logging
 
@@ -8,8 +9,11 @@ from ..utils.predictor import Predictor
 
 
 
+BATCH_SIZE = int(os.environ.get('TOPOLOGY_PREDICTOR_BATCH_SIZE', '1'))
+
+
 class TopologyPredictorH (Predictor):
-	def __init__(self, config, batch_size=4, device='cpu', **_):
+	def __init__(self, config, batch_size=BATCH_SIZE, device='cpu', **_):
 		super().__init__(batch_size=batch_size, device=device)
 
 		self.d_model = config['model.args.d_model']
@@ -29,7 +33,7 @@ class TopologyPredictorH (Predictor):
 				matrices += self.model(batch['seq_id'], batch['seq_position'], batch['mask'])
 				masks += batch['mask']
 
-		for matrix, mask in zip(matrices, masks):
+		for matrix, mask, cluster in zip(matrices, masks, clusters):
 			matrix = matrix.cpu().tolist()
 			mask = mask.cpu().tolist()
 
@@ -44,13 +48,14 @@ class TopologyPredictorH (Predictor):
 				yield full
 			else:
 				yield {
+					'index': cluster.get('index'),
 					'matrixH': matrix,
 					'mask': mask,
 				}
 
 
 class TopologyPredictorHV (Predictor):
-	def __init__(self, config, batch_size=4, device='cpu', **_):
+	def __init__(self, config, batch_size=BATCH_SIZE, device='cpu', **_):
 		super().__init__(batch_size=batch_size, device=device)
 
 		self.d_model = config['model.args.d_model']
@@ -78,12 +83,13 @@ class TopologyPredictorHV (Predictor):
 
 				masks += batch['mask']
 
-		for matrixH, matrixV, mask in zip(matricesH, matricesV, masks):
+		for matrixH, matrixV, mask, cluster in zip(matricesH, matricesV, masks, clusters):
 			matrixH = matrixH.cpu().tolist()
 			matrixV = matrixV.cpu().tolist()
 			mask = mask.cpu().tolist()
 
 			yield {
+				'index': cluster.get('index'),
 				'matrixH': matrixH,
 				'matrixV': matrixV,
 				'mask': mask,

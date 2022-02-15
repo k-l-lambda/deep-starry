@@ -2,6 +2,7 @@
 import os
 from datetime import date
 import yaml
+import logging
 
 from .env import *
 
@@ -28,7 +29,8 @@ class Configuration:
 		data['id'] = data['id'].format(filename=filename, date=today)
 
 		dir = os.path.join(TRAINING_DIR, data['id'])
-		os.makedirs(dir, exist_ok=True)
+		if not volatile:
+			os.makedirs(dir, exist_ok=True)
 
 		return Configuration(dir, data, volatile=volatile)
 
@@ -50,7 +52,7 @@ class Configuration:
 			for key, value in self['env'].items():
 				if os.environ.get(key) is None:
 					os.environ[key] = str(value)
-					#print('env set:', key, value)
+					logging.info('env set: %s=%s', key, value)
 
 
 	def preprocess (self):

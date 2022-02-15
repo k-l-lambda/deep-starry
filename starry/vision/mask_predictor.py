@@ -5,7 +5,7 @@ import logging
 import PIL.Image
 
 from ..utils.predictor import Predictor
-from .images import arrayFromImageStream, sliceFeature, spliceOutputTensor, MARGIN_DIVIDER, maskToAlpha, encodeImageBase64
+from .images import arrayFromImageStream, sliceFeature, spliceOutputTensor, MARGIN_DIVIDER, maskToAlpha, encodeImageBase64, encodeImageBytes
 from . import transform
 
 
@@ -35,7 +35,7 @@ class MaskPredictor (Predictor):
 		self.composer = transform.Composer(trans)
 
 
-	def predict (self, streams, **_):
+	def predict (self, streams, by_buffer=False, **_):
 		images = map(lambda stream: arrayFromImageStream(stream), streams)
 
 		for i, image in enumerate(images):
@@ -54,4 +54,9 @@ class MaskPredictor (Predictor):
 					hotmap = hotmap[:, :, :image.shape[1]]
 				#logging.info('hotmap: %s', hotmap.shape)
 
-				yield StaffMask(hotmap).json()
+				mask = StaffMask(hotmap)
+				encoder = encodeImageBytes if by_buffer else encodeImageBase64
+
+				yield {
+					'image': encoder(mask.image),
+				}

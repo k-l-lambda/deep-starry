@@ -1,0 +1,18 @@
+
+id:     score-vision/{date}-{filename}
+
+data:
+  type:           ScorePageRaw
+  root:           testPage/
+  splits:         '0/1'
+  batch_size:     1
+  args:
+    trans:                    [HWC2CHW, Tar_STDgray, Tar_HWC2CHW]
+    compound_labels:
+      list:
+        - label:              box_Staff
+          channels:           [1]
+        - label:              box_System
+          channels:           [0, 1]
+    augmentor:
+      channel_order:          [0, 1]

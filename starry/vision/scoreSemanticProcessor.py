@@ -6,12 +6,13 @@ import torch
 import yaml
 import logging
 import PIL.Image
+import traceback
 
+from ..utils.config import Configuration
 from ..utils.predictor import Predictor
-from .images import arrayFromImageStream, writeImageFileFormat, sliceFeature, spliceOutputTensor, MARGIN_DIVIDER
+from .images import sliceFeature, spliceOutputTensor, MARGIN_DIVIDER
 from . import transform
-from .chromaticChannels import composeChromaticMap
-from .score_semantic import ScoreSemantic
+from .score_semantic import ScoreSemantic, ScoreSystem
 
 
 
@@ -21,7 +22,7 @@ PATH_BATCH_SIZE = BATCH_SIZE * 4
 
 
 def loadImage (path):
-	image = PIL.Image.open(open(path, 'rb'))
+	image = PIL.Image.open(open(path, 'rb')).convert('L')
 	arr = np.array(image)
 	if len(arr.shape) == 2:
 		arr = np.expand_dims(arr, axis=2)
@@ -29,7 +30,7 @@ def loadImage (path):
 	return arr
 
 
-class ScoreSemanticProcessor(Predictor):
+class ScoreSemanticProcessor (Predictor):
 	def __init__(self, config, device='cpu', inspect=False):
 		super().__init__(device=device)
 
@@ -43,6 +44,15 @@ class ScoreSemanticProcessor(Predictor):
 
 		self.slicing_width = data_args['slicing_width']
 		self.labels = data_args['labels']
+
+		if config['rectifier']:
+			self.semantics = ['_PAD', *self.labels]
+
+			rectifier_config = Configuration(os.path.join(config.dir, '..', config['rectifier']))
+			self.n_seq_max = rectifier_config['data.args.n_seq_max']
+
+			self.rectifier = Predictor(device=device)
+			self.rectifier.loadModel(rectifier_config)
 
 		trans = [t for t in data_args['trans'] if not t.startswith('Tar_')]
 		self.composer = transform.Composer(trans)
@@ -72,8 +82,11 @@ class ScoreSemanticProcessor(Predictor):
 		return stack, piece_segments
 
 
-	def predict (self, input_paths):
+	def predict (self, input_paths, positions=None):
+		with_rectifier = self.rectifier and positions is not None
+
 		try:
+			staves = []
 			for bi in range(0, len(input_paths), PATH_BATCH_SIZE):
 				batch_input_paths = input_paths[bi:bi + PATH_BATCH_SIZE]
 				images = list(map(loadImage, batch_input_paths))
@@ -100,6 +113,35 @@ class ScoreSemanticProcessor(Predictor):
 					semantic = np.uint8(semantic * 255)
 
 					ss = ScoreSemantic(semantic, self.labels, confidence_table=self.confidence_table)
-					yield ss.json()
+					if not with_rectifier:
+						yield ss.json()
+					else:
+						staves.append(ss.json())
+
+			if with_rectifier:
+				assert len(positions) == len(staves), f'positions-staves length mismatch: {len(positions)}-{len(staves)}'
+
+				groups = {}
+				for pos, staff in zip(positions, staves):
+					staff['staff'] = pos['staff']
+					staff['staffY'] = pos['staffY']
+
+					system = pos['system']
+					groups[system] = groups.get(system, ScoreSystem())
+					groups[system].appendStaff(staff)
+
+				for system in groups.values():
+					batch, segments = system.batchize(self.semantics, self.n_seq_max)
+					inputs = (batch[key] for key in ['semantic', 'staff', 'x', 'y1', 'y2', 'confidence'])
+					values = torch.sigmoid(self.rectifier.model(*inputs).squeeze(2))
+					values = values.masked_select(batch['mask']).cpu().tolist()
+
+					system.assignValues(values, segments)
+					system.cleanup()
+
+				logging.info('staves: %s', len(staves))
+				for staff in staves:
+					yield staff
 		except:
-			logging.warn(sys.exc_info()[1])
+			logging.warn('ScoreSemanticProcessor error: %s', sys.exc_info()[1])
+			traceback.print_tb(sys.exc_info()[2], file=sys.stderr)

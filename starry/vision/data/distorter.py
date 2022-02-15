@@ -59,14 +59,14 @@ class Distorter:
 		return noise_x, noise_y
 
 
-	def distort (self, source, mapx, mapy):	# source: (height, width, channel)
+	def distort (self, source, mapx, mapy, borderMode=cv2.BORDER_REPLICATE):	# source: (height, width, channel)
 		if source.shape[2] > 4:
 			channels = source.shape[2]
-			result = np.zeros((mapx.shape[0], mapx.shape[1], channels), dtype = source.dtype)
+			result = np.zeros((mapx.shape[0], mapx.shape[1], channels), dtype=source.dtype)
 			for c in range(0, channels, 4):
 				src = source[:, :, c:min(c + 4, channels)]
-				result[:, :, c:min(c + 4, channels)] = cv2.remap(src, mapx, mapy, cv2.INTER_CUBIC, borderMode = cv2.BORDER_REPLICATE).reshape((mapx.shape[0], mapx.shape[1], min(4, channels - c)))
+				result[:, :, c:min(c + 4, channels)] = cv2.remap(src, mapx, mapy, cv2.INTER_LINEAR, borderMode=borderMode).reshape((mapx.shape[0], mapx.shape[1], min(4, channels - c)))
 
 			return result
 
-		return cv2.remap(source, mapx, mapy, cv2.INTER_CUBIC, borderMode = cv2.BORDER_REPLICATE)
+		return cv2.remap(source, mapx, mapy, cv2.INTER_LINEAR, borderMode=borderMode)

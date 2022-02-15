@@ -1,8 +1,65 @@
 
 TODO:
+	ScoreSemanticValue: unified validation set
 	construct score topology data by semantic predictor
-	semantic rectification model
 
+
+
+2022.2.8
+
+	+	datasetChecker.py created.
+
+
+2022.2.7
+
+	+	convertToOnnx.py created.
+
+
+2022.1.27
+
+	+	vision/scorePageLayout.py created.
+
+
+2022.1.20
+
+	+	augmentor.py: crease rendering added.
+
+
+2022.1.18
+
+	+	scoreSemanticProcessor.py: rectifier predictor added.
+
+	+	scoreTransformer.py: semantic detail metrics added.
+
+
+2022.1.17
+
+	+	vision/models/scoreTransformer.py created.
+
+
+2022.1.15
+
+	+	preprocessScoreFault.py created.
+
+
+2022.1.14
+
+	+	modules/positionEncoder.py created.
+
+
+2022.1.8
+
+	+	topology/moduels.py: added parameters of n_type, n_staff to fit changing of SemanticElementType.MAX.
+
+
+2021.12.31
+
+	+	topology/data.py: preprocessDatasetScatter added.
+
+
+2021.12.23
+
+	>	scorePageProcessor.py: refined for low resolution page images.
 
 
 2021.12.8

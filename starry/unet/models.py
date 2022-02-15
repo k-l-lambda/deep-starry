@@ -51,7 +51,10 @@ class UNet(nn.Module):
 
 		xs.reverse()
 
-		for xi, up in zip(xs, self.ups):
+		#for xi, up in zip(xs, self.ups):
+		#	x = up(x, xi)
+		for i, up in enumerate(self.ups):
+			xi = xs[i]
 			x = up(x, xi)
 
 		if not self.classify_out:

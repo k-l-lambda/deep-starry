@@ -10,13 +10,15 @@ type_dict = None
 def registerTypes ():
 	global type_dict
 
-	from ..vision.data import RenderScore, ScoreMask, ScoreGauge, ScorePage
+	from ..vision.data import RenderScore, ScoreMask, ScoreGauge, ScorePage, ScorePageRaw, ScoreFault
 
 	classes = [
 		RenderScore,
 		ScoreMask,
 		ScoreGauge,
 		ScorePage,
+		ScorePageRaw,
+		ScoreFault,
 	]
 
 	type_dict = dict([(c.__name__, c) for c in classes])
@@ -36,7 +38,8 @@ def loadDataset (config, data_dir='.', device='cpu', splits=None, batch_size=Non
 	dataset_class = type_dict[data_type]
 
 	root = os.path.join(data_dir, config['data.root'])
-	datasets = dataset_class.load(root, config['data.args'], splits=splits or config['data.splits'], device=device)
+	datasets = dataset_class.load(root, config['data.args'], args_variant=config['data.args_variant'],
+		splits=splits or config['data.splits'], device=device)
 	loaders = tuple(map(
 		lambda dataset:
 			DataLoader(dataset, batch_size=batch_size or config['data.batch_size'], collate_fn=dataset.collateBatch),

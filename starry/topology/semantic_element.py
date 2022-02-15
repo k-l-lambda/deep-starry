@@ -25,8 +25,7 @@ class SemanticElementType(IntEnum):
 	Rest5				= 17,
 	Rest6				= 18,
 
-	MAX					= 19,
-	'''TimeD2				= 19,
+	TimeD2				= 19,
 	TimeD4				= 20,
 	TimeD8				= 21,
 	TimeN1				= 22,
@@ -42,7 +41,7 @@ class SemanticElementType(IntEnum):
 	TimeN11				= 32,
 	TimeN12				= 33,
 
-	MAX					= 34,'''
+	MAX					= 34,
 
 
 JOINT_SEMANTIC_ELEMENT_TYPES = [

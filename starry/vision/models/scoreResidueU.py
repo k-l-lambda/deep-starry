@@ -66,6 +66,8 @@ class ScoreResidueU (nn.Module):
 			for param in self.res_blocks[l].parameters():
 				param.requires_grad = False
 
+		self.no_overwrite = False
+
 	def forward (self, input):
 		x = self.base_block(input)
 
@@ -76,6 +78,9 @@ class ScoreResidueU (nn.Module):
 
 	# overload
 	def state_dict (self, destination=None, prefix='', keep_vars=False):
+		if self.no_overwrite:
+			return super().state_dict(destination, prefix, keep_vars)
+
 		return {
 			'base': self.base_block.state_dict(destination=destination, prefix=prefix, keep_vars=keep_vars),
 			'res': [block.state_dict(destination=destination, prefix=prefix, keep_vars=keep_vars) for block in self.res_blocks],
@@ -121,7 +126,8 @@ class ScoreResidueULoss (nn.Module):
 
 		if not self.training:
 			compound_pred = self.compounder.compound(pred)
-			metric['semantic'] = ScoreSemanticDual.create(self.compounder.labels, 1, compound_pred, target)
+			compound_target = self.compounder.compound(target)
+			metric['semantic'] = ScoreSemanticDual.create(self.compounder.labels, 1, compound_pred, compound_target)
 
 		return loss, metric
 

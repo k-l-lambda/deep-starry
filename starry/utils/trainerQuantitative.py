@@ -24,9 +24,11 @@ class Trainer:
 
 	@staticmethod
 	def run (rank, config, data_dir, init_file, backend='nccl'):
-		logging.basicConfig(filename=config.localPath('trainer.log'),
-			format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%H:%M:%S', level=logging.INFO)
-		logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+		logging.basicConfig(format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%Y%m%d %H:%M:%S', level=logging.INFO,
+			force=True, handlers=[
+				logging.StreamHandler(sys.stdout),
+				logging.FileHandler(config.localPath('trainer.log')),
+			])
 
 		init_method = f'file:///{init_file}' if os.name == 'nt' else f'file://{init_file}'
 		torch.distributed.init_process_group(backend=backend, init_method=init_method, rank=rank, world_size=Trainer.PROC_COUNT)

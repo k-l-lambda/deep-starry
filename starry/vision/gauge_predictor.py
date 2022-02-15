@@ -5,7 +5,7 @@ import logging
 import PIL.Image
 
 from ..utils.predictor import Predictor
-from .images import arrayFromImageStream, sliceFeature, spliceOutputTensor, MARGIN_DIVIDER, gaugeToRGB, encodeImageBase64
+from .images import arrayFromImageStream, sliceFeature, spliceOutputTensor, MARGIN_DIVIDER, gaugeToRGB, encodeImageBase64, encodeImageBytes
 from . import transform
 
 
@@ -35,7 +35,7 @@ class GaugePredictor (Predictor):
 		self.composer = transform.Composer(trans)
 
 
-	def predict (self, streams, **_):
+	def predict (self, streams, by_buffer=False, **_):
 		images = map(lambda stream: arrayFromImageStream(stream), streams)
 
 		for i, image in enumerate(images):
@@ -52,4 +52,9 @@ class GaugePredictor (Predictor):
 				if hotmap.shape[2] > image.shape[1]:
 					hotmap = hotmap[:, :, :image.shape[1]]
 
-				yield StaffGauge(hotmap).json()
+				mask = StaffGauge(hotmap)
+				encoder = encodeImageBytes if by_buffer else encodeImageBase64
+
+				yield {
+					'image': encoder(mask.image),
+				}

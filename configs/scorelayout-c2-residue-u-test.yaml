@@ -5,10 +5,10 @@ model:
   type:                     ScoreResidueU
   args:
     in_channels:            1
-    out_channels:           3
+    out_channels:           2
     residue_blocks:         0
     base_depth:             4
-    base_init_width:        64
+    base_init_width:        32
     freeze_base:            False
     compounder:
       list:
@@ -25,8 +25,8 @@ data:
   args:
     trans:                    [HWC2CHW, Tar_STDgray, Tar_HWC2CHW]
     augmentor:
+      channel_order:          [0, 1]
       skip_p:                 0.1
-      aa_scale:               2
       tinter:
         fore_pow:             6.
         fore_sigma:           0.6
@@ -42,16 +42,16 @@ data:
         padding_scale:        1.06
         angle_sigma:          1.
         scale_sigma:          0.6
-        scale_mu:             0.6
+        scale_mu:             0.3
         scale_limit:          1.
         size_limit:           800
       crease:
         intensity:            4
         margin:               0.02
         width:                0.03
-        flip_p:               0.7
+        flip_p:               0.8
       gaussian_blur:
-        sigma:                1.5
+        sigma:                0.3
       flip_mark:
         intensity_range:      [0, 0.1]
       distortion:   

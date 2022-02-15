@@ -24,6 +24,19 @@ def makeReader (root):
 	return ImageReader(reader_url), nomalized_root
 
 
+def parseFilterStr (filterStr):
+	filterStr = filterStr[1:] if filterStr.startswith('*') else filterStr
+	phases, cycle = filterStr.split('/')
+	captures = re.match(r'(\d+)\.\.(\d+)', phases)
+	if captures:
+		phases = list(range(int(captures[1]), int(captures[2]) + 1))
+	else:
+		phases = list(map(int, phases.split(',')))
+	cycle = int(cycle)
+
+	return phases, cycle
+
+
 ''' filterStr examples:
 		0/1				ordered all
 		*0/1			random all
@@ -42,13 +55,6 @@ def listAllScoreNames (reader, filterStr, dir=STAFF):
 	if filterStr is None:
 		return all_names
 
-	filterStr = filterStr[1:] if filterStr.startswith('*') else filterStr
-	phases, cycle = filterStr.split('/')
-	captures = re.match(r'(\d+)\.\.(\d+)', phases)
-	if captures:
-		phases = list(range(int(captures[1]), int(captures[2]) + 1))
-	else:
-		phases = list(map(int, phases.split(',')))
-	cycle = int(cycle)
+	phases, cycle = parseFilterStr(filterStr)
 
 	return [n for n in all_names if (titleIndices[n.split('-')[0]] % cycle) in phases]

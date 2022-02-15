@@ -100,4 +100,4 @@ class GraphScore:
 
 
 	def __len__ (self):
-		return len(self.names)
+		return len(self.names) * self.multiple
