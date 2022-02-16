@@ -9,23 +9,11 @@ model_dict = None
 def registerModels ():
 	global model_dict
 
-	from ..topology import models as tpm
+	#from ..topology import models as tpm
 	from ..vision import models as vm
 
 	classes = [
-		tpm.TransformJointer, tpm.TransformJointerLoss,
-		tpm.TransformJointerH, tpm.TransformJointerHLoss,
-		tpm.TransformJointerHV, tpm.TransformJointerHVLoss,
-		tpm.TransformJointerH_ED, tpm.TransformJointerH_EDLoss,
-		tpm.TransformJointerHV_EDD, tpm.TransformJointerHV_EDDLoss,
-		tpm.TransformSieveJointerH, tpm.TransformSieveJointerHLoss,
-		tpm.TransformSieveJointerHV, tpm.TransformSieveJointerHVLoss,
-		vm.ScoreWidgets, vm.ScoreWidgetsInspection, vm.ScoreWidgetsLoss,
-		vm.ScoreWidgetsMask, vm.ScoreWidgetsMaskLoss,
-		vm.ScoreRegression,
-		vm.ScoreResidue, vm.ScoreResidueInspection,
-		vm.ScoreResidueU, vm.ScoreResidueUInspection, vm.ScoreResidueULoss,
-		vm.ScoreSemanticValue, vm.ScoreSemanticValueLoss,
+		vm.PerisSimple, vm.PerisSimpleLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

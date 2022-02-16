@@ -33,7 +33,8 @@ def loadDataset (config, data_dir='.', device='cpu', splits=None, batch_size=Non
 	dataset_class = type_dict[data_type]
 
 	root = os.path.join(data_dir, config['data.root'])
-	datasets = dataset_class.load(root, config['data.args'], args_variant=config['data.args_variant'],
+	labels = os.path.join(data_dir, config['data.labels']) if config['data.labels'] is not None else None
+	datasets = dataset_class.load(root, config['data.args'], labels=labels, args_variant=config['data.args_variant'],
 		splits=splits or config['data.splits'], device=device)
 	loaders = tuple(map(
 		lambda dataset:

@@ -1,0 +1,29 @@
+
+id:     peris/{date}-{filename}
+
+
+model:
+  type:                     PerisSimple
+  args:
+    backbone:               efficientnet_b7
+    channels:               1
+
+
+data:
+  type:                     PerisData
+  root:                     nse-100.zip
+  labels:                   labels-20220205.csv
+  splits:                   '*1..8/10:9/10'
+  batch_size:               1
+  args:
+    label_fields:           ['score']
+    augmentor:
+      affine:
+        padding_sigma:        0
+        angle_sigma:          0.1
+        scale_sigma:          0.2
+        scale_mu:             1
+        scale_limit:          1.
+        size_limit:           800
+        scaled_to_limit:      True
+        round:                1

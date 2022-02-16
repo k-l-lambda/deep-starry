@@ -35,7 +35,7 @@ def deep_update (d, u):
 	return d
 
 
-def loadSplittedDatasets (dataset_cls, root, args, args_variant, splits, device='cpu'):
+def loadSplittedDatasets (dataset_cls, root, args, args_variant, splits, labels, device='cpu'):
 	splits = splits.split(':')
 
 	def load (isplit):
@@ -46,6 +46,6 @@ def loadSplittedDatasets (dataset_cls, root, args, args_variant, splits, device=
 			if argv:
 				this_args = deep_update(deepcopy(args), argv)
 
-		return dataset_cls(root, split=split, shuffle=split.startswith('*'), device=device, **this_args)
+		return dataset_cls(root, labels=labels, split=split, shuffle=split.startswith('*'), device=device, **this_args)
 
 	return tuple(map(load, enumerate(splits)))

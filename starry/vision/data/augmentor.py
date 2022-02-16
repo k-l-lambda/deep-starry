@@ -111,6 +111,7 @@ class Augmentor:
 					'size_limit': AFFINE.get('size_limit', float('inf')),
 					'size_fixed': AFFINE.get('size_fixed'),
 					'round': AFFINE.get('round', 4),
+					'scaled_to_limit': AFFINE.get('scaled_to_limit', False),
 				}
 
 			if options.get('crease'):
@@ -180,8 +181,12 @@ class Augmentor:
 			source[:, :, 0] = source[:, :, 0] * bar
 
 		if self.affine:
-			scale = min(math.exp(math.log(self.affine['scale_mu']) + np.random.randn() * self.affine['scale_sigma']), self.affine['scale_limit'])
 			angle = np.random.randn() * self.affine['angle_sigma']
+			scale = min(math.exp(math.log(self.affine['scale_mu']) + np.random.randn() * self.affine['scale_sigma']), self.affine['scale_limit'])
+
+			if self.affine['scaled_to_limit']:
+				max_scale = self.affine['size_limit'] / max(source.shape[0], source.shape[1])
+				scale = min(scale, max_scale)
 
 			padding_scale = self.affine['padding_scale']
 			padding_sigma = self.affine['padding_sigma']
@@ -204,7 +209,8 @@ class Augmentor:
 			target = self.affineTransform(target, (padding_y, padding_x), mat, scale, rx, ry, cv2.BORDER_REPLICATE, aa_scale=self.aa_scale) if target is not None else target
 			#print('target.2:', target.shape, (padding_y, padding_x))
 
-			source = np.expand_dims(source, -1)
+			if len(source.shape) < 3:
+				source = np.expand_dims(source, -1)
 
 		if self.distorter:
 			scale = self.distortion['scale'] * math.exp(np.random.randn() * self.distortion['scale_sigma'])
@@ -227,7 +233,8 @@ class Augmentor:
 			#print('kernel:', kernel)
 			if kernel > 1:
 				source = cv2.GaussianBlur(source, (kernel, kernel), 0)
-				source = np.expand_dims(source, -1)
+				if len(source.shape) < 3:
+					source = np.expand_dims(source, -1)
 
 		if self.gaussian_noise > 0:
 			source = appendGaussianNoise(source, self.gaussian_noise)

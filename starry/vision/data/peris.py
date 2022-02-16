@@ -28,8 +28,8 @@ def listAllImageNames (reader, filterStr, dir='/'):
 
 class PerisData (IterableDataset):
 	@classmethod
-	def load (cls, root, args, splits, device='cpu', args_variant=None):
-		return loadSplittedDatasets(cls, root=root, args=args, splits=splits, device=device, augmentor=None, args_variant=args_variant)
+	def load (cls, root, args, splits, labels, device='cpu', args_variant=None):
+		return loadSplittedDatasets(cls, root=root, labels=labels, args=args, splits=splits, device=device, args_variant=args_variant)
 
 
 	def __init__ (self, root, labels, label_fields, split='0/1', device='cpu', augmentor={}, shuffle=False, **_):

@@ -5,6 +5,8 @@ TODO:
 
 2022.2.16
 
+	+	config file of peris-score-simple.yaml added.
+
 	+	data\peris.py: PerisData.collateBatch added.
 
 
