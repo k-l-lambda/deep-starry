@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.2.16
+
+	+	data\peris.py: PerisData.collateBatch added.
+
+
 2022.2.13
 
 	+	vision\data\peris.py created.

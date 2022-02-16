@@ -3,9 +3,10 @@ import os
 import numpy as np
 import random
 import time
-import cv2
 import logging
 import pandas as pd
+import torch
+from torch.utils.data import IterableDataset
 
 from .utils import loadSplittedDatasets
 from .score import makeReader, parseFilterStr
@@ -25,15 +26,17 @@ def listAllImageNames (reader, filterStr, dir='/'):
 	return [name for i, name in enumerate(all_names) if (i % cycle) in phases]
 
 
-class PerisData:
+class PerisData (IterableDataset):
 	@classmethod
-	def load (cls, root, args, splits, args_variant=None):
-		return loadSplittedDatasets(cls, root=root, args=args, splits=splits, augmentor=None, args_variant=args_variant)
+	def load (cls, root, args, splits, device='cpu', args_variant=None):
+		return loadSplittedDatasets(cls, root=root, args=args, splits=splits, device=device, augmentor=None, args_variant=args_variant)
 
 
-	def __init__ (self, root, labels, split='0/1', augmentor={}, shuffle=False, **_):
+	def __init__ (self, root, labels, label_fields, split='0/1', device='cpu', augmentor={}, shuffle=False, **_):
 		self.reader, self.root = makeReader(root)
 		self.shuffle = shuffle
+		self.label_fields = label_fields
+		self.device = device
 
 		self.names = listAllImageNames(self.reader, split)
 
@@ -59,10 +62,9 @@ class PerisData:
 
 				source = (source / 255.0).astype(np.float32)
 
-				labels = [self.labels[name]]
+				labels = self.labels[name]
 
 				source, _ = self.augmentor.augment(source, None)
-				source = source.reshape((1,) + source.shape)
 
 				yield source, labels
 
@@ -71,4 +73,13 @@ class PerisData:
 		return len(self.names)
 
 
-	# TODO: convert to tensors in collate
+	def collateBatch (self, batch):
+		assert len(batch) == 1
+
+		source, labels = batch[0]
+		source = source.reshape((1,) + source.shape)
+		source = torch.from_numpy(source).permute(0, 3, 1, 2).to(self.device)
+
+		target = torch.tensor([[labels[field] for field in self.label_fields]], dtype=torch.float32).to(self.device)
+
+		return source, target

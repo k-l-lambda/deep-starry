@@ -17,18 +17,16 @@ class PerisSimple (nn.Module):
 
 
 class PerisSimpleLoss (nn.Module):
-	def __init__ (self, labels=['score'], loss='mse_loss', **kwargs):
+	def __init__ (self, loss='mse_loss', **kwargs):
 		super().__init__()
 
-		self.labels = labels
-		self.deducer = PerisSimple(channels=len(labels), **kwargs)
+		self.deducer = PerisSimple(**kwargs)
 		self.loss = getattr(nn.functional, loss)
 
 
 	def forward (self, feature, target):
-		target_tensor = torch.tensor([[ex[label] for label in self.labels] for ex in target], dtype=torch.float32).to(feature.device)
 		pred = self.deducer(feature)
-		loss = self.loss(pred, target_tensor)
+		loss = self.loss(pred, target)
 		error = torch.sqrt(loss)
 
 		return loss, {'error': error}
