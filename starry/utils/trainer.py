@@ -153,7 +153,7 @@ class Trainer:
 		total_loss, n_batch = 0, 0
 		metric_data = {}
 
-		for batch in tqdm(dataset, mininterval=2, desc='  - (Training)   ', leave=False):
+		for batch in tqdm(dataset, desc='  - (Training)   ', leave=False):
 			# forward
 			self.optimizer.zero_grad()
 			loss, metric = self.model(batch)

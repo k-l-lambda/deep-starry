@@ -24,7 +24,8 @@ class PerisSimpleLoss (nn.Module):
 		self.loss = getattr(nn.functional, loss)
 
 
-	def forward (self, feature, target):
+	def forward (self, batch):
+		feature, target = batch
 		pred = self.deducer(feature)
 		loss = self.loss(pred, target)
 		error = torch.sqrt(loss)

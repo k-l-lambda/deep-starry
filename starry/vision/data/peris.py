@@ -51,22 +51,21 @@ class PerisData (IterableDataset):
 			random.shuffle(self.names)
 			np.random.seed(int((time.time() * 1e+7 % 1e+7) + random.randint(0, 1e+5)))
 
-		while True:
-			for i, name in enumerate(self.names):
-				filename = f'{name}.jpg'
-				if not self.reader.exists(filename):
-					self.names.remove(name)
-					logging.warn('image file missing, removed: %s', name)
-					continue
-				source = self.reader.readImage(filename)
+		for i, name in enumerate(self.names):
+			filename = f'{name}.jpg'
+			if not self.reader.exists(filename):
+				self.names.remove(name)
+				logging.warn('image file missing, removed: %s', name)
+				continue
+			source = self.reader.readImage(filename)
 
-				source = (source / 255.0).astype(np.float32)
+			source = (source / 255.0).astype(np.float32)
 
-				labels = self.labels[name]
+			labels = self.labels[name]
 
-				source, _ = self.augmentor.augment(source, None)
+			source, _ = self.augmentor.augment(source, None)
 
-				yield source, labels
+			yield source, labels
 
 
 	def __len__ (self):

@@ -5,7 +5,7 @@ id:     peris/{date}-{filename}
 model:
   type:                     PerisSimple
   args:
-    backbone:               efficientnet_b7
+    backbone:               efficientnet_b0
     channels:               1
 
 
@@ -24,6 +24,28 @@ data:
         scale_sigma:          0.2
         scale_mu:             1
         scale_limit:          1.
-        size_limit:           800
+        size_limit:           200
         scaled_to_limit:      True
         round:                1
+
+
+trainer:
+  device:         cpu
+  save_mode:      best
+  epoch:          2
+  moniter:
+    field:        error
+    mode:         min
+
+optim:
+  type:                   Adam
+  args:
+    betas:                [0.9, 0.9999]
+    eps:                  1.e-8
+  scheduler:
+    type:                 Exp
+    args:
+      lr_mul:             1.e-3
+      min_lr:             1.e-6
+      decay_rate:         0.98
+      n_warmup_steps:     10000

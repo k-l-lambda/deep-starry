@@ -13,7 +13,7 @@ from starry.utils.dataset_factory import loadDataset
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 
-VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR')
+VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR') or os.environ.get('DATA_DIR')
 
 
 def main ():
