@@ -43,6 +43,9 @@ class PerisData (IterableDataset):
 		dataframes = pd.read_csv(labels)
 		self.labels = dict(zip(dataframes['hash'], dataframes.to_dict('records')))
 
+		self.names = listAllImageNames(self.reader, split)
+		self.names = [name for name in self.names if self.labels.get(name)]
+
 		self.augmentor = Augmentor(augmentor, shuffle=self.shuffle)
 
 
