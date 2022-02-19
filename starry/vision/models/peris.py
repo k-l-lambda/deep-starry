@@ -13,7 +13,8 @@ class PerisSimple (nn.Module):
 
 
 	def forward (self, feature):
-		return torch.log(self.backbone(feature))
+		y = self.backbone(feature)
+		return torch.log(torch.relu(y) + 1e-9)
 
 
 class PerisSimpleLoss (nn.Module):
