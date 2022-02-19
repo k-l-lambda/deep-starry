@@ -1,6 +1,5 @@
 
 TODO:
-	score log activation function
 
 
 
