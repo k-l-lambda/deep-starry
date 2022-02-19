@@ -62,6 +62,11 @@ class PerisData (IterableDataset):
 				continue
 			source = self.reader.readImage(filename)
 
+			if source.shape[2] == 1:
+				source = np.concatenate((source, source, source), axis=2)
+			elif source.shape[2] > 3:
+				source = source[:, :, :3]
+
 			source = (source / 255.0).astype(np.float32)
 
 			labels = self.labels[name]

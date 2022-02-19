@@ -29,6 +29,6 @@ class PerisSimpleLoss (nn.Module):
 		feature, target = batch
 		pred = self.deducer(feature)
 		loss = self.loss(pred, target)
-		error = torch.sqrt(loss)
+		error = torch.sqrt(loss).item()
 
 		return loss, {'error': error}
