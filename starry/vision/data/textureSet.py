@@ -3,6 +3,7 @@ import os
 import cv2
 import math
 import numpy as np
+import logging
 
 
 
@@ -74,7 +75,7 @@ def loadOneImage (names):
 		if image is not None:
 			return image
 
-		print('image loading failed:', filename)
+		logging.warn('image loading failed:', filename)
 
 
 class TextureSet:
