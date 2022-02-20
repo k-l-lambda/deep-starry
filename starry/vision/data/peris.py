@@ -61,7 +61,13 @@ class PerisData (IterableDataset):
 				logging.warn('image file missing, removed: %s', name)
 				continue
 			source = self.reader.readImage(filename)
+			if source is None:
+				self.names.remove(name)
+				logging.warn('image reading failed, removed: %s', name)
+				continue
 
+			if len(source.shape) < 3:
+				source = source.reshape(source.shape + (1,))
 			if source.shape[2] == 1:
 				source = np.concatenate((source, source, source), axis=2)
 			elif source.shape[2] > 3:

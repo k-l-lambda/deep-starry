@@ -26,7 +26,7 @@ class ImageReader:
 
 				return np.array(image)
 		except:
-			print('error to open image:', path, sys.exc_info()[0])
+			logging.warn('error to open image:', path, sys.exc_info()[0])
 			return None
 
 
