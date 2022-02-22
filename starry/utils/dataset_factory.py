@@ -10,10 +10,11 @@ type_dict = None
 def registerTypes ():
 	global type_dict
 
-	from ..vision.data import PerisData
+	from ..vision.data import PerisData, BalanceLabeledImage
 
 	classes = [
 		PerisData,
+		BalanceLabeledImage,
 	]
 
 	type_dict = dict([(c.__name__, c) for c in classes])

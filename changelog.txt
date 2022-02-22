@@ -1,18 +1,25 @@
 
 TODO:
+	score segment splitting
+	schp data agumentation
 
+
+
+2022.2.22
+
+	+	data/peris.py: data class of BalanceLabeledImage added.
 
 
 2022.2.16
 
 	+	config file of peris-score-simple.yaml added.
 
-	+	data\peris.py: PerisData.collateBatch added.
+	+	data/peris.py: PerisData.collateBatch added.
 
 
 2022.2.13
 
-	+	vision\data\peris.py created.
+	+	vision/data/peris.py created.
 
 
 2022.2.8

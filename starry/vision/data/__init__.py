@@ -1,2 +1,2 @@
 
-from .peris import PerisData
+from .peris import PerisData, BalanceLabeledImage

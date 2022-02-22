@@ -1,0 +1,64 @@
+
+id:     peris/{date}-{filename}
+
+
+model:
+  type:                     PerisSimple
+  args:
+    backbone:               efficientnet_b0
+    channels:               1
+
+
+data:
+  type:                     BalanceLabeledImage
+  root:                     nse-100.zip
+  labels:                   labels-20220205.csv
+  splits:                   '*1..8/10:9/10'
+  batch_size:               1
+  args:
+    label_fields:           ['score']
+    epoch_n:                20
+    groups:
+    - (_1.score >  0) & (_1.score < 3)
+    - (_1.score >= 3) & (_1.score < 4)
+    - (_1.score >= 4) & (_1.score < 5)
+    - (_1.score >= 5) & (_1.score < 6)
+    - (_1.score >= 6) & (_1.score < 7)
+    - (_1.score >= 7) & (_1.score < 8)
+    - (_1.score >= 8) & (_1.score < 9)
+    - (_1.score >= 9)
+    augmentor:
+      affine:
+        padding_sigma:      0
+        angle_sigma:        0.1
+        scale_sigma:        0.2
+        scale_mu:           1
+        scale_limit:        1.
+        size_limit:         200
+        scaled_to_limit:    True
+        round:              1
+  args_variant:
+    1:
+      epoch_n:              10
+
+
+trainer:
+  device:         cpu
+  save_mode:      best
+  epoch:          2
+  moniter:
+    field:        error
+    mode:         min
+
+optim:
+  type:                   Adam
+  args:
+    betas:                [0.9, 0.9999]
+    eps:                  1.e-8
+  scheduler:
+    type:                 Exp
+    args:
+      lr_mul:             1.e-3
+      min_lr:             1.e-6
+      decay_rate:         0.98
+      n_warmup_steps:     10000
