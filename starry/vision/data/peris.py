@@ -139,7 +139,6 @@ class BalanceLabeledImage (IterableDataset):
 		def iter_groups ():
 			while True:
 				for g, it in enumerate(self.record_its):
-					print('g:', g)
 					yield next(it)
 		self.groups_it = iter(iter_groups())
 
