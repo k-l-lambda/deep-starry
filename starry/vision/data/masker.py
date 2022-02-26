@@ -5,10 +5,10 @@ from torchvision import transforms
 
 
 class Masker:
-	def __init__(self, model, resize, mask_semantic, reverse=False, flip_RGB=True, blur_kernel=7, blur_sigma=1, blur_iterations=3):
+	def __init__(self, model, resize, mask_semantic, reverse=False, flip_RGB=True):
 		self.model = model
 		self.trans = transforms.Compose([transforms.Resize(resize)])
-		self.blur = transforms.Compose([transforms.GaussianBlur(blur_kernel, sigma=blur_sigma)] * blur_iterations)
+		#self.blur = transforms.Compose([transforms.GaussianBlur(blur_kernel, sigma=blur_sigma)] * blur_iterations)
 		self.softmax = torch.nn.Softmax(dim=0)
 		self.mask_semantic = mask_semantic
 		self.reverse = reverse
@@ -16,13 +16,13 @@ class Masker:
 
 
 	def mask (self, image):
-		if self.flip_RGB:
-			image = torch.flip(image, (0,))
-		batched_image = image.reshape((1,) + image.shape)
+		image_f = torch.flip(image, (0,)) if self.flip_RGB else image
+		batched_image = image_f.reshape((1,) + image_f.shape)
 		semantics = self.model(self.trans(batched_image))[0][-1][0]
-		semantics = self.softmax(semantics)
+		semantics = self.softmax(semantics * 0.8)
 
-		blur_image = self.blur(image)
+		#blur_image = self.blur(image)
+		blur_image = torch.mean(image, dim=(1, 2), keepdim=True)
 
 		bg = semantics[self.mask_semantic]
 		bg = bg.reshape((1,) + bg.shape)
