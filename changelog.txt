@@ -1,8 +1,12 @@
 
 TODO:
-	score segment splitting
 	schp data agumentation
 
+
+
+2022.2.26
+
+	+	vision/masker.py added.
 
 
 2022.2.22
