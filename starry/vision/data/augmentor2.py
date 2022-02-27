@@ -74,7 +74,8 @@ class Augmentor2:
 			trans.append(SizeLimit(**options['size_limit']))
 		if options.get('affine'):
 			if options['affine'].get('interpolation'):
-				options['affine']['interpolation'] = transforms.InterpolationMode[options['affine']['interpolation']]
+				if type(options['affine']['interpolation']) == str:
+					options['affine']['interpolation'] = transforms.InterpolationMode[options['affine']['interpolation']]
 			trans.append(transforms.RandomAffine(**options['affine']))
 		if options.get('masker'):
 			self.masker = SCHPMasker(**options['masker'])
