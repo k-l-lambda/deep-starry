@@ -32,7 +32,7 @@ data:
         size:               200
       affine:
         degrees:            5
-        interpolation:      'bilinear'
+        interpolation:      'BILINEAR'
       masker:
         num_classes:        18
         resize:             512
