@@ -29,10 +29,11 @@ class SizeLimit (torch.nn.Module):
 
 
 class SCHPMasker (torch.nn.Module):
-	def __init__(self, num_classes, resize, pretrained=SCHP_PRETRAINED, bg_semantic=0, reverse_p=0.5):
+	def __init__(self, num_classes, resize, pretrained=SCHP_PRETRAINED, bg_semantic=0, hardness=1, reverse_p=0.5, skip_p=0):
 		super().__init__()
 
 		self.reverse_p = reverse_p
+		self.skip_p = skip_p
 		self.model = schp_networks.init_model('resnet101', num_classes=num_classes, pretrained=None)
 
 		state_dict = torch.load(pretrained)['state_dict']
@@ -46,11 +47,14 @@ class SCHPMasker (torch.nn.Module):
 		for param in self.model.parameters():
 			param.requires_grad = False
 
-		self.masker = Masker(self.model, resize=resize, mask_semantic=bg_semantic)
+		self.masker = Masker(self.model, resize=resize, mask_semantic=bg_semantic, hardness=hardness)
 
 
 	def forward(self, image, labels):
-		reversed = np.random.random() > self.reverse_p
+		if np.random.random() < self.skip_p:
+			return image, labels
+
+		reversed = np.random.random() < self.reverse_p
 
 		if reversed:
 			labels['score'] = 0

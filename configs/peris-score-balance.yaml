@@ -34,6 +34,9 @@ data:
         degrees:            5
         interpolation:      'BILINEAR'
       masker:
+        skip_p:             0.6
+        reverse_p:          0.3
+        hardness:           0.9
         num_classes:        18
         resize:             512
   args_variant:
