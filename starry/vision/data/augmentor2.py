@@ -1,4 +1,5 @@
 
+import os
 from collections import OrderedDict
 import torch
 from torchvision import transforms
@@ -70,7 +71,6 @@ class Augmentor2:
 		if options.get('affine'):
 			if options['affine'].get('interpolation'):
 				options['affine']['interpolation'] = transforms.InterpolationMode[options['affine']['interpolation']]
-			#	print('affine:', options['affine'])
 			trans.append(transforms.RandomAffine(**options['affine']))
 		if options.get('masker'):
 			self.masker = SCHPMasker(**options['masker'])
