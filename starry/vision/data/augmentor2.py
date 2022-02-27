@@ -66,7 +66,7 @@ class SCHPMasker (torch.nn.Module):
 
 
 class Augmentor2:
-	def __init__(self, options):
+	def __init__(self, options, device='cpu'):
 		trans = []
 		self.masker = None
 
@@ -79,6 +79,7 @@ class Augmentor2:
 			trans.append(transforms.RandomAffine(**options['affine']))
 		if options.get('masker'):
 			self.masker = SCHPMasker(**options['masker'])
+			self.masker.to(device)
 
 		self.composer = transforms.Compose(trans)
 

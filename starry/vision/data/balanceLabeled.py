@@ -61,7 +61,7 @@ class BalanceLabeledPeris (IterableDataset):
 
 		self.labels = [group.to_dict('records') for group in df_groups]
 
-		self.augmentor = Augmentor2(augmentor)
+		self.augmentor = Augmentor2(augmentor, device=device)
 
 		def iter_records (records):
 			while True:
