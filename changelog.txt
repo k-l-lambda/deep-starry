@@ -4,6 +4,11 @@ TODO:
 
 
 
+2022.2.27
+
+	+	vision/data/agumentor2.py created.
+
+
 2022.2.26
 
 	+	vision/masker.py added.
