@@ -9,6 +9,9 @@ from .masker import Masker
 
 
 
+SCHP_PRETRAINED = os.getenv('SCHP_PRETRAINED')
+
+
 class SizeLimit (torch.nn.Module):
 	def __init__(self, size):
 		super().__init__()
@@ -25,7 +28,7 @@ class SizeLimit (torch.nn.Module):
 
 
 class SCHPMasker (torch.nn.Module):
-	def __init__(self, num_classes, pretrained, resize, bg_semantic=0, reverse_p=0.5):
+	def __init__(self, num_classes, resize, pretrained=SCHP_PRETRAINED, bg_semantic=0, reverse_p=0.5):
 		super().__init__()
 
 		self.reverse_p = reverse_p
@@ -65,6 +68,9 @@ class Augmentor2:
 		if options.get('size_limit'):
 			trans.append(SizeLimit(**options['size_limit']))
 		if options.get('affine'):
+			if options['affine'].get('interpolation'):
+				options['affine']['interpolation'] = transforms.InterpolationMode[options['affine']['interpolation']]
+			#	print('affine:', options['affine'])
 			trans.append(transforms.RandomAffine(**options['affine']))
 		if options.get('masker'):
 			self.masker = SCHPMasker(**options['masker'])
