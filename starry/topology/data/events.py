@@ -44,13 +44,13 @@ def boolRandn (value, true_bias=0.6, false_bias=-2):
 	return np.exp(np.random.randn() + (true_bias if value else false_bias))
 
 
-def genElementFeature (elem, stability):
+def genElementFeature (elem, drop_source=False):
 	# make chaos with P = 1 - stability
-	if np.random.random() > stability:
-		return torch.exp(torch.randn(15))
+	#if np.random.random() > stability:
+	#	return torch.exp(torch.randn(15))
 
 	feature = elem.get('feature')
-	if feature is None:
+	if feature is None or drop_source:
 		feature = {}
 
 		feature['divisions'] = [0] * 7
@@ -84,7 +84,7 @@ def genElementFeature (elem, stability):
 	], dtype=torch.float32)
 
 
-def exampleToTensorsAugment (cluster, n_augment, stability_base=10):
+def exampleToTensorsAugment (cluster, n_augment):
 	elements = cluster['elements']
 	n_seq = len(elements)
 
@@ -117,9 +117,9 @@ def exampleToTensorsAugment (cluster, n_augment, stability_base=10):
 		y1[i] = torch.tensor([elem['y1'] for elem in positions], dtype=torch.float32)
 		y2[i] = torch.tensor([elem['y2'] for elem in positions], dtype=torch.float32)
 
-		stability = np.random.power(max(np.random.poisson(stability_base), 2))
+		#stability = np.random.power(max(np.random.poisson(stability_base), 2))
 		for j, elem in enumerate(elements):
-			feature[i, j] = genElementFeature(elem, stability)
+			feature[i, j] = genElementFeature(elem, drop_source=i < n_augment // 4)
 
 	return (
 		# source
@@ -144,7 +144,7 @@ def exampleToTensorsAugment (cluster, n_augment, stability_base=10):
 	)
 
 
-def preprocessDataset (source_dir, target_path, n_augment=64, stability_base=10):
+def preprocessDataset (source_dir, target_path, n_augment=64):
 	source = open_fs(source_dir)
 	target = ZipFile(target_path, 'w', compression=ZIP_STORED)
 
@@ -172,7 +172,7 @@ def preprocessDataset (source_dir, target_path, n_augment=64, stability_base=10)
 				for cluster in cluster_set['clusters']:
 					target_filename = f'{id}-{ci}.pkl'
 
-					tensors = exampleToTensorsAugment(cluster, n_augment, stability_base=stability_base)
+					tensors = exampleToTensorsAugment(cluster, n_augment)
 					target.writestr(target_filename, pickle.dumps(tensors))
 
 					length = sum(map(lambda t: t.nelement(), tensors)) * 4
