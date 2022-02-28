@@ -6,7 +6,7 @@ import argparse
 import logging
 
 from starry.utils.config import Configuration
-from starry.topology.data import Dataset
+from starry.topology.data.semantics import Dataset
 from starry.topology.trainer import Trainer
 
 

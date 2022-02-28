@@ -6,7 +6,7 @@ import numpy as np
 from perlin_noise import PerlinNoise
 from tqdm import tqdm
 
-from starry.topology.data import loadClusterSet, distortElements
+from starry.topology.data.semantics import loadClusterSet, distortElements
 
 
 

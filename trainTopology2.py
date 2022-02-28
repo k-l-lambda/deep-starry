@@ -7,7 +7,7 @@ import logging
 
 from starry.utils.config import Configuration
 from starry.utils.trainer import Trainer
-from starry.topology.data import DatasetScatter
+from starry.topology.data.semantics import DatasetScatter
 
 
 
