@@ -2,9 +2,9 @@
 import torch.nn as nn
 import logging
 
-from ..transformer.models import get_pad_mask, get_subsequent_mask
-from .semantic_element import SemanticElementType, STAFF_MAX
-from .modules import Encoder, Encoder1, Decoder1, EncoderBranch2, Jointer, SieveJointer, JaggedLoss
+from ...transformer.models import get_pad_mask, get_subsequent_mask
+from ..semantic_element import SemanticElementType, STAFF_MAX
+from ..modules import Encoder, Encoder1, Decoder1, EncoderBranch2, Jointer, SieveJointer, JaggedLoss
 
 
 
