@@ -119,7 +119,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 
 		#stability = np.random.power(max(np.random.poisson(stability_base), 2))
 		for j, elem in enumerate(elements):
-			feature[i, j] = genElementFeature(elem, drop_source=i < n_augment // 4)
+			feature[i, j] = genElementFeature(elem, drop_source=((i + 1) % 4) == 0)
 
 	return (
 		# source
