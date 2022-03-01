@@ -49,6 +49,17 @@ class DatasetViewer:
 
 				if elem_type[ei] == EventElementType.REST:
 					ax.add_patch(patches.Rectangle((x - 0.6, y - 0.6), 1.2, 1.2, fill=division >= 2, facecolor='g', edgecolor='g'))
+
+					# flags
+					if division > 2:
+						for fi in range(division - 2):
+							fy = y + fi * 0.4
+							ax.hlines(fy, x + 0.6, x + 1.2, color='g')
+
+					# dots
+					for di in range(dots):
+						dx = x + 0.8 + di * 0.4
+						ax.add_patch(patches.Circle((dx, y), 0.16, fill=True, facecolor='g'))
 				elif elem_type[ei] == EventElementType.CHORD:
 					color = 'c' if warped else 'b'
 					scale = 0.6 if grace else 1
