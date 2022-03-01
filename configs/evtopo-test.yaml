@@ -11,4 +11,4 @@ data:
   batch_size:               1
   args:
     stability_base:         10
-    position_drift:         0.06
+    position_drift:         0.03
