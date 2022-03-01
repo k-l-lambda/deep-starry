@@ -121,27 +121,27 @@ def exampleToTensorsAugment (cluster, n_augment):
 		for j, elem in enumerate(elements):
 			feature[i, j] = genElementFeature(elem, drop_source=((i + 1) % 4) == 0)
 
-	return (
+	return {
 		# source
-		elem_type,		# (n_seq)
-		staff,			# (n_seq)
-		feature,		# (n_augment, n_seq, 15)
-		x,				# (n_augment, n_seq)
-		y1,				# (n_augment, n_seq)
-		y2,				# (n_augment, n_seq)
+		'type':				elem_type,		# (n_seq)
+		'staff':			staff,			# (n_seq)
+		'feature':			feature,		# (n_augment, n_seq, 15)
+		'x':				x,				# (n_augment, n_seq)
+		'y1':				y1,				# (n_augment, n_seq)
+		'y2':				y2,				# (n_augment, n_seq)
 
 		# targets
-		tick,			# (n_seq)
-		division,		# (n_seq)
-		dots,			# (n_seq)
-		beam,			# (n_seq)
-		direction,		# (n_seq)
-		grace,			# (n_seq)
-		timeWarped,		# (n_seq)
-		fullMeasure,	# (n_seq)
-		confidence,		# (n_seq)
-		matrixH,		# (n_seq * n_seq)
-	)
+		'tick':				tick,			# (n_seq)
+		'division':			division,		# (n_seq)
+		'dots':				dots,			# (n_seq)
+		'beam':				beam,			# (n_seq)
+		'stemDirection':	direction,		# (n_seq)
+		'grace':			grace,			# (n_seq)
+		'timeWarped':		timeWarped,		# (n_seq)
+		'fullMeasure':		fullMeasure,	# (n_seq)
+		'confidence':		confidence,		# (n_seq)
+		'matrixH':			matrixH,		# (n_seq * n_seq)
+	}
 
 
 def preprocessDataset (source_dir, target_path, n_augment=64):
@@ -175,7 +175,7 @@ def preprocessDataset (source_dir, target_path, n_augment=64):
 					tensors = exampleToTensorsAugment(cluster, n_augment)
 					target.writestr(target_filename, pickle.dumps(tensors))
 
-					length = sum(map(lambda t: t.nelement(), tensors)) * 4
+					length = sum(map(lambda t: t.nelement(), tensors.values())) * 4
 
 					example_infos.append({
 						'filename': target_filename,

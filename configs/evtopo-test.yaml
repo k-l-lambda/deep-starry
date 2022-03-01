@@ -1,0 +1,14 @@
+
+id:     score-topology/{date}-{filename}
+
+env: ~
+
+
+data:
+  type:                     EventCluster
+  root:                     ev-test.zip
+  splits:                   '*1,2/10:3/10'
+  batch_size:               1
+  args:
+    stability_base:         10
+    position_drift:         0.06

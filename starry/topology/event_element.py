@@ -26,3 +26,8 @@ class StemDirection (IntEnum):
 	NONE				= 0,
 	u					= 1,
 	d					= 2,
+
+
+TARGET_FIELDS = [
+	'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'confidence',
+]
