@@ -43,22 +43,29 @@ class DatasetViewer:
 				beam = tensors['beam'][0, ei]
 				warped = tensors['timeWarped'][0, ei]
 				grace = tensors['grace'][0, ei]
+				fullMeasure = tensors['fullMeasure'][0, ei]
 				x = xs[i, ei]
 				y = y2[i, ei] if direction == StemDirection.u else y1[i, ei]
 				ty = y2[i, ei] if direction == StemDirection.d else y1[i, ei]
 
 				if elem_type[ei] == EventElementType.REST:
-					ax.add_patch(patches.Rectangle((x - 0.6, y - 0.6), 1.2, 1.2, fill=division >= 2, facecolor='g', edgecolor='g'))
+					color = 'gray' if fullMeasure else 'g'
+					ax.add_patch(patches.Rectangle((x - 0.6, y - 0.6), 1.2, 1.2, fill=division >= 2, facecolor=color, edgecolor=color))
+
+					if division == 0:
+						ax.add_patch(patches.Rectangle((x - 0.6, y - 0.6), 1.2, 0.6, fill=True, facecolor=color))
+					elif division == 1:
+						ax.add_patch(patches.Rectangle((x - 0.6, y), 1.2, 0.6, fill=True, facecolor=color))
 
 					# flags
 					if division > 2:
 						for fi in range(division - 2):
 							fy = y + fi * 0.4
-							ax.hlines(fy, x + 0.6, x + 1.2, color='g')
+							ax.hlines(fy, x - 1.2, x - 0.6, color='g')
 
 					# dots
 					for di in range(dots):
-						dx = x + 0.8 + di * 0.4
+						dx = x + 1.2 + di * 0.4
 						ax.add_patch(patches.Circle((dx, y), 0.16, fill=True, facecolor='g'))
 				elif elem_type[ei] == EventElementType.CHORD:
 					color = 'c' if warped else 'b'
@@ -76,14 +83,17 @@ class DatasetViewer:
 					# flags
 					if division > 2:
 						left, right = x, x + 0.7
+						oy = 0
 						if beam == BeamType.Open:
 							right = x + 1.2
 						elif beam == BeamType.Continue:
 							left, right = x - 0.6, x + 0.6
 						elif beam == BeamType.Close:
 							left, right = x - 1.2, x
+						else:
+							oy = (0.5 if direction == StemDirection.u else -0.5)
 						for fi in range(division - 2):
-							fy = ty + fi * (0.9 if direction == StemDirection.u else -0.9)
+							fy = ty + oy + fi * (0.9 if direction == StemDirection.u else -0.9)
 							ax.hlines(fy, left, right, color=color)
 
 					# dots
