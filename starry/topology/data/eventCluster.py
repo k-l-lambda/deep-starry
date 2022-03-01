@@ -68,8 +68,9 @@ class EventCluster (IterableDataset):
 		assert len(batch) == 1
 
 		tensors = batch[0]
-		batch_size = tensors['feature'].shape[0]
-		n_seq = tensors['feature'].shape[1]
+		feature_shape = tensors['feature'].shape
+		batch_size = feature_shape[0]
+		n_seq = feature_shape[1]
 
 		# extend batch dim for single tensors
 		elem_type = tensors['type'].repeat(batch_size, 1)
@@ -77,8 +78,8 @@ class EventCluster (IterableDataset):
 
 		# noise augment for feature
 		stability = np.random.power(self.stability_base)
-		error = torch.rand(batch_size, n_seq) > stability
-		chaos = torch.exp(torch.randn(*tensors['feature'].shape))
+		error = torch.rand(*feature_shape) > stability
+		chaos = torch.exp(torch.randn(*feature_shape))
 		feature = tensors['feature']
 		feature[error] = chaos[error]
 
