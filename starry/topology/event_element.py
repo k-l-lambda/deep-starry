@@ -31,3 +31,23 @@ class StemDirection (IntEnum):
 TARGET_FIELDS = [
 	'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'confidence',
 ]
+
+
+STAFF_MAX = 3
+
+
+# d_feature = d_division + d_dots + d_beam + d_stemDirection + d_grace
+FEATURE_DIM = 7 + 2 + 3 + 2 + 1
+
+TARGET_DIMS = (
+	1,	# tick
+	7,	# division
+	3,	# dots
+	4,	# beam
+	3,	# stemDirection
+	1,	# grace
+	1,	# timeWarped
+	1,	# fullMeasure
+	1,	# confidence
+)
+TARGET_DIM = sum(TARGET_DIMS)
