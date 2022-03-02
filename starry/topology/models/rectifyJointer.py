@@ -1,9 +1,10 @@
 
+import torch
 import torch.nn as nn
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ..event_element import TARGET_DIM, EventElementType
-from .modules import EventEncoder, SieveJointer, RectifierParser
+from .modules import EventEncoder, SieveJointer, RectifierParser, JaggedLoss, CrossEntropy
 
 
 
@@ -136,3 +137,79 @@ class RectifySieveJointer (nn.Module):
 		j = self.jointer(source, target, sieve, mask_src, mask_tar)
 
 		return rec, j
+
+
+class RectifySieveJointerLoss (nn.Module):
+	def __init__ (self, decisive_confidence=0.5, **kw_args):
+		super().__init__()
+
+		self.j_metric = JaggedLoss(decisive_confidence)
+		self.deducer = RectifySieveJointer(**kw_args)
+
+		self.mse = nn.MSELoss()
+		self.ce = CrossEntropy()
+		self.bce = nn.BCELoss()
+
+		# initialize parameters
+		for p in self.parameters():
+			if p.dim() > 1:
+				nn.init.xavier_uniform_(p)
+
+
+	def forward (self, batch):
+		rec, matrixH = self.deducer(batch)
+
+		loss_topo, acc_topo = self.j_metric(matrixH, batch['matrixH'])
+
+		loss_tick = self.mse(rec['tick'], batch['tick'])
+		error_tick = torch.sqrt(loss_tick)
+
+		loss_division = self.ce(rec['division'], batch['division'])
+		val_division = torch.argmax(rec['division'], dim=-1) == batch['division']
+		acc_division = val_division.float().mean()
+
+		loss_dots = self.ce(rec['dots'], batch['dots'])
+		val_dots = torch.argmax(rec['dots'], dim=-1) == batch['dots']
+		acc_dots = val_dots.float().mean()
+
+		loss_beam = self.ce(rec['beam'], batch['beam'])
+		val_beam = torch.argmax(rec['beam'], dim=-1) == batch['beam']
+		acc_beam = val_beam.float().mean()
+
+		loss_direction = self.ce(rec['stemDirection'], batch['stemDirection'])
+		val_direction = torch.argmax(rec['stemDirection'], dim=-1) == batch['stemDirection']
+		acc_direction = val_direction.float().mean()
+
+		loss_grace = self.bce(rec['grace'], batch['grace'])
+		val_grace = rec['grace'] > 0.5
+		acc_grace = (val_grace == batch['grace']).float().mean()
+
+		loss_warped = self.bce(rec['timeWarped'], batch['timeWarped'])
+		val_warped = rec['timeWarped'] > 0.5
+		acc_warped = (val_warped == batch['timeWarped']).float().mean()
+
+		loss_full = self.bce(rec['fullMeasure'], batch['fullMeasure'])
+		val_full = rec['fullMeasure'] > 0.5
+		acc_full = (val_full == batch['fullMeasure']).float().mean()
+
+		loss_confidence = self.bce(rec['confidence'], batch['confidence'])
+		val_confidence = rec['confidence'] > 0.5
+		acc_confidence = (val_confidence == batch['confidence']).float().mean()
+
+		loss = loss_topo * 10 + loss_tick * 1e-6 + loss_division + loss_dots + loss_beam + loss_direction + loss_grace + loss_warped + loss_full + loss_confidence
+
+		metrics = dict(
+			acc_topo			=acc_topo,
+			loss_topo			=loss_topo,
+			error_tick			=error_tick,
+			acc_division		=acc_division,
+			acc_dots			=acc_dots,
+			acc_beam			=acc_beam,
+			acc_stemDirection	=acc_direction,
+			acc_grace			=acc_grace,
+			acc_timeWarped		=acc_warped,
+			acc_fullMeasure		=acc_full,
+			acc_confidence		=acc_confidence,
+		)
+
+		return loss, metrics

@@ -374,6 +374,13 @@ class EventEncoder (nn.Module):
 
 
 class RectifierParser (nn.Module):
+	def __init__(self):
+		super().__init__()
+
+		self.softmax = nn.Softmax(dim=-1)
+		self.sigmoid = nn.Sigmoid()
+
+
 	def forward (self, vec):
 		rec = {}
 		d = 0
@@ -381,4 +388,26 @@ class RectifierParser (nn.Module):
 			rec[k] = vec[:, :, d:d + dims]
 			d += dims
 
+		rec['division'] = self.softmax(rec['division'])
+		rec['dots'] = self.softmax(rec['dots'])
+		rec['beam'] = self.softmax(rec['beam'])
+		rec['stemDirection'] = self.softmax(rec['stemDirection'])
+
+		rec['tick'] = rec['tick'].squeeze(-1)
+		rec['grace'] = self.sigmoid(rec['grace'].squeeze(-1))
+		rec['timeWarped'] = self.sigmoid(rec['timeWarped'].squeeze(-1))
+		rec['fullMeasure'] = self.sigmoid(rec['fullMeasure'].squeeze(-1))
+		rec['confidence'] = self.sigmoid(rec['confidence'].squeeze(-1))
+
 		return rec
+
+
+class CrossEntropy (nn.Module):
+	def __init__ (self):
+		super().__init__()
+
+		self.ce = nn.CrossEntropyLoss()
+
+
+	def forward (self, pred, target):
+		return self.ce(pred.view(-1, pred.shape[-1]), target.flatten())

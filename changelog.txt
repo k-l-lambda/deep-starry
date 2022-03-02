@@ -7,6 +7,7 @@ TODO:
 
 2022.3.2
 
+	+	rectifierJointer.py: model class of RectifySieveJointerLoss added.
 	+	rectifierJointer.py: model class of RectifySieveJointer added.
 
 

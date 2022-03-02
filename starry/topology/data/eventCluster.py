@@ -108,6 +108,9 @@ class EventCluster (IterableDataset):
 		for field in TARGET_FIELDS:
 			result[field] = tensors[field].repeat(batch_size, 1)
 
+		for field in ['division', 'dots', 'beam', 'stemDirection']:
+			result[field] = result[field].long()
+
 		# to device
 		for key in result:
 			result[key] = result[key].to(self.device)
