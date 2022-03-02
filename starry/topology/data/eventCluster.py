@@ -37,7 +37,7 @@ class EventCluster (IterableDataset):
 		return cls.loadPackage(url, splits, device, **args)
 
 
-	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0):
+	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, use_cache=True):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -45,6 +45,22 @@ class EventCluster (IterableDataset):
 
 		self.stability_base = stability_base
 		self.position_drift = position_drift
+
+		self.entry_cache = {} if use_cache else None
+
+
+	def readEntry (self, filename):
+		if self.entry_cache is None:
+			with self.package.open(filename, 'rb') as file:
+				return pickle.load(file)
+
+		data = self.entry_cache.get(filename)
+		if data is None:
+			with self.package.open(filename, 'rb') as file:
+				data = pickle.load(file)
+				self.entry_cache[filename] = data
+
+		return data
 
 
 	def __len__(self):
@@ -59,9 +75,7 @@ class EventCluster (IterableDataset):
 			np.random.seed(len(self.entries))
 
 		for entry in self.entries:
-			with self.package.open(entry['filename'], 'rb') as file:
-				tensors = pickle.load(file)
-				yield tensors
+			yield self.readEntry(entry['filename'])
 
 
 	def collateBatch (self, batch):
