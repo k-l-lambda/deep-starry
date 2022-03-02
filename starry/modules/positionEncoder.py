@@ -34,7 +34,9 @@ class SinusoidEncoderXYY (nn.Module):
 		self.encoder = SinusoidEncoder(angle_cycle, d_hid // 2)
 
 
-	# pos: (batch, seq, 3)
+	# x: (batch, seq)
+	# y1: (batch, seq)
+	# y2: (batch, seq)
 	def forward (self, x, y1, y2):	# -> (batch, seq, d_hid)
 		x = self.encoder(x)
 		y1 = self.encoder(y1)

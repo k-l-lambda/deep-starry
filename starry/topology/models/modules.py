@@ -1,10 +1,13 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 #import logging
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ..semantic_element import SemanticElementType, STAFF_MAX
+from ..event_element import FEATURE_DIM, STAFF_MAX as EV_STAFF_MAX, EventElementType
+from ...modules.positionEncoder import SinusoidEncoderXYY
 
 
 
@@ -61,7 +64,7 @@ class Encoder (nn.Module):
 			enc_slf_attn_list += [enc_slf_attn] if return_attns else []
 
 		# normalize for inner product
-		enc_output = nn.functional.normalize(enc_output, dim=-1)
+		enc_output = F.normalize(enc_output, dim=-1)
 
 		if return_attns:
 			return enc_output, enc_slf_attn_list
@@ -231,8 +234,8 @@ class Jointer (nn.Module):
 
 	def forward (self, source, target, mask_src, mask_tar):
 		# normalize for inner product
-		source = nn.functional.normalize(source, dim=-1)
-		target = nn.functional.normalize(target, dim=-1)
+		source = F.normalize(source, dim=-1)
+		target = F.normalize(target, dim=-1)
 
 		results = []
 		for i, (code_src, code_tar) in enumerate(zip(source, target)):
@@ -275,11 +278,13 @@ class SieveJointer (nn.Module):
 		else:
 			self.triu_mask = None
 
+	# source, target, sieve: (n, n_seq, d_model)
+	# mask_src, mask_tar: (n, n_seq)
 	def forward (self, source, target, sieve, mask_src, mask_tar):
 		# normalize for inner product
-		sieve = nn.functional.normalize(sieve, dim=-1)
-		source = nn.functional.normalize(source * sieve, dim=-1)
-		target = nn.functional.normalize(target, dim=-1)
+		sieve = F.normalize(sieve, dim=-1)
+		source = F.normalize(source * sieve, dim=-1)
+		target = F.normalize(target, dim=-1)
 
 		results = []
 		for i, (code_src, code_tar) in enumerate(zip(source, target)):
@@ -325,7 +330,7 @@ class JaggedLoss (nn.Module):
 			pred_i = torch.where(torch.isinf(pred_i), torch.zeros_like(pred_i), pred_i)
 
 			truth_i = truth_i[:len(pred_i)]
-			loss += nn.functional.binary_cross_entropy(pred_i, truth_i)
+			loss += F.binary_cross_entropy(pred_i, truth_i)
 
 			pred_binary = pred_i > self.decisive_confidence
 			target_binary = truth_i > 0
@@ -342,3 +347,27 @@ class JaggedLoss (nn.Module):
 		accuracy = (true_positive / ground_positive) * (true_negative / ground_negative)
 
 		return loss, accuracy
+
+
+class EventEncoder (nn.Module):
+	def __init__ (self, d_model, angle_cycle=1000):
+		super().__init__()
+
+		d_position = d_model - EventElementType.MAX - EV_STAFF_MAX - FEATURE_DIM
+
+		self.position_encoder = SinusoidEncoderXYY(angle_cycle=angle_cycle, d_hid=d_position)
+
+
+	# source: dict
+	#	type:		(n, seq)
+	#	staff:		(n, seq)
+	#	feature:	(n, seq, FEATURE_DIM)
+	#	x:			(n, seq)
+	#	y1:			(n, seq)
+	#	y2:			(n, seq)
+	def forward (self, source):	# (n, seq, d_model)
+		vec_type = F.one_hot(source['type'], num_classes=EventElementType.MAX)
+		vec_staff = F.one_hot(source['staff'], num_classes=EV_STAFF_MAX)
+		position = self.position_encoder(source['x'], source['y1'], source['y2'])
+
+		return torch.cat([vec_type, vec_staff, source['feature'], position], dim=-1)

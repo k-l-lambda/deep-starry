@@ -73,8 +73,8 @@ class EventCluster (IterableDataset):
 		n_seq = feature_shape[1]
 
 		# extend batch dim for single tensors
-		elem_type = tensors['type'].repeat(batch_size, 1)
-		staff = tensors['staff'].repeat(batch_size, 1)
+		elem_type = tensors['type'].repeat(batch_size, 1).long()
+		staff = tensors['staff'].repeat(batch_size, 1).long()
 
 		# noise augment for feature
 		stability = np.random.power(self.stability_base)
