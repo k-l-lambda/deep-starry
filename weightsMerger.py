@@ -38,4 +38,4 @@ if __name__ == "__main__":
 	main['trainer.pretrained_weights'] = output_filename
 	main.save()
 
-	logging.info('Weights saveing done: %s', output_path)
+	logging.info('Weights saving done: %s', output_path)
