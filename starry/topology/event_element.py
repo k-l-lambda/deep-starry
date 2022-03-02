@@ -39,15 +39,15 @@ STAFF_MAX = 4
 # d_feature = d_division + d_dots + d_beam + d_stemDirection + d_grace
 FEATURE_DIM = 7 + 2 + 3 + 2 + 1
 
-TARGET_DIMS = (
-	1,	# tick
-	7,	# division
-	3,	# dots
-	4,	# beam
-	3,	# stemDirection
-	1,	# grace
-	1,	# timeWarped
-	1,	# fullMeasure
-	1,	# confidence
+TARGET_DIMS = dict(
+	tick=1,
+	division=7,
+	dots=3,
+	beam=4,
+	stemDirection=3,
+	grace=1,
+	timeWarped=1,
+	fullMeasure=1,
+	confidence=1,
 )
-TARGET_DIM = sum(TARGET_DIMS)
+TARGET_DIM = sum(TARGET_DIMS.values())

@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ..semantic_element import SemanticElementType, STAFF_MAX
-from ..event_element import FEATURE_DIM, STAFF_MAX as EV_STAFF_MAX, EventElementType
+from ..event_element import FEATURE_DIM, STAFF_MAX as EV_STAFF_MAX, EventElementType, TARGET_DIMS
 from ...modules.positionEncoder import SinusoidEncoderXYY
 
 
@@ -371,3 +371,14 @@ class EventEncoder (nn.Module):
 		position = self.position_encoder(source['x'], source['y1'], source['y2'])
 
 		return torch.cat([vec_type, vec_staff, source['feature'], position], dim=-1)
+
+
+class RectifierParser (nn.Module):
+	def forward (self, vec):
+		rec = {}
+		d = 0
+		for k, dims in TARGET_DIMS.items():
+			rec[k] = vec[:, :, d:d + dims]
+			d += dims
+
+		return rec

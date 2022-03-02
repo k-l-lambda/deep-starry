@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ..event_element import TARGET_DIM, EventElementType
-from .modules import EventEncoder, SieveJointer
+from .modules import EventEncoder, SieveJointer, RectifierParser
 
 
 
@@ -111,11 +111,12 @@ class RectifySieveJointer (nn.Module):
 		self.source_encoder = Decoder(n_source_layers, **encoder_args, scale_emb=scale_emb)
 
 		self.rec_out = nn.Linear(d_model, TARGET_DIM)
+		self.rec_parser = RectifierParser()
 
 		self.jointer = SieveJointer(d_model)
 
 
-	def forward (self, inputs):	# (n, seq, TARGET_DIM), (n, seq, d_model)
+	def forward (self, inputs):	# dict(name -> T(n, seq, xtar)), list(n, T((n - 1) * (n - 1)))
 		x = self.event_encoder(inputs)	# (n, seq, d_model)
 
 		mask_pad = inputs['type'] != EventElementType.PAD
@@ -125,6 +126,7 @@ class RectifySieveJointer (nn.Module):
 
 		rec = self.rectifier_encoder(x, mask)
 		rec = self.rec_out(rec)
+		rec = self.rec_parser(rec)
 
 		target = self.target_encoder(x, mask)
 		sieve = self.sieve_encoder(x, mask)
