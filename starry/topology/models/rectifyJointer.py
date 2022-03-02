@@ -95,7 +95,7 @@ class Decoder (nn.Module):
 
 
 class RectifySieveJointer (nn.Module):
-	def __init__ (self, n_trunk_layers, n_rectifier_layers, n_source_layers=2, n_target_layers=1, n_sieve_layers=1,
+	def __init__ (self, n_trunk_layers=1, n_rectifier_layers=1, n_source_layers=2, n_target_layers=1, n_sieve_layers=1,
 			d_model=512, d_inner=2048, angle_cycle=1000, n_head=8, d_k=64, d_v=64, dropout=0.1, scale_emb=False):
 		super().__init__()
 

@@ -10,6 +10,7 @@ def registerModels ():
 	global model_dict
 
 	from ..topology.models import jointers as tj
+	from ..topology.models import rectifyJointer as tr
 	from ..vision import models as vm
 
 	classes = [
@@ -20,6 +21,7 @@ def registerModels ():
 		tj.TransformJointerHV_EDD, tj.TransformJointerHV_EDDLoss,
 		tj.TransformSieveJointerH, tj.TransformSieveJointerHLoss,
 		tj.TransformSieveJointerHV, tj.TransformSieveJointerHVLoss,
+		tr.RectifySieveJointer, tr.RectifySieveJointerLoss,
 		vm.ScoreWidgets, vm.ScoreWidgetsInspection, vm.ScoreWidgetsLoss,
 		vm.ScoreWidgetsMask, vm.ScoreWidgetsMaskLoss,
 		vm.ScoreRegression,
