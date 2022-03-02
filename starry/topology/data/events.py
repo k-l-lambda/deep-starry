@@ -102,7 +102,9 @@ def exampleToTensorsAugment (cluster, n_augment):
 	fullMeasure = torch.tensor([1 if elem['fullMeasure'] else 0 for elem in elements], dtype=torch.float32)
 	confidence = torch.tensor([1 for elem in elements], dtype=torch.float32)
 
-	matrixH = torch.tensor(cluster['matrixH'], dtype=float32).flatten()
+	matrixH = torch.tensor(cluster['matrixH'], dtype=float32)
+	matrixH = matrixH[1:, :-1]	# exlude BOS & EOS
+	matrixH = matrixH.flatten()
 
 	feature = torch.zeros((n_augment, n_seq, 15), dtype=torch.float32)
 	x = torch.zeros((n_augment, n_seq), dtype=torch.float32)

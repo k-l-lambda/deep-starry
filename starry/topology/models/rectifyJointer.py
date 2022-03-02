@@ -1,7 +1,5 @@
 
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ..event_element import TARGET_DIM, EventElementType
