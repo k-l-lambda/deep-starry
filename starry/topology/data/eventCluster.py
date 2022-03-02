@@ -60,7 +60,7 @@ class EventCluster (IterableDataset):
 				data = pickle.load(file)
 				self.entry_cache[filename] = data
 
-		return data
+		return {**data}
 
 
 	def __len__(self):
