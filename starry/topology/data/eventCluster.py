@@ -72,14 +72,18 @@ class EventCluster (IterableDataset):
 		batch_size = feature_shape[0]
 		n_seq = feature_shape[1]
 
+		# to device
+		for key in tensors:
+			tensors[key] = tensors[key].to(self.device)
+
 		# extend batch dim for single tensors
 		elem_type = tensors['type'].repeat(batch_size, 1).long()
 		staff = tensors['staff'].repeat(batch_size, 1).long()
 
 		# noise augment for feature
 		stability = np.random.power(self.stability_base)
-		error = torch.rand(*feature_shape) > stability
-		chaos = torch.exp(torch.randn(*feature_shape))
+		error = torch.rand(*feature_shape, device=self.device) > stability
+		chaos = torch.exp(torch.randn(*feature_shape, device=self.device))
 		feature = tensors['feature']
 		feature[error] = chaos[error]
 
@@ -87,13 +91,13 @@ class EventCluster (IterableDataset):
 		x = tensors['x']
 		y1 = tensors['y1']
 		y2 = tensors['y2']
-		ox, oy = (torch.rand(batch_size, 1) - 0.2) * 24, (torch.rand(batch_size, 1) - 0.2) * 12
+		ox, oy = (torch.rand(batch_size, 1, device=self.device) - 0.2) * 24, (torch.rand(batch_size, 1, device=self.device) - 0.2) * 12
 		if self.position_drift > 0:
-			x += torch.randn(batch_size, n_seq) * self.position_drift + ox
+			x += torch.randn(batch_size, n_seq, device=self.device) * self.position_drift + ox
 
 			# exclude BOS, EOS from global Y offset
-			y1[:, 1:-1] += torch.randn(batch_size, n_seq - 2) * self.position_drift + oy
-			y2[:, 1:-1] += torch.randn(batch_size, n_seq - 2) * self.position_drift + oy
+			y1[:, 1:-1] += torch.randn(batch_size, n_seq - 2, device=self.device) * self.position_drift + oy
+			y2[:, 1:-1] += torch.randn(batch_size, n_seq - 2, device=self.device) * self.position_drift + oy
 
 		result = {
 			'type': elem_type,
@@ -110,9 +114,5 @@ class EventCluster (IterableDataset):
 
 		for field in ['division', 'dots', 'beam', 'stemDirection']:
 			result[field] = result[field].long()
-
-		# to device
-		for key in result:
-			result[key] = result[key].to(self.device)
 
 		return result
