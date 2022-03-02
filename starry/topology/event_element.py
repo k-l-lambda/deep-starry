@@ -33,7 +33,7 @@ TARGET_FIELDS = [
 ]
 
 
-STAFF_MAX = 3
+STAFF_MAX = 4
 
 
 # d_feature = d_division + d_dots + d_beam + d_stemDirection + d_grace

@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from perlin_noise import PerlinNoise
 
-from ..event_element import EventElementType, BeamType, StemDirection
+from ..event_element import EventElementType, BeamType, StemDirection, STAFF_MAX
 
 
 
@@ -88,10 +88,10 @@ def exampleToTensorsAugment (cluster, n_augment):
 	elements = cluster['elements']
 	n_seq = len(elements)
 
-	opv = lambda x: 0 if x is None else x
+	opv = lambda x, default=0: default if x is None else x
 
 	elem_type = torch.tensor([elem['type'] for elem in elements], dtype=torch.int32)
-	staff = torch.tensor([opv(elem['staff']) for elem in elements], dtype=torch.int32)
+	staff = torch.tensor([opv(elem['staff'], STAFF_MAX - 1) for elem in elements], dtype=torch.int32)
 	tick = torch.tensor([elem['tick'] for elem in elements], dtype=torch.float32)
 	division = torch.tensor([opv(elem['division']) for elem in elements], dtype=torch.int32)
 	dots = torch.tensor([opv(elem['dots']) for elem in elements], dtype=torch.int32)
@@ -110,7 +110,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 	y2 = torch.zeros((n_augment, n_seq), dtype=torch.float32)
 	for i in range(n_augment):
 		noise = PerlinNoise(octaves=1/8)
-		xfactor = np.exp(np.random.randn() * 0.3)
+		xfactor = np.exp(np.random.randn() * 0.2)
 		positions = distortElements(elements, noise, xfactor)
 
 		x[i] = torch.tensor([elem['x'] for elem in positions], dtype=torch.float32)
