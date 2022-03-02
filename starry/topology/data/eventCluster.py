@@ -49,16 +49,19 @@ class EventCluster (IterableDataset):
 		self.entry_cache = {} if use_cache else None
 
 
+	def readEntryFromPackage (self, filename):
+		with self.package.open(filename, 'rb') as file:
+			return pickle.load(file)
+
+
 	def readEntry (self, filename):
 		if self.entry_cache is None:
-			with self.package.open(filename, 'rb') as file:
-				return pickle.load(file)
+			return self.readEntryFromPackage(filename)
 
 		data = self.entry_cache.get(filename)
 		if data is None:
-			with self.package.open(filename, 'rb') as file:
-				data = pickle.load(file)
-				self.entry_cache[filename] = data
+			data = self.readEntryFromPackage(filename)
+			self.entry_cache[filename] = data
 
 		return {**data}
 
