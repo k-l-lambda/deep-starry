@@ -199,17 +199,35 @@ class RectifySieveJointerLoss (nn.Module):
 		loss = loss_topo * 10 + loss_tick * 1e-6 + loss_division + loss_dots + loss_beam + loss_direction + loss_grace + loss_warped + loss_full + loss_confidence
 
 		metrics = dict(
-			acc_topo			=acc_topo,
-			loss_topo			=loss_topo,
-			error_tick			=error_tick,
-			acc_division		=acc_division,
-			acc_dots			=acc_dots,
-			acc_beam			=acc_beam,
-			acc_stemDirection	=acc_direction,
-			acc_grace			=acc_grace,
-			acc_timeWarped		=acc_warped,
-			acc_fullMeasure		=acc_full,
-			acc_confidence		=acc_confidence,
+			acc_topo			=acc_topo.item(),
+			loss_topo			=loss_topo.item(),
+			error_tick			=error_tick.item(),
+			acc_division		=acc_division.item(),
+			acc_dots			=acc_dots.item(),
+			acc_beam			=acc_beam.item(),
+			acc_stemDirection	=acc_direction.item(),
+			acc_grace			=acc_grace.item(),
+			acc_timeWarped		=acc_warped.item(),
+			acc_fullMeasure		=acc_full.item(),
+			acc_confidence		=acc_confidence.item(),
 		)
 
 		return loss, metrics
+
+
+	def stat (self, metrics, n_batch):
+		return dict(
+			loss_topo=metrics['loss_topo'] / n_batch,
+			accuracy=dict(
+				topo			=metrics['acc_topo'] / n_batch,
+				tick			=metrics['error_tick'] / n_batch,
+				division		=metrics['acc_division'] / n_batch,
+				dots			=metrics['acc_dots'] / n_batch,
+				beam			=metrics['acc_beam'] / n_batch,
+				stemDirection	=metrics['acc_stemDirection'] / n_batch,
+				grace			=metrics['acc_grace'] / n_batch,
+				timeWarped		=metrics['acc_timeWarped'] / n_batch,
+				fullMeasure		=metrics['acc_fullMeasure'] / n_batch,
+				confidence		=metrics['acc_confidence'] / n_batch,
+			),
+		)
