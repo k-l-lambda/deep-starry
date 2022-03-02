@@ -28,11 +28,6 @@ class StemDirection (IntEnum):
 	d					= 2,
 
 
-TARGET_FIELDS = [
-	'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'confidence',
-]
-
-
 STAFF_MAX = 4
 
 
@@ -50,4 +45,5 @@ TARGET_DIMS = dict(
 	fullMeasure=1,
 	confidence=1,
 )
+TARGET_FIELDS = list(TARGET_DIMS.keys())
 TARGET_DIM = sum(TARGET_DIMS.values())
