@@ -101,29 +101,33 @@ class DatasetViewer:
 				ax.add_patch(patches.Polygon([(x - 0.3, y + 1), (x + 0.3, y + 1), (x, y),], fill=True, facecolor='r'))
 
 			# features
-			ax.text(x - 0.4, y2[ei] + 0.9, '%d' % tick, color='k', fontsize='x-small', ha='right')
+			ax.text(x - 0.2, y2[ei] + 0.9, '%d' % tick, color='k', fontsize='small', ha='right')
 
-			def drawFeatureDot (i, li, y, color):
+			def drawDot (i, li, y, color):
 				alpha = math.tanh(features[i].item() * 0.4)
 				ax.add_patch(patches.Circle((x - 0.4 - li * 0.4, y), 0.16, fill=True, facecolor=color, alpha=alpha))
 				ax.add_patch(patches.Circle((x - 0.4 - li * 0.4, y + 0.2), 0.04, fill=True, facecolor='dimgray'))
 
 			if elem_type[ei] in [EventElementType.CHORD, EventElementType.REST]:
 				for i in range(0, 3):	# division 0,1,2
-					drawFeatureDot(i, i, y2[ei], 'orange')
+					drawDot(i, i, y2[ei], 'orange')
 				for i in range(3, 7):	# division 3-
-					drawFeatureDot(i, i - 3, y2[ei] - 0.4, 'orange')
+					drawDot(i, i - 3, y2[ei] - 0.4, 'orange')
 				for i in range(7, 9):	# dots
-					drawFeatureDot(i, i - 7, y2[ei] - 1.1, 'lawngreen')
+					drawDot(i, i - 7, y2[ei] - 1.1, 'lawngreen')
 				for i in range(9, 12):	# beam
-					drawFeatureDot(i, 11 - i, y2[ei] - 1.7, 'navy')
+					drawDot(i, 11 - i, y2[ei] - 1.7, 'navy')
 				for i in range(12, 14):	# stemDirection
-					drawFeatureDot(i, i - 12, y2[ei] - 2.3, 'violet')
-				drawFeatureDot(14, 0, y2[ei] - 2.9, 'cyan')
+					drawDot(i, i - 12, y2[ei] - 2.3, 'violet')
+				drawDot(14, 0, y2[ei] - 2.9, 'cyan')
 
-			# pred features
+			# predicted features
 			if pred_rec is not None:
-				print('pred_rec:', {k: v.shape for k, v in pred_rec.items()})
+				pred_event = {k: seq[ei] for k, seq in pred_rec.items()}
+				pred_event = {k: v.item() if v.numel() == 1 else v.tolist() for k, v in pred_event.items()}
+				#print('pred_event:', pred_event)
+
+				ax.text(x + 0.2, y2[ei] + 0.9, '%d' % round(pred_event['tick']), color='maroon', fontsize='small', ha='left')
 
 
 	def showEventTopology (self, inputs, pred=(None, None)):
@@ -139,9 +143,9 @@ class DatasetViewer:
 			ax.set_aspect(1)
 
 			cluster_inputs = {k: tensor[i] for k, tensor in inputs.items()}
-			cluster_rec = {k: tensor[i] for k, tensor in pred_rec.items()}
+			cluster_rec = pred_rec and {k: tensor[i] for k, tensor in pred_rec.items()}
 
-			self.showEventCluster(ax, cluster_inputs, cluster_rec, pred_matrixH[i])
+			self.showEventCluster(ax, cluster_inputs, cluster_rec, pred_matrixH and pred_matrixH[i])
 
 		plt.get_current_fig_manager().full_screen_toggle()
 		plt.show()
