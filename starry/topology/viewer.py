@@ -105,8 +105,8 @@ class DatasetViewer:
 
 			def drawDot (i, li, y, color):
 				alpha = math.tanh(features[i].item() * 0.4)
-				ax.add_patch(patches.Circle((x - 0.4 - li * 0.4, y), 0.16, fill=True, facecolor=color, alpha=alpha))
-				ax.add_patch(patches.Circle((x - 0.4 - li * 0.4, y + 0.2), 0.04, fill=True, facecolor='dimgray'))
+				ax.add_patch(patches.Circle((x - 0.4 - li * 0.32, y), 0.14, fill=True, facecolor=color, alpha=alpha))
+				ax.add_patch(patches.Circle((x - 0.4 - li * 0.32, y + 0.16), 0.04, fill=True, facecolor='dimgray'))
 
 			if elem_type[ei] in [EventElementType.CHORD, EventElementType.REST]:
 				for i in range(0, 3):	# division 0,1,2
@@ -128,6 +128,28 @@ class DatasetViewer:
 				#print('pred_event:', pred_event)
 
 				ax.text(x + 0.2, y2[ei] + 0.9, '%d' % round(pred_event['tick']), color='maroon', fontsize='small', ha='left')
+
+				def drawDot (value, li, y, color):
+					alpha = math.tanh(value * 0.4)
+					ax.add_patch(patches.Circle((x + 0.5 + li * 0.32, y), 0.14, fill=True, facecolor=color, alpha=alpha))
+					ax.add_patch(patches.Circle((x + 0.5 + li * 0.32, y + 0.16), 0.04, fill=True, facecolor='brown'))
+
+				if elem_type[ei] in [EventElementType.CHORD, EventElementType.REST]:
+					for i in range(0, 3):	# division 0,1,2
+						drawDot(pred_event['division'][i], i, y2[ei], 'orange')
+					for i in range(3, 7):	# division 3-
+						drawDot(pred_event['division'][i], i - 3, y2[ei] - 0.4, 'orange')
+					for i, v in enumerate(pred_event['dots']):
+						drawDot(v, i, y2[ei] - 1.1, 'lawngreen')
+					for i, v in enumerate(pred_event['beam']):
+						drawDot(v, i, y2[ei] - 1.7, 'navy')
+					for i, v in enumerate(pred_event['stemDirection']):
+						drawDot(v, i, y2[ei] - 2.3, 'violet')
+
+					drawDot(pred_event['grace'], 0, y2[ei] - 2.9, 'cyan')
+					drawDot(pred_event['timeWarped'], 1, y2[ei] - 2.9, 'darkcyan')
+					drawDot(pred_event['fullMeasure'], 2, y2[ei] - 2.9, 'yellow')
+					drawDot(pred_event['confidence'], 3, y2[ei] - 2.9, 'black')
 
 
 	def showEventTopology (self, inputs, pred=(None, None)):
