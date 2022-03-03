@@ -2,6 +2,7 @@
 import logging
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import math
 
 from .event_element import EventElementType, StemDirection, BeamType
 
@@ -35,6 +36,9 @@ class DatasetViewer:
 			warped = tensors['timeWarped'][ei]
 			grace = tensors['grace'][ei]
 			fullMeasure = tensors['fullMeasure'][ei]
+			tick = tensors['tick'][ei]
+			features = tensors['feature'][ei]
+
 			x = xs[ei]
 			y = y2[ei] if direction == StemDirection.u else y1[ei]
 			ty = y2[ei] if direction == StemDirection.d else y1[ei]
@@ -95,6 +99,14 @@ class DatasetViewer:
 				ax.add_patch(patches.Polygon([(x - 0.3, y - 1), (x + 0.3, y - 1), (x, y),], fill=True, facecolor='r'))
 			elif elem_type[ei] == EventElementType.EOS:
 				ax.add_patch(patches.Polygon([(x - 0.3, y + 1), (x + 0.3, y + 1), (x, y),], fill=True, facecolor='r'))
+
+			# features
+			ax.text(x - 0.4, y2[ei] + 0.9, '%d' % tick, color='k', fontsize='x-small', ha='right')
+			if elem_type[ei] in [EventElementType.CHORD, EventElementType.REST]:
+				for i in range(0, 7):
+					alpha = math.tanh(features[i].item())
+					ax.add_patch(patches.Circle((x - 0.4 - i * 0.4, y2[ei] - 0.4), 0.16, fill=True, facecolor='orange', alpha=alpha))
+					ax.add_patch(patches.Circle((x - 0.4 - i * 0.4, y2[ei] - 0.2), 0.04, fill=True, facecolor='k'))
 
 
 	def showEventTopology (self, tensors):
