@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.3.3
+
+	+	validateTopology.py created.
+
+
 2022.3.2
 
 	+	rectifierJointer.py: model class of RectifySieveJointerLoss added.

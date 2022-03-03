@@ -20,24 +20,24 @@ class DatasetViewer:
 			self.showEventTopology(tensors)
 
 
-	def showEventCluster (self, ax, tensors):
-		n_seq = tensors['feature'].shape[0]
+	def showEventCluster (self, ax, inputs, pred_rec=None, pred_matrixH=None):
+		n_seq = inputs['feature'].shape[0]
 
-		xs = tensors['x']
-		y1 = tensors['y1']
-		y2 = tensors['y2']
-		elem_type = tensors['type']
+		xs = inputs['x']
+		y1 = inputs['y1']
+		y2 = inputs['y2']
+		elem_type = inputs['type']
 
 		for ei in range(n_seq):
-			direction = tensors['stemDirection'][ei]
-			division = tensors['division'][ei]
-			dots = tensors['dots'][ei]
-			beam = tensors['beam'][ei]
-			warped = tensors['timeWarped'][ei]
-			grace = tensors['grace'][ei]
-			fullMeasure = tensors['fullMeasure'][ei]
-			tick = tensors['tick'][ei]
-			features = tensors['feature'][ei]
+			direction = inputs['stemDirection'][ei]
+			division = inputs['division'][ei]
+			dots = inputs['dots'][ei]
+			beam = inputs['beam'][ei]
+			warped = inputs['timeWarped'][ei]
+			grace = inputs['grace'][ei]
+			fullMeasure = inputs['fullMeasure'][ei]
+			tick = inputs['tick'][ei]
+			features = inputs['feature'][ei]
 
 			x = xs[ei]
 			y = y2[ei] if direction == StemDirection.u else y1[ei]
@@ -121,19 +121,27 @@ class DatasetViewer:
 					drawFeatureDot(i, i - 12, y2[ei] - 2.3, 'violet')
 				drawFeatureDot(14, 0, y2[ei] - 2.9, 'cyan')
 
+			# pred features
+			if pred_rec is not None:
+				print('pred_rec:', {k: v.shape for k, v in pred_rec.items()})
 
-	def showEventTopology (self, tensors):
-		batch_size = min(self.n_axes ** 2, tensors['feature'].shape[0])
+
+	def showEventTopology (self, inputs, pred=(None, None)):
+		batch_size = min(self.n_axes ** 2, inputs['feature'].shape[0])
 
 		_, axes = plt.subplots(batch_size // self.n_axes, self.n_axes)
+
+		pred_rec, pred_matrixH = pred
 
 		for i in range(batch_size):
 			ax = axes if self.n_axes == 1 else axes[i // self.n_axes, i % self.n_axes]
 			ax.invert_yaxis()
 			ax.set_aspect(1)
 
-			cluster_tensors = {k: tensor[i] for k, tensor in tensors.items()}
-			self.showEventCluster(ax, cluster_tensors)
+			cluster_inputs = {k: tensor[i] for k, tensor in inputs.items()}
+			cluster_rec = {k: tensor[i] for k, tensor in pred_rec.items()}
+
+			self.showEventCluster(ax, cluster_inputs, cluster_rec, pred_matrixH[i])
 
 		plt.get_current_fig_manager().full_screen_toggle()
 		plt.show()
