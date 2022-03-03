@@ -24,6 +24,7 @@ def main ():
 	parser.add_argument('-s', '--splits', type=str, default='0/10')
 	parser.add_argument('-g', '--gauge', action='store_true', help='gauge mode')
 	parser.add_argument('-e', '--eventTopo', action='store_true', help='show event topology data')
+	parser.add_argument('-ax', '--n_axes', type=int, default=4)
 
 	args = parser.parse_args()
 
@@ -36,7 +37,7 @@ def main ():
 
 	data, = loadDataset(config, data_dir=data_dir)
 	if topo:
-		viewer = TopoViewer(config)
+		viewer = TopoViewer(config, n_axes=args.n_axes)
 	else:
 		viewer = DatasetViewer(config, gauge_mode=args.gauge)
 

@@ -9,8 +9,8 @@ from .event_element import EventElementType, StemDirection, BeamType
 
 
 class DatasetViewer:
-	def __init__(self, config):
-		pass
+	def __init__(self, config, n_axes=4):
+		self.n_axes = n_axes
 
 
 	def show(self, data):
@@ -106,16 +106,16 @@ class DatasetViewer:
 				for i in range(0, 7):
 					alpha = math.tanh(features[i].item())
 					ax.add_patch(patches.Circle((x - 0.4 - i * 0.4, y2[ei] - 0.4), 0.16, fill=True, facecolor='orange', alpha=alpha))
-					ax.add_patch(patches.Circle((x - 0.4 - i * 0.4, y2[ei] - 0.2), 0.04, fill=True, facecolor='k'))
+					ax.add_patch(patches.Circle((x - 0.4 - i * 0.4, y2[ei] - 0.2), 0.04, fill=True, facecolor='dimgray'))
 
 
 	def showEventTopology (self, tensors):
-		batch_size = min(16, tensors['feature'].shape[0])
+		batch_size = min(self.n_axes ** 2, tensors['feature'].shape[0])
 
-		_, axes = plt.subplots(batch_size // 4, 4)
+		_, axes = plt.subplots(batch_size // self.n_axes, self.n_axes)
 
 		for i in range(batch_size):
-			ax = axes[i // 4, i % 4]
+			ax = axes if self.n_axes == 1 else axes[i // self.n_axes, i % self.n_axes]
 			ax.invert_yaxis()
 			ax.set_aspect(1)
 
