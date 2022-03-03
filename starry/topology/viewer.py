@@ -102,11 +102,24 @@ class DatasetViewer:
 
 			# features
 			ax.text(x - 0.4, y2[ei] + 0.9, '%d' % tick, color='k', fontsize='x-small', ha='right')
+
+			def drawFeatureDot (i, li, y, color):
+				alpha = math.tanh(features[i].item() * 0.4)
+				ax.add_patch(patches.Circle((x - 0.4 - li * 0.4, y), 0.16, fill=True, facecolor=color, alpha=alpha))
+				ax.add_patch(patches.Circle((x - 0.4 - li * 0.4, y + 0.2), 0.04, fill=True, facecolor='dimgray'))
+
 			if elem_type[ei] in [EventElementType.CHORD, EventElementType.REST]:
-				for i in range(0, 7):
-					alpha = math.tanh(features[i].item())
-					ax.add_patch(patches.Circle((x - 0.4 - i * 0.4, y2[ei] - 0.4), 0.16, fill=True, facecolor='orange', alpha=alpha))
-					ax.add_patch(patches.Circle((x - 0.4 - i * 0.4, y2[ei] - 0.2), 0.04, fill=True, facecolor='dimgray'))
+				for i in range(0, 3):	# division 0,1,2
+					drawFeatureDot(i, i, y2[ei], 'orange')
+				for i in range(3, 7):	# division 3-
+					drawFeatureDot(i, i - 3, y2[ei] - 0.4, 'orange')
+				for i in range(7, 9):	# dots
+					drawFeatureDot(i, i - 7, y2[ei] - 1.1, 'lawngreen')
+				for i in range(9, 12):	# beam
+					drawFeatureDot(i, 11 - i, y2[ei] - 1.7, 'navy')
+				for i in range(12, 14):	# stemDirection
+					drawFeatureDot(i, i - 12, y2[ei] - 2.3, 'violet')
+				drawFeatureDot(14, 0, y2[ei] - 2.9, 'cyan')
 
 
 	def showEventTopology (self, tensors):

@@ -40,7 +40,7 @@ def distortElements (elements, noise, xfactor):
 	return [distort(elem) for elem in elements]
 
 
-def boolRandn (value, sigma=0.5, true_bias=0.6, false_bias=-2):
+def boolRandn (value, sigma=0.4, true_bias=0.6, false_bias=-2):
 	return np.exp(np.random.randn() * sigma + (true_bias if value else false_bias))
 
 
@@ -70,9 +70,9 @@ def genElementFeature (elem, drop_source=False):
 		dots = elem['dots'] or 0
 		feature['dots'] = [boolRandn(dots >= 1), boolRandn(dots >= 2, false_bias=-4)]
 		feature['beams'] = [
-			boolRandn(elem['beam'] == "Open", 0.3),
-			boolRandn(elem['beam'] == "Continue", 0.3),
-			boolRandn(elem['beam'] == "Close", 0.3),
+			boolRandn(elem['beam'] == "Open", 0.2),
+			boolRandn(elem['beam'] == "Continue", 0.2),
+			boolRandn(elem['beam'] == "Close", 0.2),
 		]
 		feature['stemDirections'] = [
 			boolRandn(elem['stemDirection'] == "u", 0.2),
