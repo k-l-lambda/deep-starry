@@ -38,6 +38,7 @@ class Validator (Predictor):
 def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('config', type=str)
+	parser.add_argument('-d', '--data', type=str, help='data configuration file')
 	parser.add_argument('-s', '--splits', type=str, default='0/10')
 	parser.add_argument('-ax', '--n_axes', type=int, default=4)
 	parser.add_argument('-dv', '--device', type=str, default='cuda')
@@ -45,6 +46,11 @@ def main ():
 	args = parser.parse_args()
 
 	config = Configuration.createOrLoad(args.config, volatile=True)
+
+	if args.data:
+		data_config = Configuration.createOrLoad(args.data, volatile=True)
+		config['data'] = data_config['data']
+
 	if args.splits is not None:
 		config['data.splits'] = args.splits
 

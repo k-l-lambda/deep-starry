@@ -129,27 +129,27 @@ class DatasetViewer:
 
 				ax.text(x + 0.2, y2[ei] + 0.9, '%d' % round(pred_event['tick']), color='maroon', fontsize='small', ha='left')
 
-				def drawDot (value, li, y, color):
-					alpha = math.tanh(value * 0.4)
+				def drawDot (value, truth, li, y, color):
+					alpha = value
 					ax.add_patch(patches.Circle((x + 0.5 + li * 0.32, y), 0.14, fill=True, facecolor=color, alpha=alpha))
-					ax.add_patch(patches.Circle((x + 0.5 + li * 0.32, y + 0.16), 0.04, fill=True, facecolor='brown'))
+					ax.add_patch(patches.Circle((x + 0.5 + li * 0.32, y + 0.16), 0.06 if truth else 0.04, fill=True, facecolor='g' if truth else 'brown'))
 
 				if elem_type[ei] in [EventElementType.CHORD, EventElementType.REST]:
 					for i in range(0, 3):	# division 0,1,2
-						drawDot(pred_event['division'][i], i, y2[ei], 'orange')
+						drawDot(pred_event['division'][i], i == division, i, y2[ei], 'orange')
 					for i in range(3, 7):	# division 3-
-						drawDot(pred_event['division'][i], i - 3, y2[ei] - 0.4, 'orange')
+						drawDot(pred_event['division'][i], i == division, i - 3, y2[ei] - 0.4, 'orange')
 					for i, v in enumerate(pred_event['dots']):
-						drawDot(v, i, y2[ei] - 1.1, 'lawngreen')
+						drawDot(v, i == dots, i, y2[ei] - 1.1, 'lawngreen')
 					for i, v in enumerate(pred_event['beam']):
-						drawDot(v, i, y2[ei] - 1.7, 'navy')
+						drawDot(v, i == beam, i, y2[ei] - 1.7, 'navy')
 					for i, v in enumerate(pred_event['stemDirection']):
-						drawDot(v, i, y2[ei] - 2.3, 'violet')
+						drawDot(v, i == direction, i, y2[ei] - 2.3, 'violet')
 
-					drawDot(pred_event['grace'], 0, y2[ei] - 2.9, 'cyan')
-					drawDot(pred_event['timeWarped'], 1, y2[ei] - 2.9, 'darkcyan')
-					drawDot(pred_event['fullMeasure'], 2, y2[ei] - 2.9, 'yellow')
-					drawDot(pred_event['confidence'], 3, y2[ei] - 2.9, 'black')
+					drawDot(pred_event['grace'], grace, 0, y2[ei] - 2.9, 'cyan')
+					drawDot(pred_event['timeWarped'], warped, 1, y2[ei] - 2.9, 'darkcyan')
+					drawDot(pred_event['fullMeasure'], fullMeasure, 2, y2[ei] - 2.9, 'yellow')
+					drawDot(1 - pred_event['confidence'], False, 3, y2[ei] - 2.9, 'black')
 
 
 	def showEventTopology (self, inputs, pred=(None, None)):
