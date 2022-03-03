@@ -208,11 +208,11 @@ class RectifySieveJointerLoss (nn.Module):
 		val_full = rec['fullMeasure'] > 0.5
 		acc_full = (val_full == batch['fullMeasure']).float().mean()
 
-		loss_confidence = self.bce(rec['confidence'], batch['confidence'])
-		val_confidence = rec['confidence'] > 0.5
-		acc_confidence = (val_confidence == batch['confidence']).float().mean()
+		loss_fake = self.bce(rec['fake'], batch['fake'])
+		val_fake = rec['fake'] > 0.5
+		acc_fake = (val_fake == batch['fake']).float().mean()
 
-		loss = loss_topo * 10 + loss_tick * 1e-6 + loss_division + loss_dots + loss_beam + loss_direction + loss_grace + loss_warped + loss_full + loss_confidence
+		loss = loss_topo * 10 + loss_tick * 1e-6 + loss_division + loss_dots + loss_beam + loss_direction + loss_grace + loss_warped + loss_full + loss_fake
 
 		metrics = dict(
 			acc_topo			=acc_topo.item(),
@@ -225,7 +225,7 @@ class RectifySieveJointerLoss (nn.Module):
 			acc_grace			=acc_grace.item(),
 			acc_timeWarped		=acc_warped.item(),
 			acc_fullMeasure		=acc_full.item(),
-			acc_confidence		=acc_confidence.item(),
+			acc_fake			=acc_fake.item(),
 		)
 
 		return loss, metrics
@@ -242,7 +242,7 @@ class RectifySieveJointerLoss (nn.Module):
 			grace			=metrics['acc_grace'] / n_batch,
 			timeWarped		=metrics['acc_timeWarped'] / n_batch,
 			fullMeasure		=metrics['acc_fullMeasure'] / n_batch,
-			fake			=metrics['acc_confidence'] / n_batch,
+			fake			=metrics['acc_fake'] / n_batch,
 		)
 
 		errors = [

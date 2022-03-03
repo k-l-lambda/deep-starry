@@ -149,7 +149,7 @@ class DatasetViewer:
 					drawDot(pred_event['grace'], grace, 0, y2[ei] - 2.9, 'cyan')
 					drawDot(pred_event['timeWarped'], warped, 1, y2[ei] - 2.9, 'darkcyan')
 					drawDot(pred_event['fullMeasure'], fullMeasure, 2, y2[ei] - 2.9, 'yellow')
-					drawDot(1 - pred_event['confidence'], False, 3, y2[ei] - 2.9, 'black')
+					drawDot(1 - pred_event['fake'], False, 3, y2[ei] - 2.9, 'black')
 
 
 	def showEventTopology (self, inputs, pred=(None, None)):

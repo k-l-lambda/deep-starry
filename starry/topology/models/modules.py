@@ -397,7 +397,7 @@ class RectifierParser (nn.Module):
 		rec['grace'] = self.sigmoid(rec['grace'].squeeze(-1))
 		rec['timeWarped'] = self.sigmoid(rec['timeWarped'].squeeze(-1))
 		rec['fullMeasure'] = self.sigmoid(rec['fullMeasure'].squeeze(-1))
-		rec['confidence'] = self.sigmoid(rec['confidence'].squeeze(-1))
+		rec['fake'] = self.sigmoid(rec['fake'].squeeze(-1))
 
 		return rec
 

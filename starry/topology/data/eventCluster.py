@@ -85,6 +85,9 @@ class EventCluster (IterableDataset):
 		assert len(batch) == 1
 
 		tensors = batch[0]
+		if tensors.get('fake') is None:
+			tensors['fake'] = 1 - tensors['confidence']
+
 		feature_shape = tensors['feature'].shape
 		batch_size = feature_shape[0]
 		n_seq = feature_shape[1]

@@ -43,7 +43,7 @@ TARGET_DIMS = dict(
 	grace=1,
 	timeWarped=1,
 	fullMeasure=1,
-	confidence=1,
+	fake=1,
 )
 TARGET_FIELDS = list(TARGET_DIMS.keys())
 TARGET_DIM = sum(TARGET_DIMS.values())
