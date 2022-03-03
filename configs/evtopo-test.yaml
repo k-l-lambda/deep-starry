@@ -30,6 +30,17 @@ model:
     angle_cycle:            1000
     dropout:                0.1
     scale_emb:              False
+    error_weights:
+    - 5         # topo
+    - 1.e-3     # tick
+    - 3         # division
+    - 3         # dots
+    - 1         # beam
+    - 0.1       # stemDirection
+    - 3         # grace
+    - 3         # warped
+    - 3         # full measure
+    - 3         # fake
 
 
 trainer:
@@ -37,7 +48,7 @@ trainer:
   save_mode:                best
   epoch:                    2
   moniter:
-    field:                  loss
+    field:                  general_error
     mode:                   min
 
 optim:

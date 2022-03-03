@@ -96,7 +96,7 @@ class Decoder (nn.Module):
 
 class RectifySieveJointer (nn.Module):
 	def __init__ (self, n_trunk_layers=1, n_rectifier_layers=1, n_source_layers=2, n_target_layers=1, n_sieve_layers=1,
-			d_model=512, d_inner=2048, angle_cycle=1000, n_head=8, d_k=64, d_v=64, dropout=0.1, scale_emb=False):
+			d_model=512, d_inner=2048, angle_cycle=1000, n_head=8, d_k=64, d_v=64, dropout=0.1, scale_emb=False, **_):
 		super().__init__()
 
 		self.event_encoder = EventEncoder(d_model, angle_cycle=angle_cycle)
@@ -139,9 +139,25 @@ class RectifySieveJointer (nn.Module):
 		return rec, j
 
 
+DEFAULT_ERROR_WEIGHTS = [
+	5,		# topo
+	1e-3,	# tick
+	3,		# division
+	3,		# dots
+	1,		# beam
+	0.1,	# stemDirection
+	3,		# grace
+	3,		# warped
+	3,		# full measure
+	3,		# fake
+]
+
+
 class RectifySieveJointerLoss (nn.Module):
-	def __init__ (self, decisive_confidence=0.5, **kw_args):
+	def __init__ (self, decisive_confidence=0.5, error_weights=DEFAULT_ERROR_WEIGHTS, **kw_args):
 		super().__init__()
+
+		self.error_weights = error_weights
 
 		self.j_metric = JaggedLoss(decisive_confidence)
 		self.deducer = RectifySieveJointer(**kw_args)
@@ -216,18 +232,37 @@ class RectifySieveJointerLoss (nn.Module):
 
 
 	def stat (self, metrics, n_batch):
+		accuracy=dict(
+			topo			=metrics['acc_topo'] / n_batch,
+			tick			=metrics['error_tick'] / n_batch,
+			division		=metrics['acc_division'] / n_batch,
+			dots			=metrics['acc_dots'] / n_batch,
+			beam			=metrics['acc_beam'] / n_batch,
+			stemDirection	=metrics['acc_stemDirection'] / n_batch,
+			grace			=metrics['acc_grace'] / n_batch,
+			timeWarped		=metrics['acc_timeWarped'] / n_batch,
+			fullMeasure		=metrics['acc_fullMeasure'] / n_batch,
+			fake			=metrics['acc_confidence'] / n_batch,
+		)
+
+		errors = [
+			1 - accuracy['topo'],
+			accuracy['tick'],
+			1 - accuracy['division'],
+			1 - accuracy['dots'],
+			1 - accuracy['beam'],
+			1 - accuracy['stemDirection'],
+			1 - accuracy['grace'],
+			1 - accuracy['timeWarped'],
+			1 - accuracy['fullMeasure'],
+			1 - accuracy['fake'],
+		]
+		general_error = sum(
+			err * w for err, w in zip(errors, self.error_weights)
+		) / sum(self.error_weights)
+
 		return dict(
 			loss_topo=metrics['loss_topo'] / n_batch,
-			accuracy=dict(
-				topo			=metrics['acc_topo'] / n_batch,
-				tick			=metrics['error_tick'] / n_batch,
-				division		=metrics['acc_division'] / n_batch,
-				dots			=metrics['acc_dots'] / n_batch,
-				beam			=metrics['acc_beam'] / n_batch,
-				stemDirection	=metrics['acc_stemDirection'] / n_batch,
-				grace			=metrics['acc_grace'] / n_batch,
-				timeWarped		=metrics['acc_timeWarped'] / n_batch,
-				fullMeasure		=metrics['acc_fullMeasure'] / n_batch,
-				confidence		=metrics['acc_confidence'] / n_batch,
-			),
+			accuracy=accuracy,
+			general_error=general_error,
 		)
