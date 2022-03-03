@@ -104,6 +104,10 @@ class EventCluster (IterableDataset):
 		feature = tensors['feature']
 		feature[error] = chaos[error]
 
+		# sort division[3:] & dots
+		feature[:, :, 3:7], _ = feature[:, :, 3:7].sort(descending=True)
+		feature[:, :, 7:9], _ = feature[:, :, 7:9].sort(descending=True)
+
 		# augment for position
 		x = tensors['x']
 		y1 = tensors['y1']

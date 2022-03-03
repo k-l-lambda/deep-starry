@@ -40,8 +40,8 @@ def distortElements (elements, noise, xfactor):
 	return [distort(elem) for elem in elements]
 
 
-def boolRandn (value, true_bias=0.6, false_bias=-2):
-	return np.exp(np.random.randn() + (true_bias if value else false_bias))
+def boolRandn (value, sigma=0.5, true_bias=0.6, false_bias=-2):
+	return np.exp(np.random.randn() * sigma + (true_bias if value else false_bias))
 
 
 def genElementFeature (elem, drop_source=False):
@@ -62,19 +62,21 @@ def genElementFeature (elem, drop_source=False):
 			feature['divisions'][4] = boolRandn(elem['division'] >= 4) * (1 if elem['division'] >= 4 else feature['divisions'][3])
 			feature['divisions'][5] = boolRandn(elem['division'] >= 5) * (1 if elem['division'] >= 5 else feature['divisions'][4])
 			feature['divisions'][6] = boolRandn(elem['division'] >= 6) * (1 if elem['division'] >= 6 else feature['divisions'][5])
+
+			#feature['divisions'][3:] = sorted(feature['divisions'][3:], reverse=True)
 		elif elem['type'] == EventElementType.REST:
 			feature['divisions'] = [boolRandn(elem['division'] == d) for d in range(7)]
 
 		dots = elem['dots'] or 0
 		feature['dots'] = [boolRandn(dots >= 1), boolRandn(dots >= 2, false_bias=-4)]
 		feature['beams'] = [
-			boolRandn(elem['beam'] == BeamType.Open),
-			boolRandn(elem['beam'] == BeamType.Continue),
-			boolRandn(elem['beam'] == BeamType.Close),
+			boolRandn(elem['beam'] == "Open", 0.3),
+			boolRandn(elem['beam'] == "Continue", 0.3),
+			boolRandn(elem['beam'] == "Close", 0.3),
 		]
 		feature['stemDirections'] = [
-			boolRandn(elem['stemDirection'] == StemDirection.u),
-			boolRandn(elem['stemDirection'] == StemDirection.d),
+			boolRandn(elem['stemDirection'] == "u", 0.2),
+			boolRandn(elem['stemDirection'] == "d", 0.2),
 		]
 
 		feature['grace'] = boolRandn(elem['grace'], true_bias=0)
