@@ -102,7 +102,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 	grace = torch.tensor([1 if elem['grace'] else 0 for elem in elements], dtype=torch.float32)
 	timeWarped = torch.tensor([1 if elem['timeWarped'] else 0 for elem in elements], dtype=torch.float32)
 	fullMeasure = torch.tensor([1 if elem['fullMeasure'] else 0 for elem in elements], dtype=torch.float32)
-	confidence = torch.tensor([1 for elem in elements], dtype=torch.float32)
+	fake = torch.tensor([elem.get('fake', 0) for elem in elements], dtype=torch.float32)
 
 	matrixH = torch.tensor(cluster['matrixH'], dtype=float32)
 	matrixH = matrixH[1:, :-1]	# exlude BOS & EOS
@@ -143,7 +143,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 		'grace':			grace,			# (n_seq)
 		'timeWarped':		timeWarped,		# (n_seq)
 		'fullMeasure':		fullMeasure,	# (n_seq)
-		'confidence':		confidence,		# (n_seq)
+		'fake':				fake,			# (n_seq)
 		'matrixH':			matrixH,		# (n_seq * n_seq)
 	}
 
