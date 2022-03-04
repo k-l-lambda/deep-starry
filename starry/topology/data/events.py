@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from perlin_noise import PerlinNoise
 
-from ..event_element import EventElementType, BeamType, StemDirection, STAFF_MAX
+from ..event_element import FEATURE_DIM, EventElementType, BeamType, StemDirection, STAFF_MAX
 
 
 
@@ -80,6 +80,43 @@ def genElementFeature (elem, drop_source=False):
 	return torch.tensor([
 		*feature['divisions'], *feature['dots'], *feature['beams'], *feature['stemDirections'], feature['grace'],
 	], dtype=torch.float32)
+
+
+def clusterFeatureToTensors (clusters):
+	batch_size = len(clusters)
+	n_seq = max(len(cluster['elements']) for cluster in clusters)
+
+	zeros = lambda: torch.zeros(batch_size, n_seq)
+
+	elem_type = zeros().long()
+	staff = zeros().long()
+	x = zeros()
+	y1 = zeros()
+	y2 = zeros()
+	feature = torch.zeros(batch_size, n_seq, FEATURE_DIM)
+
+	opv = lambda x, default=0: default if x is None else x
+
+	for i, cluster in enumerate(clusters):
+		elements = cluster['elements']
+		n_elem = len(elements)
+		elem_type[i, :n_elem] = torch.tensor([elem['type'] for elem in elements], dtype=torch.long)
+		staff[i, :n_elem] = torch.tensor([opv(elem['staff'], STAFF_MAX - 1) for elem in elements], dtype=torch.long)
+		x[i, :n_elem] = torch.tensor([elem['x'] for elem in elements], dtype=torch.float32)
+		y1[i, :n_elem] = torch.tensor([elem['y1'] for elem in elements], dtype=torch.float32)
+		y2[i, :n_elem] = torch.tensor([elem['y2'] for elem in elements], dtype=torch.float32)
+
+		for ei, elem in enumerate(elements):
+			feature[i, ei, :] = genElementFeature(elem)
+
+	return dict(
+		type=elem_type,
+		staff=staff,
+		x=x,
+		y1=y1,
+		y2=y2,
+		feature=feature,
+	)
 
 
 def exampleToTensorsAugment (cluster, n_augment):

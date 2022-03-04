@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.3.4
+
+	+	topology/predictorEvent.py created.
+
+
 2022.3.3
 
 	+	rectifierJointer.py: added metric of general_error.
