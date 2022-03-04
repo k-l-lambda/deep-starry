@@ -224,18 +224,20 @@ class RectifySieveJointerLoss (nn.Module):
 
 		loss = loss_topo * 10 + loss_tick * 1e-6 + loss_division + loss_dots + loss_beam + loss_direction + loss_grace + loss_warped + loss_full + loss_fake
 
+		wv = WeightedValue.from_value
+
 		metrics = dict(
-			acc_topo			=WeightedValue(acc_topo.item()),
-			loss_topo			=WeightedValue(loss_topo.item()),
-			error_tick			=WeightedValue(error_tick.item() * n_elements, n_elements),
-			acc_division		=WeightedValue(acc_division.item() * n_elements, n_elements),
-			acc_dots			=WeightedValue(acc_dots.item() * n_elements, n_elements),
-			acc_beam			=WeightedValue(acc_beam.item() * n_chords, n_chords),
-			acc_stemDirection	=WeightedValue(acc_direction.item() * n_chords, n_chords),
-			acc_grace			=WeightedValue(acc_grace.item() * n_chords, n_chords),
-			acc_timeWarped		=WeightedValue(acc_warped.item() * n_elements, n_elements),
-			acc_fullMeasure		=WeightedValue(acc_full.item() * n_rests, n_rests),
-			acc_fake			=WeightedValue(acc_fake.item() * n_elements, n_elements),
+			acc_topo			=wv(acc_topo.item()),
+			loss_topo			=wv(loss_topo.item()),
+			error_tick			=wv(error_tick.item(), n_elements),
+			acc_division		=wv(acc_division.item(), n_elements),
+			acc_dots			=wv(acc_dots.item(), n_elements),
+			acc_beam			=wv(acc_beam.item(), n_chords),
+			acc_stemDirection	=wv(acc_direction.item(), n_chords),
+			acc_grace			=wv(acc_grace.item(), n_chords),
+			acc_timeWarped		=wv(acc_warped.item(), n_elements),
+			acc_fullMeasure		=wv(acc_full.item(), n_rests),
+			acc_fake			=wv(acc_fake.item(), n_elements),
 		)
 
 		return loss, metrics
@@ -243,16 +245,16 @@ class RectifySieveJointerLoss (nn.Module):
 
 	def stat (self, metrics, n_batch):
 		accuracy=dict(
-			topo			=metrics['acc_topo'].mean,
-			tick			=metrics['error_tick'].mean,
-			division		=metrics['acc_division'].mean,
-			dots			=metrics['acc_dots'].mean,
-			beam			=metrics['acc_beam'].mean,
-			stemDirection	=metrics['acc_stemDirection'].mean,
-			grace			=metrics['acc_grace'].mean,
-			timeWarped		=metrics['acc_timeWarped'].mean,
-			fullMeasure		=metrics['acc_fullMeasure'].mean,
-			fake			=metrics['acc_fake'].mean,
+			topo			=metrics['acc_topo'].value,
+			tick			=metrics['error_tick'].value,
+			division		=metrics['acc_division'].value,
+			dots			=metrics['acc_dots'].value,
+			beam			=metrics['acc_beam'].value,
+			stemDirection	=metrics['acc_stemDirection'].value,
+			grace			=metrics['acc_grace'].value,
+			timeWarped		=metrics['acc_timeWarped'].value,
+			fullMeasure		=metrics['acc_fullMeasure'].value,
+			fake			=metrics['acc_fake'].value,
 		)
 
 		errors = [
@@ -272,7 +274,7 @@ class RectifySieveJointerLoss (nn.Module):
 		) / sum(self.error_weights)
 
 		return dict(
-			loss_topo=metrics['loss_topo'].mean,
+			loss_topo=metrics['loss_topo'].value,
 			accuracy=accuracy,
 			general_error=general_error,
 		)

@@ -1,7 +1,12 @@
 
 class WeightedValue:
-	def __init__ (self, value, weight=1):
-		self.value = value
+	@staticmethod
+	def from_value (value, weight=1):
+		return WeightedValue(value * weight, weight)
+
+
+	def __init__ (self, sum=None, weight=1):
+		self.sum = sum
 		self.weight = weight
 
 
@@ -10,15 +15,15 @@ class WeightedValue:
 			if self.weight == 0:
 				return other
 
-			return WeightedValue(self.value + other.value, self.weight + other.weight)
+			return WeightedValue(self.sum + other.sum, self.weight + other.weight)
 
 		return self
 
 
 	def __str__(self) -> str:
-		return f'{self.value} ({self.weight})'
+		return f'{self.value} (*{self.weight})'
 
 
 	@property
-	def mean (self):
-		return self.value / self.weight
+	def value (self):
+		return self.sum / self.weight
