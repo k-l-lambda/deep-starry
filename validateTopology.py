@@ -3,12 +3,17 @@ import sys
 import os
 import argparse
 import logging
+import torch
 
 from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
 from starry.utils.predictor import Predictor
 from starry.topology.viewer import DatasetViewer
 
+
+
+# workaround cuda unavailable issue
+torch.cuda.is_available()
 
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
@@ -54,7 +59,7 @@ def main ():
 	if args.splits is not None:
 		config['data.splits'] = args.splits
 
-	data, = loadDataset(config, data_dir=DATA_DIR)
+	data, = loadDataset(config, data_dir=DATA_DIR, device=args.device)
 	validator = Validator(config, n_axes=args.n_axes, device=args.device)
 
 	validator.run(data)
