@@ -227,15 +227,15 @@ class RectifySieveJointerLoss (nn.Module):
 		metrics = dict(
 			acc_topo			=WeightedValue(acc_topo.item()),
 			loss_topo			=WeightedValue(loss_topo.item()),
-			error_tick			=WeightedValue(error_tick.item(), n_elements),
-			acc_division		=WeightedValue(acc_division.item(), n_elements),
-			acc_dots			=WeightedValue(acc_dots.item(), n_elements),
-			acc_beam			=WeightedValue(acc_beam.item(), n_chords),
-			acc_stemDirection	=WeightedValue(acc_direction.item(), n_chords),
-			acc_grace			=WeightedValue(acc_grace.item(), n_chords),
-			acc_timeWarped		=WeightedValue(acc_warped.item(), n_elements),
-			acc_fullMeasure		=WeightedValue(acc_full.item(), n_rests),
-			acc_fake			=WeightedValue(acc_fake.item(), n_elements),
+			error_tick			=WeightedValue(error_tick.item() * n_elements, n_elements),
+			acc_division		=WeightedValue(acc_division.item() * n_elements, n_elements),
+			acc_dots			=WeightedValue(acc_dots.item() * n_elements, n_elements),
+			acc_beam			=WeightedValue(acc_beam.item() * n_chords, n_chords),
+			acc_stemDirection	=WeightedValue(acc_direction.item() * n_chords, n_chords),
+			acc_grace			=WeightedValue(acc_grace.item() * n_chords, n_chords),
+			acc_timeWarped		=WeightedValue(acc_warped.item() * n_elements, n_elements),
+			acc_fullMeasure		=WeightedValue(acc_full.item() * n_rests, n_rests),
+			acc_fake			=WeightedValue(acc_fake.item() * n_elements, n_elements),
 		)
 
 		return loss, metrics
