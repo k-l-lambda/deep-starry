@@ -40,15 +40,11 @@ def distortElements (elements, noise, xfactor):
 	return [distort(elem) for elem in elements]
 
 
-def boolRandn (value, sigma=0.4, true_bias=0.6, false_bias=-2):
+def boolRandn (value, sigma=0.2, true_bias=0.6, false_bias=-2):
 	return np.exp(np.random.randn() * sigma + (true_bias if value else false_bias))
 
 
 def genElementFeature (elem, drop_source=False):
-	# make chaos with P = 1 - stability
-	#if np.random.random() > stability:
-	#	return torch.exp(torch.randn(15))
-
 	feature = elem.get('feature')
 	if feature is None or drop_source:
 		feature = {}
@@ -70,13 +66,13 @@ def genElementFeature (elem, drop_source=False):
 		dots = elem['dots'] or 0
 		feature['dots'] = [boolRandn(dots >= 1), boolRandn(dots >= 2, false_bias=-4)]
 		feature['beams'] = [
-			boolRandn(elem['beam'] == "Open", 0.2),
-			boolRandn(elem['beam'] == "Continue", 0.2),
-			boolRandn(elem['beam'] == "Close", 0.2),
+			boolRandn(elem['beam'] == "Open", 0.1),
+			boolRandn(elem['beam'] == "Continue", 0.1),
+			boolRandn(elem['beam'] == "Close", 0.1),
 		]
 		feature['stemDirections'] = [
-			boolRandn(elem['stemDirection'] == "u", 0.2),
-			boolRandn(elem['stemDirection'] == "d", 0.2),
+			boolRandn(elem['stemDirection'] == "u", 0.1),
+			boolRandn(elem['stemDirection'] == "d", 0.1),
 		]
 
 		feature['grace'] = boolRandn(elem['grace'], true_bias=0)
