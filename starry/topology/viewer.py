@@ -9,8 +9,9 @@ from .event_element import EventElementType, StemDirection, BeamType
 
 
 class DatasetViewer:
-	def __init__(self, config, n_axes=4):
+	def __init__(self, config, n_axes=4, show_matrix=False):
 		self.n_axes = n_axes
+		self.show_matrix = show_matrix
 
 
 	def show(self, data):
@@ -20,7 +21,7 @@ class DatasetViewer:
 			self.showEventTopology(tensors)
 
 
-	def showEventCluster (self, ax, inputs, pred_rec=None, pred_matrixH=None):
+	def showEventCluster (self, ax, inputs, pred_rec=None):
 		n_seq = inputs['feature'].shape[0]
 
 		xs = inputs['x']
@@ -152,10 +153,36 @@ class DatasetViewer:
 					drawDot(1 - pred_event['fake'], False, 3, y2[ei] - 2.9, 'black')
 
 
+	def showMatrix (self, ax, truth_matrix, pred_matrix=None):
+		#print('showMatrix:', truth_matrix, pred_matrix)
+		n_seq = truth_matrix.shape[0]
+		assert truth_matrix.shape[1] == n_seq and (pred_matrix is None or (pred_matrix.shape[0] == n_seq and pred_matrix.shape[1] == n_seq))
+
+		ax.set_xlim(-0.2, n_seq + 0.1)
+		ax.set_ylim(-0.2, n_seq + 0.1)
+		for i in range(n_seq):
+			for j in range(n_seq):
+				truth = truth_matrix[i, j] > 0
+				#positive = pred_matrix[i, j] > 0.5 if pred_matrix is not None else None
+				color = 'g' if truth else 'r'
+
+				if truth:
+					ax.add_patch(patches.Rectangle((j, i), 0.9, 0.9, fill=False, edgecolor='k'))
+
+				if pred_matrix is not None:
+					ax.add_patch(patches.Rectangle((j + 0.1, i + 0.1), 0.7, 0.7, fill=True, facecolor=color, alpha=pred_matrix[i, j].item()))
+
+
 	def showEventTopology (self, inputs, pred=(None, None)):
 		batch_size = min(self.n_axes ** 2, inputs['feature'].shape[0])
 
 		_, axes = plt.subplots(batch_size // self.n_axes, self.n_axes)
+
+		plt.get_current_fig_manager().full_screen_toggle()
+
+		if self.show_matrix:
+			plt.figure(1)
+			_, axesM = plt.subplots(batch_size // self.n_axes, self.n_axes)
 
 		pred_rec, pred_matrixH = pred
 
@@ -167,7 +194,14 @@ class DatasetViewer:
 			cluster_inputs = {k: tensor[i] for k, tensor in inputs.items()}
 			cluster_rec = pred_rec and {k: tensor[i] for k, tensor in pred_rec.items()}
 
-			self.showEventCluster(ax, cluster_inputs, cluster_rec, pred_matrixH and pred_matrixH[i])
+			self.showEventCluster(ax, cluster_inputs, cluster_rec)
 
-		plt.get_current_fig_manager().full_screen_toggle()
+			if self.show_matrix:
+				ax = axesM if self.n_axes == 1 else axesM[i // self.n_axes, i % self.n_axes]
+				ax.set_aspect(1)
+
+				n_seq = len(cluster_inputs['type'])
+				self.showMatrix(ax, cluster_inputs['matrixH'].reshape((n_seq - 1, -1)),
+					pred_matrixH and pred_matrixH[i].reshape((n_seq - 1, -1)))
+
 		plt.show()

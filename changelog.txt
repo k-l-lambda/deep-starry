@@ -7,6 +7,8 @@ TODO:
 
 2022.3.4
 
+	+	topology/viewer.py: matrix view added.
+
 	+	topology/predictorEvent.py created.
 
 
