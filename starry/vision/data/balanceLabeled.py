@@ -128,4 +128,7 @@ class BalanceLabeledPeris (IterableDataset):
 
 		target = torch.tensor([[labels[field] for field in self.label_fields]], dtype=torch.float32).to(self.device)
 
+		if len(self.label_fields) == 1 and len(target.shape) > 2:
+			target = target.squeeze(1)
+
 		return source, target

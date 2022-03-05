@@ -50,7 +50,7 @@ class PerisBinaryLoss (nn.Module):
 	def __init__ (self, loss='binary_cross_entropy', **kwargs):
 		super().__init__()
 
-		self.deducer = PerisSimple(**kwargs)
+		self.deducer = PerisBinary(**kwargs)
 		self.loss = getattr(nn.functional, loss)
 
 
@@ -63,4 +63,4 @@ class PerisBinaryLoss (nn.Module):
 		pred_binary = pred > 0.5
 		acc = (pred_binary == target_binary).float().mean()
 
-		return loss, {'acc': acc}
+		return loss, {'acc': acc.item()}
