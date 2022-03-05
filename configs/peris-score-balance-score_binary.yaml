@@ -38,9 +38,6 @@ data:
   args_variant:
     1:
       epoch_n:              10
-      augmentor:
-        masker:
-          skip_p:           1
 
 
 trainer:
