@@ -7,6 +7,7 @@ model:
   args:
     backbone:               efficientnet_b0
     channels:               1
+    loss:                   mse_loss
 
 
 data:

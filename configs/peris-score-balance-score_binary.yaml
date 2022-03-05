@@ -1,0 +1,65 @@
+
+id:     peris/{date}-{filename}
+
+
+model:
+  type:                     PerisBinary
+  args:
+    backbone:               efficientnet_b0
+    channels:               7
+
+
+data:
+  type:                     BalanceLabeledPeris
+  root:                     nse-100.zip
+  labels:                   labels-20220205.csv
+  splits:                   '*1..8/10:9/10'
+  batch_size:               1
+  args:
+    label_fields:           ['score_binary']
+    epoch_n:                20
+    score_binary:
+      thresholds:           [3, 4, 5, 6, 7, 8, 9]
+    groups:
+    - (_1.score >  0) & (_1.score < 3)
+    - (_1.score >= 3) & (_1.score < 4)
+    - (_1.score >= 4) & (_1.score < 5)
+    - (_1.score >= 5) & (_1.score < 6)
+    - (_1.score >= 6) & (_1.score < 7)
+    - (_1.score >= 7) & (_1.score < 8)
+    - (_1.score >= 8) & (_1.score < 9)
+    - (_1.score >= 9)
+    augmentor:
+      size_limit:
+        size:               200
+      affine:
+        degrees:            5
+        interpolation:      'BILINEAR'
+  args_variant:
+    1:
+      epoch_n:              10
+      augmentor:
+        masker:
+          skip_p:           1
+
+
+trainer:
+  device:         cpu
+  save_mode:      best
+  epoch:          2
+  moniter:
+    field:        error
+    mode:         min
+
+optim:
+  type:                   Adam
+  args:
+    betas:                [0.9, 0.9999]
+    eps:                  1.e-8
+  scheduler:
+    type:                 Exp
+    args:
+      lr_mul:             1.e-3
+      min_lr:             1.e-6
+      decay_rate:         0.98
+      n_warmup_steps:     10000

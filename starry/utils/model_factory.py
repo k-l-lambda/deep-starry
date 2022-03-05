@@ -14,6 +14,7 @@ def registerModels ():
 
 	classes = [
 		vm.PerisSimple, vm.PerisSimpleLoss,
+		vm.PerisBinary, vm.PerisBinaryLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])
