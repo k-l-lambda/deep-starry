@@ -30,7 +30,7 @@ class EvtopoPredictor (Predictor):
 			for ii, cluster in enumerate(batch_clusters):
 				result = {
 					'index': cluster.get('index'),
-					'matrixH': mat[ii].cpu().tolist(),
+					'matrixH': mat[ii].reshape((len(cluster['elements']) - 1, -1)).cpu().tolist(),
 					'elements': [{'index': elem['index']} for elem in cluster['elements']],
 				}
 
