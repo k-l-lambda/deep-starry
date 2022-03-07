@@ -12,6 +12,9 @@ data:
   args:
     stability_base:         10
     position_drift:         0.03
+  args_variant:
+    1:
+      stability_base:       1.e+6
 
 
 model:
