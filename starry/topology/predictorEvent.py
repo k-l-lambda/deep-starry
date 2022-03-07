@@ -5,6 +5,7 @@ import logging
 
 from ..utils.predictor import Predictor
 from .data.events import clusterFeatureToTensors
+from .event_element import EventElementType, BeamType_values, StemDirection_values
 
 
 
@@ -30,9 +31,46 @@ class EvtopoPredictor (Predictor):
 				result = {
 					'index': cluster.get('index'),
 					'matrixH': mat[ii].cpu().tolist(),
+					'elements': [{'index': elem['index']} for elem in cluster['elements']],
 				}
 
-				for k, tensor in rec.items():
-					result[k] = tensor[ii].cpu().tolist()
+				#for k, tensor in rec.items():
+				#	result[k] = tensor[ii].cpu().tolist()
+
+				# rectification
+				divisions = torch.argmax(rec['division'][ii], dim=1).cpu().tolist()
+				dots = torch.argmax(rec['dots'][ii], dim=1).cpu().tolist()
+				beams = [BeamType_values[x] for x in torch.argmax(rec['beam'][ii], dim=1).cpu().tolist()]
+				stemDirections = [StemDirection_values[x] for x in torch.argmax(rec['stemDirection'][ii], dim=1).cpu().tolist()]
+				graces = (rec['grace'][ii] > 0.5).cpu().tolist()
+
+				for ei, (elem, resultElem) in enumerate(zip(cluster['elements'], result['elements'])):
+					if elem['type'] in [EventElementType.CHORD, EventElementType.REST]:
+						if divisions[ei] != elem['division']:
+							resultElem['division'] = divisions[ei]
+						if dots[ei] != elem['dots']:
+							resultElem['dots'] = dots[ei]
+						if beams[ei] != elem['beam']:
+							resultElem['beam'] = beams[ei]
+						if stemDirections[ei] != elem['stemDirection']:
+							resultElem['stemDirection'] = stemDirections[ei]
+						if graces[ei] != elem['grace']:
+							resultElem['grace'] = graces[ei]
+
+						timeWarped = rec['timeWarped'][ii, ei].item()
+						if timeWarped > 1e-3:
+							resultElem['timeWarped'] = timeWarped
+
+						fullMeasure = rec['fullMeasure'][ii, ei].item()
+						if fullMeasure > 1e-3:
+							resultElem['fullMeasure'] = fullMeasure
+
+						fake = rec['fake'][ii, ei].item()
+						if fake > 1e-3:
+							resultElem['fake'] = fake
+
+					resultElem['tick'] = rec['tick'][ii, ei].item()
+					if elem['type'] == EventElementType.EOS:
+						result['duration'] = rec['tick'][ii, ei].item()
 
 				yield result

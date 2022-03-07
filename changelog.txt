@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.3.7
+
+	+	topology/predictorEvent.py: added rectifier fields in result.
+
+
 2022.3.4
 
 	+	rectifierJointer.py: refined metrics by weighted value.

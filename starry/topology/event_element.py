@@ -28,6 +28,12 @@ class StemDirection (IntEnum):
 	d					= 2,
 
 
+NONE_LIST = lambda l: [None if x == 'NONE' else x for x in l]
+
+BeamType_values = NONE_LIST([x.name for x in BeamType])
+StemDirection_values = NONE_LIST([x.name for x in StemDirection])
+
+
 STAFF_MAX = 4
 
 
