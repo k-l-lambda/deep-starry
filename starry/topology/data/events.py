@@ -47,6 +47,9 @@ def boolRandn (value, sigma=0.2, true_bias=0.6, false_bias=-2):
 def genElementFeature (elem, drop_source=False):
 	feature = elem.get('feature')
 	if feature is None or drop_source:
+		if not elem['type'] in [EventElementType.CHORD, EventElementType.REST]:
+			return torch.zeros(FEATURE_DIM, dtype=torch.float32)
+
 		feature = {}
 
 		feature['divisions'] = [0] * 7
@@ -63,7 +66,7 @@ def genElementFeature (elem, drop_source=False):
 		elif elem['type'] == EventElementType.REST:
 			feature['divisions'] = [boolRandn(elem['division'] == d) for d in range(7)]
 
-		dots = elem['dots'] or 0
+		dots = elem.get('dots', 0)
 		feature['dots'] = [boolRandn(dots >= 1), boolRandn(dots >= 2, false_bias=-4)]
 		feature['beams'] = [
 			boolRandn(elem['beam'] == "Open", 0.1),
