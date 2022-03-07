@@ -64,18 +64,22 @@ def genElementFeature (elem, drop_source=False):
 
 			#feature['divisions'][3:] = sorted(feature['divisions'][3:], reverse=True)
 		elif elem['type'] == EventElementType.REST:
-			feature['divisions'] = [boolRandn(elem['division'] == d) for d in range(7)]
+			feature['divisions'] = [boolRandn(elem['division'] == d, false_bias=-3) for d in range(7)]
 
 		dots = elem.get('dots', 0)
 		feature['dots'] = [boolRandn(dots >= 1), boolRandn(dots >= 2, false_bias=-4)]
+
+		may_beam = elem['type'] == EventElementType.CHORD and elem['division'] >= 3
+		beam_false_bias = -2 if may_beam else -6
+
 		feature['beams'] = [
-			boolRandn(elem['beam'] == "Open", 0.1),
-			boolRandn(elem['beam'] == "Continue", 0.1),
-			boolRandn(elem['beam'] == "Close", 0.1),
+			boolRandn(elem['beam'] == "Open", 0.1, false_bias=beam_false_bias),
+			boolRandn(elem['beam'] == "Continue", 0.1, false_bias=beam_false_bias),
+			boolRandn(elem['beam'] == "Close", 0.1, false_bias=beam_false_bias),
 		]
 		feature['stemDirections'] = [
-			boolRandn(elem['stemDirection'] == "u", 0.1),
-			boolRandn(elem['stemDirection'] == "d", 0.1),
+			boolRandn(elem['stemDirection'] == "u", true_bias=1, false_bias=-6),
+			boolRandn(elem['stemDirection'] == "d", true_bias=1, false_bias=-6),
 		]
 
 		feature['grace'] = boolRandn(elem['grace'], true_bias=0)

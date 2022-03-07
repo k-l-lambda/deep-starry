@@ -103,13 +103,16 @@ class EventCluster (IterableDataset):
 		# noise augment for feature
 		stability = np.random.power(self.stability_base)
 		error = torch.rand(*feature_shape, device=self.device) > stability
-		chaos = torch.exp(torch.randn(*feature_shape, device=self.device))
+		chaos = torch.exp(torch.randn(*feature_shape, device=self.device) - 1)
 		feature = tensors['feature']
-		feature[error] = chaos[error]
+		feature[error] *= chaos[error]
 
 		# sort division[3:] & dots
 		feature[:, :, 3:7], _ = feature[:, :, 3:7].sort(descending=True)
 		feature[:, :, 7:9], _ = feature[:, :, 7:9].sort(descending=True)
+
+		# enlarge stemDirection amplitude
+		feature[:, :, 12:14] *= torch.exp(torch.randn((batch_size, 1, 1), device=self.device) * 4 + 4)
 
 		# augment for position
 		x = tensors['x']
