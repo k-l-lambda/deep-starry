@@ -149,8 +149,9 @@ def exampleToTensorsAugment (cluster, n_augment):
 
 	# relative tick mask
 	tickTar = tick.unsqueeze(-1).repeat(1, n_seq)
-	tickSrc = tick.unsqueeze(1).repeat(n_seq, 1)
-	maskT = rawMatrixH > 0 & (tickTar == tickSrc) & (torch.eye(n_seq) == 0)
+	tickSrc = tick.unsqueeze(-1).repeat(n_seq, 1)
+	tickDiff = tickTar == tickSrc
+	maskT = rawMatrixH > 0 & (tickDiff == 0) & (torch.eye(n_seq) == 0)
 
 	feature = torch.zeros((n_augment, n_seq, 15), dtype=torch.float32)
 	x = torch.zeros((n_augment, n_seq), dtype=torch.float32)
@@ -189,6 +190,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 		'fullMeasure':		fullMeasure,	# (n_seq)
 		'fake':				fake,			# (n_seq)
 		'matrixH':			matrixH,		# ((n_seq - 1) * (n_seq - 1))
+		'tickDiff':			tickDiff,		# (n_seq * n_seq)
 		'maskT':			maskT,			# (n_seq * n_seq)
 	}
 

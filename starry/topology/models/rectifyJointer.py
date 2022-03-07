@@ -190,6 +190,8 @@ class RectifySieveJointerLoss (nn.Module):
 		loss_tick = self.mse(rec['tick'], batch['tick'])
 		error_tick = torch.sqrt(loss_tick)
 
+		# TODO: tick diff loss
+
 		loss_division = self.ce(rec['division'], batch['division'])
 		val_division = torch.argmax(rec['division'], dim=-1) == batch['division']
 		acc_division = val_division.float().mean()
