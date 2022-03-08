@@ -1,6 +1,5 @@
 
 import json
-from torch import float32
 import yaml
 import re
 from fs import open_fs
@@ -144,9 +143,15 @@ def exampleToTensorsAugment (cluster, n_augment):
 	fullMeasure = torch.tensor([1 if elem['fullMeasure'] else 0 for elem in elements], dtype=torch.float32)
 	fake = torch.tensor([elem.get('fake', 0) for elem in elements], dtype=torch.float32)
 
-	matrixH = torch.tensor(cluster['matrixH'], dtype=float32)
-	matrixH = matrixH[1:, :-1]	# exlude BOS & EOS
+	rawMatrixH = torch.tensor(cluster['matrixH'], dtype=torch.float32)
+	matrixH = rawMatrixH[1:, :-1]	# exlude BOS & EOS
 	matrixH = matrixH.flatten()
+
+	# relative tick mask
+	tickTar = tick.unsqueeze(-1).repeat(1, n_seq)
+	tickSrc = tick.unsqueeze(-1).repeat(n_seq, 1)
+	tickDiff = tickTar == tickSrc
+	maskT = rawMatrixH > 0 & (tickDiff == 0) & (torch.eye(n_seq) == 0)
 
 	feature = torch.zeros((n_augment, n_seq, 15), dtype=torch.float32)
 	x = torch.zeros((n_augment, n_seq), dtype=torch.float32)
@@ -184,7 +189,9 @@ def exampleToTensorsAugment (cluster, n_augment):
 		'timeWarped':		timeWarped,		# (n_seq)
 		'fullMeasure':		fullMeasure,	# (n_seq)
 		'fake':				fake,			# (n_seq)
-		'matrixH':			matrixH,		# (n_seq * n_seq)
+		'matrixH':			matrixH,		# ((n_seq - 1) * (n_seq - 1))
+		'tickDiff':			tickDiff,		# (n_seq * n_seq)
+		'maskT':			maskT,			# (n_seq * n_seq)
 	}
 
 

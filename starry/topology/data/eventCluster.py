@@ -143,6 +143,8 @@ class EventCluster (IterableDataset):
 			'y1': y1,
 			'y2': y2,
 			'matrixH': tensors['matrixH'].repeat(batch_size, 1),
+			'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
+			'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
 		}
 
 		for field in TARGET_FIELDS:
