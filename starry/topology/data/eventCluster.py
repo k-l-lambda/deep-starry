@@ -43,7 +43,8 @@ class EventCluster (IterableDataset):
 		return cls.loadPackage(url, args, splits, device, args_variant=args_variant)
 
 
-	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None, use_cache=True):
+	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None,
+		batch_slice=None, use_cache=True):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -52,6 +53,7 @@ class EventCluster (IterableDataset):
 		self.stability_base = stability_base
 		self.position_drift = position_drift
 		self.stem_amplitude = stem_amplitude
+		self.batch_slice = batch_slice
 
 		self.entry_cache = {} if use_cache else None
 
@@ -97,6 +99,8 @@ class EventCluster (IterableDataset):
 
 		feature_shape = tensors['feature'].shape
 		batch_size = feature_shape[0]
+		if self.batch_slice is not None:
+			batch_size = min(batch_size, self.batch_slice)
 		n_seq = feature_shape[1]
 
 		# to device
@@ -108,10 +112,10 @@ class EventCluster (IterableDataset):
 		staff = tensors['staff'].repeat(batch_size, 1).long()
 
 		# noise augment for feature
+		feature = tensors['feature'][:batch_size]
 		stability = np.random.power(self.stability_base)
-		error = torch.rand(*feature_shape, device=self.device) > stability
-		chaos = torch.exp(torch.randn(*feature_shape, device=self.device) - 1)
-		feature = tensors['feature']
+		error = torch.rand(*feature.shape, device=self.device) > stability
+		chaos = torch.exp(torch.randn(*feature.shape, device=self.device) - 1)
 		feature[error] *= chaos[error]
 
 		# sort division[3:] & dots
@@ -124,9 +128,9 @@ class EventCluster (IterableDataset):
 			feature[:, :, 12:14] *= torch.exp(power)
 
 		# augment for position
-		x = tensors['x']
-		y1 = tensors['y1']
-		y2 = tensors['y2']
+		x = tensors['x'][:batch_size]
+		y1 = tensors['y1'][:batch_size]
+		y2 = tensors['y2'][:batch_size]
 		ox, oy = (torch.rand(batch_size, 1, device=self.device) - 0.2) * 24, (torch.rand(batch_size, 1, device=self.device) - 0.2) * 12
 		if self.position_drift > 0:
 			x += torch.randn(batch_size, n_seq, device=self.device) * self.position_drift + ox
