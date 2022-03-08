@@ -7,6 +7,8 @@ TODO:
 
 2022.3.8
 
+	+	rectifierJointer.py: loss item of relative tick added.
+
 	+	eventCluster.py: argument of stem_amplitude added.
 
 	+	eventCluster.py: args_variant implemented.

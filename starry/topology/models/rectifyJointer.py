@@ -183,6 +183,7 @@ class RectifySieveJointerLoss (nn.Module):
 		n_elements = is_entity.sum().item()
 		n_chords = is_chord.sum().item()
 		n_rests = is_rest.sum().item()
+		n_rel_tick = batch['maskT'].sum().item()
 		#n_events = (is_rest | is_chord).sum().item()
 
 		loss_topo, acc_topo = self.j_metric(matrixH, batch['matrixH'])
@@ -190,7 +191,17 @@ class RectifySieveJointerLoss (nn.Module):
 		loss_tick = self.mse(rec['tick'], batch['tick'])
 		error_tick = torch.sqrt(loss_tick)
 
-		# TODO: tick diff loss
+		n_seq = batch['tick'].shape[-1]
+		tick_src = rec['tick'].unsqueeze(-1).repeat(1, 1, n_seq)
+		tick_tar = rec['tick'].unsqueeze(-2).repeat(1, n_seq, 1)
+		pred_tick_diff = (tick_src - tick_tar)
+		loss_rel_tick = self.mse(pred_tick_diff.masked_select(batch['maskT']), batch['tickDiff'].masked_select(batch['maskT']))
+		error_rel_tick = torch.sqrt(loss_rel_tick)
+
+		loss_tick += loss_rel_tick
+
+		eos = batch['type'] == EventElementType.EOS
+		error_duration = torch.sqrt(self.mse(rec['tick'][eos], batch['tick'][eos]))
 
 		loss_division = self.ce(rec['division'], batch['division'])
 		val_division = torch.argmax(rec['division'], dim=-1) == batch['division']
@@ -232,6 +243,8 @@ class RectifySieveJointerLoss (nn.Module):
 			acc_topo			=wv(acc_topo.item()),
 			loss_topo			=wv(loss_topo.item()),
 			error_tick			=wv(error_tick.item(), n_elements),
+			error_rel_tick		=wv(error_rel_tick.item(), n_rel_tick),
+			error_duration		=wv(error_duration.item()),
 			acc_division		=wv(acc_division.item(), n_elements),
 			acc_dots			=wv(acc_dots.item(), n_elements),
 			acc_beam			=wv(acc_beam.item(), n_chords),
@@ -249,6 +262,8 @@ class RectifySieveJointerLoss (nn.Module):
 		accuracy=dict(
 			topo			=metrics['acc_topo'].value,
 			tick			=metrics['error_tick'].value,
+			rel_tick		=metrics['error_rel_tick'].value,
+			duration		=metrics['error_duration'].value,
 			division		=metrics['acc_division'].value,
 			dots			=metrics['acc_dots'].value,
 			beam			=metrics['acc_beam'].value,
@@ -261,7 +276,7 @@ class RectifySieveJointerLoss (nn.Module):
 
 		errors = [
 			1 - accuracy['topo'],
-			accuracy['tick'],
+			accuracy['rel_tick'] + accuracy['duration'],
 			1 - accuracy['division'],
 			1 - accuracy['dots'],
 			1 - accuracy['beam'],
