@@ -1,4 +1,8 @@
 
+import math
+
+
+
 class WeightedValue:
 	@staticmethod
 	def from_value (value, weight=1):
@@ -26,4 +30,4 @@ class WeightedValue:
 
 	@property
 	def value (self):
-		return self.sum / self.weight
+		return self.sum / self.weight if self.weight != 0 else math.inf

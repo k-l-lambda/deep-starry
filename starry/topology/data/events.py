@@ -148,10 +148,10 @@ def exampleToTensorsAugment (cluster, n_augment):
 	matrixH = matrixH.flatten()
 
 	# relative tick mask
-	tickTar = tick.unsqueeze(-1).repeat(1, n_seq)
-	tickSrc = tick.unsqueeze(-1).repeat(n_seq, 1)
-	tickDiff = tickTar == tickSrc
-	maskT = rawMatrixH > 0 & (tickDiff == 0) & (torch.eye(n_seq) == 0)
+	tickSrc = tick.unsqueeze(-1).repeat(1, n_seq)
+	tickTar = tick.unsqueeze(0).repeat(n_seq, 1)
+	tickDiff = tickSrc - tickTar
+	maskT = (rawMatrixH > 0) | torch.tril(tickDiff == 0, diagonal=-1)
 
 	feature = torch.zeros((n_augment, n_seq, 15), dtype=torch.float32)
 	x = torch.zeros((n_augment, n_seq), dtype=torch.float32)
