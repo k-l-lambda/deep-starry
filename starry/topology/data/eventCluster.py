@@ -6,14 +6,14 @@ import dill as pickle
 import torch
 from torch.utils.data import IterableDataset
 
-from ...utils.parsers import parseFilterStr
+from ...utils.parsers import parseFilterStr, mergeArgs
 from ..event_element import TARGET_FIELDS
 
 
 
 class EventCluster (IterableDataset):
 	@classmethod
-	def loadPackage (cls, url, splits='*0/1', device='cpu', **kwargs):
+	def loadPackage (cls, url, args, splits='*0/1', device='cpu', args_variant=None):
 		splits = splits.split(':')
 		package = open_fs(url)
 		index_file = package.open('index.yaml', 'r')
@@ -26,15 +26,21 @@ class EventCluster (IterableDataset):
 
 			return [entry for entry in index['examples'] if entry['group'] in ids]
 
-		return tuple(map(lambda split: cls(
-			package, loadEntries(split), device, shuffle='*' in split, **kwargs,
-		), splits))
+		def argi (i):
+			if args_variant is None:
+				return args
+			return mergeArgs(args, args_variant.get(i))
+
+		return (
+			cls(package, loadEntries(split), device, shuffle='*' in split, **argi(i))
+			for i, split in enumerate(splits)
+		)
 
 
 	@classmethod
 	def load (cls, root, args, splits, device='cpu', args_variant=None):
 		url = f'zip://{root}' if root.endswith('.zip') else root
-		return cls.loadPackage(url, splits, device, **args)
+		return cls.loadPackage(url, args, splits, device, args_variant=args_variant)
 
 
 	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, use_cache=True):

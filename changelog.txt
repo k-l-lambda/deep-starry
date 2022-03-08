@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.3.8
+
+	+	eventCluster.py: args_variant implemented.
+
+
 2022.3.7
 
 	+	topology/predictorEvent.py: added rectifier fields in result.
