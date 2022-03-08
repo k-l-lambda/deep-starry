@@ -43,7 +43,7 @@ class EventCluster (IterableDataset):
 		return cls.loadPackage(url, args, splits, device, args_variant=args_variant)
 
 
-	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, use_cache=True):
+	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None, use_cache=True):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -51,6 +51,7 @@ class EventCluster (IterableDataset):
 
 		self.stability_base = stability_base
 		self.position_drift = position_drift
+		self.stem_amplitude = stem_amplitude
 
 		self.entry_cache = {} if use_cache else None
 
@@ -117,8 +118,10 @@ class EventCluster (IterableDataset):
 		feature[:, :, 3:7], _ = feature[:, :, 3:7].sort(descending=True)
 		feature[:, :, 7:9], _ = feature[:, :, 7:9].sort(descending=True)
 
-		# enlarge stemDirection amplitude
-		feature[:, :, 12:14] *= torch.exp(torch.randn((batch_size, 1, 1), device=self.device) * 4 + 4)
+		# stemDirection amplitude
+		if self.stem_amplitude:
+			power = torch.randn((batch_size, 1, 1), device=self.device) * self.stem_amplitude['sigma'] + self.stem_amplitude['mu']
+			feature[:, :, 12:14] *= torch.exp(power)
 
 		# augment for position
 		x = tensors['x']

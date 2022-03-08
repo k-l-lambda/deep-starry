@@ -78,8 +78,8 @@ def genElementFeature (elem, drop_source=False):
 			boolRandn(elem['beam'] == "Close", 0.1, false_bias=beam_false_bias),
 		]
 		feature['stemDirections'] = [
-			boolRandn(elem['stemDirection'] == "u", true_bias=1, false_bias=-6),
-			boolRandn(elem['stemDirection'] == "d", true_bias=1, false_bias=-6),
+			boolRandn(elem['stemDirection'] == "u", true_bias=1, false_bias=-8),
+			boolRandn(elem['stemDirection'] == "d", true_bias=1, false_bias=-8),
 		]
 
 		feature['grace'] = boolRandn(elem['grace'], true_bias=0)

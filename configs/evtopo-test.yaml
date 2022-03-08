@@ -12,9 +12,12 @@ data:
   args:
     stability_base:         10
     position_drift:         0.03
+    stem_amplitude:
+      mu:                   5.4
+      sigma:                0.1
   args_variant:
     1:
-      stability_base:       1.e+6
+      stability_base:       100
 
 
 model:
