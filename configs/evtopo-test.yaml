@@ -14,7 +14,7 @@ data:
     position_drift:         0.03
     stem_amplitude:
       mu:                   5.4
-      sigma:                0.1
+      sigma:                2
   args_variant:
     1:
       stability_base:       100
@@ -34,6 +34,7 @@ model:
     d_k:                    64
     d_v:                    64
     angle_cycle:            1000
+    feature_activation:     tanh
     dropout:                0.1
     scale_emb:              False
     error_weights:

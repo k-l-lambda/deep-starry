@@ -350,11 +350,12 @@ class JaggedLoss (nn.Module):
 
 
 class EventEncoder (nn.Module):
-	def __init__ (self, d_model, angle_cycle=1000):
+	def __init__ (self, d_model, angle_cycle=1000, feature_activation=None):
 		super().__init__()
 
-		d_position = d_model - EventElementType.MAX - EV_STAFF_MAX - FEATURE_DIM
+		self.feature_activate = getattr(F, feature_activation) if feature_activation else torch.nn.Identity()
 
+		d_position = d_model - EventElementType.MAX - EV_STAFF_MAX - FEATURE_DIM
 		self.position_encoder = SinusoidEncoderXYY(angle_cycle=angle_cycle, d_hid=d_position)
 
 
@@ -370,7 +371,9 @@ class EventEncoder (nn.Module):
 		vec_staff = F.one_hot(source['staff'], num_classes=EV_STAFF_MAX)
 		position = self.position_encoder(source['x'], source['y1'], source['y2'])
 
-		return torch.cat([vec_type, vec_staff, source['feature'], position], dim=-1)
+		feature = self.feature_activate(source['feature'])
+
+		return torch.cat([vec_type, vec_staff, feature, position], dim=-1)
 
 
 class RectifierParser (nn.Module):
