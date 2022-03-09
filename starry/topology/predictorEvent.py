@@ -58,15 +58,15 @@ class EvtopoPredictor (Predictor):
 							resultElem['grace'] = graces[ei]
 
 						timeWarped = rec['timeWarped'][ii, ei].item()
-						if timeWarped > 1e-3:
+						if timeWarped > 1e-3 or elem.get('timeWarped'):
 							resultElem['timeWarped'] = timeWarped
 
 						fullMeasure = rec['fullMeasure'][ii, ei].item()
-						if fullMeasure > 1e-3:
+						if fullMeasure > 1e-3 or elem.get('fullMeasure'):
 							resultElem['fullMeasure'] = fullMeasure
 
 						fake = rec['fake'][ii, ei].item()
-						if fake > 1e-3:
+						if fake > 1e-3 or elem.get('fake'):
 							resultElem['fake'] = fake
 
 					resultElem['tick'] = rec['tick'][ii, ei].item()
