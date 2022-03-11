@@ -57,6 +57,13 @@ class EvtopoPredictor (Predictor):
 						if graces[ei] != elem['grace']:
 							resultElem['grace'] = graces[ei]
 
+						divisionVec = rec['division'][ii, ei]
+						dotsVec = rec['dots'][ii, ei]
+						if divisions[ei] != elem['division'] or divisionVec[divisions[ei]] < 0.9:
+							resultElem['divisionVector'] = divisionVec
+						if dots[ei] != elem['dots'] or dotsVec[dots[ei]] < 0.9:
+							resultElem['dotsVector'] = dotsVec
+
 						timeWarped = rec['timeWarped'][ii, ei].item()
 						if timeWarped > 1e-3 or elem.get('timeWarped'):
 							resultElem['timeWarped'] = timeWarped
