@@ -76,6 +76,8 @@ class EvtopoPredictor (Predictor):
 						if fake > 1e-3 or elem.get('fake'):
 							resultElem['fake'] = fake
 
+						resultElem['fakeP'] = 1 - (1 - fake) * (1 - graces[ei]) * (1 - fullMeasure)
+
 					resultElem['tick'] = rec['tick'][ii, ei].item()
 					if elem['type'] == EventElementType.EOS:
 						result['duration'] = rec['tick'][ii, ei].item()
