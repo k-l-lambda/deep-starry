@@ -62,7 +62,7 @@ class EvtopoPredictor (Predictor):
 						if divisions[ei] != elem['division'] or divisionVec[divisions[ei]] < 0.9:
 							resultElem['divisionVector'] = divisionVec.cpu().tolist()
 						if dots[ei] != elem['dots'] or dotsVec[dots[ei]] < 0.9:
-							resultElem['dotsVector'] = dotsVec
+							resultElem['dotsVector'] = dotsVec.cpu().tolist()
 
 						timeWarped = rec['timeWarped'][ii, ei].item()
 						if timeWarped > 1e-3 or elem.get('timeWarped'):
