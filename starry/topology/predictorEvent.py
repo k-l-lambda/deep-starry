@@ -60,7 +60,7 @@ class EvtopoPredictor (Predictor):
 						divisionVec = rec['division'][ii, ei]
 						dotsVec = rec['dots'][ii, ei]
 						if divisions[ei] != elem['division'] or divisionVec[divisions[ei]] < 0.9:
-							resultElem['divisionVector'] = divisionVec
+							resultElem['divisionVector'] = divisionVec.cpu().tolist()
 						if dots[ei] != elem['dots'] or dotsVec[dots[ei]] < 0.9:
 							resultElem['dotsVector'] = dotsVec
 
