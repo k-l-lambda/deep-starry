@@ -24,6 +24,10 @@ class EvtopoPredictor (Predictor):
 			batch_clusters = clusters[i:i+self.batch_size]
 			inputs = clusterFeatureToTensors(batch_clusters)
 
+			# to device
+			for key in inputs:
+				inputs[key] = inputs[key].to(self.device)
+
 			with torch.no_grad():
 				rec, mat = self.model(inputs)
 
@@ -33,9 +37,6 @@ class EvtopoPredictor (Predictor):
 					'matrixH': mat[ii].reshape((len(cluster['elements']) - 1, -1)).cpu().tolist(),
 					'elements': [{'index': elem['index']} for elem in cluster['elements']],
 				}
-
-				#for k, tensor in rec.items():
-				#	result[k] = tensor[ii].cpu().tolist()
 
 				# rectification
 				divisions = torch.argmax(rec['division'][ii], dim=1).cpu().tolist()
