@@ -6,7 +6,7 @@ import logging
 import re
 
 import starry.utils.env
-from starry.topology.data import preprocessDataset, preprocessDatasetScatter
+from starry.topology.data.semantics import preprocessDataset, preprocessDatasetScatter
 
 
 

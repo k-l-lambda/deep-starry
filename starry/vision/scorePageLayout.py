@@ -90,13 +90,14 @@ def detectStavesFromHBL (HB, HL, interval):
 
 	height, width = HB.shape
 
-	STAFF_SIZE_MIN = width * 0.02
+	STAFF_HEIGHT_MIN = interval * 3
+	STAFF_WIDTH_MIN = max(width * 0.6, width - interval * 12)
 	UPSCALE = 4
 
 	upInterval = interval * UPSCALE
 
 	rects = map(cv2.boundingRect, contours)
-	rects = filter(lambda rect: rect[2] > STAFF_SIZE_MIN and rect[3] > STAFF_SIZE_MIN, rects)
+	rects = filter(lambda rect: rect[2] > STAFF_WIDTH_MIN and rect[3] > STAFF_HEIGHT_MIN, rects)
 	rects = sorted(rects, key=lambda rect: rect[1])
 
 	preRects = []

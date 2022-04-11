@@ -3,7 +3,7 @@ import os
 import torch
 import logging
 
-from .data import exampleToTensors, Dataset
+from .data.semantics import exampleToTensors, Dataset
 from .semantic_element import SemanticElementType
 from ..utils.predictor import Predictor
 

@@ -11,6 +11,7 @@ def registerTypes ():
 	global type_dict
 
 	from ..vision.data import RenderScore, ScoreMask, ScoreGauge, ScorePage, ScorePageRaw, ScoreFault
+	from ..topology.data import EventCluster
 
 	classes = [
 		RenderScore,
@@ -19,6 +20,7 @@ def registerTypes ():
 		ScorePage,
 		ScorePageRaw,
 		ScoreFault,
+		EventCluster,
 	]
 
 	type_dict = dict([(c.__name__, c) for c in classes])

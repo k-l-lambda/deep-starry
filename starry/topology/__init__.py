@@ -1,2 +1,3 @@
 
-from . import data, models, predictor
+from .models import jointers
+from . import data, predictor
