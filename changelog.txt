@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.4.13
+
+	+	streamPredictor.py: added log file.
+
+
 2022.3.8
 
 	+	rectifierJointer.py: argument of feature_activation added.
