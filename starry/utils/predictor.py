@@ -1,4 +1,5 @@
 
+import os
 import torch
 import logging
 
@@ -13,11 +14,19 @@ class Predictor:
 
 
 	def loadModel (self, config):
-		self.model = loadModel(config['model'])
-		if config['best']:
-			checkpoint = torch.load(config.localPath(config['best']), map_location=self.device)
-			self.model.load_state_dict(checkpoint['model'])
-			logging.info(f'checkpoint loaded: {config["best"]}')
+		weights_filename = config['best']
+		if os.path.exists(config.localPath(weights_filename + '.pt')):
+			self.model = torch.jit.load(config.localPath(weights_filename + '.pt'))
+			logging.info(f'checkpoint loaded: {weights_filename}.pt')
+		else:
+			self.model = loadModel(config['model'])
+			if weights_filename:
+				if not os.path.exists(config.localPath(weights_filename)):
+					weights_filename += '.chkpt'
+
+				checkpoint = torch.load(config.localPath(weights_filename), map_location=self.device)
+				self.model.load_state_dict(checkpoint['model'])
+				logging.info(f'checkpoint loaded: {weights_filename}')
 
 		self.model.to(self.device)
 		self.model.eval()

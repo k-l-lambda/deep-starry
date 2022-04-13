@@ -7,6 +7,8 @@ TODO:
 
 2022.4.13
 
+	+	utils/predictor.py: pytorch jit model loading added.
+
 	+	streamPredictor.py: added log file.
 
 
