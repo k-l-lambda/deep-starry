@@ -36,8 +36,10 @@ class ZeroServer:
 		logging.info('ZeroServer is online: %s', address)
 
 		while True:
+			logging.info('Waiting for request...')
 			buf = self.socket.recv()
 			try:
+				logging.info('Got request.')
 				msg = unpackb(buf, raw=False, use_list=False)
 
 				method = msg.get('method')
@@ -48,6 +50,7 @@ class ZeroServer:
 					ret = methodcaller(method, *args, **kwargs)(self.obj)
 					ret = [*ret] if isinstance(ret, types.GeneratorType) else ret
 					self.res_success(ret)
+					logging.info('Response sent.')
 				except:
 					self.res_error('Server handler error:')
 			except:
