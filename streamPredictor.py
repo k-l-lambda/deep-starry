@@ -5,6 +5,7 @@ import argparse
 import logging
 import json
 import base64
+import os
 
 from starry.utils.config import Configuration
 from starry.topology.predictor import TopologyPredictorH, TopologyPredictorHV
@@ -20,6 +21,9 @@ from starry.utils.zero_server import ZeroServer
 
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+
+
+LOGFILE = os.environ.get('PREDICTOR_LOG')
 
 
 PREDICTOR_FACTORY = {
@@ -110,6 +114,15 @@ def main ():
 	parser.add_argument('-p', '--port', type=int, help='zmq server port')
 
 	args = parser.parse_args()
+
+	if LOGFILE is not None:
+		log_path = LOGFILE % {'mode': args.mode, 'port': args.port}
+		logging.basicConfig(format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%Y%m%d %H:%M:%S', level=logging.INFO,
+			force=True,
+			handlers=[
+				logging.StreamHandler(sys.stderr),
+				logging.FileHandler(log_path),
+			])
 
 	config = Configuration.create(args.config) if args.config.endswith('.yaml') else Configuration(args.config)
 

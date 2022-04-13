@@ -11,6 +11,7 @@ Variable Name								| Default Value			| Description
 **VISION_DATA_DIR**							|						|
 **TEXTURE_SET_DIR**							|						|
 **TEXTURE_SET_SIZE**						|						|
+**PREDICTOR_LOG**							|						|
 
 ## Test topology training command line:
 

@@ -5,6 +5,13 @@ TODO:
 
 
 
+2022.4.13
+
+	+	utils/predictor.py: pytorch jit model loading added.
+
+	+	streamPredictor.py: added log file.
+
+
 2022.3.8
 
 	+	rectifierJointer.py: argument of feature_activation added.
