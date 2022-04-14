@@ -117,7 +117,7 @@ def main ():
 
 	if LOGFILE is not None:
 		log_path = LOGFILE % {'mode': args.mode, 'port': args.port}
-		logging.basicConfig(format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%Y%m%d %H:%M:%S', level=logging.INFO,
+		logging.basicConfig(format='%(asctime)s.%(msecs)03d	%(levelname)s	%(message)s', datefmt='%Y%m%d %H:%M:%S', level=logging.INFO,
 			force=True,
 			handlers=[
 				logging.StreamHandler(sys.stderr),
