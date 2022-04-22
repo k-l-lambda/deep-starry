@@ -111,6 +111,12 @@ class LayoutPredictor (Predictor):
 				yield result
 
 
+	def predictReinforce (self, streams, base_layouts):
+		# TODO:
+		for base_layout in base_layouts:
+			yield base_layout
+
+
 	@classmethod
 	def normalizeImageDimension (cls, image):
 		n, h, w, c = image.shape

@@ -56,7 +56,7 @@ def main ():
 	config = Configuration.createOrLoad(sys.argv[2], volatile=True)
 	predictor = LayoutPredictor(config)
 
-	results = predictor.predictDetection([bytes])
+	results = predictor.predictReinforce([bytes], [layout])
 	layout2 = results.__next__()
 	#print('layout2:', layout2)
 	showLayout(axes[1], source, layout2)
