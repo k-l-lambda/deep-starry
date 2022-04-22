@@ -57,7 +57,7 @@ def main ():
 	predictor = LayoutPredictor(config)
 
 	results = predictor.predictReinforce([bytes], [layout])
-	layout2 = results.__next__()
+	layout2 = next(results)
 	#print('layout2:', layout2)
 	showLayout(axes[1], source, layout2)
 

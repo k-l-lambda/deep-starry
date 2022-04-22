@@ -364,6 +364,13 @@ class PageLayout:
 			hl = HL[t:b, l:r]
 
 			area['staves'] = detectStavesFromHBL(hb, hl, canvas_interval)
+			#print('area:', area)
+
+			rhos = area['staves']['middleRhos']
+			def findRho (br):
+				return next((rho for rho in rhos if abs(rho - br) < canvas_interval * 1.5), br)
+
+			area['staves']['middleRhos'] = [findRho(br) for br in area['base_staves']['middleRhos']]
 
 		return {
 			'sourceSize': {
