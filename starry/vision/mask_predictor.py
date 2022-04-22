@@ -17,7 +17,7 @@ class StaffMask:
 
 	def json (self):
 		return {
-			'image': encodeImageBase64(self.image),
+			'image': encodeImageBase64(self.image, ext='.webp'),
 		}
 
 

@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.4.22
+
+	+	mask_predictor.py: use webp extension for StaffMask.
+
+
 2022.4.13
 
 	+	utils/predictor.py: pytorch jit model loading added.
