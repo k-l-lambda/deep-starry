@@ -10,12 +10,15 @@ import matplotlib.patches as patches
 import numpy as np
 import math
 
-from starry.vision.scorePageLayout import PageLayout, RESIZE_WIDTH
+from starry.utils.config import Configuration
+#from starry.vision.scorePageLayout import PageLayout, RESIZE_WIDTH
+from starry.vision.layout_predictor import LayoutPredictor
 
 
 
 def showLayout (ax, source, layout):
 	interval = layout['interval']
+	print('interval:', interval)
 
 	h, w = source.shape[:2]
 	rot_mat = cv2.getRotationMatrix2D((w / 2, h / 2), layout['theta'] * 180 / np.pi, 1)
@@ -49,6 +52,14 @@ def main ():
 
 	_, axes = plt.subplots(1, 2)
 	showLayout(axes[0], source, layout)
+
+	config = Configuration.createOrLoad(sys.argv[2], volatile=True)
+	predictor = LayoutPredictor(config)
+
+	results = predictor.predictDetection([bytes])
+	layout2 = results.__next__()
+	#print('layout2:', layout2)
+	showLayout(axes[1], source, layout2)
 
 	plt.get_current_fig_manager().full_screen_toggle()
 	plt.show()

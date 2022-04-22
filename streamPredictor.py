@@ -130,7 +130,7 @@ def main ():
 				logging.FileHandler(log_path),
 			])
 
-	config = Configuration.create(args.config) if args.config.endswith('.yaml') else Configuration(args.config)
+	config = Configuration.createOrLoad(args.config, volatile=True)
 
 	predictorClass = PREDICTOR_FACTORY.get(args.mode)
 	if predictorClass is None:
