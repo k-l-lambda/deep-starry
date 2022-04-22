@@ -17,7 +17,7 @@ class StaffMask:
 
 	def json (self):
 		return {
-			'image': encodeImageBase64(self.image, ext='.webp'),
+			'image': encodeImageBase64(self.image),
 		}
 
 
@@ -58,5 +58,7 @@ class MaskPredictor (Predictor):
 				encoder = encodeImageBytes if by_buffer else encodeImageBase64
 
 				yield {
+					# lossy compression is OK here
+					#'image': encoder(mask.image, ext='.webp', quality=80), # WEBP is larger than PNG?
 					'image': encoder(mask.image),
 				}

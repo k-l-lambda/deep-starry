@@ -6,6 +6,7 @@ import logging
 import json
 import base64
 import os
+import PIL.Image
 
 from starry.utils.config import Configuration
 from starry.topology.predictor import TopologyPredictorH, TopologyPredictorHV
@@ -21,6 +22,11 @@ from starry.utils.zero_server import ZeroServer
 
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+
+# workaround incomplete registered_extensions list problem in PIL
+PIL.Image.registered_extensions()
+#logging.info('extensions: %s', PIL.Image.registered_extensions().keys())
+
 
 
 LOGFILE = os.environ.get('PREDICTOR_LOG')
