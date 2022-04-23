@@ -111,6 +111,36 @@ class LayoutPredictor (Predictor):
 				yield result
 
 
+	def predictReinforce (self, streams, base_layouts):
+		images = [arrayFromImageStream(stream) for stream in streams]
+
+		ratio = max(img.shape[0] / img.shape[1] for img in images)
+		height = int(RESIZE_WIDTH * ratio)
+		height += -height % 4
+		unified_images = [resizePageImage(img, (RESIZE_WIDTH, height)) for img in images]
+		image_array = np.stack(unified_images, axis=0)
+
+		batch, _ = self.composer(image_array, np.ones((1, 4, 4, 2)))
+		batch = torch.from_numpy(batch)
+		batch = batch.to(self.device)
+
+		with torch.no_grad():
+			output = self.model(batch)
+			output = output.cpu().numpy()
+
+			for i, heatmap in enumerate(output):
+				image = images[i]
+				base_layout = base_layouts[i]
+
+				layout = PageLayout(heatmap)
+				result = layout.reinforce(image, ratio, base_layout)
+
+				if result and self.inspect:
+					result['image'] = layout.json()['image']
+
+				yield result
+
+
 	@classmethod
 	def normalizeImageDimension (cls, image):
 		n, h, w, c = image.shape

@@ -7,6 +7,7 @@ import PIL.Image
 import cv2
 import numpy as np
 import random
+#import logging
 
 
 
@@ -166,18 +167,20 @@ def maskToAlpha (mask, frac_y = False):	# mask: [fore(h, w), back(h, w)]
 	return fore
 
 
-def encodeImageBytes (image, ext='.png'):
+def encodeImageBytes (image, ext='.png', quality=80):
 	fp = io.BytesIO()
-	image.save(fp, PIL.Image.registered_extensions()[ext])
+	image.save(fp, PIL.Image.registered_extensions()[ext], quality=quality)
 
 	return fp.getvalue()
 
 
-def encodeImageBase64 (image, ext='.png'):
-	bytes = encodeImageBytes(image, ext)
+def encodeImageBase64 (image, ext='.png', quality=80):
+	bytes = encodeImageBytes(image, ext, quality=quality)
 	b64 = base64.b64encode(bytes)
 
-	return 'data:image/png;base64,' + b64.decode('ascii')
+	format = ext.replace('.', '')
+
+	return f'data:image/{format};base64,' + b64.decode('ascii')
 
 
 def gaugeToRGB (gauge, frac_y=False):	# gauge: [Y(h, w), K(h, w)]

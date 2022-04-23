@@ -173,19 +173,19 @@ def arrayToImageFile (arr, ext='.png'):
 
 
 def scaleDetection (detection, scale):
-	areas = list(map(lambda a: {
+	areas = [{
 		'x': a['x'] * scale,
 		'y': a['y'] * scale,
 		'width': a['width'] * scale,
 		'height': a['height'] * scale,
-		'staff_images': a['staff_images'],
+		'staff_images': a.get('staff_images'),
 		'staves': {
 			'interval': a['staves']['interval'] * scale,
 			'phi1': a['staves']['phi1'] * scale,
 			'phi2': a['staves']['phi2'] * scale,
-			'middleRhos': list(map(lambda x: x * scale, a['staves']['middleRhos'])),
+			'middleRhos': [rho * scale for rho in a['staves']['middleRhos']],
 		},
-	}, detection['areas']))
+	} for a in detection['areas']]
 
 	return {'areas': areas}
 
@@ -310,6 +310,76 @@ class PageLayout:
 			'theta': self.theta,
 			'interval': page_interval,
 			'detection': scaleDetection(detection, original_size[0] / canvas_size[0]),
+		}
+
+
+	def reinforce (self, image, ratio, base_layout):
+		self.theta = base_layout['theta'] # TODO: make a sophisticated theta policy
+
+		original_size = (image.shape[1], image.shape[0])
+		aligned_height = int(image.shape[1] * ratio)
+		if image.shape[0] < aligned_height:
+			image = np.pad(image, ((0, aligned_height - image.shape[0]), (0, 0), (0,0)), mode='constant')
+		elif image.shape[0] > aligned_height:
+			image = image[:aligned_height]
+
+		# determine canvas size
+		canvas_size = (original_size[0], aligned_height)
+		while canvas_size[0] < CANVAS_WIDTH_MIN:
+			canvas_size = (canvas_size[0] * 2, canvas_size[1] * 2)
+		if canvas_size[0] > original_size[0]:
+			image = cv2.resize(image, canvas_size)
+
+		canvas_scale = canvas_size[0] / original_size[0]
+		detection = scaleDetection(base_layout['detection'], canvas_scale)
+		for area in detection['areas']:
+			area['base_staves'] = area['staves']
+
+		# rotation correction
+		rot_mat = cv2.getRotationMatrix2D((canvas_size[0] / 2, canvas_size[1] / 2), self.theta * 180 / np.pi, 1)
+		image = cv2.warpAffine(image, rot_mat, canvas_size, flags=cv2.INTER_CUBIC)
+
+		heatmap = cv2.resize(self.heatmap, (canvas_size[0], round(canvas_size[0] * self.heatmap.shape[0] / self.heatmap.shape[1])), interpolation=cv2.INTER_CUBIC)
+		if heatmap.shape[0] > canvas_size[1]:
+			heatmap = heatmap[:canvas_size[1]]
+		elif heatmap.shape[0] < canvas_size[1]:
+			heatmap = np.pad(heatmap, ((0, canvas_size[1] - heatmap.shape[0]), (0, 0), (0,0)), mode='constant')
+		heatmap = cv2.warpAffine(heatmap, rot_mat, canvas_size, flags=cv2.INTER_LINEAR)
+
+		HB = heatmap[:, :, 1]
+		HL = heatmap[:, :, 2]
+
+		page_interval = self.interval * original_size[0] / RESIZE_WIDTH
+		canvas_interval = self.interval * canvas_size[0] / RESIZE_WIDTH
+
+		# if interval bias too far, keep base
+		interval_k = page_interval / base_layout['interval']
+		if interval_k > 2 or interval_k < 0.5:
+			return base_layout
+
+		for si, area in enumerate(detection['areas']):
+			l, r, t, b = map(round, (area['x'], area['x'] + area['width'], area['y'], area['y'] + area['height']))
+
+			hb = HB[t:b, l:r]
+			hl = HL[t:b, l:r]
+
+			area['staves'] = detectStavesFromHBL(hb, hl, canvas_interval)
+			#print('area:', area)
+
+			rhos = area['staves']['middleRhos']
+			def findRho (br):
+				return next((rho for rho in rhos if abs(rho - br) < canvas_interval * 1.5), br)
+
+			area['staves']['middleRhos'] = [findRho(br) for br in area['base_staves']['middleRhos']]
+
+		return {
+			'sourceSize': {
+				'width': original_size[0],
+				'height': original_size[1],
+			},
+			'theta': self.theta,
+			'interval': page_interval,
+			'detection': scaleDetection(detection, 1 / canvas_scale),
 		}
 
 
