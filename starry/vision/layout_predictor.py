@@ -16,6 +16,8 @@ def resizePageImage (img, size):
 	w, h = size
 	filled_height = img.shape[0] * w // img.shape[1]
 	img = cv2.resize(img, (w, filled_height), interpolation=cv2.INTER_AREA)
+	if len(img.shape) < 3:
+		img = np.expand_dims(img, -1)
 
 	if filled_height < h:
 		result = np.ones((h, w, img.shape[2]), dtype=np.uint8) * 255

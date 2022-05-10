@@ -34,8 +34,8 @@ def showLayout (ax, source, layout):
 			ax.add_patch(patches.Rectangle((area_x + phi1, area_y + rho - interval * 2), phi2 - phi1, interval * 4, fill=False, edgecolor='r'))
 
 
-def main ():
-	score = json.load(open(sys.argv[1], 'r'))
+def reinforceScoreJson (scoreJSON, configPath):
+	score = json.load(open(scoreJSON, 'r'))
 	page = score['pages'][0]
 	page_source = page['source']
 
@@ -53,7 +53,7 @@ def main ():
 	_, axes = plt.subplots(1, 2)
 	showLayout(axes[0], source, layout)
 
-	config = Configuration.createOrLoad(sys.argv[2], volatile=True)
+	config = Configuration.createOrLoad(configPath, volatile=True)
 	predictor = LayoutPredictor(config)
 
 	results = predictor.predictReinforce([bytes], [layout])
@@ -63,6 +63,31 @@ def main ():
 
 	plt.get_current_fig_manager().full_screen_toggle()
 	plt.show()
+
+
+def predictImage (imagePath, configPath):
+	config = Configuration.createOrLoad(configPath, volatile=True)
+	predictor = LayoutPredictor(config)
+
+	source = cv2.imread(imagePath)
+	file = open(imagePath, 'rb')
+	bytes = file.read()
+	results = predictor.predictDetection([bytes])
+	layout = next(results)
+	print('layout:', layout)
+
+	_, axes = plt.subplots(1)
+	showLayout(axes, source, layout)
+
+	plt.get_current_fig_manager().full_screen_toggle()
+	plt.show()
+
+
+def main ():
+	if sys.argv[1].endswith('.json'):
+		reinforceScoreJson(sys.argv[1], sys.argv[2])
+	elif sys.argv[1].endswith('.png'):
+		predictImage(sys.argv[1], sys.argv[2])
 
 
 if __name__ == '__main__':
