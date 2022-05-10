@@ -29,9 +29,10 @@ def showLayout (ax, source, layout):
 		area_x, area_y = area['x'], area['y']
 		ax.add_patch(patches.Rectangle((area_x, area_y), area['width'], area['height'], fill=False, edgecolor='b'))
 
-		for rho in area['staves']['middleRhos']:
-			phi1, phi2 = area['staves']['phi1'], area['staves']['phi2']
-			ax.add_patch(patches.Rectangle((area_x + phi1, area_y + rho - interval * 2), phi2 - phi1, interval * 4, fill=False, edgecolor='r'))
+		if area['staves'] and area['staves']['middleRhos']:
+			for rho in area['staves']['middleRhos']:
+				phi1, phi2 = area['staves']['phi1'], area['staves']['phi2']
+				ax.add_patch(patches.Rectangle((area_x + phi1, area_y + rho - interval * 2), phi2 - phi1, interval * 4, fill=False, edgecolor='r'))
 
 
 def reinforceScoreJson (scoreJSON, configPath):
