@@ -184,7 +184,7 @@ def scaleDetection (detection, scale):
 			'phi1': a['staves']['phi1'] * scale,
 			'phi2': a['staves']['phi2'] * scale,
 			'middleRhos': [rho * scale for rho in a['staves']['middleRhos']],
-		},
+		} if (a.get('staves') and a['staves'].get('middleRhos') is not None) else None,
 	} for a in detection['areas']]
 
 	return {'areas': areas}
@@ -271,7 +271,7 @@ class PageLayout:
 			area['staves'] = detectStavesFromHBL(hb, hl, canvas_interval)
 			#cv2.imwrite(f'./output/hl-{si}.png', hl)
 
-			if area['staves'].get('middleRhos') is None:
+			if not area.get('staves') or area['staves'].get('middleRhos') is None:
 				continue
 
 			area['staff_images'] = []
