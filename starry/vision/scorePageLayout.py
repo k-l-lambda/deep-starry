@@ -240,6 +240,8 @@ class PageLayout:
 		rot_mat = cv2.getRotationMatrix2D((canvas_size[0] / 2, canvas_size[1] / 2), self.theta * 180 / np.pi, 1)
 		image = cv2.warpAffine(image, rot_mat, canvas_size, flags=cv2.INTER_CUBIC)
 		#cv2.imwrite(f'./output/image-{i+j}.png', image)
+		if len(image.shape) < 3:
+			image = np.expand_dims(image, -1)
 
 		heatmap = cv2.resize(self.heatmap, (canvas_size[0], round(canvas_size[0] * self.heatmap.shape[0] / self.heatmap.shape[1])), interpolation=cv2.INTER_CUBIC)
 		if heatmap.shape[0] > canvas_size[1]:
@@ -365,6 +367,10 @@ class PageLayout:
 
 			area['staves'] = detectStavesFromHBL(hb, hl, canvas_interval)
 			#print('area:', area)
+
+			if area['staves'] is None or area['staves'].get('middleRhos') is None:
+				area['staves'] = None
+				continue
 
 			rhos = area['staves']['middleRhos']
 			def findRho (br):
