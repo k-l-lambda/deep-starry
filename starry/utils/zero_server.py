@@ -31,7 +31,7 @@ class ZeroServer:
 			'msg': (err_type and (err_type + '\n\n')) + err_msg
 		}, use_bin_type=True))
 
-		logging.info('[ZeroServer.res_error] %s\n%s', err_type, err_msg)
+		logging.error('[ZeroServer.res_error] %s\n%s', err_type, err_msg)
 
 	def bind(self, port):
 		address = f'tcp://*:{port}'
