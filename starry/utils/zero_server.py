@@ -25,10 +25,13 @@ class ZeroServer:
 
 	def res_error(self, err_type=None):
 		err_info = sys.exc_info()
+		err_msg = f"{str(err_info[0])} {str(err_info[1])} \n {''.join(traceback.format_tb(err_info[2]))}"
 		self.socket.send(packb({
 			'code': -1,
-			'msg': (err_type and (err_type + '\n\n')) + f"{str(err_info[0])} {str(err_info[1])} \n {''.join(traceback.format_tb(err_info[2]))} "
+			'msg': (err_type and (err_type + '\n\n')) + err_msg
 		}, use_bin_type=True))
+
+		logging.error('[ZeroServer.res_error] %s\n%s', err_type, err_msg)
 
 	def bind(self, port):
 		address = f'tcp://*:{port}'
