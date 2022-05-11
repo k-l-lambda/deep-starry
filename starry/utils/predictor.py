@@ -4,6 +4,7 @@ import torch
 import logging
 
 from .model_factory import loadModel
+from .check_host import check_host
 
 
 
@@ -30,3 +31,7 @@ class Predictor:
 
 		self.model.to(self.device)
 		self.model.eval()
+
+
+	def checkHost (self):
+		return check_host()
