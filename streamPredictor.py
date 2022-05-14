@@ -30,6 +30,7 @@ PIL.Image.registered_extensions()
 
 
 LOGFILE = os.environ.get('PREDICTOR_LOG')
+DIST_DATE = os.environ.get('DIST_DATE')
 
 
 PREDICTOR_FACTORY = {
@@ -129,6 +130,9 @@ def main ():
 				logging.StreamHandler(sys.stderr),
 				logging.FileHandler(log_path),
 			])
+
+	if DIST_DATE is not None:
+		logging.info('DIST: %s', DIST_DATE)
 
 	config = Configuration.createOrLoad(args.config, volatile=True)
 
