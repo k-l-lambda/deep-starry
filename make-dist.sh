@@ -17,3 +17,5 @@ find . -name '__pycache__' -exec rmdir {} \;
 #rm ./*.txt
 #rm ./*.md
 #rm -r ./configs
+
+echo DIST_DATE=$(date +'%Y%m%d %H:%M:%S') >> .env
