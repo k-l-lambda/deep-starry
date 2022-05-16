@@ -7,7 +7,7 @@ import PIL.Image
 import cv2
 import numpy as np
 import random
-#import logging
+import logging
 
 
 
@@ -15,6 +15,10 @@ MARGIN_DIVIDER = 8
 
 
 def arrayFromImageStream (buffer):
+	if type(buffer) is not bytes:
+		logging.warn('[arrayFromImageStream]: input data is not bytes: %s', type(buffer))
+		return None
+
 	stream = io.BytesIO(buffer)
 	image = PIL.Image.open(stream)
 
