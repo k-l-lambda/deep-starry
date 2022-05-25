@@ -11,7 +11,7 @@ def registerModels ():
 
 	from ..topology.models import jointers as tj
 	from ..topology.models import rectifyJointer as tr
-	from ..vision import models as vm
+	from ..melody.models import TestEncoder
 
 	classes = [
 		tj.TransformJointer, tj.TransformJointerLoss,
@@ -22,12 +22,7 @@ def registerModels ():
 		tj.TransformSieveJointerH, tj.TransformSieveJointerHLoss,
 		tj.TransformSieveJointerHV, tj.TransformSieveJointerHVLoss,
 		tr.RectifySieveJointer, tr.RectifySieveJointerLoss,
-		vm.ScoreWidgets, vm.ScoreWidgetsInspection, vm.ScoreWidgetsLoss,
-		vm.ScoreWidgetsMask, vm.ScoreWidgetsMaskLoss,
-		vm.ScoreRegression,
-		vm.ScoreResidue, vm.ScoreResidueInspection,
-		vm.ScoreResidueU, vm.ScoreResidueUInspection, vm.ScoreResidueULoss,
-		vm.ScoreSemanticValue, vm.ScoreSemanticValueLoss,
+		TestEncoder,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

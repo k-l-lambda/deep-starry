@@ -1,0 +1,10 @@
+
+id:     melody/{date}-{filename}
+
+env: ~
+  #CUDA_VISIBLE_DEVICES: 0
+
+model:
+  type:           TestEncoder
+  args:
+    d_model:      4
