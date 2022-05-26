@@ -32,6 +32,7 @@ def main ():
 		model.load_state_dict(checkpoint['model'])
 		logging.info(f'checkpoint loaded: {config["best"]}')
 
+	model.eval()
 	model.no_overwrite = True
 
 	outpath = config.localPath(f'{name}.onnx')
