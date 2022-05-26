@@ -5,6 +5,16 @@ TODO:
 
 
 
+2022.5.26
+
+	+	convertToOnnx.py: supported multiple inputs.
+
+
+2022.5.25
+
+	|	melody modules setup.
+
+
 2022.5.11
 
 	+	utils/check_host.py created.

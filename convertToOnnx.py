@@ -16,8 +16,10 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('config', type=str)
-	parser.add_argument('-s', '--shape', type=str, help='shape of input tensor, e.g. 1,3,256,256')
+	parser.add_argument('-s', '--shapes', type=str, help='shapes of input tensors, e.g. 1,3,256,256;1,16')
 	parser.add_argument('-op', '--opset', type=int, default=11, help='ONNX opset version')
+	parser.add_argument('-in', '--input_names', type=str, default='in', help='e.g. in1;in2')
+	parser.add_argument('-out', '--output_names', type=str, default='out', help='e.g. out1;out2')
 
 	args = parser.parse_args()
 
@@ -36,8 +38,14 @@ def main ():
 	model.no_overwrite = True
 
 	outpath = config.localPath(f'{name}.onnx')
-	dummy_input = torch.randn(*map(int, args.shape.split(',')))
-	torch.onnx.export(model, dummy_input, outpath, verbose=True, input_names=['in'], output_names=['out'], opset_version=args.opset)
+
+	shapes = args.shapes.split(';')
+	dummy_inputs = tuple(torch.randn(*map(int, shape.split(','))) for shape in shapes)
+	torch.onnx.export(model, dummy_inputs, outpath,
+		verbose=True,
+		input_names=args.input_names.split(';'),
+		output_names=args.output_names.split(';'),
+		opset_version=args.opset)
 
 	logging.info(f'ONNX model saved to: {outpath}')
 
