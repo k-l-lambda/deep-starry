@@ -1,0 +1,13 @@
+
+id:     melody/{date}-{filename}
+
+env: ~
+  #CUDA_VISIBLE_DEVICES: 0
+
+model:
+  type:           MatchJointerRaw
+  args:
+    d_model:      1
+    scale_emb:    True
+
+# convertToOnnx.py [config] -s '1,2,1;1,2,1' -in 'c;s' -out matching
