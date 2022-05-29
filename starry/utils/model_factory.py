@@ -11,7 +11,7 @@ def registerModels ():
 
 	from ..topology.models import jointers as tj
 	from ..topology.models import rectifyJointer as tr
-	from ..melody.models import TestEncoder
+	from ..melody.models import TestEncoder, MatchJointerRaw
 
 	classes = [
 		tj.TransformJointer, tj.TransformJointerLoss,
@@ -22,7 +22,7 @@ def registerModels ():
 		tj.TransformSieveJointerH, tj.TransformSieveJointerHLoss,
 		tj.TransformSieveJointerHV, tj.TransformSieveJointerHVLoss,
 		tr.RectifySieveJointer, tr.RectifySieveJointerLoss,
-		TestEncoder,
+		TestEncoder, MatchJointerRaw,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])
