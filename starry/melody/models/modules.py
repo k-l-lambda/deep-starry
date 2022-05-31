@@ -102,27 +102,23 @@ class Jointer (nn.Module):
 
 	def forward (self, source, target, mask_src, mask_tar):
 		# normalize for inner product
-		source = F.normalize(source, dim=-1)
+		source = F.normalize(source, dim=-1)	# TODO: re-implement F.normalize for onnx web
 		target = F.normalize(target, dim=-1)
 
-		results = []
-		for i, (code_src, code_tar) in enumerate(zip(source, target)):
-			msk_src, msk_tar = mask_src[i].unsqueeze(-1), mask_tar[i].unsqueeze(-1)
-			code_src = code_src.masked_select(msk_src).reshape(-1, self.d_model)	# (src_joint, d_model)
-			code_tar = code_tar.masked_select(msk_tar).reshape(-1, self.d_model)	# (tar_joint, d_model)
+		code_src = source#.masked_select(mask_src).reshape(-1, -1, self.d_model)	# (n, src_joint, d_model)
+		code_tar = target#.masked_select(mask_tar).reshape(-1, -1, self.d_model)	# (n, tar_joint, d_model)
 
-			code_src = code_src.unsqueeze(-2)										# (src_joint, 1, d_model)
-			code_tar = code_tar.unsqueeze(-1)										# (tar_joint, d_model, 1)
+		'''code_src = code_src.unsqueeze(-2)										# (n, src_joint, 1, d_model)
+		code_tar = code_tar.unsqueeze(-1)										# (n, tar_joint, d_model, 1)
 
-			src_joints = code_src.shape[0]
-			tar_joints = code_tar.shape[0]
+		src_joints = code_src.shape[1]
+		tar_joints = code_tar.shape[1]
 
-			code_src = code_src.unsqueeze(1).repeat(1, tar_joints, 1, 1)			# (src_joint, tar_joints, 1, d_model)
-			code_tar = code_tar.repeat(src_joints, 1, 1, 1)							# (src_joint, tar_joint, d_model, 1)
+		code_src = code_src.unsqueeze(2).repeat(1, 1, tar_joints, 1, 1)			# (n, src_joint, tar_joints, 1, d_model)
+		code_tar = code_tar.repeat(1, src_joints, 1, 1, 1)						# (n, src_joint, tar_joint, d_model, 1)'''
+		code_tar = code_tar.transpose(1, 2)
 
-			result = code_src.matmul(code_tar).clamp(min=0)							# (src_joint, tar_joint)
-			result = result.flatten()
+		result = code_src.matmul(code_tar).clamp(min=0, max=float('inf'))		# (n, src_joint, tar_joint)
+		#result = result.flatten()
 
-			results.append(result)
-
-		return results
+		return result, source, target

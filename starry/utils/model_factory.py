@@ -9,19 +9,11 @@ model_dict = None
 def registerModels ():
 	global model_dict
 
-	from ..topology.models import jointers as tj
-	from ..topology.models import rectifyJointer as tr
+	#from ..topology.models import jointers as tj
+	#from ..topology.models import rectifyJointer as tr
 	from ..melody.models import TestEncoder, MatchJointerRaw
 
 	classes = [
-		tj.TransformJointer, tj.TransformJointerLoss,
-		tj.TransformJointerH, tj.TransformJointerHLoss,
-		tj.TransformJointerHV, tj.TransformJointerHVLoss,
-		tj.TransformJointerH_ED, tj.TransformJointerH_EDLoss,
-		tj.TransformJointerHV_EDD, tj.TransformJointerHV_EDDLoss,
-		tj.TransformSieveJointerH, tj.TransformSieveJointerHLoss,
-		tj.TransformSieveJointerHV, tj.TransformSieveJointerHVLoss,
-		tr.RectifySieveJointer, tr.RectifySieveJointerLoss,
 		TestEncoder, MatchJointerRaw,
 	]
 

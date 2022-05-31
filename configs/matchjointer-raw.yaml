@@ -10,4 +10,4 @@ model:
     d_model:      1
     scale_emb:    True
 
-# convertToOnnx.py [config] -s '1,2,1;1,2,1' -in 'c;s' -out matching
+# convertToOnnx.py [config] -s '1,2,1;1,2,1' -in 'c;s' -out 'matching;src;tar'
