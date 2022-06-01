@@ -1,15 +1,21 @@
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+#import torch.nn.functional as F
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
 
 
 
+FLOAT32_EPS = 1e-12 #torch.finfo(torch.float32).eps
+FLOAT32_MAX = torch.finfo(torch.float32).max
+
+
 def normalizeL2 (v, dim=-1):
-	#return v / torch.linalg.vector_norm(v, dim=dim).clamp(min=1e-12, max=float('inf'))
-	return v / torch.norm(v, p=2, dim=dim).clamp(min=1e-12, max=float('inf'))
+	#return v / torch.linalg.vector_norm(v, dim=dim).clamp(min=FLOAT32_EPS, max=FLOAT32_MAX)
+	#return v / torch.norm(v, p=2, dim=dim).clamp(min=FLOAT32_EPS, max=FLOAT32_MAX)
+	sq_sum = torch.sum(v ** 2, dim=dim, keepdim=True)
+	return v / torch.sqrt(sq_sum).clamp(min=FLOAT32_EPS, max=FLOAT32_MAX)
 
 
 class EncoderLayerStack (nn.Module):
@@ -120,7 +126,7 @@ class Jointer (nn.Module):
 		code_tar = code_tar.repeat(1, src_joints, 1, 1, 1)						# (n, src_joint, tar_joint, d_model, 1)'''
 		code_tar = code_tar.transpose(1, 2)
 
-		result = code_src.matmul(code_tar).clamp(min=0, max=1e+9)		# (n, src_joint, tar_joint)
+		result = code_src.matmul(code_tar).clamp(min=0, max=FLOAT32_MAX)		# (n, src_joint, tar_joint)
 		#result = result.flatten()
 
-		return result, source, target
+		return result, code_src, code_tar
