@@ -12,10 +12,12 @@ FLOAT32_MAX = torch.finfo(torch.float32).max
 
 
 def normalizeL2 (v, dim=-1):
+	#return F.normalize(v, dim=dim)
 	#return v / torch.linalg.vector_norm(v, dim=dim).clamp(min=FLOAT32_EPS, max=FLOAT32_MAX)
 	#return v / torch.norm(v, p=2, dim=dim).clamp(min=FLOAT32_EPS, max=FLOAT32_MAX)
-	sq_sum = torch.sum(v ** 2, dim=dim, keepdim=True)
-	return v / torch.sqrt(sq_sum).clamp(min=FLOAT32_EPS, max=FLOAT32_MAX)
+	sq_sum = torch.sum(v * v, dim=dim, keepdim=True)
+	norm = torch.sqrt(sq_sum).clamp(min=FLOAT32_EPS, max=FLOAT32_MAX)
+	return v / norm
 
 
 class EncoderLayerStack (nn.Module):
@@ -116,16 +118,7 @@ class Jointer (nn.Module):
 		code_src = normalizeL2(source)	# (n, src_joint, d_model)
 		code_tar = normalizeL2(target)	# (n, tar_joint, d_model)
 
-		'''code_src = code_src.unsqueeze(-2)										# (n, src_joint, 1, d_model)
-		code_tar = code_tar.unsqueeze(-1)										# (n, tar_joint, d_model, 1)
-
-		src_joints = code_src.shape[1]
-		tar_joints = code_tar.shape[1]
-
-		code_src = code_src.unsqueeze(2).repeat(1, 1, tar_joints, 1, 1)			# (n, src_joint, tar_joints, 1, d_model)
-		code_tar = code_tar.repeat(1, src_joints, 1, 1, 1)						# (n, src_joint, tar_joint, d_model, 1)'''
 		code_tar = code_tar.transpose(1, 2)
-
 		result = code_src.matmul(code_tar).clamp(min=0, max=FLOAT32_MAX)		# (n, src_joint, tar_joint)
 		#result = result.flatten()
 
