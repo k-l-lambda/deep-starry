@@ -25,9 +25,6 @@ class MatchJointerRaw (nn.Module):
 		c_output = self.c_encoder(c_input)
 		s_output = self.s_encoder(s_input)
 
-		c_mask = torch.ones_like(c_input[:, :, 0], dtype=torch.bool)
-		s_mask = torch.ones_like(s_input[:, :, 0], dtype=torch.bool)
-
 		s_output = self.s_decoder(s_output, c_output)
 
-		return self.jointer(s_output, c_output, s_mask, c_mask)
+		return self.jointer(s_output, c_output)

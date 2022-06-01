@@ -113,7 +113,7 @@ class Jointer (nn.Module):
 		self.d_model = d_model
 
 
-	def forward (self, source, target, mask_src, mask_tar):
+	def forward (self, source, target):
 		# normalize for inner product
 		code_src = normalizeL2(source)	# (n, src_joint, d_model)
 		code_tar = normalizeL2(target)	# (n, tar_joint, d_model)
