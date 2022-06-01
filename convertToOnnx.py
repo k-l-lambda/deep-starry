@@ -39,13 +39,29 @@ def main ():
 
 	outpath = config.localPath(f'{name}.onnx')
 
-	shapes = args.shapes.split(';')
-	dummy_inputs = tuple(torch.randn(*map(int, shape.split(','))) for shape in shapes)
+	opset = args.opset
+	shapes = []
+
+	if args.shapes is not None:
+		shapes = args.shapes.split(';')
+		shapes = [tuple(map(int, shape.split(','))) for shape in shapes]
+		input_names = args.input_names.split(';')
+		output_names = args.output_names.split(';')
+	elif config['onnx']:
+		onnx_config = config['onnx']
+		input_names = [*onnx_config['inputs']]
+		output_names = onnx_config['outputs']
+
+		shapes = [tuple(onnx_config['inputs'][name]) for name in input_names]
+		opset = onnx_config['opset']
+
+	dummy_inputs = tuple(torch.randn(*shape) for shape in shapes)
+
 	torch.onnx.export(model, dummy_inputs, outpath,
 		verbose=True,
-		input_names=args.input_names.split(';'),
-		output_names=args.output_names.split(';'),
-		opset_version=args.opset)
+		input_names=input_names,
+		output_names=output_names,
+		opset_version=opset)
 
 	logging.info(f'ONNX model saved to: {outpath}')
 
