@@ -1,0 +1,4 @@
+
+PITCH_MAX = 128
+
+VELOCITY_MAX = 127.

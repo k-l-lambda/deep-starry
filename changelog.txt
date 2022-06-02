@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.6.2
+
+	+	melody: model class of MatchJointer1 added.
+
+
 2022.6.1
 
 	+	convertToOnnx.py: added onnx field in configuration file.

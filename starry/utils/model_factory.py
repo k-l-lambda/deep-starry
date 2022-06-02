@@ -11,10 +11,10 @@ def registerModels ():
 
 	#from ..topology.models import jointers as tj
 	#from ..topology.models import rectifyJointer as tr
-	from ..melody.models import TestEncoder, MatchJointerRaw
+	from ..melody.models import TestEncoder, MatchJointerRaw, MatchJointer1
 
 	classes = [
-		TestEncoder, MatchJointerRaw,
+		TestEncoder, MatchJointerRaw, MatchJointer1
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

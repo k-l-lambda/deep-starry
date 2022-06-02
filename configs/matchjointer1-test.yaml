@@ -1,0 +1,10 @@
+
+id:     melody/{date}-{filename}
+
+env: ~
+  #CUDA_VISIBLE_DEVICES: 0
+
+model:
+  type:           MatchJointer1
+  args:
+    d_time:       16

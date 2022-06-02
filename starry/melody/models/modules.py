@@ -1,9 +1,11 @@
 
 import torch
 import torch.nn as nn
-#import torch.nn.functional as F
+import torch.nn.functional as F
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
+from ...modules.positionEncoder import SinusoidEncoder
+from ..notation import PITCH_MAX, VELOCITY_MAX
 
 
 
@@ -123,3 +125,24 @@ class Jointer (nn.Module):
 		#result = result.flatten()
 
 		return result, code_src, code_tar
+
+
+class NoteEncoder (nn.Module):
+	def __init__ (self, d_model=128, d_time=64, angle_cycle=100000):
+		super().__init__()
+
+		self.time_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_time)
+		self.embed = nn.Linear(d_time + PITCH_MAX + 1, d_model)
+
+
+	# x: (time, pitch, velocity)
+	def forward (self, x):
+		time, pitch, velocity = x
+
+		vec_time = self.time_encoder(time)	# (n, seq, d_time)
+		vec_pitch = F.one_hot(pitch, num_classes=PITCH_MAX)	# (n, seq, PITCH_MAX)
+		scaler_velocity = (velocity.float() / VELOCITY_MAX).unsqueeze(-1)	# (n, seq, 1)
+
+		x = torch.cat([vec_time, vec_pitch, scaler_velocity], dim=-1)	# (n, seq, d_time + PITCH_MAX + 1)
+
+		return self.embed(x)	# (n, seq, d_model)
