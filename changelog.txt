@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.6.6
+
+	+	melody/preprocess.py created.
+
+
 2022.6.2
 
 	+	melody: model class of MatchJointer1 added.
