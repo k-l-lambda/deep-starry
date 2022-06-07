@@ -38,13 +38,14 @@ class NotationPair (IterableDataset):
 		return cls.loadPackage(url, args, splits, device, args_variant=args_variant)
 
 
-	def __init__ (self, package, entries, device, shuffle=False, batch_slice=None, use_cache=True):
+	def __init__ (self, package, entries, device, shuffle=False, seq_len=0x100, ci_bias_sigma=5, use_cache=False):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
 		self.device = device
 
-		self.batch_slice = batch_slice
+		self.seq_len = seq_len
+		self.ci_bias_sigma = ci_bias_sigma
 
 		self.entry_cache = {} if use_cache else None
 
@@ -78,79 +79,42 @@ class NotationPair (IterableDataset):
 			np.random.seed(len(self.entries))
 
 		for entry in self.entries:
-			yield self.readEntry(entry.name)
+			pair = self.readEntry(entry.name)
+			criterion = pair['criterion']
+			criterion_len = len(criterion['time'])
+			criterion_indices = [*range(criterion_len)]
+
+			# TODO: augment pitch and velocity
+
+			for sample in pair['samples']:
+				sample_len = len(sample['time'])
+
+				for si in range(1, sample_len):
+					ci0 = sample['ci'][si - 1].item()
+					s_time0 = sample['time'][si - 1]
+					c_time0 = criterion['time'][ci0]
+
+					center_ci = round(ci0 - 1 + np.random.randn() * self.ci_bias_sigma)
+					ci_range = (max(0, center_ci - self.seq_len // 2), min(criterion_len, center_ci + self.seq_len // 2))
+					ci_range_len = ci_range[1] - ci_range[0]
+
+					c_ci = criterion_indices[ci_range[0]:ci_range[1]]
+					s_ci = sample['ci'][:si]
+					cis = torch.tensor([c_ci.index(ci) + 1 for ci in s_ci], dtype=torch.long)
+
+					s_time, s_pitch, s_velocity, ci = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long), torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long)
+					s_time[-si:], s_pitch[-si:], s_velocity[-si:] = sample['time'][:si] - s_time0, sample['pitch'][:si], sample['velocity'][:si]
+					ci[-si:] = cis
+
+					c_time, c_pitch, c_velocity = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long), torch.zeros(self.seq_len, dtype=torch.float32)
+					c_time[:ci_range_len], c_pitch[:ci_range_len], c_velocity[:ci_range_len] = criterion['time'][ci_range[0]:ci_range[1]] - c_time0, criterion['pitch'][ci_range[0]:ci_range[1]] - c_pitch[0], criterion['velocity'][ci_range[0]:ci_range[1]] - c_velocity[0]
+
+					yield c_time, c_pitch, c_velocity, s_time, s_pitch, s_velocity, ci
 
 
 	def collateBatch (self, batch):
-		# TODO:
-		return batch
+		def extract (i):
+			stack = [tensors[i].unsqueeze(0) for tensors in batch]
+			return torch.cat(stack, dim=0).to(self.device)
 
-
-	'''def collateBatch (self, batch):
-		assert len(batch) == 1
-
-		tensors = batch[0]
-		if tensors.get('fake') is None:
-			tensors['fake'] = 1 - tensors['confidence']
-
-		feature_shape = tensors['feature'].shape
-		batch_size = feature_shape[0]
-		if self.batch_slice is not None:
-			batch_size = min(batch_size, self.batch_slice)
-		n_seq = feature_shape[1]
-
-		# to device
-		for key in tensors:
-			tensors[key] = tensors[key].to(self.device)
-
-		# extend batch dim for single tensors
-		elem_type = tensors['type'].repeat(batch_size, 1).long()
-		staff = tensors['staff'].repeat(batch_size, 1).long()
-
-		# noise augment for feature
-		feature = tensors['feature'][:batch_size]
-		stability = np.random.power(self.stability_base)
-		error = torch.rand(*feature.shape, device=self.device) > stability
-		chaos = torch.exp(torch.randn(*feature.shape, device=self.device) - 1)
-		feature[error] *= chaos[error]
-
-		# sort division[3:] & dots
-		feature[:, :, 3:7], _ = feature[:, :, 3:7].sort(descending=True)
-		feature[:, :, 7:9], _ = feature[:, :, 7:9].sort(descending=True)
-
-		# stemDirection amplitude
-		if self.stem_amplitude:
-			power = torch.randn((batch_size, 1, 1), device=self.device) * self.stem_amplitude['sigma'] + self.stem_amplitude['mu']
-			feature[:, :, 12:14] *= torch.exp(power)
-
-		# augment for position
-		x = tensors['x'][:batch_size]
-		y1 = tensors['y1'][:batch_size]
-		y2 = tensors['y2'][:batch_size]
-		ox, oy = (torch.rand(batch_size, 1, device=self.device) - 0.2) * 24, (torch.rand(batch_size, 1, device=self.device) - 0.2) * 12
-		if self.position_drift > 0:
-			x += torch.randn(batch_size, n_seq, device=self.device) * self.position_drift + ox
-
-			# exclude BOS, EOS from global Y offset
-			y1[:, 1:-1] += torch.randn(batch_size, n_seq - 2, device=self.device) * self.position_drift + oy
-			y2[:, 1:-1] += torch.randn(batch_size, n_seq - 2, device=self.device) * self.position_drift + oy
-
-		result = {
-			'type': elem_type,
-			'staff': staff,
-			'feature': feature,
-			'x': x,
-			'y1': y1,
-			'y2': y2,
-			'matrixH': tensors['matrixH'].repeat(batch_size, 1),
-			'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
-			'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
-		}
-
-		for field in TARGET_FIELDS:
-			result[field] = tensors[field].repeat(batch_size, 1)
-
-		for field in ['division', 'dots', 'beam', 'stemDirection']:
-			result[field] = result[field].long()
-
-		return result'''
+		return [extract(i) for i in range(7)]
