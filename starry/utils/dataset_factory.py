@@ -10,17 +10,12 @@ type_dict = None
 def registerTypes ():
 	global type_dict
 
-	from ..vision.data import RenderScore, ScoreMask, ScoreGauge, ScorePage, ScorePageRaw, ScoreFault
 	from ..topology.data import EventCluster
+	from ..melody.data import NotationPair
 
 	classes = [
-		RenderScore,
-		ScoreMask,
-		ScoreGauge,
-		ScorePage,
-		ScorePageRaw,
-		ScoreFault,
 		EventCluster,
+		NotationPair,
 	]
 
 	type_dict = dict([(c.__name__, c) for c in classes])

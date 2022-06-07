@@ -8,3 +8,12 @@ model:
   type:           MatchJointer1
   args:
     d_time:       16
+
+
+data:
+  type:                     NotationPair
+  root:                     bach-20220607.zip
+  splits:                   '*1..8/10:9/10'
+  batch_size:               1
+  args:                     {}
+  #args_variant:
