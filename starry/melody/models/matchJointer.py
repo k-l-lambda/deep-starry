@@ -1,5 +1,5 @@
 
-#import torch
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -75,9 +75,17 @@ class MatchJointer1Loss (nn.Module):
 
 
 	def forward (self, criterion, sample, ci):
-		matching_truth = F.one_hot(ci, num_classes=criterion[0].shape[1]).float()
+		c_len = criterion[0].shape[1]
+
+		matching_truth = F.one_hot(ci, num_classes=c_len).float()
 		matching_pred, code_src, code_tar = self.deducer(*criterion, *sample)
 
 		loss = self.bce(matching_pred, matching_truth)
 
-		return loss, {}
+		ci_pred = torch.argmax(matching_pred, dim=-1)
+		corrects = (ci_pred == ci).sum().item()
+		accuracy = corrects / torch.numel(ci)
+
+		return loss, {
+			'accuracy': accuracy,
+		}
