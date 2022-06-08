@@ -117,4 +117,8 @@ class NotationPair (IterableDataset):
 			stack = [tensors[i].unsqueeze(0) for tensors in batch]
 			return torch.cat(stack, dim=0).to(self.device)
 
-		return [extract(i) for i in range(7)]
+		return {
+			'criterion': (extract(0), extract(1), extract(2)),
+			'sample': (extract(3), extract(4), extract(5)),
+			'ci': extract(6),
+		}

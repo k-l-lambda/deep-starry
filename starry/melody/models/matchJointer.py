@@ -74,7 +74,8 @@ class MatchJointer1Loss (nn.Module):
 				nn.init.xavier_uniform_(p)
 
 
-	def forward (self, criterion, sample, ci):
+	def forward (self, batch):
+		criterion, sample, ci = batch['criterion'], batch['sample'], batch['ci']
 		c_len = criterion[0].shape[1]
 
 		matching_truth = F.one_hot(ci, num_classes=c_len).float()
