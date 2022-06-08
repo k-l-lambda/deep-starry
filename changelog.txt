@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.6.8
+
+	+	melody: model class of MatchJointer1Loss added.
+
+
 2022.6.7
 
 	+	melody: dataset class of NotationPair added.

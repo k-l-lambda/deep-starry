@@ -1,6 +1,7 @@
 
 #import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .modules import Encoder, Decoder, Jointer, NoteEncoder
 
@@ -57,3 +58,26 @@ class MatchJointer1 (nn.Module):
 		vec_s = self.s_decoder(vec_s, vec_c)
 
 		return self.jointer(vec_s, vec_c)
+
+
+class MatchJointer1Loss (nn.Module):
+	def __init__ (self, **kw_args):
+		super().__init__()
+
+		self.deducer = MatchJointer1(**kw_args)
+
+		self.bce = nn.BCELoss()
+
+		# initialize parameters
+		for p in self.parameters():
+			if p.dim() > 1:
+				nn.init.xavier_uniform_(p)
+
+
+	def forward (self, criterion, sample, ci):
+		matching_truth = F.one_hot(ci, num_classes=criterion[0].shape[1]).float()
+		matching_pred, code_src, code_tar = self.deducer(*criterion, *sample)
+
+		loss = self.bce(matching_pred, matching_truth)
+
+		return loss, {}
