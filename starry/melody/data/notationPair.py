@@ -1,4 +1,6 @@
 
+from random import sample
+import yaml
 from fs import open_fs
 import numpy as np
 import dill as pickle
@@ -14,7 +16,7 @@ class NotationPair (IterableDataset):
 	def loadPackage (cls, url, args, splits='*0/1', device='cpu', args_variant=None):
 		splits = splits.split(':')
 		package = open_fs(url)
-		files = [file for step in package.walk(filter=['*']) for file in step.files]
+		files = [file for step in package.walk(filter=['*.pkl']) for file in step.files]
 
 		def loadEntries (split):
 			phases, cycle = parseFilterStr(split)
@@ -49,6 +51,13 @@ class NotationPair (IterableDataset):
 
 		self.entry_cache = {} if use_cache else None
 
+		with self.package.open('index.yaml', 'r') as file:
+			index_info = yaml.safe_load(file)
+			ex = [info for info in index_info['examples'] if any(entry for entry in entries if entry.name.startswith(info['name']))]
+
+			sample_ns = [[max(sample['length'] - seq_len, 0) + 1 for sample in info['samples']] for info in ex]
+			self.n_examples = sum(n for nn in sample_ns for n in nn)
+
 
 	def readEntryFromPackage (self, filename):
 		with self.package.open(filename, 'rb') as file:
@@ -68,7 +77,7 @@ class NotationPair (IterableDataset):
 
 
 	def __len__(self):
-		return len(self.entries)
+		return self.n_examples
 
 
 	def __iter__ (self):

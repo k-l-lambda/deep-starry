@@ -1,6 +1,7 @@
 
 import os
 import json
+import yaml
 from fs import open_fs
 from zipfile import ZipFile, ZIP_STORED
 from tqdm import tqdm
@@ -34,6 +35,8 @@ def preprocessDataset (source_dir, target_path):
 
 	dir_list = [name for name in source.listdir('/') if source.isdir(name)]
 
+	example_infos = []
+
 	for dirname in tqdm(dir_list, desc='Preprocess groups'):
 		criterion_file = open(os.path.join(source_dir, dirname, 'criterion.json'), 'r')
 		criterion = vectorizeNotationFile(criterion_file)
@@ -53,5 +56,17 @@ def preprocessDataset (source_dir, target_path):
 			'samples': samples,
 		}
 		target.writestr(target_filename, pickle.dumps(tensors))
+
+		example_infos.append({
+			'name': dirname,
+			'criterion': {
+				'length': criterion['time'].shape[0],
+			},
+			'samples': [{'length': sample['ci'].shape[0]} for sample in samples],
+		})
+
+	target.writestr('index.yaml', yaml.dump({
+		'examples': example_infos,
+	}))
 
 	target.close()
