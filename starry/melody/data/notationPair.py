@@ -102,17 +102,18 @@ class NotationPair (IterableDataset):
 					ci0 = sample['ci'][si - 1].item()
 					s_time0 = sample['time'][si - 1]
 					c_time0 = criterion['time'][ci0]
+					s0i = max(si - self.seq_len, 0)
 
 					center_ci = round(ci0 - 1 + np.random.randn() * self.ci_bias_sigma)
 					ci_range = (max(0, center_ci - self.seq_len // 2), min(criterion_len, center_ci + self.seq_len // 2))
 					ci_range_len = ci_range[1] - ci_range[0]
 
 					c_ci = criterion_indices[ci_range[0]:ci_range[1]]
-					s_ci = sample['ci'][:si]
-					cis = torch.tensor([c_ci.index(ci) + 1 for ci in s_ci], dtype=torch.long)
+					s_ci = sample['ci'][s0i:si]
+					cis = torch.tensor([(c_ci.index(ci) + 1 if ci in c_ci else 0) for ci in s_ci], dtype=torch.long)
 
 					s_time, s_pitch, s_velocity, ci = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long), torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long)
-					s_time[-si:], s_pitch[-si:], s_velocity[-si:] = sample['time'][:si] - s_time0, sample['pitch'][:si], sample['velocity'][:si]
+					s_time[-si:], s_pitch[-si:], s_velocity[-si:] = sample['time'][s0i:si] - s_time0, sample['pitch'][s0i:si], sample['velocity'][s0i:si]
 					ci[-si:] = cis
 
 					c_time, c_pitch, c_velocity = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long), torch.zeros(self.seq_len, dtype=torch.float32)
