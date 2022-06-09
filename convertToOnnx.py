@@ -47,15 +47,16 @@ def main ():
 		shapes = [tuple(map(int, shape.split(','))) for shape in shapes]
 		input_names = args.input_names.split(';')
 		output_names = args.output_names.split(';')
+		dummy_inputs = tuple(torch.randn(*shape) for shape in shapes)
 	elif config['onnx']:
 		onnx_config = config['onnx']
-		input_names = [*onnx_config['inputs']]
+		#input_names = [*onnx_config['inputs']]
+		input_names = [input['name'] for input in onnx_config['inputs']]
 		output_names = onnx_config['outputs']
 
-		shapes = [tuple(onnx_config['inputs'][name]) for name in input_names]
+		#shapes = [tuple(onnx_config['inputs'][name]) for name in input_names]
+		dummy_inputs = tuple(torch.randn(*input['shape'], dtype=getattr(torch, input.get('dtype', 'float32'))) for input in onnx_config['inputs'])
 		opset = onnx_config['opset']
-
-	dummy_inputs = tuple(torch.randn(*shape) for shape in shapes)
 
 	torch.onnx.export(model, dummy_inputs, outpath,
 		verbose=True,

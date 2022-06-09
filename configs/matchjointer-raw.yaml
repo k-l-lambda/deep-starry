@@ -12,7 +12,11 @@ model:
 
 onnx:
   inputs:
-    c:     [1, 2, 2]
-    s:     [1, 2, 2]
+  - name: c
+    shape: [1, 2, 2]
+    dtype: float32
+  - name: s
+    shape: [1, 2, 2]
+    dtype: float32
   outputs: [matching, src, tar]
   opset:   12
