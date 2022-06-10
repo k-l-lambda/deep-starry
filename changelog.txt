@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.6.10
+
+	+	onnxTypecast imported.
+
+
 2022.6.8
 
 	+	melody: model class of MatchJointer1Loss added.
