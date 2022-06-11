@@ -17,11 +17,16 @@ class SinusoidEncoder (nn.Module):
 	# x: (batch, seq)
 	def forward (self, x): # -> (batch, seq, d_hid)
 		x = x.unsqueeze(-1).repeat(1, 1, self.band.shape[-1])	# (batch, seq, d_hid / 2)
+		#x = x.unsqueeze(-1).repeat(*self.band.shape)	# (batch, seq, d_hid / 2)
+		#x = x.unsqueeze(-1)
+		#xs = [x] * self.band.shape[-1]
+		#x = torch.cat(xs, -1)
 		x *= self.band
 
 		vec = torch.zeros((x.shape[0], x.shape[1], x.shape[-1] * 2), device=x.device) # (batch, seq, d_hid)
 		vec[:, :, 0::2] = torch.sin(x)
 		vec[:, :, 1::2] = torch.cos(x)
+		#vec = torch.cat([torch.sin(x), torch.cos(x)], dim=-1)
 
 		return vec
 

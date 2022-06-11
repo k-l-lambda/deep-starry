@@ -140,7 +140,7 @@ class NoteEncoder (nn.Module):
 		time, pitch, velocity = x
 
 		vec_time = self.time_encoder(time)	# (n, seq, d_time)
-		vec_pitch = F.one_hot(pitch, num_classes=PITCH_MAX)	# (n, seq, PITCH_MAX)
+		vec_pitch = F.one_hot(pitch, num_classes=PITCH_MAX).float()	# (n, seq, PITCH_MAX)
 		scaler_velocity = (velocity.float() / VELOCITY_MAX).unsqueeze(-1)	# (n, seq, 1)
 
 		x = torch.cat([vec_time, vec_pitch, scaler_velocity], dim=-1)	# (n, seq, d_time + PITCH_MAX + 1)
