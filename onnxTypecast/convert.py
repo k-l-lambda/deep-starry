@@ -92,10 +92,12 @@ def convert_model_to_int32 (model_path: str, out_path: str):
 
 	# * convert all INT64 aprams to INT32.
 	converted_params = convert_params_to_int32(params_dict)
+
 	logging.info("Converting constant INT64 nodes to INT32...")
 	new_nodes = convert_constant_nodes_to_int32(graph.node)
 
 	graph_name = f"{graph.name}-int32"
+
 	logging.info("Creating new graph...")
 
 	# * create a new graph with converted params and new nodes.
