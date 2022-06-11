@@ -1,5 +1,5 @@
 
-from random import sample
+import random
 import yaml
 from fs import open_fs
 import numpy as np
@@ -93,8 +93,6 @@ class NotationPair (IterableDataset):
 			criterion_len = len(criterion['time'])
 			criterion_indices = [*range(criterion_len)]
 
-			# TODO: augment pitch and velocity
-
 			for sample in pair['samples']:
 				sample_len = len(sample['time'])
 
@@ -104,6 +102,8 @@ class NotationPair (IterableDataset):
 					c_time0 = criterion['time'][ci0]
 					s0i = max(si - self.seq_len, 0)
 
+					pitch_bias = random.randint(-12, 12) if self.shuffle else 0
+
 					center_ci = round(ci0 - 1 + np.random.randn() * self.ci_bias_sigma)
 					ci_range = (max(0, center_ci - self.seq_len // 2), min(criterion_len, center_ci + self.seq_len // 2))
 					ci_range_len = ci_range[1] - ci_range[0]
@@ -112,12 +112,19 @@ class NotationPair (IterableDataset):
 					s_ci = sample['ci'][s0i:si]
 					cis = torch.tensor([(c_ci.index(ci) + 1 if ci in c_ci else 0) for ci in s_ci], dtype=torch.long)
 
+					# velocity blur
+					velocity_bias = torch.randn(si - s0i).int() if self.shuffle else 0
+
 					s_time, s_pitch, s_velocity, ci = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long), torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long)
-					s_time[-si:], s_pitch[-si:], s_velocity[-si:] = sample['time'][s0i:si] - s_time0, sample['pitch'][s0i:si], sample['velocity'][s0i:si]
+					s_time[-si:] = sample['time'][s0i:si] - s_time0
+					s_pitch[-si:] = sample['pitch'][s0i:si] + pitch_bias
+					s_velocity[-si:] = sample['velocity'][s0i:si] + velocity_bias
 					ci[-si:] = cis
 
 					c_time, c_pitch, c_velocity = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long), torch.zeros(self.seq_len, dtype=torch.float32)
-					c_time[:ci_range_len], c_pitch[:ci_range_len], c_velocity[:ci_range_len] = criterion['time'][ci_range[0]:ci_range[1]] - c_time0, criterion['pitch'][ci_range[0]:ci_range[1]] - c_pitch[0], criterion['velocity'][ci_range[0]:ci_range[1]] - c_velocity[0]
+					c_time[:ci_range_len] = criterion['time'][ci_range[0]:ci_range[1]] - c_time0
+					c_pitch[:ci_range_len] = criterion['pitch'][ci_range[0]:ci_range[1]] + pitch_bias
+					c_velocity[:ci_range_len] = criterion['velocity'][ci_range[0]:ci_range[1]]
 
 					yield c_time, c_pitch, c_velocity, s_time, s_pitch, s_velocity, ci
 
