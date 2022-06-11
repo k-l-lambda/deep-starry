@@ -7,6 +7,7 @@ import argparse
 
 from starry.utils.config import Configuration
 from starry.utils.model_factory import loadModel
+from onnxTypecast import convert_model_to_int32
 
 
 
@@ -37,7 +38,9 @@ def main ():
 	model.eval()
 	model.no_overwrite = True
 
-	outpath = config.localPath(f'{name}.onnx')
+	truncate_long = config['onnx.truncate_long_tensor']
+	out_name = f'{name}.temp.onnx' if truncate_long else f'{name}.onnx'
+	outpath = config.localPath(out_name)
 
 	opset = args.opset
 	shapes = []
@@ -55,7 +58,7 @@ def main ():
 		output_names = onnx_config['outputs']
 
 		#shapes = [tuple(onnx_config['inputs'][name]) for name in input_names]
-		dummy_inputs = tuple(torch.randn(*input['shape'], dtype=getattr(torch, input.get('dtype', 'float32'))) for input in onnx_config['inputs'])
+		dummy_inputs = tuple(torch.zeros(*input['shape'], dtype=getattr(torch, input.get('dtype', 'float32'))) for input in onnx_config['inputs'])
 		opset = onnx_config['opset']
 
 	torch.onnx.export(model, dummy_inputs, outpath,
@@ -63,6 +66,11 @@ def main ():
 		input_names=input_names,
 		output_names=output_names,
 		opset_version=opset)
+
+	if truncate_long:
+		temp_path = outpath
+		outpath = config.localPath(f'{name}.onnx')
+		convert_model_to_int32(temp_path, outpath)
 
 	logging.info(f'ONNX model saved to: {outpath}')
 
