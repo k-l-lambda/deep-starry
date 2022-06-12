@@ -13,17 +13,17 @@ model:
 data:
   type:                     NotationPair
   root:                     bach-20220608.zip
-  splits:                   '*1,2/10:9/10'
+  splits:                   '*1/10:9/10'
   batch_size:               2
   args:
-    seq_len:                256
+    seq_len:                128
   #args_variant:
 
 
 trainer:
   device:                   cpu
   save_mode:                best
-  epoch:                    2
+  epoch:                    1
   moniter:
     field:                  loss
     mode:                   min
@@ -39,3 +39,27 @@ optim:
       lr_mul:               1
       n_warmup_steps:       4000
       d_model:              512
+
+
+onnx:
+  inputs:
+  - name: ct
+    shape: [1, 128]
+    dtype: float32
+  - name: cp
+    shape: [1, 128]
+    dtype: int8
+  - name: cv
+    shape: [1, 128]
+    dtype: int8
+  - name: st
+    shape: [1, 128]
+    dtype: float32
+  - name: sp
+    shape: [1, 128]
+    dtype: int8
+  - name: sv
+    shape: [1, 128]
+    dtype: int8
+  outputs: [matching, src, tar]
+  opset:   14
