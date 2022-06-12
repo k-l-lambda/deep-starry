@@ -55,7 +55,7 @@ class NotationPair (IterableDataset):
 			index_info = yaml.safe_load(file)
 			ex = [info for info in index_info['examples'] if any(entry for entry in entries if entry.name.startswith(info['name']))]
 
-			sample_ns = [[max(sample['length'] - seq_len, 0) + 1 for sample in info['samples']] for info in ex]
+			sample_ns = [[sample['length'] + 1 for sample in info['samples']] for info in ex]
 			self.n_examples = sum(n for nn in sample_ns for n in nn)
 
 
@@ -96,7 +96,7 @@ class NotationPair (IterableDataset):
 			for sample in pair['samples']:
 				sample_len = len(sample['time'])
 
-				for si in range(1, sample_len):
+				for si in range(1, sample_len + 1):
 					ci0 = sample['ci'][si - 1].item()
 					s_time0 = sample['time'][si - 1]
 					c_time0 = criterion['time'][ci0]
