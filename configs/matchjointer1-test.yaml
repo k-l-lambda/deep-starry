@@ -13,7 +13,7 @@ model:
 data:
   type:                     NotationPair
   root:                     bach-20220608.zip
-  splits:                   '*1/10:9/10'
+  splits:                   '*1..8/10:9/10'
   batch_size:               2
   args:
     seq_len:                128
@@ -23,7 +23,9 @@ data:
 trainer:
   device:                   cpu
   save_mode:                best
-  epoch:                    1
+  epochs:                   2
+  epoch_size:               100
+  epoch_duration:           30
   moniter:
     field:                  loss
     mode:                   min

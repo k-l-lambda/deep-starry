@@ -90,3 +90,7 @@ class MatchJointer1Loss (nn.Module):
 		return loss, {
 			'accuracy': accuracy,
 		}
+
+
+	def training_parameters (self):
+		return list(self.deducer.parameters()) + list(self.deducer.buffers())
