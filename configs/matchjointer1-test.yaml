@@ -47,22 +47,22 @@ optim:
 onnx:
   inputs:
   - name: ct
-    shape: [1, 128]
+    shape: &tensor_shape [1, 128]
     dtype: float32
   - name: cp
-    shape: [1, 128]
+    shape: *tensor_shape
     dtype: int8
   - name: cv
-    shape: [1, 128]
+    shape: *tensor_shape
     dtype: int8
   - name: st
-    shape: [1, 128]
+    shape: *tensor_shape
     dtype: float32
   - name: sp
-    shape: [1, 128]
+    shape: *tensor_shape
     dtype: int8
   - name: sv
-    shape: [1, 128]
+    shape: *tensor_shape
     dtype: int8
   outputs: [matching, src, tar]
   opset:   14
