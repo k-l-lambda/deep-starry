@@ -47,7 +47,7 @@ optim:
 onnx:
   inputs:
   - name: ct
-    shape: &tensor_shape [1, 128]
+    shape: &tensor_shape [1, 64]
     dtype: float32
   - name: cp
     shape: *tensor_shape
