@@ -65,3 +65,21 @@ class DatasetViewer:
 				#print('si:', si, cii, sti, cti)
 
 				ax.add_patch(patches.Circle((sti * TIME_SCALE, cti * TIME_SCALE), 0.1, fill=True, facecolor='g'))
+
+		if matching is not None:
+			#print('matching:', matching.shape, sp.shape)
+			for si, ps in enumerate(matching):
+				sti, spi = st[si].item(), sp[si].item()
+				if spi > 0:
+					cii_truth = ci[si].item() - 1
+					cii_pred = torch.argmax(ps).item() - 1
+					for cii, p in enumerate(ps[1:]):
+						if p > 0:
+							cti, cpi, cvi = ct[cii].item(), cp[cii].item(), cv[cii].item()
+							is_truth = cii == cii_truth
+							is_pred = cii == cii_pred
+
+							ax.add_patch(patches.Circle((sti * TIME_SCALE, cti * TIME_SCALE), p * 0.4,
+								fill=True, alpha=0.8 if is_pred else 0.3,
+								facecolor='darkorange' if is_pred else 'm',
+								edgecolor='g' if is_truth else None))

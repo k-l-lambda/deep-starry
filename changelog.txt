@@ -5,6 +5,8 @@ TODO:
 
 2022.6.15
 
+	+	validateMelody.py created.
+
 	+	melody/viewer.py created.
 
 
