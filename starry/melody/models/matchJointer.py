@@ -81,12 +81,16 @@ class MatchJointer1Loss (nn.Module):
 		matching_truth = F.one_hot(ci, num_classes=c_len + 1).float()[:, :, 1:]
 		matching_pred, code_src, code_tar = self.deducer(*criterion, *sample)
 
-		loss = self.bce(matching_pred, matching_truth)
+		sample_mask = sample[1] > 0
 
+		loss = self.bce(matching_pred[sample_mask], matching_truth[sample_mask])
+
+		# pad 1 element at beginning of each sequence as none-matching
 		matching_pred_1 = torch.cat([torch.ones((*matching_pred.shape[:-1], 1), device=matching_pred.device) * 1e-3, matching_pred], dim=-1)
 		ci_pred = torch.argmax(matching_pred_1, dim=-1)
-		corrects = (ci_pred == ci).sum().item()
-		accuracy = corrects / torch.numel(ci)
+
+		corrects = (ci_pred[sample_mask] == ci[sample_mask]).sum().item()
+		accuracy = corrects / torch.numel(ci[sample_mask])
 
 		return loss, {
 			'accuracy': accuracy,
