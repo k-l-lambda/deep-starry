@@ -53,10 +53,10 @@ class DatasetViewer:
 		ax.set_ylim(bottom * TIME_SCALE - 1, top * TIME_SCALE + 1)
 
 		for si, snote in enumerate(zip(st, sp, sv)):
-			cii = ci[si].item()
+			cii = ci[si].item() - 1
 			sti, spi, svi = snote
 			sti, spi, svi = sti.item(), spi.item(), svi.item()
-			if spi > 0:
+			if spi > 0 and cii >= 0:
 				cti, cpi, cvi = ct[cii].item(), cp[cii].item(), cv[cii].item()
 				#print('si:', si, cii, sti, cti)
 
