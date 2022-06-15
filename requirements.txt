@@ -7,3 +7,5 @@ pyyaml>=5.4.1
 msgpack==1.0.3
 perlin_noise>=1.12
 onnx>=1.8.1
+matplotlib>=3.3.4
+pyqt5>=5.15.6

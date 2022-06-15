@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.6.15
+
+	+	melody/viewer.py created.
+
+
 2022.6.11
 
 	+	notationPair.py: augument on pitch & velocity added.

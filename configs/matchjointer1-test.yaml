@@ -14,7 +14,7 @@ data:
   type:                     NotationPair
   root:                     bach-20220608.zip
   splits:                   '*1,2/10:9/10'
-  batch_size:               2
+  batch_size:               4
   args:
     seq_len:                128
   #args_variant:
