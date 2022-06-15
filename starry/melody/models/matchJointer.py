@@ -83,7 +83,7 @@ class MatchJointer1Loss (nn.Module):
 
 		loss = self.bce(matching_pred, matching_truth)
 
-		matching_pred_1 = torch.cat([torch.ones((*matching_pred.shape[:-1], 1)) * 1e-3, matching_pred], dim=-1)
+		matching_pred_1 = torch.cat([torch.ones((*matching_pred.shape[:-1], 1), device=matching_pred.device) * 1e-3, matching_pred], dim=-1)
 		ci_pred = torch.argmax(matching_pred_1, dim=-1)
 		corrects = (ci_pred == ci).sum().item()
 		accuracy = corrects / torch.numel(ci)
