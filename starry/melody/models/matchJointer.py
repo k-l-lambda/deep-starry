@@ -82,6 +82,8 @@ class MatchJointer1Loss (nn.Module):
 		matching_pred, code_src, code_tar = self.deducer(*criterion, *sample)
 
 		sample_mask = sample[1] > 0
+		sample_mask8 = sample_mask.clone()
+		sample_mask8[:, :-8] = False
 
 		loss = self.bce(matching_pred[sample_mask], matching_truth[sample_mask])
 
@@ -92,8 +94,16 @@ class MatchJointer1Loss (nn.Module):
 		corrects = (ci_pred[sample_mask] == ci[sample_mask]).sum().item()
 		accuracy = corrects / torch.numel(ci[sample_mask])
 
+		corrects8 = (ci_pred[sample_mask8] == ci[sample_mask8]).sum().item()
+		acc_tail8 = corrects8 / torch.numel(ci[sample_mask8])
+
+		corrects_tip = (ci_pred[:, -1] == ci[:, -1]).sum().item()
+		acc_tip = corrects_tip / torch.numel(ci[:, -1])
+
 		return loss, {
-			'accuracy': accuracy,
+			'acc_full': accuracy,
+			'acc_tail8': acc_tail8,
+			'acc_tip': acc_tip,
 		}
 
 
