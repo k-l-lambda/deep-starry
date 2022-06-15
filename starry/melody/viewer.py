@@ -52,6 +52,10 @@ class DatasetViewer:
 		ax.set_xlim(left * TIME_SCALE - 1, right * TIME_SCALE + 1)
 		ax.set_ylim(bottom * TIME_SCALE - 1, top * TIME_SCALE + 1)
 
+		# origin mark
+		ax.vlines(0, -0.16, 0.16, color='k')
+		ax.hlines(0, -0.16, 0.16, color='k')
+
 		for si, snote in enumerate(zip(st, sp, sv)):
 			cii = ci[si].item() - 1
 			sti, spi, svi = snote
