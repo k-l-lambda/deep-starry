@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ...modules.positionEncoder import SinusoidEncoder
-from ..notation import PITCH_MAX, VELOCITY_MAX
+from ..notation import PITCH_MAX, PITCH_OCTAVE_MAX, PITCH_OCTAVE_SIZE, VELOCITY_MAX
 
 
 
@@ -144,5 +144,37 @@ class NoteEncoder (nn.Module):
 		scaler_velocity = (velocity.float() / VELOCITY_MAX).unsqueeze(-1)	# (n, seq, 1)
 
 		x = torch.cat([vec_time, vec_pitch, scaler_velocity], dim=-1)	# (n, seq, d_time + PITCH_MAX + 1)
+
+		return self.embed(x)	# (n, seq, d_model)
+
+
+def encodePitchByOctave (pitch):
+	pitch = pitch.long()
+	octave = torch.div(pitch, PITCH_OCTAVE_SIZE)
+	step = torch.remainder(pitch, PITCH_OCTAVE_SIZE)
+
+	vec_octave = F.one_hot(octave, num_classes=PITCH_OCTAVE_MAX).float()	# (..., PITCH_OCTAVE_MAX)
+	vec_step = F.one_hot(step, num_classes=PITCH_OCTAVE_SIZE).float()		# (..., PITCH_OCTAVE_MAX)
+
+	return torch.cat([vec_octave, vec_step], dim=-1)		# (..., PITCH_OCTAVE_MAX + PITCH_OCTAVE_SIZE)
+
+
+class NoteEncoder2 (nn.Module):
+	def __init__ (self, d_model=128, d_time=64, angle_cycle=100000):
+		super().__init__()
+
+		self.time_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_time)
+		self.embed = nn.Linear(d_time + PITCH_MAX + 1, d_model)
+
+
+	# x: (time, pitch, velocity)
+	def forward (self, x):
+		time, pitch, velocity = x
+
+		vec_time = self.time_encoder(time)	# (n, seq, d_time)
+		vec_pitch = encodePitchByOctave(pitch)	# (n, seq, PITCH_OCTAVE_MAX + PITCH_OCTAVE_SIZE)
+		scaler_velocity = (velocity.float() / VELOCITY_MAX).unsqueeze(-1)	# (n, seq, 1)
+
+		x = torch.cat([vec_time, vec_pitch, scaler_velocity], dim=-1)	# (n, seq, d_time + PITCH_OCTAVE_MAX + PITCH_OCTAVE_SIZE + 1)
 
 		return self.embed(x)	# (n, seq, d_model)
