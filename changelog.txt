@@ -5,6 +5,7 @@ TODO:
 
 2022.6.20
 
+	+	melody: model class of MatchJointer3 added.
 	+	melody: model class of MatchJointer2 added.
 
 
