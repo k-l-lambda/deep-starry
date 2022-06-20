@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.6.20
+
+	+	melody: model class of MatchJointer2 added.
+
+
 2022.6.15
 
 	+	validateMelody.py created.

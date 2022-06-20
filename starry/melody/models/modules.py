@@ -149,8 +149,7 @@ class NoteEncoder (nn.Module):
 
 
 def encodePitchByOctave (pitch):
-	pitch = pitch.long()
-	octave = torch.div(pitch, PITCH_OCTAVE_SIZE)
+	octave = torch.div(pitch, PITCH_OCTAVE_SIZE).long()
 	step = torch.remainder(pitch, PITCH_OCTAVE_SIZE)
 
 	vec_octave = F.one_hot(octave, num_classes=PITCH_OCTAVE_MAX).float()	# (..., PITCH_OCTAVE_MAX)
@@ -164,7 +163,7 @@ class NoteEncoder2 (nn.Module):
 		super().__init__()
 
 		self.time_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_time)
-		self.embed = nn.Linear(d_time + PITCH_MAX + 1, d_model)
+		self.embed = nn.Linear(d_time + PITCH_OCTAVE_MAX + PITCH_OCTAVE_SIZE + 1, d_model)
 
 
 	# x: (time, pitch, velocity)
@@ -172,7 +171,7 @@ class NoteEncoder2 (nn.Module):
 		time, pitch, velocity = x
 
 		vec_time = self.time_encoder(time)	# (n, seq, d_time)
-		vec_pitch = encodePitchByOctave(pitch)	# (n, seq, PITCH_OCTAVE_MAX + PITCH_OCTAVE_SIZE)
+		vec_pitch = encodePitchByOctave(pitch.long())	# (n, seq, PITCH_OCTAVE_MAX + PITCH_OCTAVE_SIZE)
 		scaler_velocity = (velocity.float() / VELOCITY_MAX).unsqueeze(-1)	# (n, seq, 1)
 
 		x = torch.cat([vec_time, vec_pitch, scaler_velocity], dim=-1)	# (n, seq, d_time + PITCH_OCTAVE_MAX + PITCH_OCTAVE_SIZE + 1)
