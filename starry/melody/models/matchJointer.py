@@ -90,13 +90,14 @@ class MatchJointerLossGeneric (nn.Module):
 
 		loss = self.bce(matching_pred[sample_mask], matching_truth[sample_mask])
 
+		loss_orth = 0
 		if self.reg_orthogonality > 0:
 			code_tar_transposed = code_tar.transpose(-2, -1)
 			tartar = code_tar.matmul(code_tar_transposed)
 			mask = (torch.triu(torch.ones(tartar.shape[0], c_len, c_len), diagonal=1) == 0).to(tartar.device)
-			tar_inner = tartar[mask].mean()
+			loss_orth = tartar[mask].mean()
 
-			loss += tar_inner * self.reg_orthogonality
+			loss += loss_orth * self.reg_orthogonality
 
 		# pad 1 element at beginning of each sequence as none-matching
 		matching_pred_1 = torch.cat([torch.ones((*matching_pred.shape[:-1], 1), device=matching_pred.device) * 1e-3, matching_pred], dim=-1)
@@ -115,6 +116,7 @@ class MatchJointerLossGeneric (nn.Module):
 		acc_tip = corrects_tip / torch.numel(ci[:, -1])
 
 		return loss, {
+			'loss_orth': loss_orth,
 			'acc_full': accuracy,
 			'acc_c1': acc_c1,
 			'acc_tail8': acc_tail8,
