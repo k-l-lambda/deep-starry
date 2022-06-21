@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
+from ...transformer.sub_layers import MultiHeadAttention, PositionwiseFeedForward
 from ...modules.positionEncoder import SinusoidEncoder
 from ..notation import PITCH_MAX, PITCH_OCTAVE_MAX, PITCH_OCTAVE_SIZE, VELOCITY_MAX
 
@@ -20,6 +21,20 @@ def normalizeL2 (v, dim=-1):
 	sq_sum = torch.sum(v * v, dim=dim, keepdim=True)
 	norm = torch.sqrt(sq_sum).clamp(min=FLOAT32_EPS, max=FLOAT32_MAX)
 	return v / norm
+
+
+class ThinDecoderLayer(nn.Module):
+	def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
+		super(DecoderLayer, self).__init__()
+
+		self.enc_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+		self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
+
+	def forward(self, dec_input, enc_output, dec_enc_attn_mask=None):
+		dec_output, dec_enc_attn = self.enc_attn(dec_input, enc_output, enc_output, mask=dec_enc_attn_mask)
+		dec_output = self.pos_ffn(dec_output)
+
+		return dec_output, dec_enc_attn
 
 
 class EncoderLayerStack (nn.Module):
@@ -52,6 +67,23 @@ class DecoderLayerStack (nn.Module):
 		dec_output = dec_input
 		for layer in self.layer_stack:
 			dec_output, _1, _2 = layer(dec_output, enc_output, mask, mask)
+
+		return dec_output
+
+
+class ThinDecoderLayerStack (nn.Module):
+	def __init__ (self, n_layers, n_head, d_k, d_v, d_model, d_inner, dropout=0.1):
+		super().__init__()
+
+		self.layer_stack = nn.ModuleList([
+			ThinDecoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout)
+			for _ in range(n_layers)])
+
+
+	def forward (self, dec_input, enc_output, mask=None):	# (n, seq, d_word)
+		dec_output = dec_input
+		for layer in self.layer_stack:
+			dec_output, _ = layer(dec_output, enc_output, mask, mask)
 
 		return dec_output
 
@@ -89,6 +121,32 @@ class Decoder (nn.Module):
 		self.dropout = nn.Dropout(p=dropout)
 
 		self.stack = DecoderLayerStack(n_layers, n_head, d_k, d_v, d_model, d_inner, dropout)
+
+		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
+
+		self.scale_emb = scale_emb
+		self.d_model = d_model
+
+
+	def forward (self, x, enc_output, mask=None):
+		if self.scale_emb:
+			x *= self.d_model ** 0.5
+
+		x = self.dropout(x)
+		x = self.layer_norm(x)
+
+		x = self.stack(x, enc_output, mask)
+
+		return x
+
+
+class ThinDecoder (nn.Module):
+	def __init__ (self, n_layers, n_head, d_k, d_v, d_model, d_inner, dropout=0.1, scale_emb=False):
+		super().__init__()
+
+		self.dropout = nn.Dropout(p=dropout)
+
+		self.stack = ThinDecoderLayerStack(n_layers, n_head, d_k, d_v, d_model, d_inner, dropout)
 
 		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 
