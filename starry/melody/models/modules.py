@@ -120,8 +120,8 @@ class Jointer (nn.Module):
 		code_src = normalizeL2(source)	# (n, src_joint, d_model)
 		code_tar = normalizeL2(target)	# (n, tar_joint, d_model)
 
-		code_tar = code_tar.transpose(1, 2)
-		result = code_src.matmul(code_tar).clamp(min=0, max=FLOAT32_MAX)		# (n, src_joint, tar_joint)
+		code_tar_trans = code_tar.transpose(-2, -1)
+		result = code_src.matmul(code_tar_trans).clamp(min=0, max=FLOAT32_MAX)		# (n, src_joint, tar_joint)
 		#result = result.flatten()
 
 		return result, code_src, code_tar

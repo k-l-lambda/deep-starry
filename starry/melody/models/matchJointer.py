@@ -61,12 +61,14 @@ class MatchJointer1 (nn.Module):
 
 
 class MatchJointerLossGeneric (nn.Module):
-	def __init__ (self, deducer_class, **kw_args):
+	def __init__ (self, deducer_class, reg_orthogonality=0, **kw_args):
 		super().__init__()
 
 		self.deducer = deducer_class(**kw_args)
 
 		self.bce = nn.BCELoss()
+
+		self.reg_orthogonality = reg_orthogonality
 
 		# initialize parameters
 		for p in self.parameters():
@@ -87,6 +89,14 @@ class MatchJointerLossGeneric (nn.Module):
 		sample_mask8[:, :-8] = False
 
 		loss = self.bce(matching_pred[sample_mask], matching_truth[sample_mask])
+
+		if self.reg_orthogonality > 0:
+			code_tar_transposed = code_tar.transpose(-2, -1)
+			tartar = code_tar.matmul(code_tar_transposed)
+			mask = (torch.triu(torch.ones(tartar.shape[0], c_len, c_len), diagonal=1) == 0).to(tartar.device)
+			tar_inner = tartar[mask].mean()
+
+			loss += tar_inner * self.reg_orthogonality
 
 		# pad 1 element at beginning of each sequence as none-matching
 		matching_pred_1 = torch.cat([torch.ones((*matching_pred.shape[:-1], 1), device=matching_pred.device) * 1e-3, matching_pred], dim=-1)
