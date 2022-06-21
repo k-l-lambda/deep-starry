@@ -61,7 +61,7 @@ class MatchJointer1 (nn.Module):
 
 
 class MatchJointerLossGeneric (nn.Module):
-	def __init__ (self, deducer_class, reg_orthogonality=0, **kw_args):
+	def __init__ (self, deducer_class, init_gain_n=1, reg_orthogonality=0, **kw_args):
 		super().__init__()
 
 		self.deducer = deducer_class(**kw_args)
@@ -73,7 +73,7 @@ class MatchJointerLossGeneric (nn.Module):
 		# initialize parameters
 		for p in self.parameters():
 			if p.dim() > 1:
-				nn.init.xavier_uniform_(p)
+				nn.init.xavier_uniform_(p, gain=init_gain_n ** -0.5)
 
 
 	def forward (self, batch):
