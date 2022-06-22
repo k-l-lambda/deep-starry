@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.6.22
+
+	+	melody: model class of MatchJointer4 added.
+
+
 2022.6.21
 
 	+	melody: added regularization term of orthogonality.

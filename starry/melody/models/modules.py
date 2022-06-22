@@ -25,7 +25,7 @@ def normalizeL2 (v, dim=-1):
 
 class ThinDecoderLayer(nn.Module):
 	def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
-		super(DecoderLayer, self).__init__()
+		super().__init__()
 
 		self.enc_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
 		self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
@@ -83,7 +83,7 @@ class ThinDecoderLayerStack (nn.Module):
 	def forward (self, dec_input, enc_output, mask=None):	# (n, seq, d_word)
 		dec_output = dec_input
 		for layer in self.layer_stack:
-			dec_output, _ = layer(dec_output, enc_output, mask, mask)
+			dec_output, _ = layer(dec_output, enc_output, mask)
 
 		return dec_output
 

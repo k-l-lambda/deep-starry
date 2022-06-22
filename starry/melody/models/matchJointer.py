@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .modules import Encoder, Decoder, Jointer, NoteEncoder, NoteEncoder2
+from .modules import Encoder, Decoder, ThinDecoder, Jointer, NoteEncoder, NoteEncoder2
 
 
 
@@ -140,6 +140,7 @@ class MatchJointer1Loss (MatchJointerLossGeneric):
 		super().__init__(deducer_class=MatchJointer1, **kw_args)
 
 
+# use NoteEncoder2
 class MatchJointer2 (nn.Module):
 	def __init__ (self, n_layers_ce=1, n_layers_se=1, n_layers_sd=1,
 			d_model=128, d_time=16, angle_cycle=10e+3, d_inner=512, n_head=8, d_k=64, d_v=64,
@@ -174,6 +175,7 @@ class MatchJointer2Loss (MatchJointerLossGeneric):
 		super().__init__(deducer_class=MatchJointer2, **kw_args)
 
 
+# share encoder between sample & criterion
 class MatchJointer3 (nn.Module):
 	def __init__ (self, n_layers_enc=1, n_layers_sd=1,
 			d_model=128, d_time=16, angle_cycle=10e+3, d_inner=512, n_head=8, d_k=64, d_v=64,
@@ -205,3 +207,37 @@ class MatchJointer3 (nn.Module):
 class MatchJointer3Loss (MatchJointerLossGeneric):
 	def __init__(self, **kw_args):
 		super().__init__(deducer_class=MatchJointer3, **kw_args)
+
+
+# use ThinDecoder
+class MatchJointer4 (nn.Module):
+	def __init__ (self, n_layers_enc=1, n_layers_sd=1,
+			d_model=128, d_time=16, angle_cycle=10e+3, d_inner=512, n_head=8, d_k=64, d_v=64,
+			dropout=0.1, scale_emb=False, **_):
+		super().__init__()
+
+		self.note_encoder = NoteEncoder2(d_model=d_model, d_time=d_time, angle_cycle=angle_cycle)
+
+		encoder_args = dict(n_head=n_head, d_k=d_k, d_v=d_v, d_model=d_model, d_inner=d_inner, dropout=dropout)
+
+		self.encoder = Encoder(n_layers_enc, **encoder_args, scale_emb=scale_emb)
+		self.s_decoder = ThinDecoder(n_layers_sd, **encoder_args, scale_emb=scale_emb)
+
+		self.jointer = Jointer(d_model)
+
+
+	def forward (self, c_time, c_pitch, c_velocity, s_time, s_pitch, s_velocity):
+		vec_c = self.note_encoder((c_time, c_pitch, c_velocity))
+		vec_s = self.note_encoder((s_time, s_pitch, s_velocity))
+
+		vec_c = self.encoder(vec_c)
+		vec_s = self.encoder(vec_s)
+
+		vec_s = self.s_decoder(vec_s, vec_c)
+
+		return self.jointer(vec_s, vec_c)
+
+
+class MatchJointer4Loss (MatchJointerLossGeneric):
+	def __init__(self, **kw_args):
+		super().__init__(deducer_class=MatchJointer4, **kw_args)
