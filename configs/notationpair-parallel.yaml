@@ -1,0 +1,72 @@
+
+id:     melody/{date}.b-{filename}
+
+env: ~
+  #CUDA_VISIBLE_DEVICES: 0
+
+model:
+  type:           MatchJointer1
+  args:
+    d_time:       16
+
+
+data:
+  type:                     NotationPair
+  root:                     20220616.zip
+  splits:                   '*1,2/10:9/100'
+  batch_size:               16
+  args:
+    seq_len:                128
+    ci_bias_sigma:          0
+    ci_bias_constant:       0
+    ci_center_position:     0
+    st_scale_sigma:         0.3
+  #args_variant:
+
+
+trainer:
+  device:                   cpu
+  save_mode:                best
+  epoch:                    2
+  epochs:                   2
+  epoch_size:               100
+  epoch_duration:           0
+  moniter:
+    field:                  loss
+    mode:                   min
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               1
+      n_warmup_steps:       4000
+      d_model:              512
+
+
+onnx:
+  inputs:
+  - name: ct
+    shape: &tensor_shape [1, 64]
+    dtype: float32
+  - name: cp
+    shape: *tensor_shape
+    dtype: int8
+  - name: cv
+    shape: *tensor_shape
+    dtype: int8
+  - name: st
+    shape: *tensor_shape
+    dtype: float32
+  - name: sp
+    shape: *tensor_shape
+    dtype: int8
+  - name: sv
+    shape: *tensor_shape
+    dtype: int8
+  outputs: [matching, src, tar]
+  opset:   14
