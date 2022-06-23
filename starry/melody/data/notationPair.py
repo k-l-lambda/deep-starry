@@ -110,7 +110,7 @@ class NotationPair (IterableDataset):
 					pitch_bias = random.randint(-12, 12) if self.shuffle else 0
 
 					center_ci = max(0, min(criterion_len - 1, round(ci0 + self.ci_bias_constant + np.random.randn() * self.ci_bias_sigma)))
-					ci_range = (max(0, center_ci - (self.seq_len - n_post_center)), min(criterion_len, center_ci + n_post_center))
+					ci_range = (max(0, center_ci - (self.seq_len - n_post_center) + 1), min(criterion_len, center_ci + n_post_center + 1))
 					ci_range_len = ci_range[1] - ci_range[0]
 					c_time0 = criterion['time'][center_ci]
 
