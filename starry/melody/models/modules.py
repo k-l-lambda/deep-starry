@@ -235,3 +235,5 @@ class NoteEncoder2 (nn.Module):
 		x = torch.cat([vec_time, vec_pitch, scaler_velocity], dim=-1)	# (n, seq, d_time + PITCH_OCTAVE_MAX + PITCH_OCTAVE_SIZE + 1)
 
 		return self.embed(x)	# (n, seq, d_model)
+
+# TODO: relative time encoder?

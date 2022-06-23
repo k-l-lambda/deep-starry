@@ -72,8 +72,8 @@ class DatasetViewer:
 				sti, spi = st[si].item(), sp[si].item()
 				if spi > 0:
 					cii_truth = ci[si].item() - 1
-					cii_pred = torch.argmax(ps).item() - 1
-					for cii, p in enumerate(ps[1:]):
+					cii_pred = torch.argmax(ps).item()
+					for cii, p in enumerate(ps):
 						if p > 0:
 							cti, cpi, cvi = ct[cii].item(), cp[cii].item(), cv[cii].item()
 							is_truth = cii == cii_truth
@@ -81,5 +81,4 @@ class DatasetViewer:
 
 							ax.add_patch(patches.Circle((sti * TIME_SCALE, cti * TIME_SCALE), p * 0.4,
 								fill=True, alpha=0.8 if is_pred else 0.3,
-								facecolor='darkorange' if is_pred else 'm',
-								edgecolor='g' if is_truth else None))
+								facecolor=('c' if is_truth else 'r') if is_pred else 'm'))
