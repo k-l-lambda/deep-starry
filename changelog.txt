@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.6.23
+
+	+	notationPair.py: arugment of ci_center_position & st_scale_sigma added.
+
+
 2022.6.22
 
 	+	melody: model class of MatchJointer4 added.

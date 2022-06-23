@@ -40,7 +40,8 @@ class NotationPair (IterableDataset):
 		return cls.loadPackage(url, args, splits, device, args_variant=args_variant)
 
 
-	def __init__ (self, package, entries, device, shuffle=False, seq_len=0x100, ci_bias_sigma=5, use_cache=False):
+	def __init__ (self, package, entries, device, shuffle=False, seq_len=0x100, ci_bias_sigma=5, use_cache=False,
+		ci_center_position=0.5, st_scale_sigma=0, ci_bias_constant=-1):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -48,6 +49,9 @@ class NotationPair (IterableDataset):
 
 		self.seq_len = seq_len
 		self.ci_bias_sigma = ci_bias_sigma
+		self.ci_bias_constant = ci_bias_constant
+		self.ci_center_position = ci_center_position
+		self.st_scale_sigma = st_scale_sigma
 
 		self.entry_cache = {} if use_cache else None
 
@@ -87,6 +91,8 @@ class NotationPair (IterableDataset):
 			torch.manual_seed(0)
 			np.random.seed(len(self.entries))
 
+		n_post_center = int(self.seq_len * self.ci_center_position)
+
 		for entry in self.entries:
 			pair = self.readEntry(entry.name)
 			criterion = pair['criterion']
@@ -103,8 +109,8 @@ class NotationPair (IterableDataset):
 
 					pitch_bias = random.randint(-12, 12) if self.shuffle else 0
 
-					center_ci = max(0, min(criterion_len - 1, round(ci0 - 1 + np.random.randn() * self.ci_bias_sigma)))
-					ci_range = (max(0, center_ci - self.seq_len // 2), min(criterion_len, center_ci + self.seq_len // 2))
+					center_ci = max(0, min(criterion_len - 1, round(ci0 + self.ci_bias_constant + np.random.randn() * self.ci_bias_sigma)))
+					ci_range = (max(0, center_ci - (self.seq_len - n_post_center)), min(criterion_len, center_ci + n_post_center))
 					ci_range_len = ci_range[1] - ci_range[0]
 					c_time0 = criterion['time'][center_ci]
 
@@ -115,8 +121,10 @@ class NotationPair (IterableDataset):
 					# velocity blur
 					velocity_bias = torch.randn(si - s0i).int() if self.shuffle else 0
 
+					st_scale = 1 if self.st_scale_sigma == 0 else np.exp(np.random.randn() * self.st_scale_sigma)
+
 					s_time, s_pitch, s_velocity, ci = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long), torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long)
-					s_time[-si:] = sample['time'][s0i:si] - s_time0
+					s_time[-si:] = (sample['time'][s0i:si] - s_time0) * st_scale
 					s_pitch[-si:] = sample['pitch'][s0i:si] + pitch_bias
 					s_velocity[-si:] = sample['velocity'][s0i:si] + velocity_bias
 					ci[-si:] = cis
