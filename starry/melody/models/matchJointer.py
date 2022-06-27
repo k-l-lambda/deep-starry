@@ -61,7 +61,7 @@ class MatchJointer1 (nn.Module):
 
 
 class MatchJointerLossGeneric (nn.Module):
-	def __init__ (self, deducer_class, init_gain_n=1, reg_orthogonality=0, **kw_args):
+	def __init__ (self, deducer_class, init_gain_n=1, reg_orthogonality=0, reg_orth_exclude_pitch=False, **kw_args):
 		super().__init__()
 
 		self.deducer = deducer_class(**kw_args)
@@ -69,6 +69,7 @@ class MatchJointerLossGeneric (nn.Module):
 		self.bce = nn.BCELoss()
 
 		self.reg_orthogonality = reg_orthogonality
+		self.reg_orth_exclude_pitch = reg_orth_exclude_pitch
 
 		# initialize parameters
 		for p in self.parameters():
@@ -95,6 +96,14 @@ class MatchJointerLossGeneric (nn.Module):
 			code_tar_transposed = code_tar.transpose(-2, -1)
 			tartar = code_tar.matmul(code_tar_transposed)
 			mask = (torch.triu(torch.ones(tartar.shape[0], c_len, c_len), diagonal=1) == 0).to(tartar.device)
+
+			if self.reg_orth_exclude_pitch:
+				cp = criterion[1]
+				cp_v = cp.view(cp.shape[0], cp.shape[1], 1)
+				cp_h = cp.view(cp.shape[0], 1, cp.shape[1])
+				cp_v, cp_h = torch.broadcast_tensors(cp_v, cp_h)
+				mask = torch.logical_and(mask, cp_v != cp_h)
+
 			loss_orth = tartar[mask].mean()
 
 			loss += loss_orth * self.reg_orthogonality

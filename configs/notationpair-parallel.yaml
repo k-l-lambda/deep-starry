@@ -5,15 +5,17 @@ env: ~
   #CUDA_VISIBLE_DEVICES: 0
 
 model:
-  type:           MatchJointer1
+  type:                     MatchJointer1
   args:
-    d_time:       16
+    d_time:                 16
+    reg_orthogonality:      0.1
+    reg_orth_exclude_pitch: True
 
 
 data:
   type:                     NotationPair
   root:                     20220616.zip
-  splits:                   '*1,2/10:9/100'
+  splits:                   '*1,2/10:9/10000'
   batch_size:               16
   args:
     seq_len:                128
