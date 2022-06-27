@@ -104,7 +104,7 @@ class MatchJointerLossGeneric (nn.Module):
 				cp_v, cp_h = torch.broadcast_tensors(cp_v, cp_h)
 				mask = torch.logical_and(mask, cp_v != cp_h)
 
-			loss_orth = tartar[mask].mean()
+			loss_orth = torch.abs(tartar[mask]).mean()
 
 			loss += loss_orth * self.reg_orthogonality
 
