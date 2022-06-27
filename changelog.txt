@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.6.27
+
+	+	notationPair.py: added argument of random_time0.
+
+
 2022.6.23
 
 	+	notationPair.py: arugment of ci_center_position & st_scale_sigma added.

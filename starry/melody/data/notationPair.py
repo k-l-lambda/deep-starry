@@ -41,7 +41,7 @@ class NotationPair (IterableDataset):
 
 
 	def __init__ (self, package, entries, device, shuffle=False, seq_len=0x100, ci_bias_sigma=5, use_cache=False,
-		ci_center_position=0.5, st_scale_sigma=0, ci_bias_constant=-1):
+		ci_center_position=0.5, st_scale_sigma=0, ci_bias_constant=-1, random_time0=False):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -52,6 +52,7 @@ class NotationPair (IterableDataset):
 		self.ci_bias_constant = ci_bias_constant
 		self.ci_center_position = ci_center_position
 		self.st_scale_sigma = st_scale_sigma
+		self.random_time0 = random_time0
 
 		self.entry_cache = {} if use_cache else None
 
@@ -133,6 +134,10 @@ class NotationPair (IterableDataset):
 					c_time[:ci_range_len] = criterion['time'][ci_range[0]:ci_range[1]] - c_time0
 					c_pitch[:ci_range_len] = criterion['pitch'][ci_range[0]:ci_range[1]] + pitch_bias
 					c_velocity[:ci_range_len] = criterion['velocity'][ci_range[0]:ci_range[1]]
+
+					if self.random_time0:
+						s_time += (np.random.rand() - 0.5) * 2e+6
+						c_time += (np.random.rand() - 0.5) * 2e+6
 
 					yield c_time, c_pitch, c_velocity, s_time, s_pitch, s_velocity, ci
 

@@ -21,6 +21,7 @@ data:
     ci_bias_constant:       0
     ci_center_position:     0
     st_scale_sigma:         0.3
+    random_time0:           True
   #args_variant:
 
 

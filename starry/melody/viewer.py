@@ -47,8 +47,10 @@ class DatasetViewer:
 		ct, cp, cv = criterion
 		st, sp, sv = sample
 
-		left, right = torch.min(st).item(), torch.max(st).item()
-		bottom, top = torch.min(ct).item(), torch.max(ct).item()
+		st_n0 = st[sp != 0]
+		ct_n0 = ct[cp != 0]
+		left, right = torch.min(st_n0).item(), torch.max(st_n0).item()
+		bottom, top = torch.min(ct_n0).item(), torch.max(ct_n0).item()
 		ax.set_xlim(left * TIME_SCALE - 1, right * TIME_SCALE + 1)
 		ax.set_ylim(bottom * TIME_SCALE - 1, top * TIME_SCALE + 1)
 
