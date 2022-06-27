@@ -10,6 +10,7 @@ model:
     d_time:                 16
     reg_orthogonality:      0.1
     reg_orth_exclude_pitch: True
+    main_acc:               acc_c1
 
 
 data:

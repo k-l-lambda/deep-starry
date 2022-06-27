@@ -61,7 +61,8 @@ class MatchJointer1 (nn.Module):
 
 
 class MatchJointerLossGeneric (nn.Module):
-	def __init__ (self, deducer_class, init_gain_n=1, reg_orthogonality=0, reg_orth_exclude_pitch=False, **kw_args):
+	def __init__ (self, deducer_class, init_gain_n=1, reg_orthogonality=0, reg_orth_exclude_pitch=False,
+		main_acc='acc_tail8', **kw_args):
 		super().__init__()
 
 		self.deducer = deducer_class(**kw_args)
@@ -70,6 +71,7 @@ class MatchJointerLossGeneric (nn.Module):
 
 		self.reg_orthogonality = reg_orthogonality
 		self.reg_orth_exclude_pitch = reg_orth_exclude_pitch
+		self.main_acc = main_acc
 
 		# initialize parameters
 		for p in self.parameters():
@@ -140,7 +142,7 @@ class MatchJointerLossGeneric (nn.Module):
 	def stat (self, metrics, n_batch):
 		return dict(
 			accuracy={k: v / n_batch for k, v in metrics.items()},
-			acc=metrics['acc_tail8'] / n_batch,
+			acc=metrics[self.main_acc] / n_batch,
 		)
 
 
