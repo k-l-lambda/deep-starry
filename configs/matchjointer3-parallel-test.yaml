@@ -2,30 +2,36 @@
 id:     melody/{date}-{filename}
 
 env: ~
-  #CUDA_VISIBLE_DEVICES: 0
 
 model:
-  type:                     MatchJointer1
+  type:                     MatchJointer3
   args:
+    n_layers_enc:           6
+    n_layers_sd:            0
+    angle_cycle:            40.e+3
+    d_model:                128
+    d_inner:                512
+    n_head:                 8
+    d_k:                    16
+    d_v:                    16
     d_time:                 64
-    reg_orthogonality:      0.1
-    reg_orth_exclude_pitch: True
-    angle_cycle:            1000.e+3
-    main_acc:               acc_c1
+    dropout:                0.1
+    reg_orthogonality:      0.4
+    init_gain_n:            12
 
 
 data:
   type:                     NotationPair
   root:                     20220616.zip
-  splits:                   '*1,2/10:9/10000'
-  batch_size:               16
+  splits:                   '*1..8/10:9/8000'
+  batch_size:               4
   args:
-    seq_len:                128
+    seq_len:                16
     ci_bias_sigma:          0
     ci_bias_constant:       0
     ci_center_position:     0
-    st_scale_sigma:         0.3
-    random_time0:           1000.e+3
+    st_scale_sigma:         0.2
+    random_time0:           100.e+3
   #args_variant:
 
 
@@ -34,11 +40,11 @@ trainer:
   save_mode:                best
   epoch:                    2
   epochs:                   2
-  epoch_size:               100
-  epoch_duration:           0
+  epoch_size:               16
+  epoch_duration:           2
   moniter:
-    field:                  loss
-    mode:                   min
+    field:                  acc
+    mode:                   max
 
 optim:
   type:                     Adam
@@ -48,8 +54,8 @@ optim:
   scheduler:
     type:                   InvSqrt
     args:
-      lr_mul:               1
-      n_warmup_steps:       4000
+      lr_mul:               0.4
+      n_warmup_steps:       8000
       d_model:              512
 
 
