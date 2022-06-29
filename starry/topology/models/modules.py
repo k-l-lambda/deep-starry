@@ -311,6 +311,44 @@ class SieveJointer (nn.Module):
 		return results
 
 
+class SieveJointer2 (nn.Module):
+	def __init__ (self, d_model, triu_mask=False):
+		super().__init__()
+
+		self.d_model = d_model
+
+		if triu_mask:
+			mask = torch.triu(torch.ones((0x200, 0x200))) == 0
+			self.register_buffer('triu_mask', mask, persistent=False)
+		else:
+			self.triu_mask = None
+
+	# source, target, sieve: (n, n_seq, d_model)
+	# mask_src, mask_tar: (n, n_seq)
+	def forward (self, source, target, sieve, mask_src, mask_tar):
+		# normalize for inner product
+		sieve = F.normalize(sieve, dim=-1)
+		source = F.normalize(source * sieve, dim=-1)
+		target = F.normalize(target, dim=-1)
+
+		results = []
+		for i, (code_src, code_tar) in enumerate(zip(source, target)):
+			msk_src, msk_tar = mask_src[i].unsqueeze(-1), mask_tar[i].unsqueeze(-1)
+			code_src = code_src.masked_select(msk_src).reshape(-1, self.d_model)	# (src_joint, d_model)
+			code_tar = code_tar.masked_select(msk_tar).reshape(-1, self.d_model)	# (tar_joint, d_model)
+
+			code_tar_trans = code_tar.transpose(-2, -1)								# (d_model, tar_joint)
+
+			result = code_src.matmul(code_tar_trans).clamp(min=0, max=1)			# (src_joint, tar_joint)
+			if self.triu_mask is not None:
+				result = result.squeeze(-1).squeeze(-1).masked_select(self.triu_mask[:result.shape[0], :result.shape[1]])
+			else:
+				result = result.flatten()
+			results.append(result)
+
+		return results
+
+
 class JaggedLoss (nn.Module):
 	def __init__ (self, decisive_confidence=0.5, **kw_args):
 		super().__init__()

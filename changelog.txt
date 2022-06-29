@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.6.29
+
+	+	topology: model class of RectifySieveJointer2 added.
+
+
 2022.5.11
 
 	+	utils/check_host.py created.
