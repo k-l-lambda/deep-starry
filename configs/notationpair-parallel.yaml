@@ -20,12 +20,12 @@ data:
   splits:                   '*1,2/10:9/10000'
   batch_size:               16
   args:
-    seq_len:                128
-    ci_bias_sigma:          0
+    seq_len:                16
+    ci_bias_sigma:          4
     ci_bias_constant:       0
     ci_center_position:     0
     st_scale_sigma:         0.3
-    random_time0:           1000.e+3
+    random_time0:           10.e+3
   #args_variant:
 
 
