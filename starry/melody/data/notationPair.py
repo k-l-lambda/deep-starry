@@ -56,6 +56,9 @@ class NotationPair (IterableDataset):
 
 		self.entry_cache = {} if use_cache else None
 
+		# dummy profile_check
+		self.profile_check = lambda x: x
+
 		with self.package.open('index.yaml', 'r') as file:
 			index_info = yaml.safe_load(file)
 			ex = [info for info in index_info['examples'] if any(entry for entry in entries if entry.name.startswith(info['name']))]
@@ -104,6 +107,8 @@ class NotationPair (IterableDataset):
 				sample_len = len(sample['time'])
 
 				for si in range(1, sample_len + 1):
+					self.profile_check('iter.0')
+
 					ci0 = sample['ci'][si - 1].item()
 					s_time0 = sample['time'][si - 1]
 					s0i = max(si - self.seq_len, 0)
@@ -143,6 +148,8 @@ class NotationPair (IterableDataset):
 
 
 	def collateBatch (self, batch):
+		self.profile_check('collateBatch')
+
 		def extract (i):
 			stack = [tensors[i].unsqueeze(0) for tensors in batch]
 			return torch.cat(stack, dim=0).to(self.device)
