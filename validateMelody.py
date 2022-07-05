@@ -49,7 +49,7 @@ def main ():
 	parser.add_argument('-d', '--data', type=str, help='data configuration file')
 	parser.add_argument('-s', '--splits', type=str, default='0/10')
 	parser.add_argument('-ax', '--n_axes', type=int, default=2)
-	parser.add_argument('-dv', '--device', type=str, default='cuda')
+	parser.add_argument('-dv', '--device', type=str, default='cpu')
 
 	args = parser.parse_args()
 
