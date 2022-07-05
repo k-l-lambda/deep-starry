@@ -101,7 +101,7 @@ class NotationPair (IterableDataset):
 			pair = self.readEntry(entry.name)
 			criterion = pair['criterion']
 			criterion_len = len(criterion['time'])
-			criterion_indices = [*range(criterion_len)]
+			#criterion_indices = [*range(criterion_len)]
 
 			for sample in pair['samples']:
 				sample_len = len(sample['time'])
@@ -125,10 +125,10 @@ class NotationPair (IterableDataset):
 
 					#c_ci = criterion_indices[ci_range[0]:ci_range[1]]
 					s_ci = sample['ci'][s0i:si]
-					self.profile_check('iter.1.2')
+					#self.profile_check('iter.1.2')
 					cis = torch.tensor([(ci - ci_range[0] + 1 if (ci >= ci_range[0] and ci < ci_range[1]) else 0) for ci in s_ci], dtype=torch.long)
 
-					self.profile_check('iter.2')
+					#self.profile_check('iter.2')
 
 					# velocity blur
 					velocity_bias = torch.randn(si - s0i).int() if self.shuffle else 0
