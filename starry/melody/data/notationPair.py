@@ -103,6 +103,8 @@ class NotationPair (IterableDataset):
 			criterion_len = len(criterion['time'])
 			#criterion_indices = [*range(criterion_len)]
 
+			if self.shuffle:
+				np.random.shuffle(pair['samples'])
 			for sample in pair['samples']:
 				sample_len = len(sample['time'])
 
