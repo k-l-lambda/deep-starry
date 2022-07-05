@@ -115,25 +115,35 @@ class NotationPair (IterableDataset):
 
 					pitch_bias = random.randint(-12, 12) if self.shuffle else 0
 
+					#self.profile_check('iter.1')
+
 					center_ci = max(0, min(criterion_len - 1, round(ci0 + self.ci_bias_constant + np.random.randn() * self.ci_bias_sigma)))
 					ci_range = (max(0, center_ci - (self.seq_len - n_post_center) + 1), min(criterion_len, center_ci + n_post_center + 1))
 					ci_range_len = ci_range[1] - ci_range[0]
 					c_time0 = criterion['time'][center_ci]
+					#self.profile_check('iter.1.1')
 
-					c_ci = criterion_indices[ci_range[0]:ci_range[1]]
+					#c_ci = criterion_indices[ci_range[0]:ci_range[1]]
 					s_ci = sample['ci'][s0i:si]
-					cis = torch.tensor([(c_ci.index(ci) + 1 if ci in c_ci else 0) for ci in s_ci], dtype=torch.long)
+					self.profile_check('iter.1.2')
+					cis = torch.tensor([(ci - ci_range[0] + 1 if (ci >= ci_range[0] and ci < ci_range[1]) else 0) for ci in s_ci], dtype=torch.long)
+
+					self.profile_check('iter.2')
 
 					# velocity blur
 					velocity_bias = torch.randn(si - s0i).int() if self.shuffle else 0
 
 					st_scale = 1 if self.st_scale_sigma == 0 else np.exp(np.random.randn() * self.st_scale_sigma)
 
+					#self.profile_check('iter.3')
+
 					s_time, s_pitch, s_velocity, ci = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long), torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long)
 					s_time[-si:] = (sample['time'][s0i:si] - s_time0) * st_scale
 					s_pitch[-si:] = sample['pitch'][s0i:si] + pitch_bias
 					s_velocity[-si:] = sample['velocity'][s0i:si] + velocity_bias
 					ci[-si:] = cis
+
+					#self.profile_check('iter.4')
 
 					c_time, c_pitch, c_velocity = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long), torch.zeros(self.seq_len, dtype=torch.float32)
 					c_time[:ci_range_len] = criterion['time'][ci_range[0]:ci_range[1]] - c_time0
@@ -144,18 +154,24 @@ class NotationPair (IterableDataset):
 						s_time += (np.random.rand() - 0.5) * 2 * self.random_time0
 						c_time += (np.random.rand() - 0.5) * 2 * self.random_time0
 
+					self.profile_check('iter.-1')
+
 					yield c_time, c_pitch, c_velocity, s_time, s_pitch, s_velocity, ci
 
 
 	def collateBatch (self, batch):
-		self.profile_check('collateBatch')
+		#self.profile_check('collateBatch.0')
 
 		def extract (i):
 			stack = [tensors[i].unsqueeze(0) for tensors in batch]
 			return torch.cat(stack, dim=0).to(self.device)
 
-		return {
+		result = {
 			'criterion': (extract(0), extract(1), extract(2)),
 			'sample': (extract(3), extract(4), extract(5)),
 			'ci': extract(6),
 		}
+
+		#self.profile_check('collateBatch.-1')
+
+		return result
