@@ -69,7 +69,7 @@ class MatchJointerLossGeneric (nn.Module):
 
 		if exp_focal != 0:
 			SEQ_LEN_MAX = 0x100
-			focal_weight = torch.exp(torch.arange(SEQ_LEN_MAX).float() / exp_focal)[::-1]
+			focal_weight = torch.exp(torch.arange(SEQ_LEN_MAX).float() / exp_focal).flip(0)
 			self.register_buffer('focal_weight', focal_weight, persistent=False)
 
 		self.reg_orthogonality = reg_orthogonality
