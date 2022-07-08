@@ -62,12 +62,23 @@ class MatchJointer1 (nn.Module):
 
 class MatchJointerLossGeneric (nn.Module):
 	def __init__ (self, deducer_class, init_gain_n=1, reg_orthogonality=0, reg_orth_exclude_pitch=False,
-		main_acc='acc_tail8', **kw_args):
+		main_acc='acc_tail8', exp_focal=0, **kw_args):
 		super().__init__()
 
 		self.deducer = deducer_class(**kw_args)
 
-		self.bce = nn.BCELoss()
+		'''bce_weight = None
+		if exp_focal != 0:
+			bce_weight = torch.exp(torch.arange(seq_len).float() / exp_focal)
+			mean = bce_weight.mean()
+			bce_weight = (bce_weight / mean).view(1, seq_len, 1)
+		self.bce = nn.BCELoss(weight=bce_weight)'''
+		if exp_focal != 0:
+			SEQ_LEN_MAX = 0x100
+			focal_weight = torch.exp(torch.arange(SEQ_LEN_MAX).float() / exp_focal)
+			#mean = focal_weight.mean()
+			#focal_weight = (focal_weight / mean).view(1, SEQ_LEN_MAX, 1)
+			self.register_buffer('focal_weight', focal_weight, persistent=False)
 
 		self.reg_orthogonality = reg_orthogonality
 		self.reg_orth_exclude_pitch = reg_orth_exclude_pitch
@@ -91,7 +102,15 @@ class MatchJointerLossGeneric (nn.Module):
 		sample_mask8 = sample_mask.clone()
 		sample_mask8[:, :-8] = False
 
-		loss = self.bce(matching_pred[sample_mask], matching_truth[sample_mask])
+		#loss = self.bce(matching_pred[sample_mask], matching_truth[sample_mask])
+		weight = None
+		if hasattr(self, 'focal_weight'):
+			#print('focal_weight:', self.focal_weight)
+			weight = self.focal_weight[:matching_truth.shape[1]]
+			mean = weight.mean()
+			weight = (weight / mean).view(1, -1, 1).repeat(matching_truth.shape[0], 1, matching_truth.shape[2])
+			weight = weight[sample_mask]
+		loss = F.binary_cross_entropy(matching_pred[sample_mask], matching_truth[sample_mask], weight=weight)
 
 		loss_orth = 0
 		if self.reg_orthogonality > 0:

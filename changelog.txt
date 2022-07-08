@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.7.8
+
+	+	matchJointer.py: added argument of exp_focal in MatchJointerLossGeneric.
+
+
 2022.7.5
 
 	+	datasetProfiler.py created.

@@ -21,12 +21,13 @@ model:
     dropout:                0.1
     reg_orthogonality:      0.1
     init_gain_n:            3
+    exp_focal:              -8
 
 
 data:
   type:                     NotationPair
   root:                     bach-20220608.zip
-  splits:                   '*1,2/10:9/10'
+  splits:                   '*1/100:9/100'
   batch_size:               4
   args:
     seq_len:                64
