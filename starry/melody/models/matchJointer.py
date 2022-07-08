@@ -67,17 +67,9 @@ class MatchJointerLossGeneric (nn.Module):
 
 		self.deducer = deducer_class(**kw_args)
 
-		'''bce_weight = None
-		if exp_focal != 0:
-			bce_weight = torch.exp(torch.arange(seq_len).float() / exp_focal)
-			mean = bce_weight.mean()
-			bce_weight = (bce_weight / mean).view(1, seq_len, 1)
-		self.bce = nn.BCELoss(weight=bce_weight)'''
 		if exp_focal != 0:
 			SEQ_LEN_MAX = 0x100
-			focal_weight = torch.exp(torch.arange(SEQ_LEN_MAX).float() / exp_focal)
-			#mean = focal_weight.mean()
-			#focal_weight = (focal_weight / mean).view(1, SEQ_LEN_MAX, 1)
+			focal_weight = torch.exp(torch.arange(SEQ_LEN_MAX).float() / exp_focal)[::-1]
 			self.register_buffer('focal_weight', focal_weight, persistent=False)
 
 		self.reg_orthogonality = reg_orthogonality
@@ -106,7 +98,7 @@ class MatchJointerLossGeneric (nn.Module):
 		weight = None
 		if hasattr(self, 'focal_weight'):
 			#print('focal_weight:', self.focal_weight)
-			weight = self.focal_weight[:matching_truth.shape[1]]
+			weight = self.focal_weight[-matching_truth.shape[1]:]
 			mean = weight.mean()
 			weight = (weight / mean).view(1, -1, 1).repeat(matching_truth.shape[0], 1, matching_truth.shape[2])
 			weight = weight[sample_mask]
