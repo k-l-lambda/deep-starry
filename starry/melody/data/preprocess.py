@@ -9,7 +9,7 @@ from tqdm import tqdm
 import dill as pickle
 import torch
 
-from ..notation import VELOCITY_MAX
+from ..notation import VELOCITY_MAX, KEYBOARD_SIZE
 
 
 
@@ -27,6 +27,30 @@ def vectorizeNotationFile (file, with_ci=False):
 		data['ci'] = torch.tensor([note['ci'] for note in notes], dtype=torch.long)
 
 	return data
+
+
+def vectorizeRegularNotationFileToFrames (file):
+	notation = json.load(file)
+	notes = notation['notes']
+
+	n_frames = notes[-1]['chi'] + 1
+
+	chi = torch.arange(n_frames, dtype=torch.long)
+	time = torch.zeros(n_frames, dtype=torch.float32)
+	frame = torch.zeros((n_frames, KEYBOARD_SIZE), dtype=torch.float32)
+
+	for chi in range(n_frames):
+		cns = [note['cns'] for note in notes if note['chi'] == chi]
+		time[chi] = cns[0]['start']
+
+		for note in cns:
+			frame[chi][note['pitch']] = note['velocity'] / VELOCITY_MAX
+
+	return {
+		'chi': chi,
+		'time': time,
+		'frame': frame,
+	}
 
 
 def preprocessDataset (source_dir, target_path):

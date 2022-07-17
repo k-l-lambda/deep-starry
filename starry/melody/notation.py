@@ -9,3 +9,6 @@ VELOCITY_MAX = 127.
 
 
 PAD = 0
+
+
+KEYBOARD_SIZE = 88
