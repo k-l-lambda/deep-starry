@@ -5,7 +5,7 @@ import argparse
 import logging
 
 import starry.utils.env
-from starry.melody.data.preprocess import preprocessDataset
+from starry.melody.data.preprocess import preprocessDataset, preprocessDatasetFrames
 
 
 
@@ -19,6 +19,7 @@ def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('source', type=str, help='input data directory path')
 	parser.add_argument('target', type=str, help='output path')
+	parser.add_argument('-f', '--frames', action='store_true', help='frames mode')
 
 	args = parser.parse_args()
 
@@ -27,7 +28,10 @@ def main ():
 		target = os.path.join(DATA_DIR, target)
 
 	logging.info('Building package from directory: %s', args.source)
-	preprocessDataset(args.source, target)
+	if args.frames:
+		preprocessDatasetFrames(args.source, target)
+	else:
+		preprocessDataset(args.source, target)
 
 	logging.info('Done.')
 

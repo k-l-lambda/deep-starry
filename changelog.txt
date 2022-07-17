@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.7.17
+
+	+	melody/data/preprocess.py: preprocessDatasetFrames added.
+
+
 2022.7.8
 
 	+	matchJointer.py: added argument of exp_focal in MatchJointerLossGeneric.
