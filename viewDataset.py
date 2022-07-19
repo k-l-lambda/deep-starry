@@ -6,7 +6,7 @@ import logging
 
 from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
-from starry.melody.viewer import DatasetViewer
+from starry.melody.notationViewer import NotationViewer
 from starry.topology.viewer import DatasetViewer as TopoViewer
 
 
@@ -37,7 +37,7 @@ def main ():
 	if topo:
 		viewer = TopoViewer(config, n_axes=args.n_axes, show_matrix=args.show_matrix)
 	else:
-		viewer = DatasetViewer(config, n_axes=args.n_axes)
+		viewer = NotationViewer(config, n_axes=args.n_axes)
 
 	viewer.show(data)
 

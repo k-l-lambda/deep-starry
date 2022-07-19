@@ -9,7 +9,7 @@ import matplotlib.patches as patches
 TIME_SCALE = 1e-3
 
 
-class DatasetViewer:
+class NotationViewer:
 	def __init__(self, config, n_axes=4):
 		self.n_axes = n_axes
 

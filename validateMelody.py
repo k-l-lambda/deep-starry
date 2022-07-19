@@ -8,7 +8,7 @@ import torch
 from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
 from starry.utils.predictor import Predictor
-from starry.melody.viewer import DatasetViewer
+from starry.melody.notationViewer import NotationViewer
 
 
 
@@ -26,7 +26,7 @@ class Validator (Predictor):
 	def __init__ (self, config, args, device='cuda'):
 		super().__init__(device=device)
 
-		self.viewer = DatasetViewer(config, n_axes=args.n_axes)
+		self.viewer = NotationViewer(config, n_axes=args.n_axes)
 
 		self.loadModel(config)
 
