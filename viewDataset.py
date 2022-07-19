@@ -7,6 +7,7 @@ import logging
 from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
 from starry.melody.notationViewer import NotationViewer
+from starry.melody.frameViewer import FrameViewer
 from starry.topology.viewer import DatasetViewer as TopoViewer
 
 
@@ -23,6 +24,7 @@ def main ():
 	parser.add_argument('-s', '--splits', type=str, default='0/10')
 	parser.add_argument('-e', '--eventTopo', action='store_true', help='show event topology data')
 	parser.add_argument('-mx', '--show_matrix', action='store_true', help='show matrix view')
+	parser.add_argument('-f', '--frame', action='store_true', help='show melody frame data')
 	parser.add_argument('-ax', '--n_axes', type=int, default=4)
 
 	args = parser.parse_args()
@@ -31,11 +33,11 @@ def main ():
 	if args.splits is not None:
 		config['data.splits'] = args.splits
 
-	topo = args.eventTopo
-
 	data, = loadDataset(config, data_dir=DATA_DIR)
-	if topo:
+	if args.eventTopo:
 		viewer = TopoViewer(config, n_axes=args.n_axes, show_matrix=args.show_matrix)
+	elif args.frame:
+		viewer = FrameViewer(config, n_axes=args.n_axes)
 	else:
 		viewer = NotationViewer(config, n_axes=args.n_axes)
 
