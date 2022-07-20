@@ -95,22 +95,34 @@ class FrameViewer:
 		ct, cf = criterion
 		st, sf = sample
 
+		cn0 = cf.sum(dim=-1) != 0
+		sn0 = sf.sum(dim=-1) != 0
+		ct, cf = ct[cn0], cf[cn0]
+		st, sf, ci = st[sn0], sf[sn0], ci[sn0]
+
 		left, right = min(st.min().item(), ct.min().item()), max(st.max().item(), ct.max().item())
 
 		ax.set_xlim(left - 1e+3, right + 1e+3)
 		ax.set_ylim(-112, 112)
 
 		#print('ct:', ct.tolist())
-		for ci, (cti, cfi) in enumerate(zip(ct, cf)):
+		for cii, (cti, cfi) in enumerate(zip(ct, cf)):
 			cti, cfi = cti.item(), cfi.tolist()
-			w = (ct[ci + 1].item() - cti) if ci < len(ct) - 1 else 0.5e+3
+			w = (ct[cii + 1].item() - cti) if cii < len(ct) - 1 else 0.5e+3
 			for p, v in enumerate(cfi):
-				ax.add_patch(patches.Rectangle((cti, p + 21), w, 1, fill=True, facecolor='g', alpha=v))
+				if v > 0:
+					ax.add_patch(patches.Rectangle((cti, p + 21), w, 1, fill=True, facecolor='b', alpha=v))
 
 
-		for si, snote in enumerate(zip(st, sf)):
-			sti, sfi = snote
-			sti, sfi = sti.item(), sfi.tolist()
+		for si, snote in enumerate(zip(st, sf, ci)):
+			sti, sfi, sci = snote
+			sti, sfi, sci = sti.item(), sfi.tolist(), sci.item()
+
 			w = (st[si + 1].item() - sti) if si < len(st) - 1 else 0.5e+3
 			for p, v in enumerate(sfi):
-				ax.add_patch(patches.Rectangle((sti, -(p + 21)), w, 1, fill=True, facecolor='b', alpha=v))
+				ax.add_patch(patches.Rectangle((sti, -(87 - p + 21)), w, 1, fill=True, facecolor='b', alpha=v))
+
+			# linking line
+			if sci > 0:
+				cti = ct[sci - 1].item()
+				ax.plot([sti, cti], [-20, 20], 'g')
