@@ -4,6 +4,11 @@ TODO:
 
 
 
+2022.7.20
+
+	+	melody/preprocess.py: append noise notes in vectorizeNoizyNotationFileToFrames.
+
+
 2022.7.19
 
 	+	melody/frameViewer.py created.

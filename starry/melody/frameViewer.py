@@ -126,3 +126,5 @@ class FrameViewer:
 			if sci > 0:
 				cti = ct[sci - 1].item()
 				ax.plot([sti, cti], [-20, 20], 'g')
+			else:
+				ax.plot(sti, -20, marker='o', color='r')

@@ -56,6 +56,14 @@ def vectorizeRegularNotationFileToFrames (file):
 
 FRAME_MEAN_DURATION = 32
 
+NOISE_NOTE_P = 0.01
+
+
+def rollPitch ():
+	p = round(KEYBOARD_SIZE // 2 + np.random.randn() * KEYBOARD_SIZE / 4)
+
+	return max(min(p, KEYBOARD_SIZE - 1), 0)
+
 
 def vectorizeNoizyNotationFileToFrames (file):
 	notation = json.load(file)
@@ -76,6 +84,10 @@ def vectorizeNoizyNotationFileToFrames (file):
 			chi = notes[0]['chi'] if chi is None else min(chi, notes[0]['chi'])
 			note = notes.pop(0)
 			frame[note['pitch'] - KEYBOARD_BEGIN] = note['velocity'] / VELOCITY_MAX
+
+		while np.random.rand() < NOISE_NOTE_P:
+			chi = -1 if chi is None else chi
+			frame[rollPitch()] = 1 - np.random.rand() ** 2
 
 		if chi is not None:
 			chis.append(chi)
