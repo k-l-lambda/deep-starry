@@ -119,3 +119,14 @@ class FrameMatchJointerLoss (nn.Module):
 			'acc_tail8': acc_tail8,
 			'acc_tip': acc_tip,
 		}
+
+
+	def training_parameters (self):
+		return list(self.deducer.parameters()) + list(self.deducer.buffers())
+
+
+	def stat (self, metrics, n_batch):
+		return dict(
+			accuracy={k: v / n_batch for k, v in metrics.items()},
+			acc=metrics[self.main_acc] / n_batch,
+		)
