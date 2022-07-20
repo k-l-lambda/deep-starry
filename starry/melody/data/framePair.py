@@ -113,7 +113,8 @@ class FramePair (IterableDataset):
 				for si in range(1, sample_len + 1):
 					self.profile_check('iter.0')
 
-					ci0 = sample['chi'][si - 1].item()
+					seen_chis = sample['chi'][:si]
+					ci0 = seen_chis[seen_chis >= 0][-1].item()
 					s_time0 = sample['time'][si - 1]
 					s0i = max(si - self.seq_len, 0)
 
@@ -168,6 +169,9 @@ class FramePair (IterableDataset):
 						c_time += (np.random.rand() - 0.5) * 2 * self.random_time0
 
 					self.profile_check('iter.-1')
+
+					#if ci.max() <= 0:
+					#	print('empty example:', ci_range, self.seq_len, n_post_center, center_ci, ci0 + self.ci_bias_constant)
 
 					yield c_time, c_frame, s_time, s_frame, ci
 
