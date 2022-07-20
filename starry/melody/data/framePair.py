@@ -139,14 +139,19 @@ class FramePair (IterableDataset):
 
 					s_time, s_frame, ci = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros((self.seq_len, KEYBOARD_SIZE), dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long)
 					s_time[-si:] = (sample['time'][s0i:si] - s_time0) * st_scale
-					s_frame[-si:] = sample['frame'][s0i:si]
+					frame_filling = sample['frame'][s0i:si]
 					if pitch_bias != 0:
-						s_frame = torch.cat((s_frame[:, -pitch_bias:], s_frame[:, :-pitch_bias]), dim=1)
+						frame_filling = torch.cat((frame_filling[:, -pitch_bias:], frame_filling[:, :-pitch_bias]), dim=1)
+
+					frame_filling = -torch.log((1 - frame_filling).clip(min=1e-12)) * torch.exp(torch.randn(*frame_filling.shape) + 0.4)
 
 					# noise in frame
-					gain = torch.exp(torch.randn(s_frame.shape[0], 1) * 0.4 - 1.6)
-					s_frame += -0.5 + torch.exp(torch.randn(*s_frame.shape)) * gain
-					s_frame = torch.sigmoid(s_frame * 6.)
+					gain = torch.exp(torch.randn(frame_filling.shape[0], 1) * 1.2 - 4.8)
+					#gain = torch.exp(torch.ones(frame_filling.shape[0], 1) * -3.6)
+					frame_filling += torch.exp(torch.randn(*frame_filling.shape)) * gain
+					frame_filling = torch.tanh(frame_filling)
+
+					s_frame[-frame_filling.shape[0]:] = frame_filling
 
 					ci[-si:] = cis
 
