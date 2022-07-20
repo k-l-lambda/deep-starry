@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ...transformer.sub_layers import MultiHeadAttention, PositionwiseFeedForward
 from ...modules.positionEncoder import SinusoidEncoder
-from ..notation import PITCH_MAX, PITCH_OCTAVE_MAX, PITCH_OCTAVE_SIZE, VELOCITY_MAX
+from ..notation import PITCH_MAX, PITCH_OCTAVE_MAX, PITCH_OCTAVE_SIZE, VELOCITY_MAX, KEYBOARD_SIZE
 
 
 
@@ -237,3 +237,22 @@ class NoteEncoder2 (nn.Module):
 		return self.embed(x)	# (n, seq, d_model)
 
 # TODO: relative time encoder?
+
+
+class FrameEncoder (nn.Module):
+	def __init__ (self, d_model=128, d_time=64, angle_cycle=100000):
+		super().__init__()
+
+		self.time_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_time)
+		self.embed = nn.Linear(d_time + KEYBOARD_SIZE, d_model)
+
+
+	# x: (time, frame)
+	def forward (self, x):
+		time, frame = x
+
+		vec_time = self.time_encoder(time)	# (n, seq, d_time)
+
+		x = torch.cat([vec_time, frame], dim=-1)	# (n, seq, d_time + KEYBOARD_SIZE)
+
+		return self.embed(x)	# (n, seq, d_model)

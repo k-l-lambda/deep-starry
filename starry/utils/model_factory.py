@@ -9,13 +9,12 @@ model_dict = None
 def registerModels ():
 	global model_dict
 
-	#from ..topology.models import jointers as tj
-	#from ..topology.models import rectifyJointer as tr
-	from ..melody.models import TestEncoder, MatchJointerRaw, MatchJointer1, MatchJointer1Loss, MatchJointer2, MatchJointer2Loss, MatchJointer3, MatchJointer3Loss, MatchJointer4, MatchJointer4Loss
+	from ..melody.models import TestEncoder, MatchJointerRaw, MatchJointer1, MatchJointer1Loss, MatchJointer2, MatchJointer2Loss, MatchJointer3, MatchJointer3Loss, MatchJointer4, MatchJointer4Loss, FrameMatchJointer, FrameMatchJointerLoss
 
 	classes = [
 		TestEncoder, MatchJointerRaw, MatchJointer1, MatchJointer1Loss, MatchJointer2, MatchJointer2Loss,
 		MatchJointer3, MatchJointer3Loss, MatchJointer4, MatchJointer4Loss,
+		FrameMatchJointer, FrameMatchJointerLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])
