@@ -9,7 +9,6 @@ model:
   args:
     d_time:                 16
     n_layers_ce:            1
-    n_layers_se:            0
     n_layers_sd:            1
     angle_cycle:            10000
     d_model:                128

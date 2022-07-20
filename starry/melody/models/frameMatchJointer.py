@@ -8,7 +8,7 @@ from .modules import Encoder, Decoder, Jointer, FrameEncoder
 
 
 class FrameMatchJointer (nn.Module):
-	def __init__ (self, n_layers_ce=1, n_layers_se=1, n_layers_sd=1,
+	def __init__ (self, n_layers_ce=1, n_layers_sd=1,
 			d_model=128, d_time=16, angle_cycle=10e+3, d_inner=512, n_head=8, d_k=64, d_v=64,
 			dropout=0.1, scale_emb=False, **_):
 		super().__init__()
@@ -18,7 +18,6 @@ class FrameMatchJointer (nn.Module):
 		encoder_args = dict(n_head=n_head, d_k=d_k, d_v=d_v, d_model=d_model, d_inner=d_inner, dropout=dropout)
 
 		self.c_encoder = Encoder(n_layers_ce, **encoder_args, scale_emb=scale_emb)
-		self.s_encoder = Encoder(n_layers_se, **encoder_args, scale_emb=scale_emb)
 		self.s_decoder = Decoder(n_layers_sd, **encoder_args, scale_emb=scale_emb)
 
 		self.jointer = Jointer(d_model)
@@ -29,7 +28,6 @@ class FrameMatchJointer (nn.Module):
 		vec_s = self.frame_encoder((s_time, s_frame))
 
 		vec_c = self.c_encoder(vec_c)
-		vec_s = self.s_encoder(vec_s)
 
 		vec_s = self.s_decoder(vec_s, vec_c)
 
