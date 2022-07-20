@@ -83,7 +83,9 @@ def vectorizeNoizyNotationFileToFrames (file):
 		while len(notes) > 0 and notes[0]['start'] >= t and notes[0]['start'] < end_t:
 			chi = notes[0]['chi'] if chi is None else min(chi, notes[0]['chi'])
 			note = notes.pop(0)
-			frame[note['pitch'] - KEYBOARD_BEGIN] = note['velocity'] / VELOCITY_MAX
+			pitch = note['pitch']
+			if pitch >= 0 and pitch < KEYBOARD_SIZE:
+				frame[note['pitch']] = note['velocity'] / VELOCITY_MAX
 
 		while np.random.rand() < NOISE_NOTE_P:
 			chi = -1 if chi is None else chi
@@ -155,7 +157,10 @@ def preprocessDatasetFrames (source_dir, target_path):
 	example_infos = []
 
 	for dirname in tqdm(dir_list, desc='Preprocess groups'):
-		criterion_file = open(os.path.join(source_dir, dirname, 'criterion.json'), 'r')
+		criterion_path = os.path.join(source_dir, dirname, 'criterion.json')
+		if not os.path.isfile(criterion_path):
+			continue
+		criterion_file = open(criterion_path, 'r')
 		criterion = vectorizeRegularNotationFileToFrames(criterion_file)
 
 		sample_index = 0
