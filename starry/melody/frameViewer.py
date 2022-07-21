@@ -97,34 +97,54 @@ class FrameViewer:
 
 		cn0 = cf.sum(dim=-1) != 0
 		sn0 = sf.sum(dim=-1) != 0
-		ct, cf = ct[cn0], cf[cn0]
-		st, sf, ci = st[sn0], sf[sn0], ci[sn0]
+		ctn0, cfn0 = ct[cn0], cf[cn0]
+		stn0, sfn0, cin0 = st[sn0], sf[sn0], ci[sn0]
 
-		left, right = min(st.min().item(), ct.min().item()), max(st.max().item(), ct.max().item())
+		left, right = min(st.min().item(), ctn0.min().item()), max(st.max().item(), ctn0.max().item())
 
 		ax.set_xlim(left - 1e+3, right + 1e+3)
 		ax.set_ylim(-112, 112)
 
 		#print('ct:', ct.tolist())
-		for cii, (cti, cfi) in enumerate(zip(ct, cf)):
+		for cii, (cti, cfi) in enumerate(zip(ctn0, cfn0)):
 			cti, cfi = cti.item(), cfi.tolist()
-			w = (ct[cii + 1].item() - cti) if cii < len(ct) - 1 else 0.5e+3
+			w = (ctn0[cii + 1].item() - cti) if cii < len(ctn0) - 1 else 0.5e+3
 			for p, v in enumerate(cfi):
 				if v > 0:
 					ax.add_patch(patches.Rectangle((cti, p + 21), w, 1, fill=True, facecolor='b', alpha=v))
 
 
-		for si, snote in enumerate(zip(st, sf, ci)):
+		for si, snote in enumerate(zip(stn0, sfn0, cin0)):
 			sti, sfi, sci = snote
 			sti, sfi, sci = sti.item(), sfi.tolist(), sci.item()
 
-			w = (st[si + 1].item() - sti) if si < len(st) - 1 else 0.5e+3
+			w = (stn0[si + 1].item() - sti) if si < len(stn0) - 1 else 0.5e+3
 			for p, v in enumerate(sfi):
 				ax.add_patch(patches.Rectangle((sti, -(87 - p + 21)), w, 1, fill=True, facecolor='b', alpha=v))
 
 			# linking line
 			if sci > 0:
 				cti = ct[sci - 1].item()
-				ax.plot([sti, cti], [-20, 20], 'g')
+				ax.plot([sti, cti], [-20, 20], 'k')
 			else:
-				ax.plot(sti, -20, marker='o', color='r')
+				ax.plot(sti, -20, marker='o', color='darkorange')
+
+		if matching is not None:
+			#print('matching:', matching.shape, sp.shape)
+			for si, ps in enumerate(matching):
+				sti, sfi = st[si].item(), sf[si]
+				if sfi.sum().item() > 0:
+					cii_truth = ci[si].item() - 1
+					cii_pred = torch.argmax(ps).item()
+					for cii, p in enumerate(ps):
+						p = p.item()
+						if p > 0:
+							cti, cfi = ct[cii].item(), cf[cii].tolist()
+							is_truth = cii == cii_truth
+							is_pred = cii == cii_pred
+
+							#ax.add_patch(patches.Circle((sti * TIME_SCALE, cti * TIME_SCALE), p * 0.4,
+							#	fill=True, alpha=0.8 if is_pred else 0.3,
+							#	facecolor=('c' if is_truth else 'r') if is_pred else 'm'))
+							if p > 0.4:
+								ax.plot([sti, cti], [-20, 20], 'c' if is_truth else 'r', alpha=p)

@@ -1,7 +1,11 @@
 
 TODO:
-	frame pair viewer
 
+
+
+2022.7.21
+
+	+	frameViewer.py: added prediction sequences view.
 
 
 2022.7.20
