@@ -9,6 +9,7 @@ from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
 from starry.utils.predictor import Predictor
 from starry.melody.notationViewer import NotationViewer
+from starry.melody.frameViewer import FrameViewer
 
 
 
@@ -23,10 +24,11 @@ DATA_DIR = os.environ.get('DATA_DIR')
 
 
 class Validator (Predictor):
-	def __init__ (self, config, args, device='cuda'):
-		super().__init__(device=device)
+	def __init__ (self, config, args):
+		super().__init__(device=args.device)
 
-		self.viewer = NotationViewer(config, n_axes=args.n_axes)
+		Viewer = FrameViewer if args.frame else NotationViewer
+		self.viewer = Viewer(config, n_axes=args.n_axes)
 
 		self.loadModel(config)
 
@@ -50,6 +52,7 @@ def main ():
 	parser.add_argument('-s', '--splits', type=str, default='0/10')
 	parser.add_argument('-ax', '--n_axes', type=int, default=2)
 	parser.add_argument('-dv', '--device', type=str, default='cpu')
+	parser.add_argument('-f', '--frame', action='store_true', help='show melody frame data')
 
 	args = parser.parse_args()
 
@@ -63,7 +66,7 @@ def main ():
 		config['data.splits'] = args.splits
 
 	data, = loadDataset(config, data_dir=DATA_DIR, device=args.device)
-	validator = Validator(config, args, device=args.device)
+	validator = Validator(config, args)
 
 	validator.run(data)
 

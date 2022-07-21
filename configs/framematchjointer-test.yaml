@@ -25,7 +25,7 @@ model:
 
 data:
   type:                     FramePair
-  root:                     test.zip
+  root:                     frame-20220720.zip
   splits:                   '*1,2/10:9/10'
   batch_size:               16
   args:
