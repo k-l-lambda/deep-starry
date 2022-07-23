@@ -26,7 +26,7 @@ model:
 data:
   type:                     FramePair
   root:                     frame-20220720.zip
-  splits:                   '*1,2/10:9/10'
+  splits:                   '*1,2/10:9/100'
   batch_size:               16
   args:
     c_seq_len:              32
@@ -72,10 +72,10 @@ onnx:
     shape: [1, 32, 88]
     dtype: float32
   - name: st
-    shape: [1, 32]
+    shape: [1, 16]
     dtype: float32
   - name: sf
-    shape: [1, 32, 88]
+    shape: [1, 16, 88]
     dtype: float32
   outputs: [matching, src, tar]
   opset:   14
