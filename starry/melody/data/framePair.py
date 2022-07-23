@@ -42,14 +42,15 @@ class FramePair (IterableDataset):
 		return cls.loadPackage(url, args, splits, device, args_variant=args_variant)
 
 
-	def __init__ (self, package, entries, device, shuffle=False, seq_len=0x100, ci_bias_sigma=5, use_cache=False,
+	def __init__ (self, package, entries, device, shuffle=False, c_seq_len=0x20, s_seq_len=0x10, ci_bias_sigma=5, use_cache=False,
 		ci_center_position=0.5, st_scale_sigma=0, ci_bias_constant=-1, random_time0=0):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
 		self.device = device
 
-		self.seq_len = seq_len
+		self.c_seq_len = c_seq_len
+		self.s_seq_len = s_seq_len
 		self.ci_bias_sigma = ci_bias_sigma
 		self.ci_bias_constant = ci_bias_constant
 		self.ci_center_position = ci_center_position
@@ -97,13 +98,12 @@ class FramePair (IterableDataset):
 			torch.manual_seed(0)
 			np.random.seed(len(self.entries))
 
-		n_post_center = int(self.seq_len * self.ci_center_position)
+		n_post_center = int(self.c_seq_len * self.ci_center_position)
 
 		for entry in self.entries:
 			pair = self.readEntry(entry.name)
 			criterion = pair['criterion']
 			criterion_len = len(criterion['time'])
-			#criterion_indices = [*range(criterion_len)]
 
 			if self.shuffle:
 				np.random.shuffle(pair['samples'])
@@ -116,14 +116,14 @@ class FramePair (IterableDataset):
 					seen_chis = sample['chi'][:si]
 					ci0 = seen_chis[seen_chis >= 0][-1].item()
 					s_time0 = sample['time'][si - 1]
-					s0i = max(si - self.seq_len, 0)
+					s0i = max(si - self.s_seq_len, 0)
 
 					pitch_bias = random.randint(-12, 12) if self.shuffle else 0
 
 					#self.profile_check('iter.1')
 
 					center_ci = max(0, min(criterion_len - 1, round(ci0 + self.ci_bias_constant + np.random.randn() * self.ci_bias_sigma)))
-					ci_range = (max(0, center_ci - (self.seq_len - n_post_center) + 1), min(criterion_len, center_ci + n_post_center + 1))
+					ci_range = (max(0, center_ci - (self.c_seq_len - n_post_center) + 1), min(criterion_len, center_ci + n_post_center + 1))
 					ci_range_len = ci_range[1] - ci_range[0]
 					c_time0 = criterion['time'][center_ci]
 					#self.profile_check('iter.1.1')
@@ -138,7 +138,7 @@ class FramePair (IterableDataset):
 
 					#self.profile_check('iter.3')
 
-					s_time, s_frame, ci = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros((self.seq_len, KEYBOARD_SIZE), dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long)
+					s_time, s_frame, ci = torch.zeros(self.s_seq_len, dtype=torch.float32), torch.zeros((self.s_seq_len, KEYBOARD_SIZE), dtype=torch.float32), torch.zeros(self.s_seq_len, dtype=torch.long)
 					s_time[-si:] = (sample['time'][s0i:si] - s_time0) * st_scale
 					frame_filling = sample['frame'][s0i:si]
 					if pitch_bias != 0:
@@ -158,7 +158,7 @@ class FramePair (IterableDataset):
 
 					#self.profile_check('iter.4')
 
-					c_time, c_frame = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros((self.seq_len, KEYBOARD_SIZE), dtype=torch.float32)
+					c_time, c_frame = torch.zeros(self.c_seq_len, dtype=torch.float32), torch.zeros((self.c_seq_len, KEYBOARD_SIZE), dtype=torch.float32)
 					c_time[:ci_range_len] = criterion['time'][ci_range[0]:ci_range[1]] - c_time0
 					c_frame[:ci_range_len] = criterion['frame'][ci_range[0]:ci_range[1]]
 					if pitch_bias != 0:
@@ -171,7 +171,7 @@ class FramePair (IterableDataset):
 					self.profile_check('iter.-1')
 
 					#if ci.max() <= 0:
-					#	print('empty example:', ci_range, self.seq_len, n_post_center, center_ci, ci0 + self.ci_bias_constant)
+					#	print('empty example:', ci_range, n_post_center, center_ci, ci0 + self.ci_bias_constant)
 
 					yield c_time, c_frame, s_time, s_frame, ci
 

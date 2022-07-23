@@ -8,9 +8,10 @@ data:
   splits:                   '*1,2/10:9/10'
   batch_size:               16
   args:
-    seq_len:                32
-    ci_bias_sigma:          1
-    ci_center_position:     0.28
+    c_seq_len:              32
+    s_seq_len:              16
+    ci_bias_sigma:          4
+    ci_center_position:     0.5
     st_scale_sigma:         0.1
     ci_bias_constant:       -1
     random_time0:           0
