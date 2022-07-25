@@ -83,9 +83,9 @@ def vectorizeNoizyNotationFileToFrames (file):
 		while len(notes) > 0 and notes[0]['start'] >= t and notes[0]['start'] < end_t:
 			chi = notes[0]['chi'] if chi is None else min(chi, notes[0]['chi'])
 			note = notes.pop(0)
-			pitch = note['pitch']
+			pitch = note['pitch'] - KEYBOARD_BEGIN
 			if pitch >= 0 and pitch < KEYBOARD_SIZE:
-				frame[note['pitch']] = note['velocity'] / VELOCITY_MAX
+				frame[pitch] = note['velocity'] / VELOCITY_MAX
 
 		while np.random.rand() < NOISE_NOTE_P:
 			chi = -1 if chi is None else chi

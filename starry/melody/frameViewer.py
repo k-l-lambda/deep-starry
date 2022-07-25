@@ -120,7 +120,7 @@ class FrameViewer:
 
 			w = (stn0[si + 1].item() - sti) if si < len(stn0) - 1 else 0.5e+3
 			for p, v in enumerate(sfi):
-				ax.add_patch(patches.Rectangle((sti, -(87 - p + 21)), w, 1, fill=True, facecolor='b', alpha=v))
+				ax.add_patch(patches.Rectangle((sti, -(p + 21)), w, 1, fill=True, facecolor='b', alpha=v))
 
 			# linking line
 			if sci > 0:
