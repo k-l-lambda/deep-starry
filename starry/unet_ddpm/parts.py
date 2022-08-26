@@ -1,85 +1,174 @@
-""" Parts of the U-Net model """
+"""
+Various utilities for neural networks.
+"""
+
+import math
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 
-class ResBlock(nn.Module):
-	def __init__(self, in_channels, out_channels, gn_channels):
-		super().__init__()
-
-		mid_channels = out_channels
-		if out_channels > in_channels:
-			mid_channels = in_channels * 2
-		elif out_channels < in_channels:
-			mid_channels = in_channels // 2
-
-		self.side = nn.Identity if in_channels == out_channels else nn.Conv2d(in_channels, out_channels, kernel_size=1)
-		self.double_conv = nn.Sequential(
-			nn.GroupNorm(in_channels // gn_channels, in_channels),
-			nn.SiLU(inplace=True),
-			nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
-			nn.GroupNorm(mid_channels // gn_channels, mid_channels),
-			nn.SiLU(inplace=True),
-			nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
-		)
-
+'''# PyTorch 1.7 has SiLU, but we support PyTorch 1.5.
+class SiLU(nn.Module):
 	def forward(self, x):
-		xi = self.side(x)
-		return xi + self.double_conv(x)
+		return x * torch.sigmoid(x)'''
 
 
-class Down(nn.Module):
-	def __init__(self, in_channels, out_channels, gn_channels, res_blocks=1):
-		super().__init__()
+class GroupNorm32 (nn.GroupNorm):
+	def __init__ (self, channels):
+		super().__init__(32, channels)
 
-		self.pool_conv = nn.Sequential(
-			ResBlock(in_channels, out_channels, gn_channels),
-			*(ResBlock(out_channels, out_channels, gn_channels) for _ in range(res_blocks - 1)),
-			nn.AvgPool2d(2),
+	def forward (self, x):
+		return super().forward(x.float()).type(x.dtype)
+
+
+def conv_nd (dims, *args, **kwargs):
+	"""
+	Create a 1D, 2D, or 3D convolution module.
+	"""
+	if dims == 1:
+		return nn.Conv1d(*args, **kwargs)
+	elif dims == 2:
+		return nn.Conv2d(*args, **kwargs)
+	elif dims == 3:
+		return nn.Conv3d(*args, **kwargs)
+	raise ValueError(f"unsupported dimensions: {dims}")
+
+
+def linear (*args, **kwargs):
+	"""
+	Create a linear module.
+	"""
+	return nn.Linear(*args, **kwargs)
+
+
+def avg_pool_nd (dims, *args, **kwargs):
+	"""
+	Create a 1D, 2D, or 3D average pooling module.
+	"""
+	if dims == 1:
+		return nn.AvgPool1d(*args, **kwargs)
+	elif dims == 2:
+		return nn.AvgPool2d(*args, **kwargs)
+	elif dims == 3:
+		return nn.AvgPool3d(*args, **kwargs)
+	raise ValueError(f"unsupported dimensions: {dims}")
+
+
+def update_ema (target_params, source_params, rate=0.99):
+	"""
+	Update target parameters to be closer to those of source parameters using
+	an exponential moving average.
+
+	:param target_params: the target parameter sequence.
+	:param source_params: the source parameter sequence.
+	:param rate: the EMA rate (closer to 1 means slower).
+	"""
+	for targ, src in zip(target_params, source_params):
+		targ.detach().mul_(rate).add_(src, alpha=1 - rate)
+
+
+def zero_module (module):
+	"""
+	Zero out the parameters of a module and return it.
+	"""
+	for p in module.parameters():
+		p.detach().zero_()
+	return module
+
+
+def scale_module (module, scale):
+	"""
+	Scale the parameters of a module and return it.
+	"""
+	for p in module.parameters():
+		p.detach().mul_(scale)
+	return module
+
+
+def mean_flat (tensor):
+	"""
+	Take the mean over all non-batch dimensions.
+	"""
+	return tensor.mean(dim=list(range(1, len(tensor.shape))))
+
+
+def normalization (channels):
+	"""
+	Make a standard normalization layer.
+
+	:param channels: number of input channels.
+	:return: an nn.Module for normalization.
+	"""
+	return GroupNorm32(channels)
+
+
+def timestep_embedding (timesteps, dim, max_period=10000):
+	"""
+	Create sinusoidal timestep embeddings.
+
+	:param timesteps: a 1-D Tensor of N indices, one per batch element.
+					  These may be fractional.
+	:param dim: the dimension of the output.
+	:param max_period: controls the minimum frequency of the embeddings.
+	:return: an [N x dim] Tensor of positional embeddings.
+	"""
+	half = dim // 2
+	freqs = torch.exp(
+		-math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
+	).to(device=timesteps.device)
+	args = timesteps[:, None].float() * freqs[None]
+	embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
+	if dim % 2:
+		embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
+	return embedding
+
+
+def checkpoint (func, inputs, params, flag):
+	"""
+	Evaluate a function without caching intermediate activations, allowing for
+	reduced memory at the expense of extra compute in the backward pass.
+
+	:param func: the function to evaluate.
+	:param inputs: the argument sequence to pass to `func`.
+	:param params: a sequence of parameters `func` depends on but does not
+				   explicitly take as arguments.
+	:param flag: if False, disable gradient checkpointing.
+	"""
+	if flag:
+		args = tuple(inputs) + tuple(params)
+		return CheckpointFunction.apply(func, len(inputs), *args)
+	else:
+		return func(*inputs)
+
+
+class CheckpointFunction (torch.autograd.Function):
+	@staticmethod
+	def forward (ctx, run_function, length, *args):
+		ctx.run_function = run_function
+		ctx.input_tensors = list(args[:length])
+		ctx.input_params = list(args[length:])
+		with torch.no_grad():
+			output_tensors = ctx.run_function(*ctx.input_tensors)
+		return output_tensors
+
+	@staticmethod
+	def backward (ctx, *output_grads):
+		ctx.input_tensors = [x.detach().requires_grad_(True) for x in ctx.input_tensors]
+		with torch.enable_grad():
+			# Fixes a bug where the first op in run_function modifies the
+			# Tensor storage in place, which is not allowed for detach()'d
+			# Tensors.
+			shallow_copies = [x.view_as(x) for x in ctx.input_tensors]
+			output_tensors = ctx.run_function(*shallow_copies)
+		input_grads = torch.autograd.grad(
+			output_tensors,
+			ctx.input_tensors + ctx.input_params,
+			output_grads,
+			allow_unused=True,
 		)
-
-	def forward(self, x):
-		return self.pool_conv(x)
-
-
-class Up(nn.Module):
-	def __init__(self, in_channels, out_channels, gn_channels, res_blocks=1, bilinear=True):
-		super().__init__()
-
-		self.conv = nn.Sequential(
-			ResBlock(in_channels, out_channels, gn_channels),
-			*(ResBlock(out_channels, out_channels, gn_channels) for _ in range(res_blocks - 1)),
-		)
-
-		# if bilinear, use the normal convolutions to reduce the number of channels
-		if bilinear:
-			self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-		else:
-			self.up = nn.ConvTranspose2d(in_channels , in_channels // 2, kernel_size=2, stride=2)
-
-
-	def forward(self, x1, x2):
-		x1 = self.up(x1)
-		# input is CHW
-		diffY = x2.size()[2] - x1.size()[2]
-		diffX = x2.size()[3] - x1.size()[3]
-
-		x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
-						diffY // 2, diffY - diffY // 2])
-		# if you have padding issues, see
-		# https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
-		# https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
-		x = torch.cat([x2, x1], dim=1)
-		return self.conv(x)
-
-
-class OutConv(nn.Module):
-	def __init__(self, in_channels, out_channels):
-		super(OutConv, self).__init__()
-		self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-
-	def forward(self, x):
-		return self.conv(x)
+		del ctx.input_tensors
+		del ctx.input_params
+		del output_tensors
+		return (None, None) + input_grads
