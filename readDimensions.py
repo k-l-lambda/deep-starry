@@ -11,6 +11,7 @@ def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('dir', type=str)
 	parser.add_argument('-r', '--round', type=int, default=8)
+	parser.add_argument('-o', '--output', type=str, default=None)
 
 	args = parser.parse_args()
 
@@ -35,7 +36,9 @@ def main ():
 	items.sort(key=lambda item: item[3])
 	#print('items:', items)
 
-	with open(os.path.join(args.dir, 'dimensions.csv'), 'w') as output:
+	output_path = args.output or os.path.join(args.dir, 'dimensions.csv')
+	with open(output_path, 'w') as output:
+		output.write('name,size,height,width\n')
 		for item in items:
 			output.write(','.join(map(str, item)))
 			output.write('\n')
