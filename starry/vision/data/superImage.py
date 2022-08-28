@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from torch.utils.data import IterableDataset
 
-from .utils import loadSplittedDatasets, listAllImageNames
+from .utils import loadSplittedDatasets, parseFilterStr
 from .imageReader import makeReader
 
 
@@ -19,8 +19,12 @@ def collateBatchSingle (batch, device):
 
 
 class DimensionCluster:
-	def __init__ (self, csv_file, cluster_size=0x100000, no_repeat=False, shuffle=False):
+	def __init__ (self, csv_file, cluster_size=0x100000, no_repeat=False, shuffle=False, filterStr=None):
 		dataframes = pd.read_csv(csv_file)
+
+		if filterStr is not None:
+			phases, cycle = parseFilterStr(filterStr)
+			dataframes = dataframes.filter(axis='index', items=[i for i in range(len(dataframes)) if (i % cycle) in phases])
 
 		self.name_dict = {}
 		self.shuffle = shuffle
@@ -62,7 +66,7 @@ class SuperImage (IterableDataset):
 		self.shuffle = shuffle
 		self.device = device
 
-		self.cluster = DimensionCluster(dimensions, cluster_size=cluster_size, no_repeat=not shuffle, shuffle=shuffle)
+		self.cluster = DimensionCluster(dimensions, cluster_size=cluster_size, no_repeat=not shuffle, shuffle=shuffle, filterStr=split)
 
 
 	def __iter__ (self):
