@@ -79,3 +79,12 @@ class CachedImageReader:
 
 	def cached (self, path):
 		return self.cache_reader.exists(path)
+
+
+def makeReader (root):
+	name, ext = os.path.splitext(root)
+	is_zip = ext == '.zip'
+	nomalized_root = name if is_zip else root
+	reader_url = ('zip://' + root) if is_zip else root
+
+	return ImageReader(reader_url), nomalized_root

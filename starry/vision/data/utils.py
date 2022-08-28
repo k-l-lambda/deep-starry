@@ -1,4 +1,6 @@
 
+import os
+import re
 from copy import deepcopy
 import numpy as np
 import torch
@@ -49,3 +51,28 @@ def loadSplittedDatasets (dataset_cls, root, args, args_variant, splits, labels,
 		return dataset_cls(root, labels=labels, split=split, shuffle=split.startswith('*'), device=device, **this_args)
 
 	return tuple(map(load, enumerate(splits)))
+
+
+def parseFilterStr (filterStr):
+	filterStr = filterStr[1:] if filterStr.startswith('*') else filterStr
+	phases, cycle = filterStr.split('/')
+	captures = re.match(r'(\d+)\.\.(\d+)', phases)
+	if captures:
+		phases = list(range(int(captures[1]), int(captures[2]) + 1))
+	else:
+		phases = list(map(int, phases.split(',')))
+	cycle = int(cycle)
+
+	return phases, cycle
+
+
+def listAllImageNames (reader, filterStr, dir='/'):
+	# split file name & ext name
+	all_names = [os.path.splitext(name)[0] for name in reader.listFiles(dir)]
+
+	if filterStr is None:
+		return all_names
+
+	phases, cycle = parseFilterStr(filterStr)
+
+	return [name for i, name in enumerate(all_names) if (i % cycle) in phases]
