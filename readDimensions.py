@@ -1,4 +1,5 @@
 
+import os
 import re
 import magic
 import argparse
@@ -27,12 +28,19 @@ def main ():
 				#print('dimension:', w, h, filename)
 
 				rw, rh = w - w % args.round, h - h % args.round
-				items.append((filename, h, w, f'{rw}x{rh}'))
+				items.append((filename, f'{rw}x{rh}', h, w))
 			else:
 				print('no dimensions.', filename)
 
 	items.sort(key=lambda item: item[3])
-	print('items:', items)
+	#print('items:', items)
+
+	with open(os.path.join(args.dir, 'dimensions.csv'), 'w') as output:
+		for item in items:
+			output.write(','.join(map(str, item)))
+			output.write('\n')
+
+	print(f'Done, {len(items)} items')
 
 
 if __name__ == '__main__':
