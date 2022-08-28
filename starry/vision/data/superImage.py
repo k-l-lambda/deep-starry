@@ -1,4 +1,5 @@
 
+import random
 import pandas as pd
 import torch
 from torch.utils.data import IterableDataset
@@ -16,10 +17,11 @@ def collateBatchSingle (batch, device):
 
 
 class DimensionCluster:
-	def __init__ (self, csv_file, cluster_size=0x100000):
+	def __init__ (self, csv_file, cluster_size=0x100000, no_repeat=False, shuffle=False):
 		dataframes = pd.read_csv(csv_file)
 
 		self.name_dict = {}
+		self.shuffle = shuffle
 
 		sizes = set(dataframes.loc[:, 'size'])
 		for size in sizes:
@@ -28,12 +30,22 @@ class DimensionCluster:
 
 			names = dataframes[dataframes['size'] == size]['name']
 			names_repeat = list(names) * n_img
-			for i, name in enumerate(names):
-				self.name_dict[name] = names_repeat[i:i + n_img]
+			if no_repeat:
+				names = list(names)
+				for i in range(0, len(names), n_img):
+					key = names[i]
+					self.name_dict[key] = names[i:i + n_img]
+			else:
+				for i, name in enumerate(names):
+					self.name_dict[name] = names_repeat[i:i + n_img]
 
 
 	def __iter__ (self):
-		for names in self.name_dict.values():
+		values = list(self.name_dict.values())
+		if self.shuffle:
+			random.shuffle(values)
+
+		for names in values:
 			yield names
 
 
