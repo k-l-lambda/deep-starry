@@ -33,20 +33,20 @@ class DimensionCluster:
 			if no_repeat:
 				names = list(names)
 				for i in range(0, len(names), n_img):
-					key = names[i]
-					self.name_dict[key] = names[i:i + n_img]
+					self.name_dict[size] = names[i:i + n_img]
 			else:
 				for i, name in enumerate(names):
-					self.name_dict[name] = names_repeat[i:i + n_img]
+					self.name_dict[size] = names_repeat[i:i + n_img]
 
 
 	def __iter__ (self):
-		values = list(self.name_dict.values())
+		items = list(self.name_dict.items())
 		if self.shuffle:
-			random.shuffle(values)
+			random.shuffle(items)
 
-		for names in values:
-			yield names
+		for size, names in items:
+			w, h = map(int, size.split('x'))
+			yield (h, w), names
 
 
 class SuperImage (IterableDataset):
@@ -55,17 +55,17 @@ class SuperImage (IterableDataset):
 		return loadSplittedDatasets(cls, root=root, args=args, splits=splits, device=device, args_variant=args_variant)
 
 
-	def __init__ (self, root, split='0/1', dimensions=None, device='cpu', shuffle=False, **_):
+	def __init__ (self, root, split='0/1', dimensions=None, cluster_size=0x100000, device='cpu', shuffle=False, **_):
 		self.reader, _ = makeReader(root)
 		self.shuffle = shuffle
 		self.device = device
 
-		self.names = listAllImageNames(self.reader, split)
-		self.names = [name for name in self.names if self.labels.get(name)]
+		self.cluster = DimensionCluster(dimensions, cluster_size=cluster_size, no_repeat=not shuffle, shuffle=shuffle)
 
 
 	def __iter__ (self):
-		pass
+		for (h, w), names in self.cluster:
+			yield (h, w), names
 
 
 	def __len__ (self):

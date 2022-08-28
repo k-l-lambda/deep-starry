@@ -33,7 +33,7 @@ def main ():
 			else:
 				print('no dimensions.', filename)
 
-	items.sort(key=lambda item: item[3])
+	items.sort(key=lambda item: item[1])
 	#print('items:', items)
 
 	output_path = args.output or os.path.join(args.dir, 'dimensions.csv')
