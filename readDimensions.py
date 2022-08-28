@@ -21,7 +21,7 @@ def main ():
 	files = fs.listdir('/')
 	for filename in files:
 		with fs.open(filename, 'rb') as file:
-			info = magic.from_buffer(file.read(2048))
+			info = magic.from_buffer(file.read(0x10000))
 			#print('info:', filename, info)
 			capture = re.match('.*,\s(\d+)x(\d+),.*', info) or re.match('.*,\s(\d+)\sx\s(\d+),.*', info)
 			if capture is not None:
