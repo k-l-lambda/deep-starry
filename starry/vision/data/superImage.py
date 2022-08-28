@@ -1,6 +1,8 @@
 
+import logging
 import random
 import pandas as pd
+import numpy as np
 import torch
 from torch.utils.data import IterableDataset
 
@@ -65,7 +67,27 @@ class SuperImage (IterableDataset):
 
 	def __iter__ (self):
 		for (h, w), names in self.cluster:
-			yield (h, w), names
+			x = np.zeros((len(names), 3, h, w))
+			y = np.zeros((len(names), 3, h, w))
+
+			for i, name in enumerate(names):
+				if not self.reader.exists(name):
+					logging.warn('image file missing: %s', name)
+					continue
+
+				image = self.reader.readImage(name)
+				if len(image.shape) < 3:
+					image = image.reshape(image.shape + (1,))
+				if image.shape[2] == 1:
+					image = np.concatenate((image, image, image), axis=2)
+				elif image.shape[2] > 3:
+					image = image[:, :, :3]
+
+				y[i] = image.transpose(2, 0, 1)[:, :h, :w] / 255.
+
+				# TODO: write x
+
+			yield torch.from_numpy(x), torch.from_numpy(y)
 
 
 	def __len__ (self):
