@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import IterableDataset
+import cv2
 
 from .utils import loadSplittedDatasets, parseFilterStr
 from .imageReader import makeReader
@@ -61,17 +62,20 @@ class SuperImage (IterableDataset):
 		return loadSplittedDatasets(cls, root=root, args=args, splits=splits, device=device, args_variant=args_variant)
 
 
-	def __init__ (self, root, split='0/1', dimensions=None, cluster_size=0x100000, device='cpu', shuffle=False, **_):
+	def __init__ (self, root, split='0/1', dimensions=None, cluster_size=0x100000, downsample=4, device='cpu', shuffle=False, **_):
 		self.reader, _ = makeReader(root)
 		self.shuffle = shuffle
 		self.device = device
 
 		self.cluster = DimensionCluster(dimensions, cluster_size=cluster_size, no_repeat=not shuffle, shuffle=shuffle, filterStr=split)
+		self.downsample = downsample
 
 
 	def __iter__ (self):
 		for (h, w), names in self.cluster:
-			x = np.zeros((len(names), 3, h, w))
+			lh, lw = h // self.downsample, w // self.downsample
+
+			x = np.zeros((len(names), 3, lh, lw))
 			y = np.zeros((len(names), 3, h, w))
 
 			for i, name in enumerate(names):
@@ -89,7 +93,8 @@ class SuperImage (IterableDataset):
 
 				y[i] = image.transpose(2, 0, 1)[:, :h, :w] / 255.
 
-				# TODO: write x
+				imageLow = cv2.resize(image, (image.cols // self.downsample, image.rows // self.downsample), interpolation=cv2.INTER_AREA)
+				x[i] = imageLow.transpose(2, 0, 1)[:, :lh, :lw] / 255.
 
 			yield torch.from_numpy(x), torch.from_numpy(y)
 
