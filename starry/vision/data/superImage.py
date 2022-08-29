@@ -93,7 +93,7 @@ class SuperImage (IterableDataset):
 
 				y[i] = image.transpose(2, 0, 1)[:, :h, :w] / 255.
 
-				imageLow = cv2.resize(image, (image.cols // self.downsample, image.rows // self.downsample), interpolation=cv2.INTER_AREA)
+				imageLow = cv2.resize(image, (image.shape[1] // self.downsample, image.shape[0] // self.downsample), interpolation=cv2.INTER_AREA)
 				x[i] = imageLow.transpose(2, 0, 1)[:, :lh, :lw] / 255.
 
 			yield torch.from_numpy(x), torch.from_numpy(y)
