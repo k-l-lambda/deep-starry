@@ -11,3 +11,12 @@ data:
     dimensions:             ./dimensions.csv
     cluster_size:           1228800
     downsample:             4
+
+
+model:
+  type:                     Reconstructor
+  args:
+    resolution_factor:      4
+    layers:                 4
+    num_res_blocks:         2
+    dropout:                0.2

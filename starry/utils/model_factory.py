@@ -9,12 +9,12 @@ model_dict = None
 def registerModels ():
 	global model_dict
 
-	#from ..topology import models as tpm
 	from ..vision import models as vm
 
 	classes = [
 		vm.PerisSimple, vm.PerisSimpleLoss,
 		vm.PerisBinary, vm.PerisBinaryLoss,
+		vm.Reconstructor, vm.ReconstructorLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])
