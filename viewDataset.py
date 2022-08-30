@@ -6,6 +6,7 @@ import logging
 
 from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
+from starry.vision.superImgView import SuperImgView
 
 
 
@@ -27,9 +28,9 @@ def main ():
 		config['data.splits'] = args.splits
 
 	data, = loadDataset(config, data_dir=DATA_DIR)
-	print('data:', data)
-	#viewer = DatasetViewer(config, gauge_mode=args.gauge)
-	#viewer.show(data)
+
+	viewer = SuperImgView(config)
+	viewer.show(data)
 
 
 if __name__ == '__main__':
