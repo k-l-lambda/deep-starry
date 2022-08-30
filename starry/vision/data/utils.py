@@ -37,7 +37,7 @@ def deep_update (d, u):
 	return d
 
 
-def loadSplittedDatasets (dataset_cls, root, args, args_variant, splits, labels, device='cpu'):
+def loadSplittedDatasets (dataset_cls, root, args, args_variant, splits, labels=None, device='cpu'):
 	splits = splits.split(':')
 
 	def load (isplit):

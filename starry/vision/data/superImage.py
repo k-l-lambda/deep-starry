@@ -1,4 +1,5 @@
 
+import os
 import logging
 import random
 import pandas as pd
@@ -67,7 +68,7 @@ class SuperImage (IterableDataset):
 		self.shuffle = shuffle
 		self.device = device
 
-		self.cluster = DimensionCluster(dimensions, cluster_size=cluster_size, no_repeat=not shuffle, shuffle=shuffle, filterStr=split)
+		self.cluster = DimensionCluster(os.path.join(root, dimensions), cluster_size=cluster_size, no_repeat=not shuffle, shuffle=shuffle, filterStr=split)
 		self.downsample = downsample
 
 

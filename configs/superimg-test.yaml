@@ -1,0 +1,13 @@
+
+id:     peris/{date}-{filename}
+
+
+data:
+  type:                     SuperImage
+  root:                     textures/coco2017 samples
+  splits:                   '*1..8/10:9/10'
+  batch_size:               1
+  args:
+    dimensions:             ./dimensions.csv
+    cluster_size:           1228800
+    downsample:             4
