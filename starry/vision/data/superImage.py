@@ -57,6 +57,10 @@ class DimensionCluster:
 			yield (h, w), names
 
 
+	def __len__ (self):
+		return len(self.name_dict.keys())
+
+
 class SuperImage (IterableDataset):
 	@classmethod
 	def load (cls, root, args, splits, device='cpu', args_variant=None, **_):
@@ -97,11 +101,11 @@ class SuperImage (IterableDataset):
 				imageLow = cv2.resize(image, (image.shape[1] // self.downsample, image.shape[0] // self.downsample), interpolation=cv2.INTER_AREA)
 				x[i] = imageLow.transpose(2, 0, 1)[:, :lh, :lw] / 255.
 
-			yield torch.from_numpy(x), torch.from_numpy(y)
+			yield torch.from_numpy(x).float(), torch.from_numpy(y).float()
 
 
 	def __len__ (self):
-		return len(self.names)
+		return len(self.cluster)
 
 
 	def collateBatch (self, batch):
