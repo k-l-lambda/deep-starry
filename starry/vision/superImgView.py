@@ -35,7 +35,7 @@ class SuperImgView:
 			ax(1, i).imshow(target)
 
 			if pred is not None:
-				p = pred[i].permute(1, 2, 0)
+				p = pred[i].permute(1, 2, 0).clip(min=0, max=1)
 				ax(2, i).imshow(p)
 
 		plt.get_current_fig_manager().full_screen_toggle()
