@@ -3,17 +3,42 @@ import sys
 import os
 import argparse
 import logging
+import torch
 
 from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
-from starry.vision.validator import Validator
+from starry.utils.predictor import Predictor
+from starry.vision.superImgView import SuperImgView
 
+
+
+# workaround cuda unavailable issue
+torch.cuda.is_available()
 
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 
-VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR')
+DATA_DIR = os.environ.get('DATA_DIR')
+
+
+class Validator (Predictor):
+	def __init__ (self, config, args):
+		super().__init__(device=args.device)
+
+		self.viewer = SuperImgView(config)
+
+		self.loadModel(config)
+
+
+	def run (self, data):
+		for i, batch in enumerate(data):
+			logging.info('batch: %d', i)
+
+			with torch.no_grad():
+				pred = self.model(batch[0])
+
+			self.viewer.showBatch(batch, pred)
 
 
 def main ():
@@ -21,13 +46,11 @@ def main ():
 	parser.add_argument('config', type=str)
 	parser.add_argument('-d', '--data', type=str, help='data configuration file')
 	parser.add_argument('-s', '--splits', type=str, default='0/10')
-	parser.add_argument('-k', '--skip', action='store_true', help='skip perfect samples')
-	parser.add_argument('-g', '--gauge', action='store_true', help='gauge mode')
-	parser.add_argument('-ns', '--no-splice', action='store_true', help='avoid calling splice_pieces')
+	parser.add_argument('-dv', '--device', type=str, default='cpu')
 
 	args = parser.parse_args()
 
-	config = Configuration(args.config)
+	config = Configuration.createOrLoad(args.config, volatile=True)
 
 	if args.data:
 		data_config = Configuration.createOrLoad(args.data, volatile=True)
@@ -36,8 +59,8 @@ def main ():
 	if args.splits is not None:
 		config['data.splits'] = args.splits
 
-	data, = loadDataset(config, data_dir=VISION_DATA_DIR)
-	validator = Validator(config, skip_perfect=args.skip, gauge_mode=args.gauge, splice=not args.no_splice)
+	data, = loadDataset(config, data_dir=DATA_DIR, device=args.device)
+	validator = Validator(config, args)
 
 	validator.run(data)
 

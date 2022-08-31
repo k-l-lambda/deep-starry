@@ -4,6 +4,11 @@ TODO:
 
 
 
+2022.8.31
+
+	+	vision/superImgView.py: prediction view added.
+
+
 2022.8.30
 
 	+	vision/models/reconstructor.py created.
