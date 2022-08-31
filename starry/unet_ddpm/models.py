@@ -455,7 +455,7 @@ class UNetModel (nn.Module):
 		), 'must specify y if and only if the model is class-conditional'
 
 		hs = []
-		emb = torch.zeros((x.shape[0], self.model_channels * 4)) if timesteps is None else self.time_embed(timestep_embedding(timesteps, self.model_channels))
+		emb = torch.zeros((x.shape[0], self.model_channels * 4), device=x.device) if timesteps is None else self.time_embed(timestep_embedding(timesteps, self.model_channels))
 
 		if self.num_classes is not None:
 			assert y.shape == (x.shape[0],)

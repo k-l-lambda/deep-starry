@@ -28,7 +28,7 @@ trainer:
   save_mode:      best
   epoch:          2
   moniter:
-    field:        error
+    field:        loss
     mode:         min
 
 optim:
