@@ -34,7 +34,7 @@ class Reconstructor (nn.Module):
 		_, _, h, w = x.shape
 		f = self.resolution_factor
 
-		x = F.interpolate(x, (h * f, w * f), mode='bilinear')
+		x = F.interpolate(x, (h * f, w * f), mode='bilinear', align_corners=True)
 
 		return self.backbone(x)
 
