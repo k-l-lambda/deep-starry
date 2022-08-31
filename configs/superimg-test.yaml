@@ -20,3 +20,4 @@ model:
     layers:                 4
     num_res_blocks:         2
     dropout:                0.2
+    loss_module:            lpips_alex_0.1.pt
