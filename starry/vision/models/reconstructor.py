@@ -47,6 +47,8 @@ class ReconstructorLoss (nn.Module):
 
 		if loss_module is not None:
 			self.loss = torch.jit.load(os.path.join(PRETRAINED_DIR, loss_module))
+			for p in self.loss.parameters():
+				p.requires_grad = False
 		else:
 			self.loss = nn.MSELoss()
 
