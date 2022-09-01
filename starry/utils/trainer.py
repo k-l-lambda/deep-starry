@@ -126,6 +126,12 @@ class Trainer:
 					torch.save(checkpoint, self.config.localPath(model_name))
 					logging.info('	- [Info] The checkpoint file has been updated.')
 
+					release_checkpoint = {
+						'epoch': epoch_i,
+						'model': self.model.deducer.state_dict(),
+					}
+					torch.save(release_checkpoint, self.config.localPath('best.chkpt'))
+
 			if new_record or self.config['best'] is None:
 				self.config['best'] = model_name
 				self.config['trainer.moniter.best_value'] = self.moniter.best_value
