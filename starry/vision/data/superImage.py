@@ -96,10 +96,13 @@ class SuperImage (IterableDataset):
 				elif image.shape[2] > 3:
 					image = image[:, :, :3]
 
-				y[i] = image.transpose(2, 0, 1)[:, :h, :w] / 255.
+				lm, tm = random.randint(0, image.shape[1] - w), random.randint(0, image.shape[0] - h)
+				image = image[tm:tm + h, lm:lm + w, :]
+
+				y[i] = image.transpose(2, 0, 1) / 255.
 
 				imageLow = cv2.resize(image, (image.shape[1] // self.downsample, image.shape[0] // self.downsample), interpolation=cv2.INTER_AREA)
-				x[i] = imageLow.transpose(2, 0, 1)[:, :lh, :lw] / 255.
+				x[i] = imageLow.transpose(2, 0, 1) / 255.
 
 			yield torch.from_numpy(x).float(), torch.from_numpy(y).float()
 
