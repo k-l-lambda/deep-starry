@@ -37,6 +37,7 @@ def main ():
 					down += 1
 					rw //= 2
 					rh //= 2
+					rw, rh = rw - rw % args.round, rh - rh % args.round
 			else:
 				print('no dimensions:', filename)
 
