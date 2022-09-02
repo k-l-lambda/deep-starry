@@ -4,6 +4,11 @@ TODO:
 
 
 
+2022.9.2
+
+	+	readDimensions.py: added downsample multiplication.
+
+
 2022.9.1
 
 	+	utils/trainer.py: best checkpoint saving added.

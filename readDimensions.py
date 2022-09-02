@@ -11,6 +11,7 @@ def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('dir', type=str)
 	parser.add_argument('-r', '--round', type=int, default=8)
+	parser.add_argument('-l', '--low_bound', type=int, default=64, help='downsample resolution low bound')
 	parser.add_argument('-o', '--output', type=str, default=None)
 
 	args = parser.parse_args()
@@ -29,16 +30,22 @@ def main ():
 				#print('dimension:', w, h, filename)
 
 				rw, rh = w - w % args.round, h - h % args.round
-				items.append((filename, f'{rw}x{rh}', h, w))
+				down = 0
+				while min(rw, rh) > args.low_bound:
+					items.append((filename, f'{rw}x{rh}', down, h, w))
+
+					down += 1
+					rw //= 2
+					rh //= 2
 			else:
-				print('no dimensions.', filename)
+				print('no dimensions:', filename)
 
 	items.sort(key=lambda item: item[1])
 	#print('items:', items)
 
 	output_path = args.output or os.path.join(args.dir, 'dimensions.csv')
 	with open(output_path, 'w') as output:
-		output.write('name,size,height,width\n')
+		output.write('name,size,down,height,width\n')
 		for item in items:
 			output.write(','.join(map(str, item)))
 			output.write('\n')

@@ -36,25 +36,26 @@ class DimensionCluster:
 			w, h = map(int, size.split('x'))
 			n_img = max(1, cluster_size // (w * h))
 
-			names = dataframes[dataframes['size'] == size]['name']
-			names_repeat = list(names) * n_img
+			items = dataframes[dataframes['size'] == size]
+			items = items.drop(['size', 'height', 'width'], axis=1)
+			items = list(items.itertuples(index=False, name=None))
+			items_repeat = items * n_img
 			if no_repeat:
-				names = list(names)
-				for i in range(0, len(names), n_img):
-					self.name_dict[size] = names[i:i + n_img]
+				for i in range(0, len(items), n_img):
+					self.name_dict[size] = items[i:i + n_img]
 			else:
-				for i, name in enumerate(names):
-					self.name_dict[size] = names_repeat[i:i + n_img]
+				for i, _ in enumerate(items):
+					self.name_dict[size] = items_repeat[i:i + n_img]
 
 
 	def __iter__ (self):
-		items = list(self.name_dict.items())
+		groups = list(self.name_dict.items())
 		if self.shuffle:
-			random.shuffle(items)
+			random.shuffle(groups)
 
-		for size, names in items:
+		for size, items in groups:
 			w, h = map(int, size.split('x'))
-			yield (h, w), names
+			yield (h, w), items
 
 
 	def __len__ (self):
@@ -77,18 +78,24 @@ class SuperImage (IterableDataset):
 
 
 	def __iter__ (self):
-		for (h, w), names in self.cluster:
+		for (h, w), items in self.cluster:
 			lh, lw = h // self.downsample, w // self.downsample
 
-			x = np.zeros((len(names), 3, lh, lw))
-			y = np.zeros((len(names), 3, h, w))
+			x = np.zeros((len(items), 3, lh, lw))
+			y = np.zeros((len(items), 3, h, w))
 
-			for i, name in enumerate(names):
+			for i, item in enumerate(items):
+				name, down = item
+
 				if not self.reader.exists(name):
 					logging.warn('image file missing: %s', name)
 					continue
 
 				image = self.reader.readImage(name)
+				if down > 0:
+					scale = 2 ** down
+					image = cv2.resize(image, (image.shape[1] // scale, image.shape[0] // scale), interpolation=cv2.INTER_AREA)
+
 				if len(image.shape) < 3:
 					image = image.reshape(image.shape + (1,))
 				if image.shape[2] == 1:
