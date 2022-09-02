@@ -6,6 +6,8 @@ TODO:
 
 2022.9.2
 
+	+	superImage.py: added argument of size_range.
+
 	+	readDimensions.py: added downsample multiplication.
 
 

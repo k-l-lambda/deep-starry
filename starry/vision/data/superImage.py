@@ -21,8 +21,18 @@ def collateBatchSingle (batch, device):
 
 
 class DimensionCluster:
-	def __init__ (self, csv_file, cluster_size=0x100000, no_repeat=False, shuffle=False, filterStr=None):
+	def __init__ (self, csv_file, cluster_size=0x100000, size_range=None, no_repeat=False, shuffle=False, filterStr=None):
 		dataframes = pd.read_csv(csv_file)
+
+		if size_range is not None:
+			low, high = size_range
+			def inRange (item):
+				w, h = map(int, item['size'].split('x'))
+				s = min(w, h)
+
+				return s >= low and s < high
+
+			dataframes = dataframes[dataframes.apply(inRange, axis=1)].reset_index(drop=True)
 
 		if filterStr is not None:
 			phases, cycle = parseFilterStr(filterStr)
@@ -68,12 +78,12 @@ class SuperImage (IterableDataset):
 		return loadSplittedDatasets(cls, root=root, args=args, splits=splits, device=device, args_variant=args_variant)
 
 
-	def __init__ (self, root, split='0/1', dimensions=None, cluster_size=0x100000, downsample=4, device='cpu', shuffle=False, **_):
+	def __init__ (self, root, split='0/1', dimensions=None, cluster_size=0x100000, downsample=4, size_range=(256, 512), device='cpu', shuffle=False, **_):
 		self.reader, _ = makeReader(root)
 		self.shuffle = shuffle
 		self.device = device
 
-		self.cluster = DimensionCluster(os.path.join(root, dimensions), cluster_size=cluster_size, no_repeat=not shuffle, shuffle=shuffle, filterStr=split)
+		self.cluster = DimensionCluster(os.path.join(root, dimensions), cluster_size=cluster_size, size_range=size_range, no_repeat=not shuffle, shuffle=shuffle, filterStr=split)
 		self.downsample = downsample
 
 
