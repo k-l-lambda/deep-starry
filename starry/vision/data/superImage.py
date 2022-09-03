@@ -103,6 +103,10 @@ class SuperImage (IterableDataset):
 					continue
 
 				image = self.reader.readImage(name)
+				if image is None:
+					logging.warn('image read failed: %s', name)
+					continue
+
 				if down > 0:
 					scale = 2 ** down
 					image = cv2.resize(image, (image.shape[1] // scale, image.shape[0] // scale), interpolation=cv2.INTER_AREA)

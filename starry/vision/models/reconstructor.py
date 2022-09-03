@@ -60,3 +60,7 @@ class ReconstructorLoss (nn.Module):
 		loss = self.loss(y_, y)
 
 		return loss, {}
+
+
+	def training_parameters (self):
+		return list(self.deducer.parameters()) + list(self.deducer.buffers())
