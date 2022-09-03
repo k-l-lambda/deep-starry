@@ -83,7 +83,8 @@ class SuperImage (IterableDataset):
 		self.shuffle = shuffle
 		self.device = device
 
-		self.cluster = DimensionCluster(os.path.join(root, dimensions), cluster_size=cluster_size, size_range=size_range, no_repeat=not shuffle, shuffle=shuffle, filterStr=split)
+		dimensions = dimensions if dimensions.startswith('/') else os.path.join(root, dimensions)
+		self.cluster = DimensionCluster(dimensions, cluster_size=cluster_size, size_range=size_range, no_repeat=not shuffle, shuffle=shuffle, filterStr=split)
 		self.downsample = downsample
 
 
