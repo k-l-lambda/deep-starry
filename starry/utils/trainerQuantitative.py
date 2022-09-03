@@ -283,8 +283,7 @@ class Trainer:
 
 	def infiniteTraverse (self, dataset):
 		while True:
-			for batch in dataset:
-				yield batch
+			yield from dataset
 
 
 	def finiteTraverse (self, iter, count):
