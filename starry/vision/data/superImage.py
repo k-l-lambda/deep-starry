@@ -47,24 +47,24 @@ class DimensionCluster:
 			n_img = max(1, cluster_size // (w * h))
 
 			items = dataframes[dataframes['size'] == size]
-			items = items.drop(['size', 'height', 'width'], axis=1)
+			items = items.drop(['height', 'width'], axis=1)
 			items = list(items.itertuples(index=False, name=None))
 			items_repeat = items * n_img
 			if no_repeat:
 				for i in range(0, len(items), n_img):
-					self.name_dict[size] = items[i:i + n_img]
+					self.name_dict[items[i][0]] = items[i:i + n_img]
 			else:
-				for i, _ in enumerate(items):
-					self.name_dict[size] = items_repeat[i:i + n_img]
+				for i, item in enumerate(items):
+					self.name_dict[item[0]] = items_repeat[i:i + n_img]
 
 
 	def __iter__ (self):
-		groups = list(self.name_dict.items())
+		groups = list(self.name_dict.values())
 		if self.shuffle:
 			random.shuffle(groups)
 
-		for size, items in groups:
-			w, h = map(int, size.split('x'))
+		for items in groups:
+			w, h = map(int, items[0][1].split('x'))
 			yield (h, w), items
 
 
@@ -95,7 +95,7 @@ class SuperImage (IterableDataset):
 			y = np.zeros((len(items), 3, h, w))
 
 			for i, item in enumerate(items):
-				name, down = item
+				name, _, down = item
 
 				if not self.reader.exists(name):
 					logging.warn('image file missing: %s', name)

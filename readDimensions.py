@@ -31,7 +31,7 @@ def main ():
 
 				rw, rh = w - w % args.round, h - h % args.round
 				down = 0
-				while min(rw, rh) > args.low_bound:
+				while min(rw, rh) >= args.low_bound:
 					items.append((filename, f'{rw}x{rh}', down, h, w))
 
 					down += 1
