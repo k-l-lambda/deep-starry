@@ -132,7 +132,8 @@ class Trainer:
 
 			start = time.time()
 
-			self.model.train().requires_grad_(True)
+			self.model.train()
+			self.model.deducer.requires_grad_(True)
 			total_loss, n_batch = 0, 0
 			metric_data = {}
 
