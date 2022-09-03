@@ -14,7 +14,7 @@ from starry.utils.trainerQuantitative import Trainer
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 
-VISION_DATA_DIR = os.environ.get('VISION_DATA_DIR')
+DATA_DIR = os.environ.get('DATA_DIR')
 
 
 def main ():
@@ -35,7 +35,7 @@ def main ():
 		init_file = os.path.abspath(os.path.join(temp_dir, '.torch_distributed_init'))
 
 		torch.multiprocessing.set_start_method('spawn')
-		torch.multiprocessing.spawn(fn=Trainer.run, args=(config, VISION_DATA_DIR, init_file, args.backend), nprocs=Trainer.PROC_COUNT)
+		torch.multiprocessing.spawn(fn=Trainer.run, args=(config, DATA_DIR, init_file, args.backend), nprocs=Trainer.PROC_COUNT)
 
 
 if __name__ == '__main__':
