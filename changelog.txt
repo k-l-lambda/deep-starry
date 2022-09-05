@@ -4,6 +4,11 @@ TODO:
 
 
 
+2022.9.5
+
+	+	superPredictor.py created.
+
+
 2022.9.3
 
 	+	superImage.py: fixed iteration bug.
