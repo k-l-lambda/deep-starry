@@ -1,5 +1,4 @@
 
-import cv2
 import torch
 import torch.nn.functional as F
 
@@ -16,6 +15,7 @@ class Superredictor (Predictor):
 
 	def super (self, image, iterations=1, down=0):
 		x = torch.from_numpy(image).permute(2, 0, 1).unsqueeze(0) / 255.
+		x = x.to(self.device)
 
 		with torch.no_grad():
 			for i in range(iterations):
@@ -25,6 +25,6 @@ class Superredictor (Predictor):
 					f = 2. ** -down
 					x = F.interpolate(x, scale_factor=f, mode='bilinear')
 
-			result = (x * 255).clip(min=0, max=255).to(dtype=torch.uint8).squeeze(0).permute(1, 2, 0).numpy()
+			result = (x * 255).clip(min=0, max=255).to(dtype=torch.uint8).squeeze(0).permute(1, 2, 0).cpu().numpy()
 
 		return result
