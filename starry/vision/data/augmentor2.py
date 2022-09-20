@@ -5,7 +5,7 @@ import torch
 from torchvision import transforms
 import numpy as np
 
-from ...schp import networks as schp_networks
+#from ...schp import networks as schp_networks
 from .masker import Masker
 
 
@@ -77,9 +77,9 @@ class Augmentor2:
 				if type(options['affine']['interpolation']) == str:
 					options['affine']['interpolation'] = transforms.InterpolationMode[options['affine']['interpolation']]
 			trans.append(transforms.RandomAffine(**options['affine']))
-		if options.get('masker'):
-			self.masker = SCHPMasker(**options['masker'])
-			self.masker.to(device)
+		#if options.get('masker'):
+		#	self.masker = SCHPMasker(**options['masker'])
+		#	self.masker.to(device)
 
 		self.composer = transforms.Compose(trans)
 

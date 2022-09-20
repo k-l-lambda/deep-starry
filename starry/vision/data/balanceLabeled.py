@@ -10,7 +10,7 @@ from torch.utils.data import IterableDataset
 
 from .utils import loadSplittedDatasets
 from .score import makeReader, parseFilterStr
-#from .augmentor2 import Augmentor2
+from .augmentor2 import Augmentor2
 
 
 
