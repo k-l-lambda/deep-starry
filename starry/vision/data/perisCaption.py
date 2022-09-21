@@ -1,4 +1,5 @@
 
+import os
 import time
 import numpy as np
 import random
@@ -11,16 +12,47 @@ from .score import makeReader
 
 
 
+FIGURE_WORD = os.getenv('FIGURE_WORD')
+
+
+def perisCaption (record):
+	#print('record:', record)
+	style = 'painting' if record['PA'] else ('doll' if record['DOLL'] else 'photo')
+
+	modifiers = []
+	if record['score'] >= 6:
+		modifiers.append('<p6+>')
+	if record['score'] >= 7:
+		modifiers.append('<p7+>')
+	if record['score'] >= 8:
+		modifiers.append('<p8+>')
+	if record['score'] >= 9:
+		modifiers.append('<p9+>')
+	if record['LOLI']:
+		modifiers.append('young')
+
+	descriptions = []
+	if record['SE']:
+		descriptions.append('SE')
+	if record['SM']:
+		descriptions.append('SM')
+	if record['NF']:
+		descriptions.append('no face')
+	if record['identity'] and type(record['identity']) is str:
+		descriptions.append(f'name "{record["identity"]}"')
+
+	return ', '.join([f'a {style} of a {" ".join(modifiers)} {FIGURE_WORD}'] + descriptions)
+
+
 class PerisCaption (IterableDataset):
 	@classmethod
 	def load (cls, root, args, splits, labels, device='cpu', args_variant=None):
 		return loadSplittedDatasets(cls, root=root, labels=labels, args=args, splits=splits, device=device, args_variant=args_variant)
 
 
-	def __init__ (self, root, labels, label_fields, split='0/1', device='cpu', augmentor={}, shuffle=False, **_):
+	def __init__ (self, root, labels, split='0/1', device='cpu', shuffle=False, **_):
 		self.reader, self.root = makeReader(root)
 		self.shuffle = shuffle
-		self.label_fields = label_fields
 		self.device = device
 
 		dataframes = pd.read_csv(labels)
@@ -56,9 +88,9 @@ class PerisCaption (IterableDataset):
 
 			source = (source / 255.0).astype(np.float32)
 
-			labels = self.labels[name]
+			caption = perisCaption(self.labels[name])
 
-			yield source, labels
+			yield source, caption
 
 
 	def __len__ (self):
