@@ -57,13 +57,16 @@ class PerisCaption (IterableDataset):
 		return loadSplittedDatasets(cls, root=root, labels=labels, args=args, splits=splits, device=device, args_variant=args_variant)
 
 
-	def __init__ (self, root, labels, tokenizer, split='0/1', shuffle=False, resolution=512, alias=None, **_):
+	def __init__ (self, root, labels, tokenizer, split='0/1', shuffle=False, filter=None, resolution=512, alias=None, **_):
 		self.reader, self.root = makeReader(root)
 		self.shuffle = shuffle
 		#self.device = device
 		self.tokenizer = tokenizer
 
 		dataframes = pd.read_csv(labels)
+		if filter is not None:
+			fn = eval(f'lambda _1: {filter}')
+			dataframes = dataframes[fn(dataframes)]
 		self.labels = dict(zip(dataframes['hash'], dataframes.to_dict('records')))
 
 		self.names = listAllImageNames(self.reader, split)

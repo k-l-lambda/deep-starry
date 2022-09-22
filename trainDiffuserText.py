@@ -54,9 +54,9 @@ def main ():
 
 	pretrained_path = config['trainer.pretrained_model_name_or_path']
 	tokenizer = CLIPTokenizer.from_pretrained(pretrained_path, subfolder='tokenizer')
-	text_encoder = CLIPTextModel.from_pretrained(pretrained_path, subfolder="text_encoder")
-	vae = AutoencoderKL.from_pretrained(pretrained_path, subfolder="vae")
-	unet = UNet2DConditionModel.from_pretrained(pretrained_path, subfolder="unet")
+	text_encoder = CLIPTextModel.from_pretrained(pretrained_path, subfolder='text_encoder')
+	vae = AutoencoderKL.from_pretrained(pretrained_path, subfolder='vae')
+	unet = UNet2DConditionModel.from_pretrained(pretrained_path, subfolder='unet')
 
 	placeholder_token_ids = tokenizer.convert_tokens_to_ids([f'{token}</w>' for token in config['trainer.tokens']])
 	freezed_ids = torch.tensor([id for id in range(len(tokenizer)) if not id in placeholder_token_ids])
@@ -136,22 +136,22 @@ def main ():
 	# We need to initialize the trackers we use, and also store our configuration.
 	# The trackers initializes automatically on the main process.
 	if accelerator.is_main_process:
-		accelerator.init_trackers("textual_inversion", config=config['trainer'])
+		accelerator.init_trackers('textual_inversion', config=config['trainer'])
 
 	# Train!
 	total_batch_size = train_batch_size * accelerator.num_processes * gradient_accumulation_steps
 
-	logger.info("***** Running training *****")
-	logger.info(f"  Num examples = {len(train_dataset)}")
-	logger.info(f"  Num Epochs = {num_train_epochs}")
-	logger.info(f"  Instantaneous batch size per device = {train_batch_size}")
-	logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
-	logger.info(f"  Gradient Accumulation steps = {gradient_accumulation_steps}")
-	logger.info(f"  Total optimization steps = {max_train_steps}")
+	logger.info('***** Running training *****')
+	logger.info(f'  Num examples = {len(train_dataset)}')
+	logger.info(f'  Num Epochs = {num_train_epochs}')
+	logger.info(f'  Instantaneous batch size per device = {train_batch_size}')
+	logger.info(f'  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}')
+	logger.info(f'  Gradient Accumulation steps = {gradient_accumulation_steps}')
+	logger.info(f'  Total optimization steps = {max_train_steps}')
 
 	# Only show the progress bar once on each machine.
 	progress_bar = tqdm(range(max_train_steps), disable=not accelerator.is_local_main_process)
-	progress_bar.set_description("Steps")
+	progress_bar.set_description('Steps')
 	global_step = 0
 
 	for epoch in range(num_train_epochs):
@@ -159,7 +159,7 @@ def main ():
 		for step, batch in enumerate(train_dataloader):
 			with accelerator.accumulate(text_encoder):
 				# Convert images to latent space
-				latents = vae.encode(batch["pixel_values"]).latent_dist.sample().detach()
+				latents = vae.encode(batch['pixel_values']).latent_dist.sample().detach()
 				latents = latents * 0.18215
 
 				# Sample noise that we'll add to the latents
@@ -175,12 +175,12 @@ def main ():
 				noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
 				# Get the text embedding for conditioning
-				encoder_hidden_states = text_encoder(batch["input_ids"])[0]
+				encoder_hidden_states = text_encoder(batch['input_ids'])[0]
 
 				# Predict the noise residual
 				noise_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
 
-				loss = F.mse_loss(noise_pred, noise, reduction="none").mean([1, 2, 3]).mean()
+				loss = F.mse_loss(noise_pred, noise, reduction='none').mean([1, 2, 3]).mean()
 				accelerator.backward(loss)
 
 				# Zero out the gradients for all token embeddings except the newly added
@@ -202,7 +202,7 @@ def main ():
 				progress_bar.update(1)
 				global_step += 1
 
-			logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
+			logs = {'loss': loss.detach().item(), 'lr': lr_scheduler.get_last_lr()[0]}
 			progress_bar.set_postfix(**logs)
 			accelerator.log(logs, step=global_step)
 
@@ -219,20 +219,20 @@ def main ():
 			unet=unet,
 			tokenizer=tokenizer,
 			scheduler=PNDMScheduler(
-				beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", skip_prk_steps=True
+				beta_start=0.00085, beta_end=0.012, beta_schedule='scaled_linear', skip_prk_steps=True
 			),
-			#safety_checker=StableDiffusionSafetyChecker.from_pretrained("CompVis/stable-diffusion-safety-checker"),
-			#feature_extractor=CLIPFeatureExtractor.from_pretrained("openai/clip-vit-base-patch32"),
+			#safety_checker=StableDiffusionSafetyChecker.from_pretrained('CompVis/stable-diffusion-safety-checker'),
+			#feature_extractor=CLIPFeatureExtractor.from_pretrained('openai/clip-vit-base-patch32'),
 		)
 		pipeline.save_pretrained(config.dir)
 
 		# Also save the newly trained embeddings
 		learned_embeds = accelerator.unwrap_model(text_encoder).get_input_embeddings().weight
 		learned_embeds_dict = {[id]: learned_embeds[id].detach().cpu() for id in placeholder_token_ids}
-		torch.save(learned_embeds_dict, os.path.join(config.dir, "learned_embeds.bin"))
+		torch.save(learned_embeds_dict, os.path.join(config.dir, 'learned_embeds.bin'))
 
 	accelerator.end_training()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
 	main()
