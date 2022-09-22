@@ -60,7 +60,6 @@ class PerisCaption (IterableDataset):
 	def __init__ (self, root, labels, tokenizer, split='0/1', shuffle=False, filter=None, resolution=512, alias=None, **_):
 		self.reader, self.root = makeReader(root)
 		self.shuffle = shuffle
-		#self.device = device
 		self.tokenizer = tokenizer
 
 		dataframes = pd.read_csv(labels)
@@ -82,7 +81,6 @@ class PerisCaption (IterableDataset):
 
 
 	def perisCaption (self, record):
-		#print('record:', record)
 		style = 'painting' if record.get('PA') else ('doll' if record['DOLL'] else 'photo')
 
 		modifiers = []

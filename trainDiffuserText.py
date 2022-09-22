@@ -15,6 +15,7 @@ from diffusers import AutoencoderKL, DDPMScheduler, PNDMScheduler, StableDiffusi
 from diffusers.optimization import get_scheduler
 
 from starry.utils.config import Configuration
+from starry.utils.iterators import FixedLengthIterator
 from starry.vision.data import PerisCaption
 
 
@@ -97,6 +98,8 @@ def main ():
 	root = os.path.join(DATA_DIR, config['data.root'])
 	labels = os.path.join(DATA_DIR, config['data.labels'])
 	train_dataset = PerisCaption(root, labels, tokenizer, shuffle=True, **config['data.args'])
+	if config['data.epoch_size']:
+		train_dataset = FixedLengthIterator(train_dataset, length=config['data.epoch_size'])
 	train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=train_batch_size)
 
 	# Scheduler and math around the number of training steps.
@@ -155,6 +158,8 @@ def main ():
 	global_step = 0
 
 	for epoch in range(num_train_epochs):
+		logger.info(f'Epoch {epoch}')
+
 		text_encoder.train()
 		for step, batch in enumerate(train_dataloader):
 			with accelerator.accumulate(text_encoder):
@@ -211,25 +216,25 @@ def main ():
 
 		accelerator.wait_for_everyone()
 
-	# Create the pipeline using using the trained modules and save it.
-	if accelerator.is_main_process:
-		pipeline = StableDiffusionPipeline(
-			text_encoder=accelerator.unwrap_model(text_encoder),
-			vae=vae,
-			unet=unet,
-			tokenizer=tokenizer,
-			scheduler=PNDMScheduler(
-				beta_start=0.00085, beta_end=0.012, beta_schedule='scaled_linear', skip_prk_steps=True
-			),
-			#safety_checker=StableDiffusionSafetyChecker.from_pretrained('CompVis/stable-diffusion-safety-checker'),
-			#feature_extractor=CLIPFeatureExtractor.from_pretrained('openai/clip-vit-base-patch32'),
-		)
-		pipeline.save_pretrained(config.dir)
+		# Create the pipeline using using the trained modules and save it.
+		if accelerator.is_main_process:
+			pipeline = StableDiffusionPipeline(
+				text_encoder=accelerator.unwrap_model(text_encoder),
+				vae=vae,
+				unet=unet,
+				tokenizer=tokenizer,
+				scheduler=PNDMScheduler(
+					beta_start=0.00085, beta_end=0.012, beta_schedule='scaled_linear', skip_prk_steps=True
+				),
+				#safety_checker=StableDiffusionSafetyChecker.from_pretrained('CompVis/stable-diffusion-safety-checker'),
+				#feature_extractor=CLIPFeatureExtractor.from_pretrained('openai/clip-vit-base-patch32'),
+			)
+			pipeline.save_pretrained(config.dir)
 
-		# Also save the newly trained embeddings
-		learned_embeds = accelerator.unwrap_model(text_encoder).get_input_embeddings().weight
-		learned_embeds_dict = {[id]: learned_embeds[id].detach().cpu() for id in placeholder_token_ids}
-		torch.save(learned_embeds_dict, os.path.join(config.dir, 'learned_embeds.bin'))
+			# Also save the newly trained embeddings
+			learned_embeds = accelerator.unwrap_model(text_encoder).get_input_embeddings().weight
+			learned_embeds_dict = {[id]: learned_embeds[id].detach().cpu() for id in placeholder_token_ids}
+			torch.save(learned_embeds_dict, os.path.join(config.dir, 'learned_embeds.bin'))
 
 	accelerator.end_training()
 
