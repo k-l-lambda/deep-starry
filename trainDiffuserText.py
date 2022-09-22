@@ -98,8 +98,6 @@ def main ():
 	root = os.path.join(DATA_DIR, config['data.root'])
 	labels = os.path.join(DATA_DIR, config['data.labels'])
 	train_dataset = PerisCaption(root, labels, tokenizer, shuffle=True, **config['data.args'])
-	if config['data.epoch_size']:
-		train_dataset = FixedLengthIterator(train_dataset, length=config['data.epoch_size'])
 	train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=train_batch_size)
 
 	# Scheduler and math around the number of training steps.
@@ -120,6 +118,8 @@ def main ():
 	text_encoder, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
 		text_encoder, optimizer, train_dataloader, lr_scheduler
 	)
+
+	epoch_dataloader = FixedLengthIterator(train_dataloader, length=config['data.epoch_size']) if config['data.epoch_size'] else train_dataloader
 
 	# Move vae and unet to device
 	vae.to(accelerator.device)
@@ -163,7 +163,7 @@ def main ():
 		logger.info(f'Epoch {epoch}')
 
 		text_encoder.train()
-		for step, batch in enumerate(train_dataloader):
+		for step, batch in enumerate(epoch_dataloader):
 			with accelerator.accumulate(text_encoder):
 				# Convert images to latent space
 				latents = vae.encode(batch['pixel_values']).latent_dist.sample().detach()
