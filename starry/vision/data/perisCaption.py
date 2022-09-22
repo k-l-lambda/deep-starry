@@ -8,6 +8,8 @@ import logging
 import pandas as pd
 import json
 from torch.utils.data import IterableDataset
+from torchvision import transforms
+import torchvision.transforms.functional as F
 
 from .utils import loadSplittedDatasets, listAllImageNames
 from .score import makeReader
@@ -32,13 +34,30 @@ class AliasWord:
 		return word
 
 
+class SquarePad:
+	def __init__ (self, padding_mode):
+		self.padding_mode = padding_mode
+
+
+	def __call__(self, image):
+		_, h, w = image.shape
+		max_wh = np.max([w, h])
+		lp = (max_wh - w) // 2
+		rp = max_wh - w - lp
+		tp = (max_wh - h) // 2
+		bp = max_wh - h - tp
+		padding = (lp, tp, rp, bp)
+
+		return F.pad(image, padding, 0, self.padding_mode)
+
+
 class PerisCaption (IterableDataset):
 	@classmethod
 	def load (cls, root, args, splits, labels, device='cpu', args_variant=None):
 		return loadSplittedDatasets(cls, root=root, labels=labels, args=args, splits=splits, device=device, args_variant=args_variant)
 
 
-	def __init__ (self, root, labels, tokenizer, split='0/1', shuffle=False, alias=None, **_):
+	def __init__ (self, root, labels, tokenizer, split='0/1', shuffle=False, resolution=512, alias=None, **_):
 		self.reader, self.root = makeReader(root)
 		self.shuffle = shuffle
 		#self.device = device
@@ -51,6 +70,12 @@ class PerisCaption (IterableDataset):
 		self.names = [name for name in self.names if self.labels.get(name)]
 
 		self.alias = AliasWord(alias)
+
+		self.transform = transforms.Compose([
+			SquarePad(padding_mode='reflect'),
+			transforms.Resize(resolution),
+			transforms.RandomHorizontalFlip(p=0.5),
+		])
 
 
 	def perisCaption (self, record):
@@ -107,6 +132,8 @@ class PerisCaption (IterableDataset):
 				source = source[:, :, :3]
 
 			source = (source / (255.0 / 2.) - 1).astype(np.float32)
+			source = torch.from_numpy(source).permute(2, 0, 1)
+			source = self.transform(source)
 
 			caption = self.perisCaption(self.labels[name])
 
@@ -120,7 +147,7 @@ class PerisCaption (IterableDataset):
 				'text': caption,
 				'input_ids': token_dict.input_ids[0],
 				'attention_mask': token_dict.attention_mask[0],
-				'pixel_values': torch.from_numpy(source).permute(2, 0, 1)
+				'pixel_values': source,
 			}
 
 			yield example
