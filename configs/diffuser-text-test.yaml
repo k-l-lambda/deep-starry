@@ -23,6 +23,9 @@ trainer:
   lr_scheduler:                       constant
   lr_warmup_steps:                    0
   num_train_epochs:                   100
+  tokens:
+  - nice
+  - anonymous
 
 
 optim:

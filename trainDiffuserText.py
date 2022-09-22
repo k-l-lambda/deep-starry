@@ -3,16 +3,9 @@ import argparse
 import itertools
 import math
 import os
-import random
-from pathlib import Path
-from typing import Optional
-import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.utils.checkpoint
-from torch.utils.data import Dataset
-from PIL import Image
-from torchvision import transforms
 from tqdm.auto import tqdm
 from accelerate import Accelerator
 from accelerate.logging import get_logger
@@ -45,18 +38,28 @@ def main ():
 
 	config = Configuration.createOrLoad(args.config)
 
+	gradient_accumulation_steps = config['trainer.gradient_accumulation_steps']
+	train_batch_size = config['trainer.train_batch_size']
+
 	accelerator = Accelerator(
-		gradient_accumulation_steps=config['trainer.gradient_accumulation_steps'],
+		gradient_accumulation_steps=gradient_accumulation_steps,
 		mixed_precision=config['trainer.mixed_precision'],
 		log_with='tensorboard',
 		logging_dir=config.dir,
 	)
+
+	# If passed along, set the training seed now.
+	if config['trainer.seed'] is not None:
+		set_seed(config['trainer.seed'])
 
 	pretrained_path = config['trainer.pretrained_model_name_or_path']
 	tokenizer = CLIPTokenizer.from_pretrained(pretrained_path, subfolder='tokenizer')
 	text_encoder = CLIPTextModel.from_pretrained(pretrained_path, subfolder="text_encoder")
 	vae = AutoencoderKL.from_pretrained(pretrained_path, subfolder="vae")
 	unet = UNet2DConditionModel.from_pretrained(pretrained_path, subfolder="unet")
+
+	placeholder_token_ids = tokenizer.convert_tokens_to_ids([f'{token}</w>' for token in config['trainer.tokens']])
+	freezed_ids = torch.tensor([id for id in range(len(tokenizer)) if not id in placeholder_token_ids])
 
 	# Freeze vae and unet
 	freeze_params(vae.parameters())
@@ -72,7 +75,7 @@ def main ():
 
 	learning_rate = config['trainer.learning_rate']
 	if config['trainer.scale_lr']:
-		learning_rate *= config['trainer.gradient_accumulation_steps'] * config['trainer.train_batch_size'] * accelerator.num_processes
+		learning_rate *= gradient_accumulation_steps * train_batch_size * accelerator.num_processes
 
 	# Initialize the optimizer
 	optimizer = torch.optim.AdamW(
@@ -94,13 +97,11 @@ def main ():
 	root = os.path.join(DATA_DIR, config['data.root'])
 	labels = os.path.join(DATA_DIR, config['data.labels'])
 	train_dataset = PerisCaption(root, labels, tokenizer, shuffle=True, **config['data.args'])
-
-	#it = iter(train_dataset)
-	#print(next(it))
+	train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=train_batch_size)
 
 	# Scheduler and math around the number of training steps.
 	overrode_max_train_steps = False
-	num_update_steps_per_epoch = math.ceil(len(train_dataloader) / config['trainer.gradient_accumulation_steps'])
+	num_update_steps_per_epoch = math.ceil(len(train_dataloader) / gradient_accumulation_steps)
 	max_train_steps = config['trainer.max_train_steps']
 	if max_train_steps is None:
 		max_train_steps = config['trainer.num_train_epochs'] * num_update_steps_per_epoch
@@ -109,8 +110,8 @@ def main ():
 	lr_scheduler = get_scheduler(
 		config['trainer.lr_scheduler'],
 		optimizer=optimizer,
-		num_warmup_steps=config['trainer.lr_warmup_steps'] * config['trainer.gradient_accumulation_steps'],
-		num_training_steps=max_train_steps * config['trainer.gradient_accumulation_steps'],
+		num_warmup_steps=config['trainer.lr_warmup_steps'] * gradient_accumulation_steps,
+		num_training_steps=max_train_steps * gradient_accumulation_steps,
 	)
 
 	text_encoder, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
@@ -126,7 +127,7 @@ def main ():
 	unet.eval()
 
 	# We need to recalculate our total training steps as the size of the training dataloader may have changed.
-	num_update_steps_per_epoch = math.ceil(len(train_dataloader) / config['trainer.gradient_accumulation_steps'])
+	num_update_steps_per_epoch = math.ceil(len(train_dataloader) / gradient_accumulation_steps)
 	if overrode_max_train_steps:
 		max_train_steps = config['trainer.num_train_epochs'] * num_update_steps_per_epoch
 	# Afterwards we recalculate our number of training epochs
@@ -138,14 +139,14 @@ def main ():
 		accelerator.init_trackers("textual_inversion", config=config['trainer'])
 
 	# Train!
-	total_batch_size = config['trainer.train_batch_size'] * accelerator.num_processes * config['trainer.gradient_accumulation_steps']
+	total_batch_size = train_batch_size * accelerator.num_processes * gradient_accumulation_steps
 
 	logger.info("***** Running training *****")
 	logger.info(f"  Num examples = {len(train_dataset)}")
 	logger.info(f"  Num Epochs = {num_train_epochs}")
-	logger.info(f"  Instantaneous batch size per device = {config['trainer.train_batch_size']}")
+	logger.info(f"  Instantaneous batch size per device = {train_batch_size}")
 	logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
-	logger.info(f"  Gradient Accumulation steps = {config['trainer.gradient_accumulation_steps']}")
+	logger.info(f"  Gradient Accumulation steps = {gradient_accumulation_steps}")
 	logger.info(f"  Total optimization steps = {max_train_steps}")
 
 	# Only show the progress bar once on each machine.
@@ -189,9 +190,8 @@ def main ():
 				else:
 					grads = text_encoder.get_input_embeddings().weight.grad
 
-				# TODO: Get the index for tokens that we want to zero the grads for
-				#index_grads_to_zero = torch.arange(len(tokenizer)) != placeholder_token_id
-				#grads.data[index_grads_to_zero, :] = grads.data[index_grads_to_zero, :].fill_(0)
+				# Get the index for tokens that we want to zero the grads for
+				grads.data[freezed_ids, :] = grads.data[freezed_ids, :].fill_(0)
 
 				optimizer.step()
 				lr_scheduler.step()
@@ -228,7 +228,7 @@ def main ():
 
 		# Also save the newly trained embeddings
 		learned_embeds = accelerator.unwrap_model(text_encoder).get_input_embeddings().weight
-		learned_embeds_dict = {[token]: learned_embeds[token].detach().cpu() for token in learned_embeds}
+		learned_embeds_dict = {[id]: learned_embeds[id].detach().cpu() for id in placeholder_token_ids}
 		torch.save(learned_embeds_dict, os.path.join(config.dir, "learned_embeds.bin"))
 
 	accelerator.end_training()
