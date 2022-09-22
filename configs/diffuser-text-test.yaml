@@ -25,6 +25,7 @@ trainer:
   lr_warmup_steps:                    0
   num_train_epochs:                   100
   tokens:
+  - peris
   - nice
   - anonymous
 

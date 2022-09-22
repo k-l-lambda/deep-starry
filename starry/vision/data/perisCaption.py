@@ -107,7 +107,7 @@ class PerisCaption (IterableDataset):
 		if record['identity'] and type(record['identity']) is str:
 			descriptions.append(f'name "{record["identity"]}"')
 
-		return ', '.join([f'a {style} of a {" ".join(modifiers)} {FIGURE_WORD}'] + descriptions)
+		return ', '.join([f'a peris {style} of a {" ".join(modifiers)} {FIGURE_WORD}'] + descriptions)
 
 
 	def __iter__ (self):
