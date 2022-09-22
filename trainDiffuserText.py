@@ -3,6 +3,8 @@ import argparse
 import itertools
 import math
 import os
+import sys
+import logging
 import torch
 import torch.nn.functional as F
 import torch.utils.checkpoint
@@ -20,6 +22,8 @@ from starry.utils.iterators import FixedLengthIterator
 from starry.vision.data import PerisCaption
 
 
+
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 logger = get_logger(__name__)
 
@@ -39,6 +43,12 @@ def main ():
 	args = parser.parse_args()
 
 	config = Configuration.createOrLoad(args.config)
+
+	logging.basicConfig(format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%Y%m%d %H:%M:%S', level=logging.WARN,
+		force=True, handlers=[
+			logging.StreamHandler(sys.stdout),
+			logging.FileHandler(config.localPath('trainer.log')),
+		])
 
 	gradient_accumulation_steps = config['trainer.gradient_accumulation_steps']
 	train_batch_size = config['trainer.train_batch_size']
