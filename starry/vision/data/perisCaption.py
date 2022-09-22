@@ -2,6 +2,7 @@
 import os
 import time
 import numpy as np
+import torch
 import random
 import logging
 import pandas as pd
@@ -50,10 +51,11 @@ class PerisCaption (IterableDataset):
 		return loadSplittedDatasets(cls, root=root, labels=labels, args=args, splits=splits, device=device, args_variant=args_variant)
 
 
-	def __init__ (self, root, labels, split='0/1', device='cpu', shuffle=False, **_):
+	def __init__ (self, root, labels, tokenizer, split='0/1', shuffle=False, **_):
 		self.reader, self.root = makeReader(root)
 		self.shuffle = shuffle
-		self.device = device
+		#self.device = device
+		self.tokenizer = tokenizer
 
 		dataframes = pd.read_csv(labels)
 		self.labels = dict(zip(dataframes['hash'], dataframes.to_dict('records')))
@@ -86,11 +88,20 @@ class PerisCaption (IterableDataset):
 			elif source.shape[2] > 3:
 				source = source[:, :, :3]
 
-			source = (source / 255.0).astype(np.float32)
+			source = (source / (255.0 / 2.) - 1).astype(np.float32)
 
 			caption = perisCaption(self.labels[name])
 
-			yield source, caption
+			example = {
+				'input_ids': self.tokenizer(caption,
+					padding='max_length',
+					truncation=True,
+					max_length=self.tokenizer.model_max_length,
+					return_tensors='pt'),
+				'pixel_values': torch.from_numpy(source).permute(2, 0, 1)
+			}
+
+			yield example
 
 
 	def __len__ (self):
