@@ -139,7 +139,9 @@ def main ():
 	# We need to initialize the trackers we use, and also store our configuration.
 	# The trackers initializes automatically on the main process.
 	if accelerator.is_main_process:
-		accelerator.init_trackers('textual_inversion', config=config['trainer'])
+		tracker_config = {key: config['trainer'][key] for key in ['pretrained_model_name_or_path', 'num_train_timesteps', 'gradient_accumulation_steps',
+			'max_train_steps', 'learning_rate', 'scale_lr', 'lr_scheduler', 'lr_warmup_steps', 'num_train_epochs']}
+		accelerator.init_trackers('textual_inversion', config=tracker_config)
 
 	# Train!
 	total_batch_size = train_batch_size * accelerator.num_processes * gradient_accumulation_steps
@@ -233,7 +235,7 @@ def main ():
 
 			# Also save the newly trained embeddings
 			learned_embeds = accelerator.unwrap_model(text_encoder).get_input_embeddings().weight
-			learned_embeds_dict = {[id]: learned_embeds[id].detach().cpu() for id in placeholder_token_ids}
+			learned_embeds_dict = {id: learned_embeds[id].detach().cpu() for id in placeholder_token_ids}
 			torch.save(learned_embeds_dict, os.path.join(config.dir, 'learned_embeds.bin'))
 
 	accelerator.end_training()
