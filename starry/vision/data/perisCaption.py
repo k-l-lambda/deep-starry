@@ -18,7 +18,7 @@ FIGURE_WORD = os.getenv('FIGURE_WORD')
 
 def perisCaption (record):
 	#print('record:', record)
-	style = 'painting' if record['PA'] else ('doll' if record['DOLL'] else 'photo')
+	style = 'painting' if record.get('PA') else ('doll' if record['DOLL'] else 'photo')
 
 	modifiers = []
 	if record['score'] >= 6:

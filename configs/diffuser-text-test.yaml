@@ -4,11 +4,11 @@ id:     peris/{date}-{filename}
 
 data:
   type:                     PerisCaption
-  root:                     nse-100.zip
+  root:                     nse-202202.zip
   labels:                   labels-20220205.csv
   args: ~
 
 
 
 trainer:
-  pretrained_model_name_or_path:      CompVis/stable-diffusion-v1-4
+  pretrained_model_name_or_path:      pretrained/models--CompVis--stable-diffusion-v1-4
