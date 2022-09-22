@@ -111,7 +111,7 @@ class PerisCaption (IterableDataset):
 	def __iter__ (self):
 		if self.shuffle:
 			random.shuffle(self.names)
-			np.random.seed(int((time.time() * 1e+7 % 1e+7) + random.randint(0, 1e+5)))
+			#np.random.seed(int((time.time() * 1e+7 % 1e+7) + random.randint(0, 1e+5)))
 
 		for i, name in enumerate(self.names):
 			filename = f'{name}.jpg'

@@ -11,7 +11,7 @@ class InfiniteIterator:
 class FixedLengthIterator:
 	def __init__(self, it, length):
 		self.length = length
-		self.it = InfiniteIterator(it)
+		self.it = iter(InfiniteIterator(it))
 
 	def __len__(self):
 		return self.length
