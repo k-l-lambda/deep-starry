@@ -10,9 +10,10 @@ from tqdm.auto import tqdm
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import set_seed
-from transformers import CLIPTextModel, CLIPTokenizer
+from transformers import CLIPTextModel, CLIPTokenizer, CLIPFeatureExtractor
 from diffusers import AutoencoderKL, DDPMScheduler, PNDMScheduler, StableDiffusionPipeline, UNet2DConditionModel
 from diffusers.optimization import get_scheduler
+from diffusers.pipelines.stable_diffusion import StableDiffusionSafetyChecker
 
 from starry.utils.config import Configuration
 from starry.utils.iterators import FixedLengthIterator
@@ -58,6 +59,9 @@ def main ():
 	text_encoder = CLIPTextModel.from_pretrained(pretrained_path, subfolder='text_encoder')
 	vae = AutoencoderKL.from_pretrained(pretrained_path, subfolder='vae')
 	unet = UNet2DConditionModel.from_pretrained(pretrained_path, subfolder='unet')
+
+	safety_checker = StableDiffusionSafetyChecker.from_pretrained(os.path.join(pretrained_path, 'safety_checker'))
+	feature_extractor = CLIPFeatureExtractor.from_pretrained(os.path.join(pretrained_path, 'feature_extractor'))
 
 	placeholder_token_ids = tokenizer.convert_tokens_to_ids([f'{token}</w>' for token in config['trainer.tokens']])
 	freezed_ids = torch.tensor([id for id in range(len(tokenizer)) if not id in placeholder_token_ids])
@@ -130,7 +134,7 @@ def main ():
 	unet.eval()
 
 	# We need to recalculate our total training steps as the size of the training dataloader may have changed.
-	num_update_steps_per_epoch = math.ceil(len(train_dataloader) / gradient_accumulation_steps)
+	num_update_steps_per_epoch = math.ceil(len(epoch_dataloader) / gradient_accumulation_steps)
 	if overrode_max_train_steps:
 		max_train_steps = config['trainer.num_train_epochs'] * num_update_steps_per_epoch
 	# Afterwards we recalculate our number of training epochs
@@ -141,7 +145,7 @@ def main ():
 	if accelerator.is_main_process:
 		tracker_config = {key: config['trainer'][key] for key in ['pretrained_model_name_or_path', 'num_train_timesteps', 'gradient_accumulation_steps',
 			'max_train_steps', 'learning_rate', 'scale_lr', 'lr_scheduler', 'lr_warmup_steps', 'num_train_epochs']}
-		accelerator.init_trackers('textual_inversion', config=tracker_config)
+		accelerator.init_trackers('log', config=tracker_config)
 
 	# Train!
 	total_batch_size = train_batch_size * accelerator.num_processes * gradient_accumulation_steps
@@ -226,17 +230,20 @@ def main ():
 				unet=unet,
 				tokenizer=tokenizer,
 				scheduler=PNDMScheduler(
-					beta_start=0.00085, beta_end=0.012, beta_schedule='scaled_linear', skip_prk_steps=True
+					beta_start=0.00085,
+					beta_end=0.012,
+					beta_schedule='scaled_linear',
+					skip_prk_steps=True,
 				),
-				#safety_checker=StableDiffusionSafetyChecker.from_pretrained('CompVis/stable-diffusion-safety-checker'),
-				#feature_extractor=CLIPFeatureExtractor.from_pretrained('openai/clip-vit-base-patch32'),
+				safety_checker=safety_checker,
+				feature_extractor=feature_extractor,
 			)
-			pipeline.save_pretrained(config.dir)
+			pipeline.save_pretrained(config.localPath('stable-diffusion'))
 
 			# Also save the newly trained embeddings
 			learned_embeds = accelerator.unwrap_model(text_encoder).get_input_embeddings().weight
 			learned_embeds_dict = {id: learned_embeds[id].detach().cpu() for id in placeholder_token_ids}
-			torch.save(learned_embeds_dict, os.path.join(config.dir, 'learned_embeds.bin'))
+			torch.save(learned_embeds_dict, config.localPath('learned_embeds.bin'))
 
 	accelerator.end_training()
 

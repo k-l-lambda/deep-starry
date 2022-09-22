@@ -145,9 +145,9 @@ class PerisCaption (IterableDataset):
 				return_tensors='pt')
 
 			example = {
-				'text': caption,
+				#'text': caption,
 				'input_ids': token_dict.input_ids[0],
-				'attention_mask': token_dict.attention_mask[0],
+				#'attention_mask': token_dict.attention_mask[0],
 				'pixel_values': source,
 			}
 
