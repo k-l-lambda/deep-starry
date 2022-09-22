@@ -5,7 +5,7 @@ id:     peris/{date}-{filename}
 data:
   type:                     PerisCaption
   root:                     nse-202202.zip
-  labels:                   labels-20220205.csv
+  labels:                   labels-20220921.csv
   args:
     alias:                  pretrained/models--CompVis--stable-diffusion-v1-4/tokenizer/alias_vocab.json
     resolution:             512
