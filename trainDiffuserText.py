@@ -42,7 +42,7 @@ def main ():
 
 	root = os.path.join(DATA_DIR, config['data.root'])
 	labels = os.path.join(DATA_DIR, config['data.labels'])
-	train_dataset = PerisCaption(root, labels, tokenizer, shuffle=True)
+	train_dataset = PerisCaption(root, labels, tokenizer, shuffle=True, **config['data.args'])
 
 	it = iter(train_dataset)
 	print(next(it))
