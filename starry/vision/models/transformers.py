@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 from transformers.models.clip.modeling_clip import CLIPVisionTransformer
+from transformers.models.clip.configuration_clip import CLIPVisionConfig
 
 
 
@@ -9,12 +10,12 @@ class ClipVisionBinary (nn.Module):
 	def __init__ (self, channels, clip_config):
 		super().__init__()
 
-		self.backbone = CLIPVisionTransformer(clip_config)
+		self.backbone = CLIPVisionTransformer(CLIPVisionConfig(**clip_config))
 		self.projection = nn.Linear(clip_config['hidden_size'], channels, bias=False)
 
 
 	def forward (self, feature):
-		y = self.backbone(feature)
+		y = self.backbone(feature).pooler_output
 		y = self.projection(y)
 
 		return torch.sigmoid(y)
