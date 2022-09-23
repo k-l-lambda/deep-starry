@@ -132,6 +132,12 @@ class PerisCaption (IterableDataset):
 			elif source.shape[2] > 3:
 				source = source[:, :, :3]
 
+			# skip too oblong image to avoid reflection padding error
+			h, w = source.shape[1:]
+			long_edge, short_edge = max(h, w), min(h, w)
+			if long_edge / short_edge > 2.6:
+				continue
+
 			source = (source / (255.0 / 2.) - 1).astype(np.float32)
 			source = torch.from_numpy(source).permute(2, 0, 1)
 			source = self.transform(source)
