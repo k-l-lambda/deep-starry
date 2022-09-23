@@ -7,25 +7,11 @@ import numpy as np
 
 #from ...schp import networks as schp_networks
 from .masker import Masker
+from .transforms import SizeLimit, SquarePad
 
 
 
 SCHP_PRETRAINED = os.getenv('SCHP_PRETRAINED')
-
-
-class SizeLimit (torch.nn.Module):
-	def __init__(self, size):
-		super().__init__()
-
-		self.limit = size
-		self.resizer = transforms.Resize(size - 1, max_size=size, antialias=True)
-
-
-	def forward(self, image):
-		if max(image.shape[2], image.shape[3]) > self.limit:
-			return self.resizer(image)
-
-		return image
 
 
 class SCHPMasker (torch.nn.Module):
@@ -72,6 +58,9 @@ class Augmentor2:
 
 		if options.get('size_limit'):
 			trans.append(SizeLimit(**options['size_limit']))
+		if options.get('size_fixed'):
+			trans.append(SquarePad(padding_mode=options['size_fixed']['padding_mode']))
+			trans.append(transforms.Resize(options['size_fixed']['size']))
 		if options.get('affine'):
 			if options['affine'].get('interpolation'):
 				if type(options['affine']['interpolation']) == str:

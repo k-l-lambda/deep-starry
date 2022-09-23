@@ -41,7 +41,7 @@ def loadDataset (config, data_dir='.', device='cpu', splits=None, batch_size=Non
 		splits=splits or config['data.splits'], device=device)
 	loaders = tuple(map(
 		lambda dataset:
-			DataLoader(dataset, batch_size=batch_size or config['data.batch_size'], collate_fn=dataset.collateBatch),
+			DataLoader(dataset, batch_size=batch_size or config['data.batch_size'], collate_fn=dataset.collateBatch if hasattr(dataset, 'collateBatch') else None),
 		datasets))
 
 	return loaders

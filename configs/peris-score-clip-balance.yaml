@@ -78,8 +78,8 @@ model:
 
 data:
   type:                     BalanceLabeledPeris
-  root:                     nse-100.zip
-  labels:                   labels-20220205.csv
+  root:                     nse-202202.zip
+  labels:                   labels-20220921.csv
   splits:                   '*1..8/10:9/10'
   batch_size:               1
   args:
@@ -97,8 +97,9 @@ data:
     - (_1.score >= 8) & (_1.score < 9)
     - (_1.score >= 9)
     augmentor:
-      size_limit:
-        size:               200
+      size_fixed:
+        size:               224
+        padding_mode:       constant
       affine:
         degrees:            5
         interpolation:      'BILINEAR'

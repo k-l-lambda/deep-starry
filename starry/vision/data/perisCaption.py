@@ -1,6 +1,5 @@
 
 import os
-import time
 import numpy as np
 import torch
 import random
@@ -9,10 +8,10 @@ import pandas as pd
 import json
 from torch.utils.data import IterableDataset
 from torchvision import transforms
-import torchvision.transforms.functional as F
 
 from .utils import loadSplittedDatasets, listAllImageNames
 from .score import makeReader
+from .transforms import SquarePad
 
 
 
@@ -32,23 +31,6 @@ class AliasWord:
 			return self.alias[word]
 
 		return word
-
-
-class SquarePad:
-	def __init__ (self, padding_mode):
-		self.padding_mode = padding_mode
-
-
-	def __call__(self, image):
-		_, h, w = image.shape
-		max_wh = np.max([w, h])
-		lp = (max_wh - w) // 2
-		rp = max_wh - w - lp
-		tp = (max_wh - h) // 2
-		bp = max_wh - h - tp
-		padding = (lp, tp, rp, bp)
-
-		return F.pad(image, padding, 0, self.padding_mode)
 
 
 class PerisCaption (IterableDataset):
