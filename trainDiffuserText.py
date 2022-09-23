@@ -64,7 +64,9 @@ def main ():
 	if config['trainer.seed'] is not None:
 		set_seed(config['trainer.seed'])
 
-	pretrained_path = config['trainer.pretrained_model_name_or_path']
+	pretrained_path = config.localPath('stable-diffusion')
+	if not os.path.isdir(pretrained_path):
+		pretrained_path = config['trainer.pretrained_model_name_or_path']
 	tokenizer = CLIPTokenizer.from_pretrained(pretrained_path, subfolder='tokenizer')
 	text_encoder = CLIPTextModel.from_pretrained(pretrained_path, subfolder='text_encoder')
 	vae = AutoencoderKL.from_pretrained(pretrained_path, subfolder='vae')

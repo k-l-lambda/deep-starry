@@ -133,7 +133,7 @@ class PerisCaption (IterableDataset):
 				source = source[:, :, :3]
 
 			# skip too oblong image to avoid reflection padding error
-			h, w = source.shape[1:]
+			h, w = source.shape[:2]
 			long_edge, short_edge = max(h, w), min(h, w)
 			if long_edge / short_edge > 2.6:
 				continue
