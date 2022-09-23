@@ -6,11 +6,11 @@ from transformers.models.clip.modeling_clip import CLIPVisionTransformer
 
 
 class ClipVisionBinary (nn.Module):
-	def __init__ (self, channel, clip_config):
+	def __init__ (self, channels, clip_config):
 		super().__init__()
 
 		self.backbone = CLIPVisionTransformer(clip_config)
-		self.projection = nn.Linear(clip_config['hidden_size'], channel, bias=False)
+		self.projection = nn.Linear(clip_config['hidden_size'], channels, bias=False)
 
 
 	def forward (self, feature):

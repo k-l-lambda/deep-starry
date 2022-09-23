@@ -3,9 +3,9 @@ id:     peris/{date}-{filename}
 
 
 model:
-  type:                     PerisSimple
+  type:                     ClipVisionBinary
   args:
-    channels:               1
+    channels:               7
     clip_config:
       add_cross_attention:              false
       architectures: ~
@@ -77,14 +77,16 @@ model:
 
 
 data:
-  type:                     BalanceLabeledImage
+  type:                     BalanceLabeledPeris
   root:                     nse-100.zip
   labels:                   labels-20220205.csv
   splits:                   '*1..8/10:9/10'
   batch_size:               1
   args:
-    label_fields:           ['score']
+    label_fields:           ['score_binary']
     epoch_n:                20
+    score_binary:
+      thresholds:           [3, 4, 5, 6, 7, 8, 9]
     groups:
     - (_1.score >  0) & (_1.score < 3)
     - (_1.score >= 3) & (_1.score < 4)
@@ -95,15 +97,11 @@ data:
     - (_1.score >= 8) & (_1.score < 9)
     - (_1.score >= 9)
     augmentor:
+      size_limit:
+        size:               200
       affine:
-        padding_sigma:      0
-        angle_sigma:        0.1
-        scale_sigma:        0.2
-        scale_mu:           1
-        scale_limit:        1.
-        size_limit:         200
-        scaled_to_limit:    True
-        round:              1
+        degrees:            5
+        interpolation:      'BILINEAR'
   args_variant:
     1:
       epoch_n:              10

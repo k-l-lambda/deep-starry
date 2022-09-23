@@ -4,7 +4,7 @@ python-dotenv
 Pillow
 tqdm
 pyyaml
-opencv-python
+#opencv-python
 pandas
 #python-magic>=0.4.27
 torch
@@ -12,3 +12,4 @@ torchvision
 transformers
 diffusers
 accelerate
+tensorboard
