@@ -3,7 +3,7 @@ id:     peris/{date}-{filename}
 
 
 model:
-  type:                     ClipVisionBinary
+  type:                     ClipVisionClass
   args:
     channels:               114
     clip_config:

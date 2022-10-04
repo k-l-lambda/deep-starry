@@ -16,6 +16,7 @@ def registerModels ():
 		vm.PerisBinary, vm.PerisBinaryLoss,
 		vm.Reconstructor, vm.ReconstructorLoss,
 		vm.ClipVisionBinary, vm.ClipVisionBinaryLoss,
+		vm.ClipVisionClass, vm.ClipVisionClassLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])
