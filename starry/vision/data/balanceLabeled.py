@@ -119,8 +119,8 @@ class BalanceLabeledPeris (IterableDataset):
 				record['score_binary'] = [1 if score >= threshold else 0 for threshold in self.score_binary['thresholds']]
 
 			if self.identity_onehot:
-				identity = self.identity_onehot['values'].index(record['identity'])
-				record['identity_onehot'] = F.one_hot(torch.tensor(identity), num_classes=len(self.identity_onehot)).tolist()
+				identity = self.identity_onehot['values'].index(int(record['identity']))
+				record['identity_onehot'] = F.one_hot(torch.tensor(identity), num_classes=len(self.identity_onehot['values'])).tolist()
 
 			yield source, record
 
