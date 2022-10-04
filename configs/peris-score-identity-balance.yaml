@@ -1,0 +1,235 @@
+
+id:     peris/{date}-{filename}
+
+
+model:
+  type:                     ClipVisionBinary
+  args:
+    channels:               114
+    clip_config:
+      add_cross_attention:              false
+      architectures: ~
+      attention_dropout:                0.
+      bad_words_ids: ~
+      bos_token_id: ~
+      chunk_size_feed_forward:          0
+      cross_attention_hidden_size: ~
+      decoder_start_token_id: ~
+      diversity_penalty:                0.
+      do_sample: false
+      dropout:                          0.
+      early_stopping:                   False
+      encoder_no_repeat_ngram_size:     0
+      eos_token_id: ~
+      finetuning_task: ~
+      forced_bos_token_id: ~
+      forced_eos_token_id: ~
+      hidden_act:                       quick_gelu
+      hidden_size:                      256
+      id2label:
+        0: LABEL_0
+        1: LABEL_1
+      label2id:
+        LABEL_0: 0
+        LABEL_1: 1
+      image_size:                       512
+      initializer_factor:               1.
+      initializer_range:                0.02
+      intermediate_size:                1024
+      is_decoder:                       False
+      is_encoder_decoder:               False
+      layer_norm_eps:                   1.e-05
+      length_penalty:                   1.
+      max_length:                       20
+      min_length:                       0
+      model_type:                       clip_vision_model
+      no_repeat_ngram_size:             0
+      num_attention_heads:              8
+      num_beam_groups:                  1
+      num_beams:                        1
+      num_hidden_layers:                12
+      num_return_sequences:             1
+      output_attentions:                False
+      output_hidden_states:             False
+      output_scores:                    False
+      pad_token_id: ~
+      patch_size:                       32
+      prefix: ~
+      projection_dim:                   512
+      problem_type: ~
+      pruned_heads: {}
+      remove_invalid_values:            False
+      repetition_penalty:               1.
+      return_dict:                      True
+      return_dict_in_generate:          False
+      sep_token_id: ~
+      task_specific_params: ~
+      temperature:                      1.
+      tie_encoder_decoder:              False
+      tie_word_embeddings:              True
+      tokenizer_class: ~
+      top_k:                            257
+      top_p:                            1.
+      torch_dtype: ~
+      torchscript:                      False
+      use_bfloat16:                     False
+
+
+data:
+  type:                     BalanceLabeledPeris
+  root:                     nse-202202.zip
+  labels:                   labels-20220921.csv
+  splits:                   '*1..8/10:9/10'
+  batch_size:               1
+  args:
+    label_fields:           ['score_binary']
+    epoch_n:                20
+    score_binary:
+      thresholds:           [3, 4, 5, 6, 7, 8, 9]
+    groups:
+    - _1.identity == '-1'
+    - _1.identity == '45'
+    - _1.identity == '146'
+    - _1.identity == '128'
+    - _1.identity == '136'
+    - _1.identity == '0'
+    - _1.identity == '213'
+    - _1.identity == '92'
+    - _1.identity == '202'
+    - _1.identity == '79'
+    - _1.identity == '116'
+    - _1.identity == '184'
+    - _1.identity == '52'
+    - _1.identity == '26'
+    - _1.identity == '127'
+    - _1.identity == '27'
+    - _1.identity == '60'
+    - _1.identity == '218'
+    - _1.identity == '201'
+    - _1.identity == '57'
+    - _1.identity == '90'
+    - _1.identity == '124'
+    - _1.identity == '115'
+    - _1.identity == '174'
+    - _1.identity == '192'
+    - _1.identity == '181'
+    - _1.identity == '82'
+    - _1.identity == '143'
+    - _1.identity == '169'
+    - _1.identity == '129'
+    - _1.identity == '38'
+    - _1.identity == '83'
+    - _1.identity == '56'
+    - _1.identity == '198'
+    - _1.identity == '61'
+    - _1.identity == '194'
+    - _1.identity == '185'
+    - _1.identity == '55'
+    - _1.identity == '157'
+    - _1.identity == '81'
+    - _1.identity == '91'
+    - _1.identity == '162'
+    - _1.identity == '152'
+    - _1.identity == '199'
+    - _1.identity == '67'
+    - _1.identity == '207'
+    - _1.identity == '238'
+    - _1.identity == '132'
+    - _1.identity == '123'
+    - _1.identity == '223'
+    - _1.identity == '62'
+    - _1.identity == '236'
+    - _1.identity == '36'
+    - _1.identity == '111'
+    - _1.identity == '149'
+    - _1.identity == '78'
+    - _1.identity == '97'
+    - _1.identity == '164'
+    - _1.identity == '3'
+    - _1.identity == '74'
+    - _1.identity == '2'
+    - _1.identity == '1'
+    - _1.identity == '99'
+    - _1.identity == '108'
+    - _1.identity == '63'
+    - _1.identity == '216'
+    - _1.identity == '204'
+    - _1.identity == '209'
+    - _1.identity == '69'
+    - _1.identity == '170'
+    - _1.identity == '219'
+    - _1.identity == '196'
+    - _1.identity == '71'
+    - _1.identity == '20'
+    - _1.identity == '110'
+    - _1.identity == '200'
+    - _1.identity == '119'
+    - _1.identity == '226'
+    - _1.identity == '231'
+    - _1.identity == '17'
+    - _1.identity == '172'
+    - _1.identity == '51'
+    - _1.identity == '47'
+    - _1.identity == '24'
+    - _1.identity == '41'
+    - _1.identity == '86'
+    - _1.identity == '126'
+    - _1.identity == '10'
+    - _1.identity == '156'
+    - _1.identity == '211'
+    - _1.identity == '235'
+    - _1.identity == '121'
+    - _1.identity == '234'
+    - _1.identity == '148'
+    - _1.identity == '154'
+    - _1.identity == '220'
+    - _1.identity == '175'
+    - _1.identity == '230'
+    - _1.identity == '22'
+    - _1.identity == '104'
+    - _1.identity == '161'
+    - _1.identity == '89'
+    - _1.identity == '165'
+    - _1.identity == '120'
+    - _1.identity == '29'
+    - _1.identity == '147'
+    - _1.identity == '100'
+    - _1.identity == '109'
+    - _1.identity == '21'
+    - _1.identity == '195'
+    - _1.identity == '182'
+    - _1.identity == '16'
+    - _1.identity == '84'
+    - _1.identity == '183'
+    augmentor:
+      size_fixed:
+        size:               224
+        padding_mode:       constant
+      affine:
+        degrees:            5
+        interpolation:      'BILINEAR'
+  args_variant:
+    1:
+      epoch_n:              10
+
+
+trainer:
+  device:         cpu
+  save_mode:      best
+  epoch:          2
+  moniter:
+    field:        error
+    mode:         min
+
+optim:
+  type:                   Adam
+  args:
+    betas:                [0.9, 0.9999]
+    eps:                  1.e-8
+  scheduler:
+    type:                 Exp
+    args:
+      lr_mul:             1.e-3
+      min_lr:             1.e-6
+      decay_rate:         0.98
+      n_warmup_steps:     10000
