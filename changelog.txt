@@ -4,6 +4,11 @@ TODO:
 
 
 
+2022.10.4
+
+	+	balanceLabeled.py: option of identity_onehot added.
+
+
 2022.9.23
 
 	+	Model class of ClipVisionBinary added.

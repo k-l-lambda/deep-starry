@@ -6,6 +6,7 @@ import time
 import logging
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from torch.utils.data import IterableDataset
 
 from .utils import loadSplittedDatasets
@@ -44,13 +45,15 @@ class BalanceLabeledPeris (IterableDataset):
 		return loadSplittedDatasets(cls, root=root, labels=labels, args=args, splits=splits, device=device, args_variant=args_variant)
 
 
-	def __init__ (self, root, labels, label_fields, split='0/1', device='cpu', epoch_n=None, groups=[], augmentor={}, shuffle=False, score_binary=None, **_):
+	def __init__ (self, root, labels, label_fields, split='0/1', device='cpu', epoch_n=None, groups=[], augmentor={}, shuffle=False,
+		score_binary=None, identity_onehot=None, **_):
 		self.reader, self.root = makeReader(root)
 		self.shuffle = shuffle
 		self.label_fields = label_fields
 		self.device = device
 		self.epoch_n = epoch_n
 		self.score_binary = score_binary
+		self.identity_onehot = identity_onehot
 
 		names = listAllImageNames(self.reader, split)
 
@@ -114,6 +117,10 @@ class BalanceLabeledPeris (IterableDataset):
 			if self.score_binary:
 				score = record['score']
 				record['score_binary'] = [1 if score >= threshold else 0 for threshold in self.score_binary['thresholds']]
+
+			if self.identity_onehot:
+				identity = self.identity_onehot['values'].index(record['identity'])
+				record['identity_onehot'] = F.one_hot(torch.tensor(identity), num_classes=len(self.identity_onehot)).tolist()
 
 			yield source, record
 
