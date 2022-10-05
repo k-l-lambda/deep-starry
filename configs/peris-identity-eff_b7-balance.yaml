@@ -1,0 +1,168 @@
+
+id:     peris/{date}-{filename}
+
+
+model:
+  type:                     PerisClass
+  args:
+    channels:               114
+    backbone:               efficientnet_b7
+
+
+data:
+  type:                     BalanceLabeledPeris
+  root:                     nse-202202.zip
+  labels:                   labels-20220924.csv
+  splits:                   '*1..8/10:9/10'
+  batch_size:               1
+  args:
+    label_fields:           ['identity_onehot']
+    epoch_n:                4000
+    identity_onehot:
+      values:               [-1, 45, 146, 128, 136, 0, 213, 92, 202, 79, 116, 184, 52, 26, 127, 27, 60, 218, 201, 57, 90, 124, 115, 174, 192, 181, 82, 143, 169, 129, 38, 83, 56, 198, 61, 194, 185, 55, 157, 81, 91, 162, 152, 199, 67, 207, 238, 132, 123, 223, 62, 236, 36, 111, 149, 78, 97, 164, 3, 74, 2, 1, 99, 108, 63, 216, 204, 209, 69, 170, 219, 196, 71, 20, 110, 200, 119, 226, 231, 17, 172, 51, 47, 24, 41, 86, 126, 10, 156, 211, 235, 121, 234, 148, 154, 220, 175, 230, 22, 104, 161, 89, 165, 120, 29, 147, 100, 109, 21, 195, 182, 16, 84, 183]
+    groups:
+    - _1.identity == '-1'
+    - _1.identity == '45'
+    - _1.identity == '146'
+    - _1.identity == '128'
+    - _1.identity == '136'
+    - _1.identity == '0'
+    - _1.identity == '213'
+    - _1.identity == '92'
+    - _1.identity == '202'
+    - _1.identity == '79'
+    - _1.identity == '116'
+    - _1.identity == '184'
+    - _1.identity == '52'
+    - _1.identity == '26'
+    - _1.identity == '127'
+    - _1.identity == '27'
+    - _1.identity == '60'
+    - _1.identity == '218'
+    - _1.identity == '201'
+    - _1.identity == '57'
+    - _1.identity == '90'
+    - _1.identity == '124'
+    - _1.identity == '115'
+    - _1.identity == '174'
+    - _1.identity == '192'
+    - _1.identity == '181'
+    - _1.identity == '82'
+    - _1.identity == '143'
+    - _1.identity == '169'
+    - _1.identity == '129'
+    - _1.identity == '38'
+    - _1.identity == '83'
+    - _1.identity == '56'
+    - _1.identity == '198'
+    - _1.identity == '61'
+    - _1.identity == '194'
+    - _1.identity == '185'
+    - _1.identity == '55'
+    - _1.identity == '157'
+    - _1.identity == '81'
+    - _1.identity == '91'
+    - _1.identity == '162'
+    - _1.identity == '152'
+    - _1.identity == '199'
+    - _1.identity == '67'
+    - _1.identity == '207'
+    - _1.identity == '238'
+    - _1.identity == '132'
+    - _1.identity == '123'
+    - _1.identity == '223'
+    - _1.identity == '62'
+    - _1.identity == '236'
+    - _1.identity == '36'
+    - _1.identity == '111'
+    - _1.identity == '149'
+    - _1.identity == '78'
+    - _1.identity == '97'
+    - _1.identity == '164'
+    - _1.identity == '3'
+    - _1.identity == '74'
+    - _1.identity == '2'
+    - _1.identity == '1'
+    - _1.identity == '99'
+    - _1.identity == '108'
+    - _1.identity == '63'
+    - _1.identity == '216'
+    - _1.identity == '204'
+    - _1.identity == '209'
+    - _1.identity == '69'
+    - _1.identity == '170'
+    - _1.identity == '219'
+    - _1.identity == '196'
+    - _1.identity == '71'
+    - _1.identity == '20'
+    - _1.identity == '110'
+    - _1.identity == '200'
+    - _1.identity == '119'
+    - _1.identity == '226'
+    - _1.identity == '231'
+    - _1.identity == '17'
+    - _1.identity == '172'
+    - _1.identity == '51'
+    - _1.identity == '47'
+    - _1.identity == '24'
+    - _1.identity == '41'
+    - _1.identity == '86'
+    - _1.identity == '126'
+    - _1.identity == '10'
+    - _1.identity == '156'
+    - _1.identity == '211'
+    - _1.identity == '235'
+    - _1.identity == '121'
+    - _1.identity == '234'
+    - _1.identity == '148'
+    - _1.identity == '154'
+    - _1.identity == '220'
+    - _1.identity == '175'
+    - _1.identity == '230'
+    - _1.identity == '22'
+    - _1.identity == '104'
+    - _1.identity == '161'
+    - _1.identity == '89'
+    - _1.identity == '165'
+    - _1.identity == '120'
+    - _1.identity == '29'
+    - _1.identity == '147'
+    - _1.identity == '100'
+    - _1.identity == '109'
+    - _1.identity == '21'
+    - _1.identity == '195'
+    - _1.identity == '182'
+    - _1.identity == '16'
+    - _1.identity == '84'
+    - _1.identity == '183'
+    augmentor:
+      size_limit:
+        size:               1200
+      affine:
+        degrees:            5
+        interpolation:      'BILINEAR'
+  args_variant:
+    1:
+      epoch_n:              1000
+
+
+trainer:
+  device:         cpu
+  save_mode:      best
+  epoch:          2
+  moniter:
+    field:        error
+    mode:         min
+
+optim:
+  type:                   Adam
+  args:
+    betas:                [0.9, 0.9999]
+    eps:                  1.e-8
+  scheduler:
+    type:                 Exp
+    args:
+      lr_mul:             1.e-3
+      min_lr:             1.e-6
+      decay_rate:         0.98
+      n_warmup_steps:     10000

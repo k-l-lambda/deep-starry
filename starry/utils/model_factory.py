@@ -14,6 +14,7 @@ def registerModels ():
 	classes = [
 		vm.PerisSimple, vm.PerisSimpleLoss,
 		vm.PerisBinary, vm.PerisBinaryLoss,
+		vm.PerisClass, vm.PerisClassLoss,
 		vm.Reconstructor, vm.ReconstructorLoss,
 		vm.ClipVisionBinary, vm.ClipVisionBinaryLoss,
 		vm.ClipVisionClass, vm.ClipVisionClassLoss,
