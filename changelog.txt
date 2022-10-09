@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.10.9
+
+	+	conformer module (from sooftware/conformer) imported.
+
+
 2022.7.23
 
 	+	framePair.py: added arguments of c_seq_len, s_seq_len.
