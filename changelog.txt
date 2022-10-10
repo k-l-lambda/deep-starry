@@ -5,6 +5,8 @@ TODO:
 
 2022.10.10
 
+	+	melody/data/vocalPitch.py created.
+
 	+	melody/models/conformerU.py created.
 
 

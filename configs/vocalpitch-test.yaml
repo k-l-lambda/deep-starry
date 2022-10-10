@@ -1,0 +1,11 @@
+
+id:     melody/{date}-{filename}
+
+
+data:
+  type:                     VocalPitch
+  root:                     opencpop
+  splits:                   '*1,2/100:99/100'
+  batch_size:               16
+  args:
+    bias_limit:             0.3

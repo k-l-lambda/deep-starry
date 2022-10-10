@@ -11,12 +11,13 @@ def registerTypes ():
 	global type_dict
 
 	from ..topology.data import EventCluster
-	from ..melody.data import NotationPair, FramePair
+	from ..melody.data import NotationPair, FramePair, VocalPitch
 
 	classes = [
 		EventCluster,
 		NotationPair,
 		FramePair,
+		VocalPitch,
 	]
 
 	type_dict = dict([(c.__name__, c) for c in classes])
