@@ -6,6 +6,6 @@ data:
   type:                     VocalPitch
   root:                     opencpop
   splits:                   '*1,2/100:99/100'
-  batch_size:               16
+  batch_size:               2
   args:
     bias_limit:             0.3
