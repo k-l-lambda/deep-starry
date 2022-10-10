@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.10.10
+
+	+	melody/models/conformerU.py created.
+
+
 2022.10.9
 
 	+	conformer module (from sooftware/conformer) imported.
