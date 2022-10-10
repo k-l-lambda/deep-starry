@@ -1,4 +1,5 @@
 
+import torch
 import torch.nn as nn
 
 from ...conformer.modules import Linear
@@ -7,45 +8,44 @@ from ...conformer.encoder import ConformerBlock
 
 
 class Downsample1D (nn.Module):
-	def __init__ (self, in_channels, out_channels, n_layer):
+	def __init__ (self, in_channels, out_channels):
 		super().__init__()
 
 		self.sequential = nn.Sequential(
-			*sum([
-				[
-					nn.Conv1d(in_channels if l == 0 else out_channels, out_channels, kernel_size=3),
-					nn.ReLU(),
-				] for l in range(n_layer)
-			], [])
+			nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=1),
+			nn.ReLU(),
+			nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=2, padding=2),
+			nn.ReLU(),
 		)
 
 
 	def forward (self, inputs):
-		x = inputs.permute(0, 2, 1)
-		x = self.sequential(x)
-		x = x.permute(0, 2, 1)
-
-		return x
+		return self.sequential(inputs)
 
 
 class Upsample1D (nn.Module):
-	def __init__ (self, in_channels, out_channels, n_layer):
+	def __init__ (self, in_channels, out_channels, short_channels):
 		super().__init__()
 
-		self.sequential = nn.Sequential(
-			*sum([
-				[
-					nn.ConvTranspose1d(in_channels, out_channels if l == n_layer - 1 else in_channels, kernel_size=3),
-					nn.ReLU(),
-				] for l in range(n_layer)
-			], [])
+		self.up = nn.Sequential(
+			nn.ConvTranspose1d(in_channels, in_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
+			nn.ReLU(),
+		)
+		self.conv = nn.Sequential(
+			nn.ConvTranspose1d(in_channels + short_channels, out_channels, kernel_size=3, stride=1, padding=1),
+			nn.ReLU(),
 		)
 
 
-	def forward (self, inputs):
-		x = inputs.permute(0, 2, 1)
-		x = self.sequential(x)
-		x = x.permute(0, 2, 1)
+	def forward (self, x, xi):
+		#print('up.x.0:', x.shape)
+		x = self.up(x)
+		#print('up.x.1:', x.shape)
+		x = torch.cat([x, xi], dim=1)
+		#print('up.x.2:', x.shape)
+
+		x = self.conv(x)
+		#print('up.x.3:', x.shape)
 
 		return x
 
@@ -54,7 +54,7 @@ class ConformerEncoderU (nn.Module):
 	def __init__ (
 		self,
 		input_dim=80,
-		encoder_dim=512,
+		encoder_dim=128,
 		num_down_layers=2,
 		num_layers=17,
 		num_attention_heads=8,
@@ -69,14 +69,29 @@ class ConformerEncoderU (nn.Module):
 	):
 		super().__init__()
 
-		self.conv_down = Downsample1D(in_channels=input_dim, out_channels=encoder_dim, n_layer=num_down_layers)
-		self.conv_up = Upsample1D(in_channels=encoder_dim, out_channels=encoder_dim, n_layer=num_down_layers)
+		inner_dim = encoder_dim << num_down_layers
+		down_channels = [encoder_dim << i for i in range(num_down_layers + 1)]
+		#print('down_channels:', down_channels)
+
+		self.downs = nn.ModuleList(modules=[
+			Downsample1D(
+				in_channels=input_dim if l == 0 else down_channels[l],
+				out_channels=down_channels[l + 1],
+			) for l in range(num_down_layers)
+		])
+		self.ups = nn.ModuleList(modules=[
+			Upsample1D(
+				in_channels=down_channels[-l - 1],
+				out_channels=down_channels[-l - 2],
+				short_channels=input_dim if l + 1 == num_down_layers else down_channels[-l - 2],
+			) for l in range(num_down_layers)
+		])
 
 		self.input_projection = nn.Sequential(
 			nn.Dropout(p=input_dropout_p),
 		)
 		self.layers = nn.ModuleList([ConformerBlock(
-			encoder_dim=encoder_dim,
+			encoder_dim=inner_dim,
 			num_attention_heads=num_attention_heads,
 			feed_forward_expansion_factor=feed_forward_expansion_factor,
 			conv_expansion_factor=conv_expansion_factor,
@@ -99,12 +114,34 @@ class ConformerEncoderU (nn.Module):
 
 
 	def forward (self, inputs):
-		outputs = self.conv_down(inputs)
-		outputs = self.input_projection(outputs)
+		x = inputs.permute(0, 2, 1)	# (n, inner, seq)
+
+		xs = []
+		for layer in self.downs:
+			#print('x1:', x.shape)
+			xs.append(x)
+			x = layer(x)
+
+		#print('x1.1:', x.shape)
+		x = x.permute(0, 2, 1)	# (n, seq, inner)
+		x = self.input_projection(x)
+
+		#print('x2:', x.shape)
 
 		for layer in self.layers:
-			outputs = layer(outputs)
+			x = layer(x)
 
-		outputs = self.conv_up(outputs)
+		#print('x3:', x.shape)
 
-		return outputs
+		x = x.permute(0, 2, 1)	# (n, inner, seq)
+		xs.reverse()
+		for i, layer in enumerate(self.ups):
+			xi = xs[i]
+			print('x4:', x.shape, xi.shape)
+			x = layer(x, xi)
+
+		#print('x5:', x.shape)
+
+		x = x.permute(0, 2, 1)	# (n, seq, inner)
+
+		return x
