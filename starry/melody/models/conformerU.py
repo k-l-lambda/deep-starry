@@ -2,7 +2,8 @@
 import torch
 import torch.nn as nn
 
-from ...conformer.modules import Linear
+#from ...conformer.modules import Linear
+from ...modules.positionEncoder import SinusoidEncoder
 from ...conformer.encoder import ConformerBlock
 
 
@@ -38,14 +39,10 @@ class Upsample1D (nn.Module):
 
 
 	def forward (self, x, xi):
-		#print('up.x.0:', x.shape)
 		x = self.up(x)
-		#print('up.x.1:', x.shape)
 		x = torch.cat([x, xi], dim=1)
-		#print('up.x.2:', x.shape)
 
 		x = self.conv(x)
-		#print('up.x.3:', x.shape)
 
 		return x
 
@@ -66,6 +63,7 @@ class ConformerEncoderU (nn.Module):
 		conv_dropout_p=0.1,
 		conv_kernel_size=31,
 		half_step_residual=True,
+		angle_cycle=1e+5,
 	):
 		super().__init__()
 
@@ -102,6 +100,8 @@ class ConformerEncoderU (nn.Module):
 			half_step_residual=half_step_residual,
 		) for _ in range(num_layers)])
 
+		self.pos_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=inner_dim)
+
 
 	def count_parameters (self):
 		return sum([p.numel() for p in self.parameters()])
@@ -118,15 +118,14 @@ class ConformerEncoderU (nn.Module):
 
 		xs = []
 		for layer in self.downs:
-			#print('x1:', x.shape)
 			xs.append(x)
 			x = layer(x)
 
-		#print('x1.1:', x.shape)
 		x = x.permute(0, 2, 1)	# (n, seq, inner)
 		x = self.input_projection(x)
 
-		#print('x2:', x.shape)
+		pos = torch.arange(0, x.shape[1], device=inputs.device, dtype=torch.float32).unsqueeze(0)
+		x += self.pos_encoder(pos)
 
 		for layer in self.layers:
 			x = layer(x)
