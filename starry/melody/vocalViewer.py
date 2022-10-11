@@ -48,8 +48,10 @@ class VocalViewer:
 		#print('head:', head.shape)
 		positive = pitch > 0
 		positive_xs = positive.nonzero()[:, 0]
-		width = positive_xs[-1].item()
-		#print('width:', width)
+		#width = positive_xs[-1].item()
+
+		heads = (head > 0).nonzero()[:, 0]
 
 		ax.set_ylim(PITCH_RANGE[0], PITCH_RANGE[1])
 		ax.plot(positive_xs, pitch[positive] / PITCH_SUBDIV + PITCH_RANGE[0], ',')
+		ax.vlines(heads, PITCH_RANGE[0], PITCH_RANGE[1], linestyles='dashed')
