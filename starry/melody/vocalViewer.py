@@ -56,6 +56,8 @@ class VocalViewer:
 		ax.plot(positive_xs, pitch[positive] / PITCH_SUBDIV + PITCH_RANGE[0], ',')
 		ax.vlines(heads, PITCH_RANGE[0], PITCH_RANGE[1], linestyles='dashed')
 
+		ax.plot(gain[:width] * (PITCH_RANGE[1] - PITCH_RANGE[0]) + PITCH_RANGE[0], color='g')
+
 		if pred is not None:
 			values = pred * (PITCH_RANGE[1] - PITCH_RANGE[0]) + PITCH_RANGE[0]
 			#ax.step(range(width), values)
