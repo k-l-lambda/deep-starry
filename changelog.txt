@@ -5,6 +5,8 @@ TODO:
 
 2022.10.11
 
+	+	validateVocal.py created.
+
 	+	melody/vocalViewer.py created.
 
 	+	melody/models/vocalAnalyzer.py created.

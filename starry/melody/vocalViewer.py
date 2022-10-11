@@ -43,15 +43,20 @@ class VocalViewer:
 
 
 	def showVocal (self, ax, pitch, gain, head, pred=None):
-		#print('pitch:', pitch.shape)
-		#print('gain:', gain.shape)
-		#print('head:', head.shape)
+		#print('pred:', pred.shape)
 		positive = pitch > 0
 		positive_xs = positive.nonzero()[:, 0]
-		#width = positive_xs[-1].item()
+
+		width = positive_xs[-1].item()
+		pred = pred[:width, 0]
 
 		heads = (head > 0).nonzero()[:, 0]
 
 		ax.set_ylim(PITCH_RANGE[0], PITCH_RANGE[1])
 		ax.plot(positive_xs, pitch[positive] / PITCH_SUBDIV + PITCH_RANGE[0], ',')
 		ax.vlines(heads, PITCH_RANGE[0], PITCH_RANGE[1], linestyles='dashed')
+
+		if pred is not None:
+			values = pred * (PITCH_RANGE[1] - PITCH_RANGE[0]) + PITCH_RANGE[0]
+			#ax.step(range(width), values)
+			ax.plot(values, color='y')
