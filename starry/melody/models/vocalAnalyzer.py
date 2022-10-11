@@ -50,7 +50,7 @@ class VocalAnalyzerLoss (nn.Module):
 		false_error = (pred[false_part] > 0.5).float().mean()
 
 		return loss, {
-			'acc': acc,
-			'true_error': true_error,
-			'false_error': false_error,
+			'acc': acc.item(),
+			'true_error': true_error.item(),
+			'false_error': false_error.item(),
 		}
