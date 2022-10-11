@@ -1,8 +1,10 @@
 
 import logging
-import torch
+#import torch
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+#import matplotlib.patches as patches
+
+from .vocal import PITCH_RANGE, PITCH_SUBDIV
 
 
 
@@ -15,28 +17,39 @@ class VocalViewer:
 		for batch, tensors in enumerate(data):
 			logging.info('batch: %d', batch)
 
-			self.showVocal(tensors)
+			self.showVocalBatch(tensors)
 
 
-	def showVocal (self, inputs, pred=None):
+	def showVocalBatch (self, inputs, pred=None):
 		batch_size = min(self.n_axes ** 2, inputs['pitch'].shape[0])
 
 		_, axes = plt.subplots(batch_size // self.n_axes, self.n_axes)
 
-		print('inputs:', inputs)
+		#print('pred:', pred)
 
-		'''plt.get_current_fig_manager().full_screen_toggle()
+		plt.get_current_fig_manager().full_screen_toggle()
 
-		ci = inputs['ci']
-		ct, cp, cv = inputs['criterion']
-		st, sp, sv = inputs['sample']
-
-		matching, src, tar = pred
+		pitch = inputs['pitch']
+		gain = inputs['gain']
+		head = inputs['head']
 
 		for i in range(batch_size):
 			ax = axes if self.n_axes == 1 else axes[i // self.n_axes, i % self.n_axes]
 			ax.set_aspect(1)
 
-			self.showMatching(ax, (ct[i], cp[i], cv[i]), (st[i], sp[i], sv[i]), ci[i], matching[i] if matching is not None else None)
+			self.showVocal(ax, pitch[i], gain[i], head[i], pred[i] if pred is not None else None)
 
-		plt.show()'''
+		plt.show()
+
+
+	def showVocal (self, ax, pitch, gain, head, pred=None):
+		#print('pitch:', pitch.shape)
+		#print('gain:', gain.shape)
+		#print('head:', head.shape)
+		positive = pitch > 0
+		positive_xs = positive.nonzero()[:, 0]
+		width = positive_xs[-1].item()
+		#print('width:', width)
+
+		ax.set_ylim(PITCH_RANGE[0], PITCH_RANGE[1])
+		ax.plot(positive_xs, pitch[positive] / PITCH_SUBDIV + PITCH_RANGE[0], ',')
