@@ -1,4 +1,5 @@
 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -21,7 +22,7 @@ class VocalAnalyzer (nn.Module):
 		x = self.vocalEncoder(pitch, gain)
 		x = self.encoder(x)
 		x = self.fc(x)
-		x = F.sigmoid(x)
+		x = torch.sigmoid(x)
 
 		return x
 

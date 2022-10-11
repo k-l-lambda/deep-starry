@@ -57,7 +57,7 @@ class VocalPitch (IterableDataset):
 
 	def __iter__ (self):
 		if self.shuffle:
-			np.random.shuffle(self.entries)
+			np.random.shuffle(self.ids)
 		else:
 			torch.manual_seed(0)
 
@@ -71,7 +71,8 @@ class VocalPitch (IterableDataset):
 			pitchArr = torch.tensor(struct.unpack('H' * (n_frame * 2), pitchBuffer), dtype=torch.long).reshape((-1, 2))
 			pitch7Arr = struct.unpack('B' * n_frame, pitch7Buffer)
 
-			pitch = pitchArr[:, 0] // 64
+			#pitch = pitchArr[:, 0] // 64
+			pitch = torch.div(pitchArr[:, 0], 64, rounding_mode='floor')
 			gain = pitchArr[:, 1].float()
 
 			pitch[pitch > 0] -= PITCH_RANGE[0] * PITCH_SUBDIV

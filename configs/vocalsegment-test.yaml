@@ -29,3 +29,24 @@ model:
     conv_dropout_p:                 0.1
     conv_kernel_size:               31
     half_step_residual:             True
+
+
+trainer:
+  device:                   cpu
+  save_mode:                best
+  epoch:                    2
+  moniter:
+    field:                  acc
+    mode:                   max
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               0.2
+      n_warmup_steps:       4000
+      d_model:              512
