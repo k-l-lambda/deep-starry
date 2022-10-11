@@ -43,4 +43,14 @@ class VocalAnalyzerLoss (nn.Module):
 
 		acc = ((pred > 0.5).float() == target).float().mean()
 
-		return loss, {'acc': acc}
+		true_part = target == 1
+		false_part = target == 0
+
+		true_error = (pred[true_part] <= 0.5).float().mean()
+		false_error = (pred[false_part] > 0.5).float().mean()
+
+		return loss, {
+			'acc': acc,
+			'true_error': true_error,
+			'false_error': false_error,
+		}

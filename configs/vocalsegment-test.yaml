@@ -5,7 +5,7 @@ id:     melody/{date}-{filename}
 data:
   type:                     VocalPitch
   root:                     opencpop
-  splits:                   '*1,2/100:99/100'
+  splits:                   '*1..92/100:93..99/100'
   batch_size:               2
   args:
     bias_limit:             0.3
@@ -36,8 +36,8 @@ trainer:
   save_mode:                best
   epoch:                    2
   moniter:
-    field:                  acc
-    mode:                   max
+    field:                  loss
+    mode:                   min
 
 optim:
   type:                     Adam
@@ -48,5 +48,5 @@ optim:
     type:                   InvSqrt
     args:
       lr_mul:               0.2
-      n_warmup_steps:       4000
-      d_model:              512
+      n_warmup_steps:       400
+      d_model:              256
