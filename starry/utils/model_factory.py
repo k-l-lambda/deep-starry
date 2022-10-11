@@ -9,12 +9,18 @@ model_dict = None
 def registerModels ():
 	global model_dict
 
-	from ..melody.models import TestEncoder, MatchJointerRaw, MatchJointer1, MatchJointer1Loss, MatchJointer2, MatchJointer2Loss, MatchJointer3, MatchJointer3Loss, MatchJointer4, MatchJointer4Loss, FrameMatchJointer, FrameMatchJointerLoss
+	from ..melody.models import (
+		TestEncoder,
+		MatchJointerRaw, MatchJointer1, MatchJointer1Loss, MatchJointer2, MatchJointer2Loss, MatchJointer3, MatchJointer3Loss, MatchJointer4, MatchJointer4Loss,
+		FrameMatchJointer, FrameMatchJointerLoss,
+		VocalAnalyzer, VocalAnalyzerLoss,
+	)
 
 	classes = [
 		TestEncoder, MatchJointerRaw, MatchJointer1, MatchJointer1Loss, MatchJointer2, MatchJointer2Loss,
 		MatchJointer3, MatchJointer3Loss, MatchJointer4, MatchJointer4Loss,
 		FrameMatchJointer, FrameMatchJointerLoss,
+		VocalAnalyzer, VocalAnalyzerLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

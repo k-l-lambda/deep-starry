@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import IterableDataset
 
 from ...utils.parsers import parseFilterStr, mergeArgs
-from .vocal import PITCH_RANGE, GAIN_RANGE
+from ..vocal import PITCH_RANGE, PITCH_SUBDIV, GAIN_RANGE
 
 
 
@@ -74,8 +74,9 @@ class VocalPitch (IterableDataset):
 			pitch = pitchArr[:, 0] // 64
 			gain = pitchArr[:, 1].float()
 
-			pitch[pitch > 0] -= PITCH_RANGE[0] * 4
+			pitch[pitch > 0] -= PITCH_RANGE[0] * PITCH_SUBDIV
 			pitch[pitch < 0] = 0
+			pitch[pitch >= (PITCH_RANGE[1] - PITCH_RANGE[0]) * PITCH_SUBDIV] = 0
 
 			gain[gain > 0] -= GAIN_RANGE[0]
 			gain /= GAIN_RANGE[1] - GAIN_RANGE[0]

@@ -1,0 +1,31 @@
+
+id:     melody/{date}-{filename}
+
+
+data:
+  type:                     VocalPitch
+  root:                     opencpop
+  splits:                   '*1,2/100:99/100'
+  batch_size:               2
+  args:
+    bias_limit:             0.3
+    seq_align:              4
+
+
+model:
+  type:                             VocalAnalyzer
+  args:
+    n_class:                        1
+    encoder_dim:                    64
+    num_down_layers:                2
+    num_layers:                     6
+    angle_cycle:                    1.e+5
+    num_attention_heads:            8
+    feed_forward_expansion_factor:  4
+    conv_expansion_factor:          2
+    input_dropout_p:                0.1
+    feed_forward_dropout_p:         0.1
+    attention_dropout_p:            0.1
+    conv_dropout_p:                 0.1
+    conv_kernel_size:               31
+    half_step_residual:             True

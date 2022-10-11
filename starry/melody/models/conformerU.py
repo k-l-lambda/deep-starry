@@ -50,7 +50,7 @@ class Upsample1D (nn.Module):
 class ConformerEncoderU (nn.Module):
 	def __init__ (
 		self,
-		input_dim=80,
+		input_dim=None,
 		encoder_dim=128,
 		num_down_layers=2,
 		num_layers=17,
@@ -66,6 +66,8 @@ class ConformerEncoderU (nn.Module):
 		angle_cycle=1e+5,
 	):
 		super().__init__()
+
+		input_dim = encoder_dim if input_dim is None else input_dim
 
 		inner_dim = encoder_dim << num_down_layers
 		down_channels = [encoder_dim << i for i in range(num_down_layers + 1)]
@@ -136,7 +138,7 @@ class ConformerEncoderU (nn.Module):
 		xs.reverse()
 		for i, layer in enumerate(self.ups):
 			xi = xs[i]
-			print('x4:', x.shape, xi.shape)
+			#print('x4:', x.shape, xi.shape)
 			x = layer(x, xi)
 
 		#print('x5:', x.shape)

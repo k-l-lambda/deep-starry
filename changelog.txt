@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.10.11
+
+	+	melody/models/vocalAnalyzer.py created.
+
+
 2022.10.10
 
 	+	melody/data/vocalPitch.py created.
