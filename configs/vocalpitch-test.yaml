@@ -9,3 +9,4 @@ data:
   batch_size:               2
   args:
     bias_limit:             0.3
+    seq_align:              4

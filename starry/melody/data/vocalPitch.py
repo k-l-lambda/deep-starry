@@ -43,11 +43,12 @@ class VocalPitch (IterableDataset):
 		return cls.loadPackage(root, args, splits, device, args_variant=args_variant)
 
 
-	def __init__ (self, root, ids, device, shuffle, **_):
+	def __init__ (self, root, ids, device, shuffle, seq_align=4, **_):
 		self.root = root
 		self.ids = ids
 		self.shuffle = shuffle
 		self.device = device
+		self.seq_align = seq_align
 
 
 	def __len__(self):
@@ -86,6 +87,7 @@ class VocalPitch (IterableDataset):
 
 	def collateBatch (self, batch):
 		n_frame_max = max(fields[0] for fields in batch)
+		n_frame_max = int(np.ceil(n_frame_max / self.seq_align)) * self.seq_align
 
 		def extract (i):
 			tensor = torch.zeros((len(batch), n_frame_max), dtype=batch[0][i].dtype)
