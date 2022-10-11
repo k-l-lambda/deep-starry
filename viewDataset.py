@@ -8,6 +8,7 @@ from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
 from starry.melody.notationViewer import NotationViewer
 from starry.melody.frameViewer import FrameViewer
+from starry.melody.vocalViewer import VocalViewer
 from starry.topology.viewer import DatasetViewer as TopoViewer
 
 
@@ -25,6 +26,7 @@ def main ():
 	parser.add_argument('-e', '--eventTopo', action='store_true', help='show event topology data')
 	parser.add_argument('-mx', '--show_matrix', action='store_true', help='show matrix view')
 	parser.add_argument('-f', '--frame', action='store_true', help='show melody frame data')
+	parser.add_argument('-v', '--vocal', action='store_true', help='show vocal data')
 	parser.add_argument('-ax', '--n_axes', type=int, default=4)
 
 	args = parser.parse_args()
@@ -38,6 +40,8 @@ def main ():
 		viewer = TopoViewer(config, n_axes=args.n_axes, show_matrix=args.show_matrix)
 	elif args.frame:
 		viewer = FrameViewer(config, n_axes=args.n_axes)
+	elif args.vocal:
+		viewer = VocalViewer(config, n_axes=args.n_axes)
 	else:
 		viewer = NotationViewer(config, n_axes=args.n_axes)
 
