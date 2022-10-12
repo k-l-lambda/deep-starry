@@ -48,7 +48,6 @@ class VocalViewer:
 		positive_xs = positive.nonzero()[:, 0]
 
 		width = positive_xs[-1].item()
-		pred = pred[:width, 0]
 
 		heads = (head > 0).nonzero()[:, 0]
 
@@ -59,6 +58,7 @@ class VocalViewer:
 		ax.plot(gain[:width] * (PITCH_RANGE[1] - PITCH_RANGE[0]) + PITCH_RANGE[0], color='g')
 
 		if pred is not None:
+			pred = pred[:width, 0]
 			values = pred * (PITCH_RANGE[1] - PITCH_RANGE[0]) + PITCH_RANGE[0]
 			#ax.step(range(width), values)
 			ax.plot(values, color='y')
