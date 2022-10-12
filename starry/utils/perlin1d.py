@@ -8,7 +8,8 @@ PERLIN1D_CACHE_PATH = os.getenv('PERLIN1D_CACHE_PATH')
 
 
 def interpolate (arr, x):
-	assert x >= 0 and x <= len(arr) - 1
+	#assert x >= 0 and x <= len(arr) - 1, f'x ({x}) out of range, [0, {len(arr) - 1}]'
+	x = min(len(arr) - 1, max(0, x))
 
 	xi = int(x)
 	frac = x - xi

@@ -11,7 +11,7 @@ def gen (n, scales=6, resolution=1024, output_path='./perlin1d.npy'):
 
 	for scale in tqdm(range(scales)):
 		for i in range(n):
-			noise = PerlinNoise(octaves=2**scale, seed=i + scale * n)
+			noise = PerlinNoise(octaves=2**scale, seed=i + scale * n + 1)
 			offset = np.random.rand()
 			buffer[scale, i] = [noise(ii / resolution + offset) for ii in range(resolution)]
 
