@@ -5,6 +5,8 @@ TODO:
 
 2022.10.12
 
+	+	utils/perlin1d.py created.
+
 	+	perlin1dGen.py created.
 
 

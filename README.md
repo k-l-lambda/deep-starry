@@ -9,3 +9,4 @@ Variable Name								| Default Value			| Description
 **LOG_DIR**									| `./logs`				| Tensorboard log directory
 **DATA_DIR**								|						|
 **PREDICTOR_LOG**							|						|
+**PERLIN1D_CACHE_PATH**						|						|
