@@ -134,9 +134,9 @@ class VocalPitch (IterableDataset):
 			distortion = self.perlin.integral(len(pitch), cycle, amplitude=amplitude)
 			xp, xp_sharp = sampleXp(pitch, len(distortion), distortion[-1])
 
-			pitch = distort(pitch, distortion, xp_sharp)
-			gain = distort(gain, distortion, xp_sharp)
-			head = distort(head, distortion, xp)
+			pitch = distort(pitch, distortion, xp_sharp).long()
+			gain = distort(gain, distortion, xp_sharp).float()
+			head = distort(head, distortion, xp).float()
 			peakFilter(head)
 
 		return pitch, gain, head
