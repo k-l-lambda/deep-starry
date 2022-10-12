@@ -37,3 +37,15 @@ class Perlin1d:
 		bias = (RESOLUTION - size * k) * np.random.rand()
 
 		return np.array([interpolate(row, bias + x * k) for x in range(size)])
+
+
+	def integral (self, size, cycle, amplitude=1):
+		rate = self.get(size, cycle)
+
+		result = np.zeros(size)
+		y = 0
+		for x in range(size):
+			result[x] = y
+			y += np.exp(rate[x] * amplitude)
+
+		return result
