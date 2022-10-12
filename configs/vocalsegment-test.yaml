@@ -10,6 +10,14 @@ data:
   args:
     bias_limit:             0.3
     seq_align:              4
+    augmentor:
+      time_distortion:
+        cycle:
+          miu:                800
+          sigma:              0.6
+        amplitude:
+          miu:                1.6
+          sigma:              0.4
 
 
 model:

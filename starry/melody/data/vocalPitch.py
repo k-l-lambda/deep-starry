@@ -74,13 +74,13 @@ class VocalPitch (IterableDataset):
 		return cls.loadPackage(root, args, splits, device, args_variant=args_variant)
 
 
-	def __init__ (self, root, ids, device, shuffle, seq_align=4, augment={}, **_):
+	def __init__ (self, root, ids, device, shuffle, seq_align=4, augmentor={}, **_):
 		self.root = root
 		self.ids = ids
 		self.shuffle = shuffle
 		self.device = device
 		self.seq_align = seq_align
-		self.augment = augment
+		self.augmentor = augmentor
 		self.perlin = Perlin1d()
 
 
@@ -108,12 +108,6 @@ class VocalPitch (IterableDataset):
 			pitch = torch.div(pitchArr[:, 0], 64, rounding_mode='floor')
 			gain = pitchArr[:, 1].float()
 
-			distortion = self.perlin.integral(len(pitch), 400, amplitude=4)
-			xp, xp_sharp = sampleXp(pitch, len(distortion), distortion[-1])
-
-			pitch = distort(pitch, distortion, xp_sharp)
-			gain = distort(gain, distortion, xp_sharp)
-
 			pitch[pitch > 0] -= PITCH_RANGE[0] * PITCH_SUBDIV
 			pitch[pitch < 0] = 0
 			pitch[pitch >= (PITCH_RANGE[1] - PITCH_RANGE[0]) * PITCH_SUBDIV] = 0
@@ -122,10 +116,31 @@ class VocalPitch (IterableDataset):
 			gain /= GAIN_RANGE[1] - GAIN_RANGE[0]
 
 			head = torch.tensor([f >> 7 for f in pitch7Arr], dtype=torch.float32)
+
+			pitch, gain, head = self.augment(pitch, gain, head)
+
+			yield n_frame, pitch, gain, head
+
+
+	def augment (self, pitch, gain, head):
+		if self.augmentor.get('time_distortion'):
+			cy_miu, cy_sigma = self.augmentor['time_distortion']['cycle']['miu'], self.augmentor['time_distortion']['cycle']['sigma']
+			am_miu, am_sigma = self.augmentor['time_distortion']['amplitude']['miu'], self.augmentor['time_distortion']['amplitude']['sigma']
+
+			cycle = cy_miu * np.exp(np.random.randn() * cy_sigma)
+			amplitude = am_miu * np.exp(np.random.randn() * am_sigma)
+			#print('time_distortion:', cycle, amplitude)
+
+			distortion = self.perlin.integral(len(pitch), cycle, amplitude=amplitude)
+			xp, xp_sharp = sampleXp(pitch, len(distortion), distortion[-1])
+
+			pitch = distort(pitch, distortion, xp_sharp)
+			gain = distort(gain, distortion, xp_sharp)
 			head = distort(head, distortion, xp)
 			peakFilter(head)
 
-			yield n_frame, pitch, gain, head
+		return pitch, gain, head
+
 
 
 	def collateBatch (self, batch):
