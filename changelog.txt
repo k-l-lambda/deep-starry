@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.10.12
+
+	+	perlin1dGen.py created.
+
+
 2022.10.11
 
 	+	validateVocal.py created.
