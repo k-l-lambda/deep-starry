@@ -163,7 +163,7 @@ class VocalPitch (IterableDataset):
 			cy_miu, cy_sigma = self.augmentor['offkey']['cycle']['miu'], self.augmentor['offkey']['cycle']['sigma']
 			am_miu, am_sigma = self.augmentor['offkey']['amplitude']['miu'], self.augmentor['offkey']['amplitude']['sigma']
 			cycle = cy_miu * np.exp(np.random.randn() * cy_sigma)
-			cycle = max(14, cycle)
+			cycle = max(len(pitch) / 32 + 1, cycle)
 			amplitude = am_miu * np.exp(np.random.randn() * am_sigma)
 
 			bias = amplitude * np.random.randn()
@@ -175,6 +175,8 @@ class VocalPitch (IterableDataset):
 			#print('offkey:', cycle, amplitude, bias, (offkey.max().item(), offkey.min().item()))
 
 			pitch += offkey
+			pitch[pitch < 0] = 0
+			pitch[pitch >= (PITCH_RANGE[1] - PITCH_RANGE[0]) * PITCH_SUBDIV] = 0
 
 		if self.augmentor.get('gain'):
 			miu, sigma = self.augmentor['gain']['scaling']['miu'], self.augmentor['gain']['scaling']['sigma']
