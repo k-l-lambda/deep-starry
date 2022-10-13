@@ -18,6 +18,11 @@ data:
         amplitude:
           miu:                1.6
           sigma:              0.4
+      pitch: ~
+      gain: ~
+  args_variant:
+    1:
+      augmentor: ~
 
 
 model:
