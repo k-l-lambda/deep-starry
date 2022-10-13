@@ -42,6 +42,20 @@ def peakFilter (y):
 	y[non_peak] = 0
 
 
+def backEdgeFilter (y):
+	y1 = torch.zeros_like(y)
+	y1[:-1] = y[1:]
+	edge = torch.logical_and(y > 0, y1 == 0)
+	y[torch.logical_not(edge)] = 0
+
+
+def frontEdgeFilter (y):
+	y1 = torch.zeros_like(y)
+	y1[1:] = y[:-1]
+	edge = torch.logical_and(y > 0, y1 == 0)
+	y[torch.logical_not(edge)] = 0
+
+
 class VocalPitch (IterableDataset):
 	@classmethod
 	def loadPackage (cls, root, args, splits='*0/1', device='cpu', args_variant=None):
@@ -138,7 +152,9 @@ class VocalPitch (IterableDataset):
 			gain = distort(gain, distortion, xp_sharp).float()
 
 			head = distort(head, distortion, xp).float()
-			peakFilter(head)
+			head[pitch == 0] = 0
+			#peakFilter(head)
+			frontEdgeFilter(head)
 			head[head > 0] = 1
 
 		return pitch, gain, head
