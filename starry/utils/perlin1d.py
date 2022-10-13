@@ -40,7 +40,19 @@ class Perlin1d:
 		return np.array([interpolate(row, bias + x * k) for x in range(size)])
 
 
-	def integral (self, size, cycle, amplitude=1):
+	def integralLinear (self, size, cycle):
+		rate = self.get(size, cycle)
+
+		result = np.zeros(size)
+		y = 0
+		for x in range(size):
+			result[x] = y
+			y += rate[x]
+
+		return result
+
+
+	def integralExp (self, size, cycle, amplitude=1):
 		rate = self.get(size, cycle)
 
 		result = np.zeros(size)

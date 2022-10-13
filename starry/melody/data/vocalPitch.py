@@ -145,7 +145,7 @@ class VocalPitch (IterableDataset):
 			amplitude = am_miu * np.exp(np.random.randn() * am_sigma)
 			#print('time_distortion:', cycle, amplitude)
 
-			distortion = self.perlin.integral(len(pitch), cycle, amplitude=amplitude)
+			distortion = self.perlin.integralExp(len(pitch), cycle, amplitude=amplitude)
 			xp, xp_sharp = sampleXp(pitch, len(distortion), distortion[-1])
 
 			pitch = distort(pitch, distortion, xp_sharp).long()

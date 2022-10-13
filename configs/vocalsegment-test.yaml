@@ -22,7 +22,10 @@ data:
       gain: ~
   args_variant:
     1:
-      augmentor: ~
+      augmentor:
+        time_distortion: ~
+        pitch: ~
+        gain: ~
 
 
 model:
