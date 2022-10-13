@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.10.13
+
+	+	vocalPitch.py: augmentor of offkey added.
+
+
 2022.10.12
 
 	+	utils/perlin1d.py created.

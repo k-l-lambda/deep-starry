@@ -137,6 +137,8 @@ class VocalPitch (IterableDataset):
 
 
 	def augment (self, pitch, gain, head):
+		silence = pitch == 0
+
 		if self.augmentor.get('time_distortion'):
 			cy_miu, cy_sigma = self.augmentor['time_distortion']['cycle']['miu'], self.augmentor['time_distortion']['cycle']['sigma']
 			am_miu, am_sigma = self.augmentor['time_distortion']['amplitude']['miu'], self.augmentor['time_distortion']['amplitude']['sigma']
@@ -152,10 +154,26 @@ class VocalPitch (IterableDataset):
 			gain = distort(gain, distortion, xp_sharp).float()
 
 			head = distort(head, distortion, xp).float()
-			head[pitch == 0] = 0
+			head[silence] = 0
 			#peakFilter(head)
 			frontEdgeFilter(head)
 			head[head > 0] = 1
+
+		if self.augmentor.get('offkey'):
+			cy_miu, cy_sigma = self.augmentor['offkey']['cycle']['miu'], self.augmentor['offkey']['cycle']['sigma']
+			am_miu, am_sigma = self.augmentor['offkey']['amplitude']['miu'], self.augmentor['offkey']['amplitude']['sigma']
+			cycle = cy_miu * np.exp(np.random.randn() * cy_sigma)
+			amplitude = am_miu * np.exp(np.random.randn() * am_sigma)
+
+			bias = amplitude * np.random.randn()
+
+			offkey = bias + torch.from_numpy(self.perlin.integralLinear(len(pitch), cycle)) * amplitude * 4 / cycle
+			offkey[silence] = 0
+			offkey = torch.round(offkey).long()
+
+			#print('offkey:', cycle, amplitude, bias, (offkey.max().item(), offkey.min().item()))
+
+			pitch += offkey
 
 		return pitch, gain, head
 

@@ -18,13 +18,19 @@ data:
         amplitude:
           miu:                1.6
           sigma:              0.4
-      pitch: ~
+      offkey:
+        cycle:
+          miu:                60
+          sigma:              0.6
+        amplitude:
+          miu:                6
+          sigma:              0.6
       gain: ~
   args_variant:
     1:
       augmentor:
         time_distortion: ~
-        pitch: ~
+        offkey: ~
         gain: ~
 
 
