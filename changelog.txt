@@ -5,6 +5,7 @@ TODO:
 
 2022.10.13
 
+	+	vocalPitch.py: augmentor of gain scaling added.
 	+	vocalPitch.py: augmentor of offkey added.
 
 

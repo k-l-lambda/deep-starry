@@ -25,7 +25,10 @@ data:
         amplitude:
           miu:                6
           sigma:              0.6
-      gain: ~
+      gain:
+        scaling:
+          miu:                1.2
+          sigma:              0.2
   args_variant:
     1:
       augmentor:
