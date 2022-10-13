@@ -153,6 +153,8 @@ class VocalPitch (IterableDataset):
 			pitch = distort(pitch, distortion, xp_sharp).long()
 			gain = distort(gain, distortion, xp_sharp).float()
 
+			silence = pitch == 0
+
 			head = distort(head, distortion, xp).float()
 			head[silence] = 0
 			#peakFilter(head)
