@@ -137,17 +137,17 @@ class VocalPitch (IterableDataset):
 			head = torch.tensor([f >> 7 for f in pitch7Arr], dtype=torch.float32)
 
 			midi = self.midi[id]
-			midi_pitch, midi_tick, midi_rtick, midi_frame = midi['pitches'], midi['ticks'], midi['rticks'], midi['frames']
+			midi_pitch, midi_tick, midi_rtick, tonf = midi['pitches'], midi['ticks'], midi['rticks'], midi['tonf']
 
 			midi_pitch = torch.clip(midi_pitch, min=PITCH_RANGE[0], max=PITCH_RANGE[1])
 			midi_pitch -= PITCH_RANGE[0]
 
-			pitch, gain, head = self.augment(pitch, gain, head)
+			pitch, gain, head, tonf = self.augment(pitch, gain, head, tonf)
 
-			yield n_frame, pitch, gain, head, midi_pitch, midi_tick, midi_rtick
+			yield n_frame, pitch, gain, head, tonf, midi_pitch, midi_tick, midi_rtick
 
 
-	def augment (self, pitch, gain, head):
+	def augment (self, pitch, gain, head, tonf):
 		silence = pitch == 0
 
 		if self.augmentor.get('time_distortion'):
@@ -171,6 +171,8 @@ class VocalPitch (IterableDataset):
 			#peakFilter(head)
 			frontEdgeFilter(head)
 			head[head > 0] = 1
+
+			tonf = distort(tonf, distortion, xp).float()
 
 		if self.augmentor.get('offkey'):
 			cy_miu, cy_sigma = self.augmentor['offkey']['cycle']['miu'], self.augmentor['offkey']['cycle']['sigma']
@@ -198,7 +200,7 @@ class VocalPitch (IterableDataset):
 
 			gain *= scaling
 
-		return pitch, gain, head
+		return pitch, gain, head, tonf
 
 
 	def collateBatch (self, batch):
@@ -216,9 +218,10 @@ class VocalPitch (IterableDataset):
 			'pitch': extract(1),
 			'gain': extract(2),
 			'head': extract(3),
-			'midi_pitch': extract(4),
-			'midi_tick': extract(5),
-			'midi_rtick': extract(6),
+			'tonf': extract(4),
+			'midi_pitch': extract(5),
+			'midi_tick': extract(6),
+			'midi_rtick': extract(7),
 		}
 
 		return result

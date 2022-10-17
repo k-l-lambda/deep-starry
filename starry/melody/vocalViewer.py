@@ -32,17 +32,18 @@ class VocalViewer:
 		pitch = inputs['pitch']
 		gain = inputs['gain']
 		head = inputs['head']
+		tonf = inputs['tonf']
 
 		for i in range(batch_size):
 			ax = axes if self.n_axes == 1 else axes[i // self.n_axes, i % self.n_axes]
 			ax.set_aspect(1)
 
-			self.showVocal(ax, pitch[i], gain[i], head[i], pred[i] if pred is not None else None)
+			self.showVocal(ax, pitch[i], gain[i], head[i], tonf[i], pred[i] if pred is not None else None)
 
 		plt.show()
 
 
-	def showVocal (self, ax, pitch, gain, head, pred=None):
+	def showVocal (self, ax, pitch, gain, head, tonf, pred=None):
 		#print('pred:', pred.shape)
 		positive = pitch > 0
 		positive_xs = positive.nonzero()[:, 0]
@@ -56,6 +57,8 @@ class VocalViewer:
 		ax.vlines(heads, PITCH_RANGE[0], PITCH_RANGE[1], linestyles='dashed')
 
 		ax.plot(gain[:width] * (PITCH_RANGE[1] - PITCH_RANGE[0]) + PITCH_RANGE[0], color='g')
+
+		ax.plot(tonf[:width] * 0.02 + PITCH_RANGE[0], color='m')
 
 		if pred is not None:
 			pred = pred[:width, 0]
