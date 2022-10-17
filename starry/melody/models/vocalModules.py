@@ -7,21 +7,39 @@ from ..vocal import PITCH_RANGE, PITCH_SUBDIV
 
 
 
-N_PITCH_CLASS = (PITCH_RANGE[1] - PITCH_RANGE[0]) * PITCH_SUBDIV
+N_VOCAL_PITCH_CLASS = (PITCH_RANGE[1] - PITCH_RANGE[0]) * PITCH_SUBDIV
+N_MIDI_PITCH_CLASS = PITCH_RANGE[1] - PITCH_RANGE[0]
 
 
 class VocalEncoder (nn.Module):
 	def __init__ (self, d_model=128):
 		super().__init__()
 
-		self.embed = nn.Linear(N_PITCH_CLASS + 1, d_model)
+		self.embed = nn.Linear(N_VOCAL_PITCH_CLASS + 1, d_model)
 
 
 	def forward (self, pitch, gain):
-		vec_pitch = F.one_hot(pitch.long(), num_classes=N_PITCH_CLASS).float()
+		vec_pitch = F.one_hot(pitch.long(), num_classes=N_VOCAL_PITCH_CLASS).float()
 		gain = gain.unsqueeze(-1)
 
 		x = torch.cat([vec_pitch, gain], dim=-1)
+		x = self.embed(x)
+
+		return x
+
+
+class MidiEncoder (nn.Module):
+	def __init__ (self, d_model=128):
+		super().__init__()
+
+		self.embed = nn.Linear(N_MIDI_PITCH_CLASS + 1, d_model)
+
+
+	def forward (self, pitch, tick):
+		vec_pitch = F.one_hot(pitch.long(), num_classes=N_MIDI_PITCH_CLASS).float()
+		tick = tick.unsqueeze(-1)
+
+		x = torch.cat([vec_pitch, tick], dim=-1)
 		x = self.embed(x)
 
 		return x

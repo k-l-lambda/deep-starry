@@ -139,6 +139,9 @@ class VocalPitch (IterableDataset):
 			midi = self.midi[id]
 			midi_pitch, midi_tick, midi_rtick, midi_frame = midi['pitches'], midi['ticks'], midi['rticks'], midi['frames']
 
+			midi_pitch = torch.clip(midi_pitch, min=PITCH_RANGE[0], max=PITCH_RANGE[1])
+			midi_pitch -= PITCH_RANGE[0]
+
 			pitch, gain, head = self.augment(pitch, gain, head)
 
 			yield n_frame, pitch, gain, head, midi_pitch, midi_tick, midi_rtick
