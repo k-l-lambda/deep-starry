@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.10.17
+
+	+	vocalPitch.py: midi compilation data added.
+
+
 2022.10.13
 
 	+	vocalPitch.py: augmentor of gain scaling added.

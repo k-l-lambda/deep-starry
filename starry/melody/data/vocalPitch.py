@@ -1,6 +1,7 @@
 
 import os
 import yaml
+import dill as pickle
 import struct
 import numpy as np
 import torch
@@ -97,6 +98,10 @@ class VocalPitch (IterableDataset):
 		self.augmentor = augmentor
 		self.perlin = Perlin1d()
 
+		# load midi compilation
+		with open(os.path.join(self.root, 'midi-compilation.pickle'), 'rb') as file:
+			self.midi = pickle.load(file)
+
 
 	def __len__(self):
 		return len(self.ids)
@@ -131,9 +136,12 @@ class VocalPitch (IterableDataset):
 
 			head = torch.tensor([f >> 7 for f in pitch7Arr], dtype=torch.float32)
 
+			midi = self.midi[id]
+			midi_pitch, midi_tick, midi_rtick, midi_frame = midi['pitches'], midi['ticks'], midi['rticks'], midi['frames']
+
 			pitch, gain, head = self.augment(pitch, gain, head)
 
-			yield n_frame, pitch, gain, head
+			yield n_frame, pitch, gain, head, midi_pitch, midi_tick, midi_rtick
 
 
 	def augment (self, pitch, gain, head):
@@ -190,7 +198,6 @@ class VocalPitch (IterableDataset):
 		return pitch, gain, head
 
 
-
 	def collateBatch (self, batch):
 		n_frame_max = max(fields[0] for fields in batch)
 		n_frame_max = int(np.ceil(n_frame_max / self.seq_align)) * self.seq_align
@@ -206,6 +213,9 @@ class VocalPitch (IterableDataset):
 			'pitch': extract(1),
 			'gain': extract(2),
 			'head': extract(3),
+			'midi_pitch': extract(4),
+			'midi_tick': extract(5),
+			'midi_rtick': extract(6),
 		}
 
 		return result
