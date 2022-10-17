@@ -58,13 +58,13 @@ class VocalAnalyzerLoss (nn.Module):
 
 
 class VocalAnalyzerNotation (nn.Module):
-	def __init__ (self, n_class=1, encoder_dim=128, notationArgs={}, num_down_layers=2, n_notation_enc_layers=4, n_notation_dec_layers=3, **args):
+	def __init__ (self, n_class=1, encoder_dim=128, d_time=128, notationArgs={}, num_down_layers=2, n_notation_enc_layers=4, n_notation_dec_layers=3, **args):
 		super().__init__()
 
 		d_inner = encoder_dim << num_down_layers
 
 		self.vocalEncoder = VocalEncoder(encoder_dim)
-		self.midiEncoder = MidiEncoder(d_inner)
+		self.midiEncoder = MidiEncoder(d_inner, d_time=d_time)
 		self.notationEncoder = Encoder(n_notation_enc_layers, d_model=d_inner, **notationArgs)
 		self.notationDecoder = Decoder(n_notation_dec_layers, d_model=d_inner, **notationArgs)
 		self.encoder = ConformerEncoderDecoderU(encoder_dim=encoder_dim, decoder=self.notationDecoder, num_down_layers=num_down_layers, **args)

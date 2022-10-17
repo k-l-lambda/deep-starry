@@ -56,12 +56,15 @@ model:
     conv_dropout_p:                 0.1
     conv_kernel_size:               31
     half_step_residual:             True
+    d_time:                         128
     notationArgs:
       n_head:                       8
       d_k:                          64
       d_v:                          64
       d_inner:                      512
       dropout:                      0.1
+    output_field:                   head
+    tick_filed:                     midi_tick
 
 
 trainer:
@@ -81,5 +84,5 @@ optim:
     type:                   InvSqrt
     args:
       lr_mul:               0.2
-      n_warmup_steps:       400
+      n_warmup_steps:       1200
       d_model:              256
