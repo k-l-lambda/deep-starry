@@ -200,6 +200,10 @@ class VocalPitch (IterableDataset):
 
 			gain *= scaling
 
+		if self.augmentor.get('tonf'):
+			scale = np.random.choice(self.augmentor['tonf']['scales'])
+			tonf *= scale
+
 		return pitch, gain, head, tonf
 
 

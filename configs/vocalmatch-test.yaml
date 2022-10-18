@@ -29,6 +29,8 @@ data:
         scaling:
           miu:                1.2
           sigma:              0.2
+      tonf:
+        scales:               [0.5, 1, 1, 2, 3]
   args_variant:
     1:
       augmentor:
