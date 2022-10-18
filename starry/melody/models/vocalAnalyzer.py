@@ -124,3 +124,37 @@ class VocalAnalyzerNotationBinaryLoss (nn.Module):
 			'true_error': true_error.item(),
 			'false_error': false_error.item(),
 		}
+
+
+class VocalAnalyzerNotationRegress (nn.Module):
+	def __init__ (self, **args):
+		super().__init__()
+
+		self.backbone = VocalAnalyzerNotation(**args)
+
+
+	def forward (self, pitch, gain, midi_pitch, midi_tick):
+		x = self.backbone(pitch, gain, midi_pitch, midi_tick)
+
+		return x
+
+
+class VocalAnalyzerNotationRegressLoss (nn.Module):
+	def __init__ (self, output_field='tonf', tick_filed='midi_rtick', **args):
+		super().__init__()
+
+		self.deducer = VocalAnalyzerNotationBinary(**args)
+		self.output_field = output_field
+		self.tick_filed = tick_filed
+
+
+	def forward (self, batch):
+		target = batch[self.output_field].unsqueeze(-1)
+		pred = self.deducer(batch['pitch'], batch['gain'], batch['midi_pitch'], batch[self.tick_filed])
+
+		loss = F.mse_loss(pred, target)
+		error = torch.sqrt(loss)
+
+		return loss, {
+			'error': error.item(),
+		}

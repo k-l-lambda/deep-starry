@@ -14,6 +14,7 @@ def registerModels ():
 		MatchJointerRaw, MatchJointer1, MatchJointer1Loss, MatchJointer2, MatchJointer2Loss, MatchJointer3, MatchJointer3Loss, MatchJointer4, MatchJointer4Loss,
 		FrameMatchJointer, FrameMatchJointerLoss,
 		VocalAnalyzer, VocalAnalyzerLoss, VocalAnalyzerNotationBinary, VocalAnalyzerNotationBinaryLoss,
+		VocalAnalyzerNotationRegress, VocalAnalyzerNotationRegressLoss,
 	)
 
 	classes = [
@@ -22,6 +23,7 @@ def registerModels ():
 		FrameMatchJointer, FrameMatchJointerLoss,
 		VocalAnalyzer, VocalAnalyzerLoss,
 		VocalAnalyzerNotationBinary, VocalAnalyzerNotationBinaryLoss,
+		VocalAnalyzerNotationRegress, VocalAnalyzerNotationRegressLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])
