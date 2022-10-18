@@ -166,6 +166,7 @@ class ConformerEncoderDecoderU (nn.Module):
 		conv_kernel_size=31,
 		half_step_residual=True,
 		angle_cycle=1e+5,
+		**_,
 	):
 		super().__init__()
 

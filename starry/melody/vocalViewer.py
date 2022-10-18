@@ -8,6 +8,9 @@ from .vocal import PITCH_RANGE, PITCH_SUBDIV
 
 
 
+TONF_SCALING = 0.02
+
+
 class VocalViewer:
 	def __init__(self, config, n_axes=4):
 		self.n_axes = n_axes
@@ -58,10 +61,11 @@ class VocalViewer:
 
 		ax.plot(gain[:width] * (PITCH_RANGE[1] - PITCH_RANGE[0]) + PITCH_RANGE[0], color='g')
 
-		ax.plot(tonf[:width] * 0.02 + PITCH_RANGE[0], color='m')
+		ax.plot(tonf[:width] * TONF_SCALING + PITCH_RANGE[0], color='m')
 
 		if pred is not None:
 			pred = pred[:width, 0]
-			values = pred * (PITCH_RANGE[1] - PITCH_RANGE[0]) + PITCH_RANGE[0]
+			#values = pred * (PITCH_RANGE[1] - PITCH_RANGE[0]) + PITCH_RANGE[0]
+			values = pred * TONF_SCALING + PITCH_RANGE[0]
 			#ax.step(range(width), values)
 			ax.plot(values, color='y')

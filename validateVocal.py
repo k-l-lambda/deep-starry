@@ -35,10 +35,11 @@ class Validator (Predictor):
 		for batch, tensors in enumerate(data):
 			logging.info('batch: %d', batch)
 
-			pitch, gain = tensors['pitch'], tensors['gain']
+			pitch, gain, mp, mt = tensors['pitch'], tensors['gain'], tensors['midi_pitch'], tensors['midi_rtick']
 
 			with torch.no_grad():
-				pred = self.model(pitch, gain)
+				pred = self.model(pitch, gain, mp, mt)
+				print('pred:', pred)
 
 			self.viewer.showVocalBatch(tensors, pred)
 
