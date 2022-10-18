@@ -214,6 +214,11 @@ class VocalPitch (IterableDataset):
 
 			return tensor.to(self.device)
 
+		mask = torch.zeros((len(batch), n_frame_max), dtype=torch.float)
+		for n, tensors in enumerate(batch):
+			mask[n, :tensors[0]] = 1
+		mask = mask.bool().to(self.device)
+
 		result = {
 			'pitch': extract(1),
 			'gain': extract(2),
@@ -222,6 +227,7 @@ class VocalPitch (IterableDataset):
 			'midi_pitch': extract(5),
 			'midi_tick': extract(6),
 			'midi_rtick': extract(7),
+			'mask': mask,
 		}
 
 		return result

@@ -152,6 +152,10 @@ class VocalAnalyzerNotationRegressLoss (nn.Module):
 		target = batch[self.output_field].unsqueeze(-1)
 		pred = self.deducer(batch['pitch'], batch['gain'], batch['midi_pitch'], batch[self.tick_filed])
 
+		# mask tail
+		nmask = torch.logical_not(batch['mask'])
+		pred[nmask] = target[nmask]
+
 		loss = F.mse_loss(pred, target)
 		error = torch.sqrt(loss)
 
