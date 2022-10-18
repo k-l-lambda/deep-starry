@@ -142,12 +142,12 @@ class VocalPitch (IterableDataset):
 			midi_pitch = torch.clip(midi_pitch, min=PITCH_RANGE[0], max=PITCH_RANGE[1])
 			midi_pitch -= PITCH_RANGE[0]
 
-			pitch, gain, head, tonf = self.augment(pitch, gain, head, tonf)
+			pitch, gain, head, tonf, midi_tick, midi_rtick = self.augment(pitch, gain, head, tonf, midi_tick, midi_rtick)
 
 			yield n_frame, pitch, gain, head, tonf, midi_pitch, midi_tick, midi_rtick
 
 
-	def augment (self, pitch, gain, head, tonf):
+	def augment (self, pitch, gain, head, tonf, midi_tick, midi_rtick):
 		silence = pitch == 0
 
 		if self.augmentor.get('time_distortion'):
@@ -203,8 +203,10 @@ class VocalPitch (IterableDataset):
 		if self.augmentor.get('tonf'):
 			scale = np.random.choice(self.augmentor['tonf']['scales'])
 			tonf *= scale
+			midi_tick *= scale
+			midi_rtick *= scale
 
-		return pitch, gain, head, tonf
+		return pitch, gain, head, tonf, midi_tick, midi_rtick
 
 
 	def collateBatch (self, batch):
