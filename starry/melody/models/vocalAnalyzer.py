@@ -143,7 +143,7 @@ class VocalAnalyzerNotationRegressLoss (nn.Module):
 	def __init__ (self, output_field='tonf', tick_filed='midi_rtick', **args):
 		super().__init__()
 
-		self.deducer = VocalAnalyzerNotationBinary(**args)
+		self.deducer = VocalAnalyzerNotationRegress(**args)
 		self.output_field = output_field
 		self.tick_filed = tick_filed
 
