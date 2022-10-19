@@ -44,7 +44,7 @@ data:
 model:
   type:                             VocalAnalyzerNotationClassification
   args:
-    n_class:                        1
+    n_class:                        100
     encoder_dim:                    32
     num_down_layers:                2
     n_notation_enc_layers:          4
@@ -67,7 +67,7 @@ model:
       d_v:                          64
       d_inner:                      512
       dropout:                      0.1
-    output_field:                   tonf
+    output_field:                   nonf
     tick_filed:                     midi_rtick
 
 

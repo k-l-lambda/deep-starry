@@ -5,8 +5,9 @@ import torch.nn.functional as F
 
 from ...conformer.modules import Linear
 from .conformerU import ConformerEncoderU, ConformerEncoderDecoderU
-from .vocalModules import VocalEncoder, MidiEncoder
+from .vocalModules import VocalEncoder, MidiEncoder1, MidiEncoder2
 from .modules import Encoder, Decoder
+from ..vocal import TICK_ROUND_UNIT
 
 
 
@@ -58,13 +59,13 @@ class VocalAnalyzerLoss (nn.Module):
 
 
 class VocalAnalyzerNotation (nn.Module):
-	def __init__ (self, n_class=1, encoder_dim=128, d_time=128, notationArgs={}, num_down_layers=2, n_notation_enc_layers=4, n_notation_dec_layers=3, **args):
+	def __init__ (self, n_class=1, midiEncoder=MidiEncoder1, encoder_dim=128, d_time=128, notationArgs={}, num_down_layers=2, n_notation_enc_layers=4, n_notation_dec_layers=3, **args):
 		super().__init__()
 
 		d_inner = encoder_dim << num_down_layers
 
 		self.vocalEncoder = VocalEncoder(encoder_dim)
-		self.midiEncoder = MidiEncoder(d_inner, d_time=d_time)
+		self.midiEncoder = midiEncoder(d_inner, d_time=d_time)
 		self.notationEncoder = Encoder(n_notation_enc_layers, d_model=d_inner, **notationArgs)
 		self.notationDecoder = Decoder(n_notation_dec_layers, d_model=d_inner, **notationArgs)
 		self.encoder = ConformerEncoderDecoderU(encoder_dim=encoder_dim, decoder=self.notationDecoder, num_down_layers=num_down_layers, **args)
@@ -161,4 +162,51 @@ class VocalAnalyzerNotationRegressLoss (nn.Module):
 
 		return loss, {
 			'error': error.item(),
+		}
+
+
+class VocalAnalyzerNotationClassification (nn.Module):
+	def __init__ (self, **args):
+		super().__init__()
+
+		self.backbone = VocalAnalyzerNotation(midiEncoder=MidiEncoder2, **args)
+
+
+	def forward (self, pitch, gain, midi_pitch, midi_tick):
+		x = self.backbone(pitch, gain, midi_pitch, midi_tick)
+		x = F.softmax(x)
+
+		return x
+
+
+class VocalAnalyzerNotationClassificationLoss (nn.Module):
+	def __init__ (self, n_class=100, output_field='nonf', tick_filed='midi_rtick', **args):
+		super().__init__()
+
+		self.deducer = VocalAnalyzerNotationClassification(n_class=n_class, **args)
+		self.output_field = output_field
+		self.tick_filed = tick_filed
+		self.n_class = n_class
+
+
+	def forward (self, batch):
+		target = batch[self.output_field]
+		pred = self.deducer(batch['pitch'], batch['gain'], batch['midi_pitch'], batch[self.tick_filed])
+
+		target = (target / TICK_ROUND_UNIT).long()
+		target_onehot = F.one_hot(target, num_classes=self.n_class).float()
+
+		mask = batch['mask']
+		nmask = torch.logical_not(mask)
+
+		pred[nmask] = target_onehot[nmask]
+
+		loss = F.cross_entropy(pred, target_onehot)
+
+		pred_tick = torch.argmax(pred, dim=-1)
+		correct = pred_tick == target
+		acc = correct[mask].float().mean()
+
+		return loss, {
+			'acc': acc.item(),
 		}

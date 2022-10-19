@@ -5,6 +5,11 @@ TODO:
 
 2022.10.18
 
+	+	vocalAnalyzer.py: model class of VocalAnalyzerNotationClassification added.
+
+
+2022.10.18
+
 	+	vocalAnalyzer.py: model class of VocalAnalyzerNotationRegress added.
 
 
