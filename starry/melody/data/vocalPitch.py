@@ -214,6 +214,7 @@ class VocalPitch (IterableDataset):
 		if self.augmentor.get('nonf'):
 			if self.augmentor['nonf'].get('max') is not None:
 				nonf = nonf.clip(max=self.augmentor['nonf']['max'])
+				midi_rtick = midi_rtick.clip(max=self.augmentor['nonf']['max'])
 
 		return pitch, gain, head, tonf, nonf, midi_tick, midi_rtick
 

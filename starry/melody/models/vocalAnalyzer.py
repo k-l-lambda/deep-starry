@@ -174,7 +174,8 @@ class VocalAnalyzerNotationClassification (nn.Module):
 
 	def forward (self, pitch, gain, midi_pitch, midi_tick):
 		x = self.backbone(pitch, gain, midi_pitch, midi_tick)
-		x = F.softmax(x)
+		x = x.permute(0, 2, 1)
+		x = F.softmax(x, dim=1)
 
 		return x
 
@@ -194,16 +195,12 @@ class VocalAnalyzerNotationClassificationLoss (nn.Module):
 		pred = self.deducer(batch['pitch'], batch['gain'], batch['midi_pitch'], batch[self.tick_filed])
 
 		target = (target / TICK_ROUND_UNIT).long()
-		target_onehot = F.one_hot(target, num_classes=self.n_class).float()
 
 		mask = batch['mask']
-		nmask = torch.logical_not(mask)
 
-		pred[nmask] = target_onehot[nmask]
+		loss = F.cross_entropy(pred, target, ignore_index=0)
 
-		loss = F.cross_entropy(pred, target_onehot)
-
-		pred_tick = torch.argmax(pred, dim=-1)
+		pred_tick = torch.argmax(pred, dim=1)
 		correct = pred_tick == target
 		acc = correct[mask].float().mean()
 
