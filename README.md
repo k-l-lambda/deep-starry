@@ -11,9 +11,3 @@ Variable Name								| Default Value			| Description
 **TEXTURE_SET_DIR**							|						|
 **TEXTURE_SET_SIZE**						|						|
 **PRETRAINED_DIR**							|						|
-
-## Test topology training command line:
-
-```bash
-python3 ./trainTopology2.py ./configs/test-topology.yaml --tr 2
-```
