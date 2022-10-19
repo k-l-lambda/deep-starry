@@ -10,7 +10,7 @@ data:
   args:
     bias_limit:             0.3
     seq_align:              4
-    with_tonf:              True
+    with_nonf:              True
     augmentor:
       time_distortion:
         cycle:
@@ -30,8 +30,8 @@ data:
         scaling:
           miu:                1.2
           sigma:              0.2
-      tonf:
-        scales:               [0.5, 1, 1, 2, 3]
+      nonf:
+        max:                  4000
   args_variant:
     1:
       augmentor:
@@ -42,7 +42,7 @@ data:
 
 
 model:
-  type:                             VocalAnalyzerNotationRegress
+  type:                             VocalAnalyzerNotationClassification
   args:
     n_class:                        1
     encoder_dim:                    32

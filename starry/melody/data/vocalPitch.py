@@ -89,7 +89,7 @@ class VocalPitch (IterableDataset):
 		return cls.loadPackage(root, args, splits, device, args_variant=args_variant)
 
 
-	def __init__ (self, root, ids, device, shuffle, seq_align=4, augmentor={}, **_):
+	def __init__ (self, root, ids, device, shuffle, seq_align=4, with_tonf=False, with_nonf=False, augmentor={}, **_):
 		self.root = root
 		self.ids = ids
 		self.shuffle = shuffle
@@ -97,6 +97,8 @@ class VocalPitch (IterableDataset):
 		self.seq_align = seq_align
 		self.augmentor = augmentor
 		self.perlin = Perlin1d()
+		self.with_tonf = with_tonf
+		self.with_nonf = with_nonf
 
 		# load midi compilation
 		with open(os.path.join(self.root, 'midi-compilation.pickle'), 'rb') as file:
@@ -137,17 +139,19 @@ class VocalPitch (IterableDataset):
 			head = torch.tensor([f >> 7 for f in pitch7Arr], dtype=torch.float32)
 
 			midi = self.midi[id]
-			midi_pitch, midi_tick, midi_rtick, tonf = midi['pitches'], midi['ticks'], midi['rticks'], midi['tonf']
+			midi_pitch, midi_tick, midi_rtick = midi['pitches'], midi['ticks'], midi['rticks']
+			tonf = midi.get('tonf') if self.with_tonf else None
+			nonf = midi.get('nonf') if self.with_nonf else None
 
 			midi_pitch = torch.clip(midi_pitch, min=PITCH_RANGE[0], max=PITCH_RANGE[1])
 			midi_pitch -= PITCH_RANGE[0]
 
-			pitch, gain, head, tonf, midi_tick, midi_rtick = self.augment(pitch, gain, head, tonf, midi_tick, midi_rtick)
+			pitch, gain, head, tonf, nonf, midi_tick, midi_rtick = self.augment(pitch, gain, head, tonf, nonf, midi_tick, midi_rtick)
 
-			yield n_frame, pitch, gain, head, tonf, midi_pitch, midi_tick, midi_rtick
+			yield n_frame, pitch, gain, head, tonf, nonf, midi_pitch, midi_tick, midi_rtick
 
 
-	def augment (self, pitch, gain, head, tonf, midi_tick, midi_rtick):
+	def augment (self, pitch, gain, head, tonf, nonf, midi_tick, midi_rtick):
 		silence = pitch == 0
 
 		if self.augmentor.get('time_distortion'):
@@ -172,7 +176,8 @@ class VocalPitch (IterableDataset):
 			frontEdgeFilter(head)
 			head[head > 0] = 1
 
-			tonf = distort(tonf, distortion, xp).float()
+			if self.with_tonf:
+				tonf = distort(tonf, distortion, xp).float()
 
 		if self.augmentor.get('offkey'):
 			cy_miu, cy_sigma = self.augmentor['offkey']['cycle']['miu'], self.augmentor['offkey']['cycle']['sigma']
@@ -206,7 +211,11 @@ class VocalPitch (IterableDataset):
 			midi_tick *= scale
 			midi_rtick *= scale
 
-		return pitch, gain, head, tonf, midi_tick, midi_rtick
+		if self.augmentor.get('nonf'):
+			if self.augmentor['nonf'].get('max') is not None:
+				nonf = nonf.clip(max=self.augmentor['nonf']['max'])
+
+		return pitch, gain, head, tonf, nonf, midi_tick, midi_rtick
 
 
 	def collateBatch (self, batch):
@@ -229,10 +238,11 @@ class VocalPitch (IterableDataset):
 			'pitch': extract(1),
 			'gain': extract(2),
 			'head': extract(3),
-			'tonf': extract(4),
-			'midi_pitch': extract(5),
-			'midi_tick': extract(6),
-			'midi_rtick': extract(7),
+			'tonf': extract(4) if self.with_tonf else None,
+			'nonf': extract(5) if self.with_nonf else None,
+			'midi_pitch': extract(6),
+			'midi_tick': extract(7),
+			'midi_rtick': extract(8),
 			'mask': mask,
 		}
 
