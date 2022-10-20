@@ -228,8 +228,10 @@ class VocalPitch (IterableDataset):
 
 		n_note_max = max(len(fields[6]) for fields in batch)
 
-		def extract (i, n_seq=n_frame_max):
+		def extract (i, n_seq=n_frame_max, default_value=0):
 			tensor = torch.zeros((len(batch), n_seq), dtype=batch[0][i].dtype)
+			if default_value:
+				tensor[:, :] = default_value
 			for n, tensors in enumerate(batch):
 				tensor[n, :len(tensors[i])] = tensors[i]
 
@@ -245,7 +247,7 @@ class VocalPitch (IterableDataset):
 			'gain': extract(2),
 			'head': extract(3),
 			'tonf': extract(4) if self.with_tonf else None,
-			'nonf': extract(5) if self.with_nonf else None,
+			'nonf': extract(5, default_value=-40) if self.with_nonf else None,
 			'midi_pitch': extract(6, n_seq=n_note_max),
 			'midi_tick': extract(7, n_seq=n_note_max),
 			'midi_rtick': extract(8, n_seq=n_note_max),

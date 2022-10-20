@@ -198,7 +198,7 @@ class VocalAnalyzerNotationClassificationLoss (nn.Module):
 
 		mask = batch['mask']
 
-		loss = F.cross_entropy(pred, target, ignore_index=0)
+		loss = F.cross_entropy(pred, target, ignore_index=-1)
 
 		pred_tick = torch.argmax(pred, dim=1)
 		correct = pred_tick == target
