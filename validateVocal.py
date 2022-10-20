@@ -26,7 +26,7 @@ class Validator (Predictor):
 	def __init__ (self, config, args):
 		super().__init__(device=args.device)
 
-		self.viewer = VocalViewer(config, n_axes=args.n_axes)
+		self.viewer = VocalViewer(config, n_axes=args.n_axes, detail_mode=args.vocal_detail)
 
 		self.loadModel(config)
 
@@ -39,7 +39,7 @@ class Validator (Predictor):
 
 			with torch.no_grad():
 				pred = self.model(pitch, gain, mp, mt)
-				print('pred:', pred)
+				#print('pred:', pred)
 
 			self.viewer.showVocalBatch(tensors, pred)
 
@@ -51,6 +51,7 @@ def main ():
 	parser.add_argument('-s', '--splits', type=str, default='0/10')
 	parser.add_argument('-ax', '--n_axes', type=int, default=2)
 	parser.add_argument('-dv', '--device', type=str, default='cpu')
+	parser.add_argument('-vd', '--vocal_detail', action='store_true', help='vocal detail mode')
 
 	args = parser.parse_args()
 

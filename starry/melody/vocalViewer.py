@@ -4,7 +4,7 @@ import logging
 import matplotlib.pyplot as plt
 #import matplotlib.patches as patches
 
-from .vocal import PITCH_RANGE, PITCH_SUBDIV
+from .vocal import PITCH_RANGE, PITCH_SUBDIV, TICK_ROUND_UNIT
 
 
 
@@ -29,9 +29,9 @@ class VocalViewer:
 			batch_size = len(inputs['pitch'])
 			for i in range(batch_size):
 				pitch, gain, head, nonf, midi_pitch, midi_rtick = inputs['pitch'][i], inputs['gain'][i], inputs['head'][i], inputs['nonf'][i], inputs['midi_pitch'][i], inputs['midi_rtick'][i]
-				pred = pred[i] if pred is not None else None
+				pred_i = pred[i] if pred is not None else None
 
-				self.showVocalDetails(pitch, gain, head, nonf, midi_pitch, midi_rtick, pred)
+				self.showVocalDetails(pitch, gain, head, nonf, midi_pitch, midi_rtick, pred_i)
 		else:
 			batch_size = min(self.n_axes ** 2, inputs['pitch'].shape[0])
 
@@ -88,34 +88,35 @@ class VocalViewer:
 
 		heads = (head > 0).nonzero()[:, 0]
 
-		#figure, axes = plt.subplots(2, 2)
-		#axMIDI, axMatch, axVocal = axes[0, 0], axes[0, 1], axes[1, 1]
 		axMIDI = plt.subplot2grid((5, 5), (0, 0), rowspan=4)
 		axMatch = plt.subplot2grid((5, 5), (0, 1), colspan=4, rowspan=4)
 		axVocal = plt.subplot2grid((5, 5), (4, 1), colspan=4)
 
-		#axMIDI.plot([2, 1])
-		#axMatch.plot([1, 2])
-
 		n_notes = int((midi_pitch > 0).sum().item())
 
-		tick_range = (0, nonf[width - 1] + 100)
+		#tick_range = (0, nonf[width - 1].item() // TICK_ROUND_UNIT + 4)
+		tick_range = (0, 100)
 
 		#notes = list(zip(midi_pitch.tolist(), midi_rtick.tolist()))
 		#print('notes:', notes)
-		axMIDI.set_xlim(PITCH_RANGE[0], PITCH_RANGE[1])
+		axMIDI.set_xlim(PITCH_RANGE[0] + 12, PITCH_RANGE[1] - 12)
 		axMIDI.set_ylim(*tick_range)
-		axMIDI.plot(midi_pitch[:n_notes] + PITCH_RANGE[0], midi_rtick[:n_notes], marker='o', linestyle='None')
+		axMIDI.plot(midi_pitch[:n_notes] + PITCH_RANGE[0], midi_rtick[:n_notes] / TICK_ROUND_UNIT, marker='o', linestyle='None')
 
 		#axVocal.set_aspect(0.5)
 		axVocal.set_ylim(PITCH_RANGE[0], PITCH_RANGE[1])
+		axVocal.set_xlim(0, width)
 		axVocal.plot(positive_xs, pitch[positive] / PITCH_SUBDIV + PITCH_RANGE[0], ',')
 		axVocal.vlines(heads, PITCH_RANGE[0], PITCH_RANGE[1], linestyles='dashed')
 
 		axVocal.plot(gain[:width] * (PITCH_RANGE[1] - PITCH_RANGE[0]) + PITCH_RANGE[0], color='g')
 
 		axMatch.set_ylim(*tick_range)
-		axMatch.plot(nonf[:width])
+		axVocal.set_xlim(0, width)
+		axMatch.plot(nonf[:width] / TICK_ROUND_UNIT, color='g')
+
+		pred = pred[:, :min(width, pred.shape[1])]
+		axMatch.pcolormesh(pred, cmap='Blues')
 
 		plt.get_current_fig_manager().full_screen_toggle()
 		plt.show()
