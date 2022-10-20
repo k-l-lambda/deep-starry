@@ -5,6 +5,8 @@ TODO:
 
 2022.10.18
 
+	+	vocalViewer.py: added detail mode.
+
 	+	vocalAnalyzer.py: model class of VocalAnalyzerNotationClassification added.
 
 

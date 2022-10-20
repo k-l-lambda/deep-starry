@@ -27,6 +27,7 @@ def main ():
 	parser.add_argument('-mx', '--show_matrix', action='store_true', help='show matrix view')
 	parser.add_argument('-f', '--frame', action='store_true', help='show melody frame data')
 	parser.add_argument('-v', '--vocal', action='store_true', help='show vocal data')
+	parser.add_argument('-vd', '--vocal_detail', action='store_true', help='vocal detail mode')
 	parser.add_argument('-ax', '--n_axes', type=int, default=4)
 
 	args = parser.parse_args()
@@ -41,7 +42,7 @@ def main ():
 	elif args.frame:
 		viewer = FrameViewer(config, n_axes=args.n_axes)
 	elif args.vocal:
-		viewer = VocalViewer(config, n_axes=args.n_axes)
+		viewer = VocalViewer(config, n_axes=args.n_axes, detail_mode=args.vocal_detail)
 	else:
 		viewer = NotationViewer(config, n_axes=args.n_axes)
 
