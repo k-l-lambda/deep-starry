@@ -27,7 +27,9 @@ class SentenceShift (IterableDataset):
 		)
 
 
-	def __init__ (self, root, tokenizer, split, device, shuffle):
+	def __init__ (self, root, tokenizer, split, device, shuffle, **_):
+		super().__init__()
+
 		self.tokenizer = tokenizer
 		self.device = device
 		self.shuffle = shuffle
@@ -38,8 +40,8 @@ class SentenceShift (IterableDataset):
 		sentences = text.split('\n')
 		sentences = [s for i, s in enumerate(sentences) if i % cycle in phases]
 
-		self.ids = tokenizer(sentences,
+		self.ids = [tokenizer(sentence,
 			padding="max_length",
 			max_length=tokenizer.model_max_length,
 			return_tensors="pt",
-		)
+		) for sentence in sentences]
