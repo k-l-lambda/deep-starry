@@ -1,7 +1,11 @@
 
 TODO:
-	schp data agumentation
 
+
+
+2022.10.21
+
+	+	text: dataset class of SentenceShift added.
 
 
 2022.10.5
