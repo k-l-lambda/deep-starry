@@ -1,4 +1,5 @@
 
+import torch
 from torch.utils.data import IterableDataset
 from transformers import CLIPTokenizer
 
@@ -40,8 +41,13 @@ class SentenceShift (IterableDataset):
 		sentences = text.split('\n')
 		sentences = [s for i, s in enumerate(sentences) if i % cycle in phases]
 
-		self.ids = [tokenizer(sentence,
+		self.entries = [tokenizer(sentence,
 			padding="max_length",
 			max_length=tokenizer.model_max_length,
 			return_tensors="pt",
 		) for sentence in sentences]
+
+		for entry in self.entries:
+			entry['output_ids'] = torch.zeros_like(entry['input_ids'])
+			entry['output_ids'][:, :-1] = entry['input_ids'][:, 1:]
+			entry['output_ids'][:, -1] = self.tokenizer.vocab_size - 1
