@@ -1,0 +1,12 @@
+
+id:     peris/{date}-{filename}
+
+
+data:
+  type:                     SentenceShift
+  splits:                   '*0/1:0/1'
+  batch_size:               2
+  root:                     mj-desc.txt
+  labels:                   ~
+  args:
+    tokenizer_path:         pretrained/models--CompVis--stable-diffusion-v1-4

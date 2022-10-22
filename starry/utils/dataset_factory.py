@@ -10,7 +10,7 @@ type_dict = None
 def registerTypes ():
 	global type_dict
 
-	from ..vision.data import SentenceShift
+	from ..text.data import SentenceShift
 
 	classes = [
 		SentenceShift,
