@@ -175,7 +175,7 @@ class VocalAnalyzerNotationClassification (nn.Module):
 	def forward (self, pitch, gain, midi_pitch, midi_tick):
 		x = self.backbone(pitch, gain, midi_pitch, midi_tick)
 		x = x.permute(0, 2, 1)
-		x = F.softmax(x, dim=1)
+		#x = F.softmax(x, dim=1)
 
 		return x
 
