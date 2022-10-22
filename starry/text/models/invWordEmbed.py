@@ -21,6 +21,14 @@ class InvWordEmbedLoss (nn.Module):
 
 		self.deducer = self.unembed
 
+		for param in self.embed.parameters():
+			param.requires_grad = False
+
+		# initialize parameters
+		for param in self.unembed.parameters():
+			if param.dim() > 1:
+				nn.init.xavier_uniform_(param)
+
 
 	def forward (self, id):
 		#onehot0 = F.one_hot(id, num_classes=self.vocab_size)
@@ -32,4 +40,4 @@ class InvWordEmbedLoss (nn.Module):
 		id1 = torch.argmax(onehot1, dim=-1)
 		acc = (id1 == id).float().mean()
 
-		return loss, {'acc': acc}
+		return loss, {'acc': acc.item()}
