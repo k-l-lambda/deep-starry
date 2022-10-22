@@ -44,15 +44,32 @@ class SentenceShift (IterableDataset):
 		sentences = text.split('\n')
 		sentences = [s for i, s in enumerate(sentences) if i % cycle in phases]
 
-		tokens = [tokenizer(sentence,
+		sentence_length = tokenizer.model_max_length
+
+		entries = [tokenizer(sentence,
 			padding="max_length",
-			max_length=tokenizer.model_max_length,
+			max_length=sentence_length,
 			return_tensors="pt",
 		) for sentence in sentences]
 
-		self.entries = [entry for entry in tokens if entry['input_ids'].shape[1] == tokenizer.model_max_length]
+		self.entries = [entry for entry in entries if entry['input_ids'].shape[1] == sentence_length]
 
-		# TODO: clip long sentences
+		# clip long sentences
+		long_entries = [entry for entry in entries if entry['input_ids'].shape[1] > sentence_length]
+		SECTION_SIZE = sentence_length // 2
+		for entry in long_entries:
+			ids = entry['input_ids']
+			entry_len = ids.shape[1]
+			for i in range(0, entry_len, SECTION_SIZE):
+				input_ids, mask = torch.zeros((1, sentence_length), dtype=torch.long), torch.zeros((1, sentence_length), dtype=torch.long)
+				input_ids[:, :] = self.tokenizer.vocab_size - 1
+				input_ids[:, :min(entry_len - i, sentence_length)] = ids[:, i:i + sentence_length]
+				mask[:, :min(entry_len - i, sentence_length)] = entry['attention_mask'][:, i:i + sentence_length]
+
+				self.entries.append({
+					'input_ids': input_ids,
+					'attention_mask': mask,
+				})
 
 		for entry in self.entries:
 			entry['output_ids'] = torch.zeros_like(entry['input_ids'])
