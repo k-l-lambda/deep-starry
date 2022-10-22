@@ -19,6 +19,8 @@ class InvWordEmbedLoss (nn.Module):
 
 		self.unembed = InvWordEmbed(text_encoder.config.hidden_size, text_encoder.config.vocab_size)
 
+		self.deducer = self.unembed
+
 
 	def forward (self, id):
 		#onehot0 = F.one_hot(id, num_classes=self.vocab_size)
