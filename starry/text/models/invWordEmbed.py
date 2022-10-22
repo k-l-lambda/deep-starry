@@ -15,15 +15,17 @@ class InvWordEmbedLoss (nn.Module):
 		text_encoder = CLIPTextModel.from_pretrained(tokenizer_pretrained_path, subfolder='text_encoder')
 		self.embed = text_encoder.text_model.embeddings.token_embedding
 
-		self.unembed = InvWordEmbed(text_encoder.config['hidden_size'], text_encoder.config['vocab_size'])
+		self.vocab_size = text_encoder.config.vocab_size
+
+		self.unembed = InvWordEmbed(text_encoder.config.hidden_size, text_encoder.config.vocab_size)
 
 
 	def forward (self, id):
-		onehot0 = F.one_hot(id)
+		#onehot0 = F.one_hot(id, num_classes=self.vocab_size)
 		embedding = self.embed(id)
 		onehot1 = self.unembed(embedding)
 
-		loss = F.cross_entropy(onehot1, onehot0)
+		loss = F.cross_entropy(onehot1, id)
 
 		id1 = torch.argmax(onehot1, dim=-1)
 		acc = (id1 == id).float().mean()

@@ -9,15 +9,10 @@ model_dict = None
 def registerModels ():
 	global model_dict
 
-	from ..vision import models as vm
+	from ..text import models as tm
 
 	classes = [
-		vm.PerisSimple, vm.PerisSimpleLoss,
-		vm.PerisBinary, vm.PerisBinaryLoss,
-		vm.PerisClass, vm.PerisClassLoss,
-		vm.Reconstructor, vm.ReconstructorLoss,
-		vm.ClipVisionBinary, vm.ClipVisionBinaryLoss,
-		vm.ClipVisionClass, vm.ClipVisionClassLoss,
+		tm.InvWordEmbed, tm.InvWordEmbedLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])
