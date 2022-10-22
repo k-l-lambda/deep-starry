@@ -13,6 +13,7 @@ def registerModels ():
 
 	classes = [
 		tm.InvWordEmbed, tm.InvWordEmbedLoss,
+		tm.ClipTextGenerator, tm.ClipTextGeneratorLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

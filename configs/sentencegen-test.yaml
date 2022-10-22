@@ -10,3 +10,10 @@ data:
   labels:                   ~
   args:
     tokenizer_path:         pretrained/models--CompVis--stable-diffusion-v1-4
+
+
+model:
+  type:                     ClipTextGenerator
+  args:
+    text_encoder_path:      pretrained/models--CompVis--stable-diffusion-v1-4
+    unembed_path:           configs/invwordembed-test.yaml

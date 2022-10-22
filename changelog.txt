@@ -5,6 +5,8 @@ TODO:
 
 2022.10.22
 
+	+	Model class of ClipTextGenerator added.
+
 	+	Model class of InvWordEmbed added.
 
 
