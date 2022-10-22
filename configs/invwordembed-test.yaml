@@ -1,0 +1,12 @@
+
+id:     text/{date}-{filename}
+
+
+data:
+  type:                     IdTraverser
+  splits:                   '*0/1:1/100'
+  batch_size:               4
+  root:                     ''
+  labels:                   ~
+  args:
+    vocab_size:             49408

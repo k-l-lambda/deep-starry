@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.10.22
+
+	+	Model class of InvWordEmbed added.
+
+
 2022.10.21
 
 	+	text: dataset class of SentenceShift added.

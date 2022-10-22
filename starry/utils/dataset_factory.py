@@ -10,10 +10,11 @@ type_dict = None
 def registerTypes ():
 	global type_dict
 
-	from ..text.data import SentenceShift
+	from ..text.data import SentenceShift, IdTraverser
 
 	classes = [
 		SentenceShift,
+		IdTraverser,
 	]
 
 	type_dict = dict([(c.__name__, c) for c in classes])

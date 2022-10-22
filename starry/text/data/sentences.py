@@ -93,6 +93,6 @@ class SentenceShift (IterableDataset):
 		keys = [*batch[0].keys()]
 
 		return {
-			key: torch.cat([entry[key] for entry in batch], dim=0)
+			key: torch.cat([entry[key] for entry in batch], dim=0).to(self.device)
 			for key in keys
 		}
