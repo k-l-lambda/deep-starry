@@ -4,9 +4,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import CLIPTextModel
 import itertools
+import types
 
 from ...utils.config import Configuration
 from .modules import InvWordEmbed
+from .overwriteCLIPTextTransformer import CLIPTextTransformer_forward
 
 
 
@@ -15,6 +17,9 @@ class ClipTextGenerator (nn.Module):
 		super().__init__()
 
 		self.text_encoder = CLIPTextModel.from_pretrained(text_encoder_path, subfolder='text_encoder')
+		#funcType = type(self.text_encoder.text_model.forward)
+		#self.text_encoder.text_model.forward = funcType(CLIPTextTransformer_forward, self.text_encoder.text_model, CLIPTextTransformer)
+		self.text_encoder.text_model.forward = types.MethodType(CLIPTextTransformer_forward, self.text_encoder.text_model)
 
 		self.unembed = InvWordEmbed(self.text_encoder.config.hidden_size, self.text_encoder.config.vocab_size)
 
