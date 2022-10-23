@@ -17,8 +17,6 @@ class ClipTextGenerator (nn.Module):
 		super().__init__()
 
 		self.text_encoder = CLIPTextModel.from_pretrained(text_encoder_path, subfolder='text_encoder')
-		#funcType = type(self.text_encoder.text_model.forward)
-		#self.text_encoder.text_model.forward = funcType(CLIPTextTransformer_forward, self.text_encoder.text_model, CLIPTextTransformer)
 		self.text_encoder.text_model.forward = types.MethodType(CLIPTextTransformer_forward, self.text_encoder.text_model)
 
 		self.unembed = InvWordEmbed(self.text_encoder.config.hidden_size, self.text_encoder.config.vocab_size)
@@ -57,9 +55,14 @@ class ClipTextGeneratorLoss (nn.Module):
 
 
 	def forward (self, batch):
-		# TODO: compose mask
+		# mask to look backward only
+		mask = batch['attention_mask']
+		batch_size, n_seq = mask.shape
+		mask = mask[:, None, :].expand(batch_size, n_seq, n_seq)
+		triu = 1 - torch.triu(torch.ones(n_seq, n_seq), diagonal=1)
+		mask = mask * triu[None, :, :]
 
-		pred = self.deducer(batch['input_ids'])
+		pred = self.deducer(batch['input_ids'], mask=mask)
 		pred_ncs = pred.permute(0, 2, 1)
 		target = batch['output_ids']
 
