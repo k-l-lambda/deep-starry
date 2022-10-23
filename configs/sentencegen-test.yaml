@@ -4,7 +4,7 @@ id:     text/{date}-{filename}
 
 data:
   type:                     SentenceShift
-  splits:                   '*0/1:0/1'
+  splits:                   '*0/1:0/10'
   batch_size:               2
   root:                     mj-desc.txt
   labels:                   ~
@@ -17,3 +17,24 @@ model:
   args:
     text_encoder_path:      pretrained/models--CompVis--stable-diffusion-v1-4
     unembed_path:           configs/invwordembed-test.yaml
+
+
+trainer:
+  device:                   cpu
+  save_mode:                all
+  epoch:                    2
+  moniter:
+    field:                  loss
+    mode:                   min
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               0.2
+      n_warmup_steps:       200
+      d_model:              768

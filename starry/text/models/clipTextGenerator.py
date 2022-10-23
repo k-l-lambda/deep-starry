@@ -45,8 +45,9 @@ class ClipTextGeneratorLoss (nn.Module):
 		# freeze part modules
 		for param in self.deducer.text_encoder.text_model.embeddings.token_embedding.parameters():
 			param.requires_grad = False
-		for param in self.deducer.unembed.parameters():
-			param.requires_grad = False
+		if unembed_checkpoint_path is not None:
+			for param in self.deducer.unembed.parameters():
+				param.requires_grad = False
 
 		# randomize parameters
 		for param in itertools.chain(self.deducer.text_encoder.text_model.encoder.parameters(), self.deducer.text_encoder.text_model.final_layer_norm.parameters()):
