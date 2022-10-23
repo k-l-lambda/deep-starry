@@ -5,6 +5,8 @@ TODO:
 
 2022.10.23
 
+	+	text/models/transformers/invWordEmbed.py created.
+
 	+	text/textGenerator.py created.
 
 
