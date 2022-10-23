@@ -21,7 +21,7 @@ model:
 
 trainer:
   device:                   cpu
-  save_mode:                all
+  save_mode:                best
   epoch:                    2
   moniter:
     field:                  loss

@@ -61,7 +61,7 @@ class ClipTextGeneratorLoss (nn.Module):
 		batch_size, n_seq = mask.shape
 		mask = mask[:, None, :].expand(batch_size, n_seq, n_seq)
 		triu = 1 - torch.triu(torch.ones(n_seq, n_seq), diagonal=1)
-		mask = mask * triu[None, :, :]
+		mask = mask * triu[None, :, :].to(mask.device)
 
 		pred = self.deducer(batch['input_ids'], mask=mask)
 		pred_ncs = pred.permute(0, 2, 1)
