@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.10.24
+
+	+	text/models/transformers/clipTextGenerator.py created.
+
+
 2022.10.23
 
 	+	text/models/transformers/invWordEmbed.py created.
