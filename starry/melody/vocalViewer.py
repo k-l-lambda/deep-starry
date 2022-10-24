@@ -1,6 +1,6 @@
 
 import logging
-#import torch
+import torch
 import matplotlib.pyplot as plt
 #import matplotlib.patches as patches
 
@@ -115,7 +115,7 @@ class VocalViewer:
 		axVocal.set_xlim(0, width)
 		axMatch.plot(nonf[:width] / TICK_ROUND_UNIT, color='g')
 
-		pred = pred[:, :min(width, pred.shape[1])]
+		pred = torch.nn.functional.softmax(pred[:, :min(width, pred.shape[1])], dim=0)
 		axMatch.pcolormesh(pred, cmap='Blues')
 
 		plt.get_current_fig_manager().full_screen_toggle()
