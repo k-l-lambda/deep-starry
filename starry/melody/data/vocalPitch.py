@@ -180,7 +180,7 @@ class VocalPitch (IterableDataset):
 				tonf = distort(tonf, distortion, xp).float()
 
 			if self.with_nonf:
-				nonf = distort(nonf, distortion, xp).float()
+				nonf = distort(nonf, distortion, xp_sharp).float()
 
 		if self.augmentor.get('offkey'):
 			cy_miu, cy_sigma = self.augmentor['offkey']['cycle']['miu'], self.augmentor['offkey']['cycle']['sigma']

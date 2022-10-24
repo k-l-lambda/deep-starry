@@ -115,8 +115,9 @@ class VocalViewer:
 		axVocal.set_xlim(0, width)
 		axMatch.plot(nonf[:width] / TICK_ROUND_UNIT, color='g')
 
-		pred = torch.nn.functional.softmax(pred[:, :min(width, pred.shape[1])], dim=0)
-		axMatch.pcolormesh(pred, cmap='Blues')
+		if pred is not None:
+			pred = torch.nn.functional.softmax(pred[:, :min(width, pred.shape[1])], dim=0)
+			axMatch.pcolormesh(pred, cmap='Blues')
 
 		plt.get_current_fig_manager().full_screen_toggle()
 		plt.show()
