@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Optional
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ...transformer.sub_layers import MultiHeadAttention, PositionwiseFeedForward
@@ -46,7 +47,7 @@ class EncoderLayerStack (nn.Module):
 			for _ in range(n_layers)])
 
 
-	def forward (self, x, mask=None):	# (n, seq, d_word)
+	def forward (self, x, mask: Optional[torch.Tensor]=None):	# (n, seq, d_word)
 		enc_output = x
 		for enc_layer in self.layer_stack:
 			enc_output, _ = enc_layer(enc_output, mask)
@@ -63,7 +64,7 @@ class DecoderLayerStack (nn.Module):
 			for _ in range(n_layers)])
 
 
-	def forward (self, dec_input, enc_output, mask=None):	# (n, seq, d_word)
+	def forward (self, dec_input, enc_output, mask: Optional[torch.Tensor]=None):	# (n, seq, d_word)
 		dec_output = dec_input
 		for layer in self.layer_stack:
 			dec_output, _1, _2 = layer(dec_output, enc_output, mask, mask)
@@ -102,7 +103,7 @@ class Encoder (nn.Module):
 		self.d_model = d_model
 
 
-	def forward (self, x, mask=None):
+	def forward (self, x, mask: Optional[torch.Tensor]=None):
 		if self.scale_emb:
 			x *= self.d_model ** 0.5
 
@@ -128,7 +129,7 @@ class Decoder (nn.Module):
 		self.d_model = d_model
 
 
-	def forward (self, x, enc_output, mask=None):
+	def forward (self, x, enc_output, mask: Optional[torch.Tensor]=None):
 		if self.scale_emb:
 			x *= self.d_model ** 0.5
 
@@ -154,7 +155,7 @@ class ThinDecoder (nn.Module):
 		self.d_model = d_model
 
 
-	def forward (self, x, enc_output, mask=None):
+	def forward (self, x, enc_output, mask: Optional[torch.Tensor]=None):
 		if self.scale_emb:
 			x *= self.d_model ** 0.5
 

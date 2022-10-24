@@ -117,7 +117,7 @@ class VocalViewer:
 
 		if pred is not None:
 			pred = torch.nn.functional.softmax(pred[:, :min(width, pred.shape[1])], dim=0)
-			axMatch.pcolormesh(pred, cmap='Blues')
+			axMatch.pcolormesh(pred, cmap='Purples')
 
 		plt.get_current_fig_manager().full_screen_toggle()
 		plt.show()
