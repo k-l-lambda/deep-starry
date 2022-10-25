@@ -46,9 +46,9 @@ model:
   args:
     encoder_dim:                    32
     num_down_layers:                2
-    n_notation_enc_layers:          4
-    n_notation_dec_layers:          3
-    num_layers:                     3
+    n_notation_enc_layers:          1
+    num_layers:                     4
+    n_notation_dec_layers:          4
     angle_cycle:                    1.e+5
     num_attention_heads:            8
     feed_forward_expansion_factor:  4
@@ -60,13 +60,14 @@ model:
     conv_kernel_size:               31
     half_step_residual:             True
     d_time:                         128
+    n_tick:                         100
     notationArgs:
       n_head:                       8
       d_k:                          64
       d_v:                          64
       d_inner:                      512
       dropout:                      0.1
-    output_field:                   nonf
+    output_field:                   nionf
     tick_filed:                     midi_rtick
 
 

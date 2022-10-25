@@ -3,6 +3,11 @@ TODO:
 
 
 
+2022.10.25
+
+	+	vocalAnalyzer.py: model class of VocalAnalyzerNotationJointer added.
+
+
 2022.10.18
 
 	+	vocalViewer.py: added detail mode.

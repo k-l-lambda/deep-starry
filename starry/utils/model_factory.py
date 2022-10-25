@@ -16,6 +16,7 @@ def registerModels ():
 		VocalAnalyzer, VocalAnalyzerLoss, VocalAnalyzerNotationBinary, VocalAnalyzerNotationBinaryLoss,
 		VocalAnalyzerNotationRegress, VocalAnalyzerNotationRegressLoss,
 		VocalAnalyzerNotationClassification, VocalAnalyzerNotationClassificationLoss,
+		VocalAnalyzerNotationJointer, VocalAnalyzerNotationJointerLoss,
 	)
 
 	classes = [
@@ -26,6 +27,7 @@ def registerModels ():
 		VocalAnalyzerNotationBinary, VocalAnalyzerNotationBinaryLoss,
 		VocalAnalyzerNotationRegress, VocalAnalyzerNotationRegressLoss,
 		VocalAnalyzerNotationClassification, VocalAnalyzerNotationClassificationLoss,
+		VocalAnalyzerNotationJointer, VocalAnalyzerNotationJointerLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])
