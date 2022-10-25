@@ -148,7 +148,11 @@ class VocalPitch (IterableDataset):
 
 			pitch, gain, head, tonf, nonf, midi_tick, midi_rtick = self.augment(pitch, gain, head, tonf, nonf, midi_tick, midi_rtick)
 
-			yield n_frame, pitch, gain, head, tonf, nonf, midi_pitch, midi_tick, midi_rtick
+			# compute nionf (note index on frames)
+			nnonf = nonf[:, None].expand(n_frame, midi_tick.shape[0])
+			nionf = (nnonf - midi_rtick[None, :]).abs().argmin(dim=-1)
+
+			yield n_frame, pitch, gain, head, tonf, nonf, nionf, midi_pitch, midi_tick, midi_rtick
 
 
 	def augment (self, pitch, gain, head, tonf, nonf, midi_tick, midi_rtick):
@@ -226,7 +230,7 @@ class VocalPitch (IterableDataset):
 		n_frame_max = max(fields[0] for fields in batch)
 		n_frame_max = int(np.ceil(n_frame_max / self.seq_align)) * self.seq_align
 
-		n_note_max = max(len(fields[6]) for fields in batch)
+		n_note_max = max(len(fields[-1]) for fields in batch)
 
 		def extract (i, n_seq=n_frame_max, default_value=0):
 			tensor = torch.zeros((len(batch), n_seq), dtype=batch[0][i].dtype)
@@ -237,9 +241,9 @@ class VocalPitch (IterableDataset):
 
 			return tensor.to(self.device)
 
-		mask = torch.zeros((len(batch), n_frame_max), dtype=torch.float)
+		mask = torch.zeros((len(batch), n_note_max, n_frame_max), dtype=torch.float)
 		for n, tensors in enumerate(batch):
-			mask[n, :tensors[0]] = 1
+			mask[n, :tensors[-1].shape[0], :tensors[0]] = 1
 		mask = mask.bool().to(self.device)
 
 		result = {
@@ -248,9 +252,10 @@ class VocalPitch (IterableDataset):
 			'head': extract(3),
 			'tonf': extract(4) if self.with_tonf else None,
 			'nonf': extract(5, default_value=-40) if self.with_nonf else None,
-			'midi_pitch': extract(6, n_seq=n_note_max),
-			'midi_tick': extract(7, n_seq=n_note_max),
-			'midi_rtick': extract(8, n_seq=n_note_max),
+			'nionf': extract(6, default_value=-1) if self.with_nonf else None,
+			'midi_pitch': extract(7, n_seq=n_note_max),
+			'midi_tick': extract(8, n_seq=n_note_max),
+			'midi_rtick': extract(9, n_seq=n_note_max),
 			'mask': mask,
 		}
 

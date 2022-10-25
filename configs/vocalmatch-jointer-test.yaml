@@ -1,0 +1,91 @@
+
+id:     melody/{date}-{filename}
+
+
+data:
+  type:                     VocalPitch
+  root:                     opencpop
+  splits:                   '*1..92/100:93..99/100'
+  batch_size:               4
+  args:
+    bias_limit:             0.3
+    seq_align:              4
+    with_nonf:              True
+    augmentor:
+      time_distortion:
+        cycle:
+          miu:                800
+          sigma:              0.6
+        amplitude:
+          miu:                1.6
+          sigma:              0.4
+      offkey:
+        cycle:
+          miu:                60
+          sigma:              0.6
+        amplitude:
+          miu:                6
+          sigma:              0.6
+      gain:
+        scaling:
+          miu:                1.2
+          sigma:              0.2
+      nonf:
+        max:                  3960
+  args_variant:
+    1:
+      augmentor:
+        time_distortion: ~
+        offkey: ~
+        gain: ~
+        tonf: ~
+
+
+model:
+  type:                             VocalAnalyzerNotationJointer
+  args:
+    encoder_dim:                    32
+    num_down_layers:                2
+    n_notation_enc_layers:          4
+    n_notation_dec_layers:          3
+    num_layers:                     3
+    angle_cycle:                    1.e+5
+    num_attention_heads:            8
+    feed_forward_expansion_factor:  4
+    conv_expansion_factor:          2
+    input_dropout_p:                0.1
+    feed_forward_dropout_p:         0.1
+    attention_dropout_p:            0.1
+    conv_dropout_p:                 0.1
+    conv_kernel_size:               31
+    half_step_residual:             True
+    d_time:                         128
+    notationArgs:
+      n_head:                       8
+      d_k:                          64
+      d_v:                          64
+      d_inner:                      512
+      dropout:                      0.1
+    output_field:                   nonf
+    tick_filed:                     midi_rtick
+
+
+trainer:
+  device:                   cpu
+  save_mode:                best
+  epoch:                    2
+  moniter:
+    field:                  loss
+    mode:                   min
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               0.2
+      n_warmup_steps:       1200
+      d_model:              256

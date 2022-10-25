@@ -68,3 +68,40 @@ class MidiEncoder2 (nn.Module):
 		x = self.embed(x)
 
 		return x
+
+
+class MidiEncoder3 (nn.Module):
+	def __init__ (self, d_model=128, d_time=256, n_tick=100, angle_cycle=1e+5):
+		super().__init__()
+
+		self.n_tick = n_tick
+
+		self.embed = nn.Linear(d_time + N_MIDI_PITCH_CLASS + n_tick + 1, d_model)
+		self.time_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_time)
+
+
+	def forward (self, pitch, tick):
+		vec_time = self.time_encoder(tick.float())	# (n, seq, d_time)
+		vec_pitch = F.one_hot(pitch.long(), num_classes=N_MIDI_PITCH_CLASS).float()
+		vec_tick = F.one_hot(tick.long(), num_classes=self.n_tick).float()
+		tick = tick.unsqueeze(-1)
+
+		x = torch.cat([vec_time, vec_pitch, vec_tick, tick], dim=-1)
+		x = self.embed(x)
+
+		return x
+
+
+class Jointer2 (nn.Module):
+	def __init__ (self):
+		super().__init__()
+
+
+	# source: (n, seq_src, d_model)
+	# target: (n, seq_tar, d_model)
+	def forward (self, source, target):
+		target_trans = target.transpose(-2, -1)		# (n, d_model, seq_tar)
+		result = source.matmul(target_trans)		# (n, seq_src, seq_tar)
+		result = F.relu(result)
+
+		return result

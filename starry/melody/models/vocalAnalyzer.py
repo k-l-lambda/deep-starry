@@ -196,7 +196,7 @@ class VocalAnalyzerNotationClassificationLoss (nn.Module):
 
 		target = (target / TICK_ROUND_UNIT).long()
 
-		mask = batch['mask']
+		mask = batch['mask'][:, 0, :]
 
 		loss = F.cross_entropy(pred, target, ignore_index=-1)
 
