@@ -16,7 +16,7 @@ class Predictor:
 
 	def loadModel (self, config):
 		weights_filename = config['best']
-		if os.path.exists(config.localPath(weights_filename + '.pt')):
+		if weights_filename and os.path.exists(config.localPath(weights_filename + '.pt')):
 			self.model = torch.jit.load(config.localPath(weights_filename + '.pt'))
 			logging.info(f'checkpoint loaded: {weights_filename}.pt')
 		else:

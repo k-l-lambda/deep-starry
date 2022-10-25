@@ -9,6 +9,7 @@ from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
 from starry.utils.predictor import Predictor
 from starry.melody.vocalViewer import VocalViewer
+from starry.melody.vocal import TICK_ROUND_UNIT
 
 
 
@@ -36,6 +37,9 @@ class Validator (Predictor):
 			logging.info('batch: %d', batch)
 
 			pitch, gain, mp, mt = tensors['pitch'], tensors['gain'], tensors['midi_pitch'], tensors['midi_rtick']
+
+			if self.viewer.by_index:
+				mt = torch.div(mt, TICK_ROUND_UNIT, rounding_mode='floor')
 
 			with torch.no_grad():
 				pred = self.model(pitch, gain, mp, mt)

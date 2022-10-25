@@ -16,6 +16,8 @@ class VocalViewer:
 		self.n_axes = n_axes
 		self.detail_mode = detail_mode
 
+		self.by_index = config['model.type'] == 'VocalAnalyzerNotationJointer'
+
 
 	def show(self, data):
 		for batch, tensors in enumerate(data):
@@ -28,10 +30,10 @@ class VocalViewer:
 		if self.detail_mode:
 			batch_size = len(inputs['pitch'])
 			for i in range(batch_size):
-				pitch, gain, head, nonf, midi_pitch, midi_rtick = inputs['pitch'][i], inputs['gain'][i], inputs['head'][i], inputs['nonf'][i], inputs['midi_pitch'][i], inputs['midi_rtick'][i]
+				pitch, gain, head, nonf, nionf, midi_pitch, midi_rtick = inputs['pitch'][i], inputs['gain'][i], inputs['head'][i], inputs['nonf'][i], inputs['nionf'][i], inputs['midi_pitch'][i], inputs['midi_rtick'][i]
 				pred_i = pred[i] if pred is not None else None
 
-				self.showVocalDetails(pitch, gain, head, nonf, midi_pitch, midi_rtick, pred_i)
+				self.showVocalDetails(pitch, gain, head, nonf, nionf, midi_pitch, midi_rtick, pred_i)
 		else:
 			batch_size = min(self.n_axes ** 2, inputs['pitch'].shape[0])
 
@@ -80,7 +82,7 @@ class VocalViewer:
 			ax.plot(values, color='y')
 
 
-	def showVocalDetails (self, pitch, gain, head, nonf, midi_pitch, midi_rtick, pred=None):
+	def showVocalDetails (self, pitch, gain, head, nonf, nionf, midi_pitch, midi_rtick, pred=None):
 		positive = pitch > 0
 		positive_xs = positive.nonzero()[:, 0]
 
@@ -113,10 +115,19 @@ class VocalViewer:
 
 		axMatch.set_ylim(*tick_range)
 		axVocal.set_xlim(0, width)
+		if self.by_index:
+			nonf[:width] = midi_rtick.index_select(0, nionf[:width])
 		axMatch.plot(nonf[:width] / TICK_ROUND_UNIT, color='g')
 
 		if pred is not None:
 			pred = torch.nn.functional.softmax(pred[:, :min(width, pred.shape[1])], dim=0)
+			if self.by_index:
+				pred_tick = torch.zeros(100, pred.shape[1], dtype=torch.float)
+				for i, tick in enumerate(midi_rtick):
+					ti = min(99, int(tick.item()) // TICK_ROUND_UNIT)
+					pred_tick[ti, :] = pred[i, :]
+				pred = pred_tick
+
 			axMatch.pcolormesh(pred, cmap='Purples')
 
 		plt.get_current_fig_manager().full_screen_toggle()
