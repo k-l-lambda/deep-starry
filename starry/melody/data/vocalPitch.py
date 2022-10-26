@@ -89,7 +89,7 @@ class VocalPitch (IterableDataset):
 		return cls.loadPackage(root, args, splits, device, args_variant=args_variant)
 
 
-	def __init__ (self, root, ids, device, shuffle, seq_align=4, with_tonf=False, with_nonf=False, augmentor={}, **_):
+	def __init__ (self, root, ids, device, shuffle, seq_align=4, with_tonf=False, with_nonf=False, prepend_midi_zeros=False, augmentor={}, **_):
 		self.root = root
 		self.ids = ids
 		self.shuffle = shuffle
@@ -99,6 +99,7 @@ class VocalPitch (IterableDataset):
 		self.perlin = Perlin1d()
 		self.with_tonf = with_tonf
 		self.with_nonf = with_nonf
+		self.prepend_midi_zeros = prepend_midi_zeros
 
 		# load midi compilation
 		with open(os.path.join(self.root, 'midi-compilation.pickle'), 'rb') as file:
@@ -145,6 +146,11 @@ class VocalPitch (IterableDataset):
 
 			midi_pitch = torch.clip(midi_pitch, min=PITCH_RANGE[0], max=PITCH_RANGE[1])
 			midi_pitch -= PITCH_RANGE[0]
+
+			if self.prepend_midi_zeros:
+				midi_pitch = torch.cat((torch.zeros(1, dtype=midi_pitch.dtype), midi_pitch), dim=0)
+				midi_tick = torch.cat((torch.zeros(1, dtype=midi_tick.dtype), midi_tick), dim=0)
+				midi_rtick = torch.cat((torch.zeros(1, dtype=midi_rtick.dtype), midi_rtick), dim=0)
 
 			pitch, gain, head, tonf, nonf, midi_tick, midi_rtick = self.augment(pitch, gain, head, tonf, nonf, midi_tick, midi_rtick)
 

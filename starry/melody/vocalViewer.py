@@ -114,7 +114,7 @@ class VocalViewer:
 		axVocal.plot(gain[:width] * (PITCH_RANGE[1] - PITCH_RANGE[0]) + PITCH_RANGE[0], color='g')
 
 		axMatch.set_ylim(*tick_range)
-		axVocal.set_xlim(0, width)
+		axMatch.set_xlim(0, width)
 		if self.by_index:
 			nonf[:width] = midi_rtick.index_select(0, nionf[:width])
 		axMatch.plot(nonf[:width] / TICK_ROUND_UNIT, color='g')

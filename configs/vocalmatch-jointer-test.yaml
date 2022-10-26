@@ -11,6 +11,7 @@ data:
     bias_limit:             0.3
     seq_align:              4
     with_nonf:              True
+    prepend_midi_zeros:     True
     augmentor:
       time_distortion:
         cycle:
