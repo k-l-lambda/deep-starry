@@ -31,8 +31,6 @@ data:
         scaling:
           miu:                1.2
           sigma:              0.2
-      nonf:
-        max:                  3960
   args_variant:
     1:
       augmentor:
