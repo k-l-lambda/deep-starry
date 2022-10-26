@@ -92,6 +92,24 @@ class MidiEncoder3 (nn.Module):
 		return x
 
 
+class MidiEncoder4 (nn.Module):
+	def __init__ (self, d_model=128, d_time=256, angle_cycle=1e+5):
+		super().__init__()
+
+		self.embed = nn.Linear(d_time + N_MIDI_PITCH_CLASS, d_model)
+		self.time_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_time)
+
+
+	def forward (self, pitch, tick):
+		vec_time = self.time_encoder(tick.float())	# (n, seq, d_time)
+		vec_pitch = F.one_hot(pitch.long(), num_classes=N_MIDI_PITCH_CLASS).float()
+
+		x = torch.cat([vec_time, vec_pitch], dim=-1)
+		x = self.embed(x)
+
+		return x
+
+
 class Jointer2 (nn.Module):
 	def __init__ (self):
 		super().__init__()

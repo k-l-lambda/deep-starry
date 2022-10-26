@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 from ...conformer.modules import Linear
 from .conformerU import ConformerEncoderU, ConformerEncoderDecoderU
-from .vocalModules import VocalEncoder, MidiEncoder1, MidiEncoder2, MidiEncoder3, Jointer2
+from .vocalModules import VocalEncoder, MidiEncoder1, MidiEncoder2, MidiEncoder3, MidiEncoder4, Jointer2
 from .modules import Encoder, Decoder
 from ..vocal import TICK_ROUND_UNIT
 
@@ -210,13 +210,16 @@ class VocalAnalyzerNotationClassificationLoss (nn.Module):
 
 
 class VocalAnalyzerNotationJointer (nn.Module):
-	def __init__ (self, encoder_dim=128, d_time=128, n_tick=100, notationArgs={}, num_down_layers=2, n_notation_enc_layers=4, n_notation_dec_layers=3, **args):
+	def __init__ (self, encoder_dim=128, d_time=128, n_tick=100, midi_encoder='MidiEncoder3', notationArgs={}, num_down_layers=2, n_notation_enc_layers=4, n_notation_dec_layers=3, **args):
 		super().__init__()
 
 		d_inner = encoder_dim << num_down_layers
 
 		self.vocalEncoder = VocalEncoder(encoder_dim)
-		self.midiEncoder = MidiEncoder3(d_inner, d_time=d_time, n_tick=n_tick)
+		if midi_encoder == 'MidiEncoder3':
+			self.midiEncoder = MidiEncoder3(d_inner, d_time=d_time, n_tick=n_tick)
+		else:
+			self.midiEncoder = MidiEncoder4(d_inner, d_time=d_time)
 		self.notationEncoder = Encoder(n_notation_enc_layers, d_model=d_inner, **notationArgs)
 		self.notationDecoder = Decoder(n_notation_dec_layers, d_model=d_inner, **notationArgs)
 		self.notationEmbed = Linear(d_inner, encoder_dim, bias=False)

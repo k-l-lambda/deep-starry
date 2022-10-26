@@ -43,6 +43,7 @@ data:
 model:
   type:                             VocalAnalyzerNotationJointer
   args:
+    midi_encoder:                   MidiEncoder4
     encoder_dim:                    32
     num_down_layers:                2
     n_notation_enc_layers:          1
