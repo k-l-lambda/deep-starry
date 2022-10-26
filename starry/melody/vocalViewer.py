@@ -17,6 +17,7 @@ class VocalViewer:
 		self.detail_mode = detail_mode
 
 		self.by_index = config['model.type'] == 'VocalAnalyzerNotationJointer'
+		self.prepend_midi_zeros = config['data.args.prepend_midi_zeros']
 
 
 	def show(self, data):
@@ -95,6 +96,8 @@ class VocalViewer:
 		axVocal = plt.subplot2grid((5, 5), (4, 1), colspan=4)
 
 		n_notes = int((midi_pitch > 0).sum().item())
+		if self.prepend_midi_zeros:
+			n_notes += 1
 
 		#tick_range = (0, nonf[width - 1].item() // TICK_ROUND_UNIT + 4)
 		tick_range = (0, 100)
