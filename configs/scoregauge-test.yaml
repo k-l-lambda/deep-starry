@@ -40,8 +40,9 @@ data:
       gaussian_blur:
         sigma:                0.6
       distortion: 
-        scale:                2.
+        scale:                3.
         scale_sigma:          0.6
-        intensity:            1.4
-        intensity_sigma:      0.5
+        intensity:            1.2
+        intensity_sigma:      0.3
+        squeeze_sigma:        0.2
         noise:                [temp/perlin.npy, temp/perlin-4.npy, temp/perlin-8.npy]

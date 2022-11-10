@@ -94,6 +94,7 @@ class Augmentor:
 					'intensity':	DISTORTION['intensity'],
 					'intensity_sigma':	DISTORTION['intensity_sigma'],
 					'noise_weights_sigma':	DISTORTION.get('noise_weights_sigma', 1),
+					'squeeze_sigma': DISTORTION.get('squeeze_sigma', 0.2),
 				}
 
 			if options.get('gaussian_noise'):
@@ -209,7 +210,7 @@ class Augmentor:
 		if self.distorter:
 			scale = self.distortion['scale'] * math.exp(np.random.randn() * self.distortion['scale_sigma'])
 			intensity = self.distortion['intensity'] * math.exp(np.random.randn() * self.distortion['intensity_sigma'])
-			nx, ny = self.distorter.make_maps(source.shape, scale, intensity, self.distortion['noise_weights_sigma'])
+			nx, ny = self.distorter.make_maps(source.shape, scale, intensity, self.distortion['noise_weights_sigma'], squeeze=self.distortion['squeeze_sigma'])
 
 			source = self.distorter.distort(source, nx, ny, borderMode=cv2.BORDER_REFLECT_101)
 
