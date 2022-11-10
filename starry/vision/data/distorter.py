@@ -21,12 +21,8 @@ class Distorter:
 		self.perlin_maps = [np.load(path) for path in noise_path]
 		self.perlin_dimension = self.perlin_maps[0].shape[1]
 
-		self.index_x = np.zeros((INDEX_MAP_SIZE, INDEX_MAP_SIZE), np.float32)
-		self.index_y = np.zeros((INDEX_MAP_SIZE, INDEX_MAP_SIZE), np.float32)
-		for y in range(INDEX_MAP_SIZE):
-			for x in range(INDEX_MAP_SIZE):
-				self.index_x[y, x] = x
-				self.index_y[y, x] = y
+		self.index_x = np.tile(np.arange(INDEX_MAP_SIZE, dtype=np.float32)[None, :], (INDEX_MAP_SIZE, 1))
+		self.index_y = np.tile(np.arange(INDEX_MAP_SIZE, dtype=np.float32)[:, None], (1, INDEX_MAP_SIZE))
 
 
 	def compoundMaps (self, indices, wt):
