@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.11.10
+
+	+	distorter.py: added squeeze.
+
+
 2022.6.29
 
 	+	topology: model class of RectifySieveJointer2 added.
