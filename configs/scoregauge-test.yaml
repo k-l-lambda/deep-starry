@@ -6,8 +6,11 @@ model:
   args:
     in_channels:            1
     out_channels:           2
-    width_mask:             False
+    with_mask:              False
     loss_gradient0:         0
+    channel_weights:        [1, 1]
+    loss_func:              mse_loss
+    use_sigmoid:            False
     backbone:
       type:                 unet
       unet_depth:           6

@@ -78,9 +78,9 @@ def loadOneImage (names):
 
 
 class TextureSet:
-	def __init__ (self, dir):
+	def __init__ (self, dir, ext_name='.jpg'):
 		self.dir = dir
-		self.filenames = os.listdir(dir)
+		self.filenames = [name for name in os.listdir(dir) if name.endswith(ext_name)]
 
 	def makeIterator (self, unit_size = 256, frame_size = (2048, 2048), frame_count = 16, mono = True, shuffle = True):
 		print('Making TextureSet iterator...')

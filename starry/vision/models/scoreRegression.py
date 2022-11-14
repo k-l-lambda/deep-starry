@@ -1,19 +1,15 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from ...unet import UNet
 
 
 
 class ScoreRegression (nn.Module):
-	def __init__ (self, out_channels, backbone, in_channels=1, width_mask=False, loss_gradient0=0, channel_weights=[1, 1], use_sigmoid=False):
+	def __init__ (self, out_channels, backbone, in_channels=1, use_sigmoid=False, **_):
 		super().__init__()
-
-		self.with_mask = width_mask
-		self.loss_gradient0 = loss_gradient0
-
-		self.channel_weights = torch.Tensor(channel_weights).reshape((1, 2, 1, 1))
 
 		self.use_sigmoid = use_sigmoid
 
@@ -32,30 +28,49 @@ class ScoreRegression (nn.Module):
 		return x
 
 
-	# overload
-	def to (self, device):
-		self.channel_weights.to(device)
+class ScoreRegressionLoss (nn.Module):
+	def __init__ (self, with_mask=False, loss_gradient0=0, channel_weights=[1, 1], loss_func='mse_loss', **kw_args):
+		super().__init__()
 
-		return super().to(device)
+		self.with_mask = with_mask
+		self.loss_gradient0 = loss_gradient0
+		self.loss_func = getattr(F, loss_func)
+
+		self.register_buffer('channel_weights', torch.Tensor(channel_weights).view((1, 2, 1, 1)), persistent=False)
+
+		self.deducer = ScoreRegression(**kw_args)
+
+		# initial parameters
+		for param in self.deducer.parameters():
+			if param.dim() > 1:
+				nn.init.xavier_uniform_(param)
 
 
-	'''@classmethod
-	def gradientLoss (cls, pred, target, loss_func, mask = None):
+	def loss_mask (self, pred, target, mask=None):
+		if mask is None:
+			return self.loss_func(pred, target)
+
+		loss_map = self.loss_func(pred, target, reduction='none')
+
+		return (loss_map * mask).sum() / mask.sum()
+
+
+	def gradientLoss (self, pred, target, mask=None):
 		gradient_px = pred[:, :, :, 1:] - pred[:, :, :, :-1]
 		gradient_tx = target[:, :, :, 1:] - target[:, :, :, :-1]
-		loss = loss_func(gradient_px, gradient_tx, mask[:, :, :, :-1]) if mask is not None else loss_func(gradient_px, gradient_tx)
+		loss = self.loss_mask(gradient_px, gradient_tx, mask[:, :, :, :-1] if mask is not None else None)
 
 		gradient_py = pred[:, :, 1:, :] - pred[:, :, :-1, :]
 		gradient_ty = target[:, :, 1:, :] - target[:, :, :-1, :]
-		loss += loss_func(gradient_py, gradient_ty, mask[:, :, :-1, :]) if mask is not None else loss_func(gradient_py, gradient_ty)
+		loss += self.loss_mask(gradient_py, gradient_ty, mask[:, :, :-1, :] if mask is not None else None)
 
 		return loss
 
 
-	def loss (self, input, target, loss_func):
-		pred = self.forward(input)
+	def forward (self, input, target):
+		pred = self.deducer(input)
 		tar = target
-		if not self.use_sigmoid:
+		if not self.deducer.use_sigmoid:
 			pred *= self.channel_weights
 			tar = target[:, :2, :, :] * self.channel_weights
 
@@ -63,17 +78,17 @@ class ScoreRegression (nn.Module):
 		loss = 0
 		if self.with_mask:
 			mask = target[:, 2:, :, :]
-			loss = loss_func(pred, tar, mask)
+			loss = self.loss_mask(pred, tar, mask)
 		else:
-			loss = loss_func(pred, tar)
+			loss = self.loss_mask(pred, tar)
 
 		if self.loss_gradient0 > 0:
 			pred0 = pred[:, 0:1, :, :]
 			targ0 = target[:, 0:1, :, :]
-			loss += self.gradientLoss(pred0, targ0, loss_func, mask = mask) * self.loss_gradient0 * self.loss_gradient0
+			loss += self.gradientLoss(pred0, targ0, mask=mask) * self.loss_gradient0 * self.loss_gradient0
 
-		return loss
+		return loss, {'loss': loss.item()}
 
 
-	def validation_loss (self, input, target, loss_func):
-		return self.loss(input, target, loss_func)'''
+	#def validation_loss (self, input, target, loss_func):
+	#	return self.loss(input, target, loss_func)

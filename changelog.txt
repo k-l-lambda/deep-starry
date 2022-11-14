@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.11.14
+
+	+	scoreRegression.py: model class of ScoreRegressionLoss added.
+
+
 2022.11.10
 
 	+	distorter.py: added squeeze.
