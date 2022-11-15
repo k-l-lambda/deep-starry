@@ -8,10 +8,8 @@ from ...unet import UNet
 
 
 class ScoreRegression (nn.Module):
-	def __init__ (self, out_channels, backbone, in_channels=1, use_sigmoid=False, **_):
+	def __init__ (self, out_channels, backbone, in_channels=1, **_):
 		super().__init__()
-
-		self.use_sigmoid = use_sigmoid
 
 		if backbone['type'] == 'unet':
 			depth = backbone['unet_depth']
@@ -21,9 +19,6 @@ class ScoreRegression (nn.Module):
 
 	def forward (self, input):
 		x = self.backbone(input)
-
-		if self.use_sigmoid:
-			x = torch.sigmoid(x)
 
 		return x
 
@@ -44,6 +39,10 @@ class ScoreRegressionLoss (nn.Module):
 		for param in self.deducer.parameters():
 			if param.dim() > 1:
 				nn.init.xavier_uniform_(param)
+
+
+	def training_parameters (self):
+		return list(self.deducer.parameters()) + list(self.deducer.buffers())
 
 
 	def loss_mask (self, pred, target, mask=None):

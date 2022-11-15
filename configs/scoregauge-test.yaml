@@ -10,7 +10,6 @@ model:
     loss_gradient0:         0
     channel_weights:        [1, 1]
     loss_func:              mse_loss
-    use_sigmoid:            False
     backbone:
       type:                 unet
       unet_depth:           6
