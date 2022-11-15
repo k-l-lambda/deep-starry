@@ -67,7 +67,9 @@ class ScoreRegressionLoss (nn.Module):
 		return loss
 
 
-	def forward (self, input, target):
+	def forward (self, batch):
+		input, target = batch
+
 		pred = self.deducer(input)
 		tar = target
 		if not self.deducer.use_sigmoid:
