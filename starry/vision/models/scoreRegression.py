@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ...unet import UNet
+from ...unet_ddpm import UNetModel
 
 
 
@@ -15,6 +16,8 @@ class ScoreRegression (nn.Module):
 			depth = backbone['unet_depth']
 			init_width = backbone['unet_init_width']
 			self.backbone = UNet(in_channels, out_channels, depth=depth, init_width=init_width)
+		elif backbone['type'] == 'unet_ddpm':
+			self.backbone = UNetModel(in_channels=in_channels, out_channels=out_channels, **backbone['args'])
 
 
 	def forward (self, input):
@@ -86,7 +89,3 @@ class ScoreRegressionLoss (nn.Module):
 			loss += self.gradientLoss(pred0, targ0, mask=mask) * self.loss_gradient0 * self.loss_gradient0
 
 		return loss, {'loss': loss.item()}
-
-
-	#def validation_loss (self, input, target, loss_func):
-	#	return self.loss(input, target, loss_func)

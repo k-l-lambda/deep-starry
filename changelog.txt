@@ -7,6 +7,8 @@ TODO:
 
 2022.11.15
 
+	+	scoreRegression.py: added backbone type of unet_ddpm.
+
 	+	scoreGauge.py: added option of mask_bg_value.
 
 	+	slicedScore.py: crop margin for training dataset.
