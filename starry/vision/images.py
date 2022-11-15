@@ -156,13 +156,16 @@ def iterateSliceImage (source, target, width, overlapping=0.25, crop_margin=0):
 		sliced_source = np.ones((source.shape[0], width, source.shape[2]), dtype=np.float32)
 		sliced_target = np.zeros((target.shape[0], tw, target.shape[2]), dtype=np.float32)
 
-		tx = x // ratio
-		if x + width <= source.shape[1]:
-			sliced_source = source[:, x:x + width, :]
+		# avoid large empty area at last clipping
+		x_ = max(min(x, source.shape[1] - width - crop_margin), 0)
+
+		tx = x_ // ratio
+		if x_ + width <= source.shape[1]:
+			sliced_source = source[:, x_:x_ + width, :]
 			sliced_target = target[:, tx:tx + tw, :]
 		else:
 			# fill zeros for right residue
-			sliced_source[:, :source.shape[1] - x, :] = source[:, x:, :]
+			sliced_source[:, :source.shape[1] - x_, :] = source[:, x_:, :]
 			sliced_target[:, :target.shape[1] - tx, :] = target[:, tx:, :]
 
 		yield sliced_source, sliced_target
