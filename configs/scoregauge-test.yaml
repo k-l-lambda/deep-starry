@@ -50,3 +50,26 @@ data:
         squeeze_sigma:        0.2
         noise_weights_sigma:  1
         noise:                [temp/perlin.npy, temp/perlin-4.npy, temp/perlin-8.npy]
+
+trainer:
+  device:         cuda
+  save_mode:      best
+  epoch:          100
+  epochs:         100
+  epoch_size:     4000
+  moniter:
+    field:        loss
+    mode:         min
+
+optim:
+  type:                   Adam
+  args:
+    betas:                [0.9, 0.9999]
+    eps:                  1.e-8
+  scheduler:
+    type:                 Exp
+    args:
+      lr_mul:             1.e-3
+      min_lr:             1.e-6
+      decay_rate:         0.98
+      n_warmup_steps:     5000
