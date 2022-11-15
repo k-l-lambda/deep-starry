@@ -118,9 +118,14 @@ def spliceOutputTensor (tensor, keep_margin=False, soft=False, margin_divider=MA
 	return splicePieces(arr, margin_divider, keep_margin=keep_margin)
 
 
-def randomSliceImage (source, target, width):	# (256, w, 3), (256, w, labels)
+def randomSliceImage (source, target, width, crop_margin=0):	# (256, w, 3), (256, w, labels)
 	ratio = source.shape[0] // target.shape[0]
 	tw = width // ratio
+
+	if crop_margin > 0:
+		target_cm = crop_margin // ratio
+		source = source[:, crop_margin:-crop_margin]
+		target = target[:, target_cm:-target_cm]
 
 	sliced_source, sliced_target = None, None
 

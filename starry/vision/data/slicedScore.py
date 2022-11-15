@@ -92,7 +92,7 @@ class SlicedScore (CachedIterableDataset):
 
 			if self.shuffle:
 				batches += 1
-				src, tar = randomSliceImage(source, target, self.slicing_width)
+				src, tar = randomSliceImage(source, target, self.slicing_width, crop_margin=self.crop_margin)
 				src, tar = self.augmentor.augment(src, tar)
 
 				yield src, tar
