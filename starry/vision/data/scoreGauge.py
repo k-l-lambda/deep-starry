@@ -28,11 +28,12 @@ class ScoreGauge (SlicedScore):
 		return loadSplittedDatasets(ScoreGauge, root=root, args=args, splits=splits, device=device, args_variant=args_variant)
 
 
-	def __init__ (self, root, y_unit, with_mask=False, **kwargs):
+	def __init__ (self, root, y_unit, with_mask=False, mask_bg_value=0, **kwargs):
 		super().__init__(root, **kwargs)
 
 		self.y_unit = y_unit
 		self.with_mask = with_mask
+		self.mask_bg_value = mask_bg_value
 
 
 	# override
@@ -47,6 +48,7 @@ class ScoreGauge (SlicedScore):
 			mask = 1 - source
 			ret, mask = cv2.threshold(mask, 1/255., 1., cv2.THRESH_BINARY)
 			mask = cv2.dilate(mask, ScoreGauge.dilate_kernel, iterations=1)
+			mask = np.maximum(mask, self.mask_bg_value)
 
 			target[:, :, 2] = mask
 

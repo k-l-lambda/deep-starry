@@ -27,6 +27,7 @@ data:
     crop_margin:              136
     y_unit:                   8
     with_mask:                True
+    mask_bg_value:            0.06
     augmentor:
       tinter:
         fore_pow:             5.
@@ -55,7 +56,7 @@ trainer:
   save_mode:      best
   epoch:          100
   epochs:         100
-  epoch_size:     4000
+  epoch_size:     5000
   epoch_duration: 600
   moniter:
     field:        loss
