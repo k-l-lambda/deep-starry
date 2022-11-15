@@ -69,11 +69,8 @@ class ScoreRegressionLoss (nn.Module):
 	def forward (self, batch):
 		input, target = batch
 
-		pred = self.deducer(input)
-		tar = target
-		if not self.deducer.use_sigmoid:
-			pred *= self.channel_weights
-			tar = target[:, :2, :, :] * self.channel_weights
+		pred = self.deducer(input) * self.channel_weights
+		tar = target[:, :2, :, :] * self.channel_weights
 
 		mask = None
 		loss = 0
