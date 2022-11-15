@@ -26,7 +26,7 @@ def main (root_path):
 						os.remove(os.path.join(root, name))
 					logging.info('%s: %d files deleted.', root, len(files_to_delete))
 			except:
-				logging.warn('error in configuration loading: %s', sys.exc_info()[1])
+				logging.warning('error in configuration loading: %s', sys.exc_info()[1])
 
 
 if __name__ == '__main__':
