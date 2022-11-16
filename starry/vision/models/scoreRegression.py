@@ -89,4 +89,15 @@ class ScoreRegressionLoss (nn.Module):
 			targ0 = target[:, 0:1, :, :]
 			loss += self.gradientLoss(pred0, targ0, mask=mask) * self.loss_gradient0 * self.loss_gradient0
 
-		return loss, {'loss': loss.item()}
+		metric = {'loss': loss.item()}
+
+		if not self.training:
+			if mask is None:
+				mask = torch.ones_like(pred).to(pred.device)
+
+			mask_sum = mask.sum()
+
+			metric['y_error'] = (((pred[:, 0] - tar[:, 0]).abs() * mask).sum() / self.channel_weights[:, 0] / mask_sum).item()
+			metric['k_error'] = (((pred[:, 1] - tar[:, 1]).abs() * mask).sum() / self.channel_weights[:, 1] / mask_sum).item()
+
+		return loss, metric
