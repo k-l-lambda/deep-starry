@@ -59,7 +59,7 @@ class Trainer:
 		self.options = config['trainer']
 		self.moniter = Moniter(**self.options.get('moniter', {}))
 
-		if self.options['env']:
+		if self.options.get('env'):
 			config.setEnv(self.options['env'])
 
 		self.start_epoch = 0
