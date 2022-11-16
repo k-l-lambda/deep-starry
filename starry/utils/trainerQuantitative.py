@@ -59,6 +59,9 @@ class Trainer:
 		self.rank = rank
 		self.role = 'TR' if rank == Trainer.TRAINER_RANK else 'VA'
 
+		if self.options['env']:
+			config.setEnv(self.options['env'])
+
 		self.start_epoch = 0
 
 		self.model = loadModel(config['model'], postfix='Loss')
