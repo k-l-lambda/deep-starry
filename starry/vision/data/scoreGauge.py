@@ -8,12 +8,8 @@ from .utils import loadSplittedDatasets
 
 
 def makeIndicesArray (shape):
-	indices_x = np.zeros(shape, np.float32)
-	indices_y = np.zeros(shape, np.float32)
-	for y in range(shape[0]):
-		for x in range(shape[1]):
-			indices_x[y, x] = x
-			indices_y[y, x] = y
+	indices_x = np.tile(np.arange(shape[1], dtype=np.float32)[None, :], (shape[0], 1))
+	indices_y = np.tile(np.arange(shape[0], dtype=np.float32)[:, None], (1, shape[1]))
 
 	return indices_y, indices_x
 
@@ -48,6 +44,7 @@ class ScoreGauge (SlicedScore):
 			mask = 1 - source
 			ret, mask = cv2.threshold(mask, 1/255., 1., cv2.THRESH_BINARY)
 			mask = cv2.dilate(mask, ScoreGauge.dilate_kernel, iterations=1)
+			mask *= np.exp(-0.5 * (target[:, :, 0] / 6) ** 2)
 			mask = np.maximum(mask, self.mask_bg_value)
 
 			target[:, :, 2] = mask
