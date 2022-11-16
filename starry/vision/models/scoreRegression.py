@@ -27,7 +27,7 @@ class ScoreRegression (nn.Module):
 
 
 class ScoreRegressionLoss (nn.Module):
-	def __init__ (self, with_mask=False, loss_gradient0=0, channel_weights=[1, 1], loss_func='mse_loss', **kw_args):
+	def __init__ (self, with_mask=False, loss_gradient0=0, channel_weights=[1, 1], loss_func='mse_loss', init_param=True, **kw_args):
 		super().__init__()
 
 		self.with_mask = with_mask
@@ -38,10 +38,11 @@ class ScoreRegressionLoss (nn.Module):
 
 		self.deducer = ScoreRegression(**kw_args)
 
-		# initial parameters
-		for param in self.deducer.parameters():
-			if param.dim() > 1:
-				nn.init.xavier_uniform_(param)
+		if init_param:
+			# initial parameters
+			for param in self.deducer.parameters():
+				if param.dim() > 1:
+					nn.init.xavier_uniform_(param)
 
 
 	def training_parameters (self):
