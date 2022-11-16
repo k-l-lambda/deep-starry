@@ -32,6 +32,8 @@ class Validator:
 			checkpoint = torch.load(weights_path, map_location=device)
 			self.model.deducer.load_state_dict(checkpoint['model'])
 
+			logging.info('checkpoint loaded: %s', weights_path)
+
 		self.model.eval().requires_grad_(False)
 
 	def run(self, dataset):
