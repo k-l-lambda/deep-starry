@@ -28,6 +28,7 @@ data:
     y_unit:                   8
     with_mask:                True
     mask_bg_value:            0.06
+    mask_decay_radius:        8
     augmentor:
       tinter:
         fore_pow:             5.
