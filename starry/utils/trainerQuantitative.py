@@ -8,6 +8,7 @@ from tqdm import tqdm
 import logging
 import shutil
 import time
+import math
 
 from .optim import optim
 from .model_factory import loadModel
@@ -83,7 +84,7 @@ class Trainer:
 		logging.info(f'[{self.role}]	' + message, *args)
 
 
-	def print_performances(self, loss, metric, start_time, lr):
+	def print_performances(self, loss, metric, start_time, lr=math.nan):
 		self.log('loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
 			.format(loss=loss, metric=print_metric(metric), elapse=(time.time()-start_time)/60, lr=lr))
 
@@ -239,7 +240,7 @@ class Trainer:
 
 				val_loss = total_loss / n_batch
 
-				self.print_performances(val_loss, metrics, start, 0)
+				self.print_performances(val_loss, metrics, start)
 
 				moniter_value, new_record = self.moniter.update({
 					**metrics,
