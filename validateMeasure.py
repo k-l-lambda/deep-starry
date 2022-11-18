@@ -50,7 +50,7 @@ class Validator:
 
 				metric = metric if type(metric) == dict else {'acc': metric}
 				for k, v in metric.items():
-					metric_data[k] = metric_data[k] + v if k in metric_data else v
+					metric_data[k] = (metric_data[k] + v) if k in metric_data else v
 
 		stat = self.model.stat if hasattr(self.model, 'stat') else stat_average
 		metrics = stat(metric_data, n_batch)
