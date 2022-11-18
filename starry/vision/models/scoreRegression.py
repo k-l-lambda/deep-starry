@@ -97,7 +97,7 @@ class ScoreRegressionLoss (nn.Module):
 
 			mask_sum = mask.sum()
 
-			metric['y_error'] = (((pred[:, 0] - tar[:, 0]).abs() * mask).sum() / self.channel_weights[:, 0] / mask_sum).item()
-			metric['k_error'] = (((pred[:, 1] - tar[:, 1]).abs() * mask).sum() / self.channel_weights[:, 1] / mask_sum).item()
+			metric['y_error'] = (((pred[:, 0] - tar[:, 0]).abs() * mask / self.channel_weights[:, 0]).sum() / mask_sum).item()
+			metric['k_error'] = (((pred[:, 1] - tar[:, 1]).abs() * mask / self.channel_weights[:, 1]).sum() / mask_sum).item()
 
 		return loss, metric
