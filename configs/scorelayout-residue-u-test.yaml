@@ -21,7 +21,7 @@ model:
 data:
   type:           ScorePage
   root:           testPage/
-  splits:         '*1,2,3,4,5,6,7,8/10:0/10'
+  splits:         '*1..8/10:0/10'
   batch_size:     1
   args:
     trans:                    [HWC2CHW, Tar_STDgray, Tar_HWC2CHW]
@@ -42,11 +42,11 @@ data:
       affine:
         padding_scale:        1.06
         angle_sigma:          1.
-        scale_sigma:          0.6
-        scale_mu:             0.6
-        scale_limit:          1.
+        scale_sigma:          0.3
+        scale_mu:             1
+        #scale_limit:          1.
         size_limit:           800
-        std_size:             900
+        std_size:             720
       crease:
         intensity:            4
         margin:               0.02
@@ -61,6 +61,8 @@ data:
         scale_sigma:          0.4
         intensity:            1.2
         intensity_sigma:      0.6
+        squeeze_sigma:        0.2
+        noise_weights_sigma:  1
   args_variant:
     1:
       augmentor:

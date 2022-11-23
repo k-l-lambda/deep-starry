@@ -216,13 +216,14 @@ class Augmentor:
 			intensity = self.distortion['intensity'] * math.exp(np.random.randn() * self.distortion['intensity_sigma'])
 			nx, ny = self.distorter.make_maps(source.shape, scale, intensity, self.distortion['noise_weights_sigma'], squeeze=self.distortion['squeeze_sigma'])
 
-			source = self.distorter.distort(source, nx, ny, borderMode=cv2.BORDER_REFLECT_101)
+			#source = self.distorter.distort(source, nx, ny, borderMode=cv2.BORDER_REFLECT_101)
+			source = self.distorter.distort(source, nx, ny, borderMode=cv2.BORDER_REPLICATE)
 
 			if target is not None:
 				if self.aa_scale > 1:
 					nx = cv2.resize(nx, (nx.shape[1] * self.aa_scale, nx.shape[0] * self.aa_scale), interpolation=cv2.INTER_LINEAR) * self.aa_scale
 					ny = cv2.resize(ny, (ny.shape[1] * self.aa_scale, ny.shape[0] * self.aa_scale), interpolation=cv2.INTER_LINEAR) * self.aa_scale
-				target = self.distorter.distort(target, nx, ny)
+				target = self.distorter.distort(target, nx, ny, borderMode=cv2.BORDER_TRANSPARENT)
 
 			if len(source.shape) < 3:
 				source = np.expand_dims(source, -1)
