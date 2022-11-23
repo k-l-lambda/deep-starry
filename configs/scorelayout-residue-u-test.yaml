@@ -9,6 +9,7 @@ model:
     residue_blocks:         0
     base_depth:             4
     base_init_width:        64
+    channel_weights:        [1, 4, 2]
     freeze_base:            False
     compounder:
       list:

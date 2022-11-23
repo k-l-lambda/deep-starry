@@ -111,16 +111,19 @@ class ScoreResidueU (nn.Module):
 
 
 class ScoreResidueULoss (nn.Module):
-	def __init__(self, compounder, **kw_args):
+	def __init__(self, compounder, out_channels=3, channel_weights=None, **kw_args):
 		super().__init__()
 
-		self.deducer = ScoreResidueU(**kw_args)
+		channel_weights = torch.Tensor(channel_weights) if channel_weights else torch.ones((out_channels))
+		self.register_buffer('channel_weights', channel_weights.view((1, out_channels, 1, 1)), persistent=False)
+
+		self.deducer = ScoreResidueU(out_channels=out_channels, **kw_args)
 		self.compounder = Compounder(compounder)
 
 	def forward (self, batch):
 		feature, target = batch
 		pred = self.deducer(feature)
-		loss = nn.functional.binary_cross_entropy(pred, target)
+		loss = nn.functional.binary_cross_entropy(pred, target, weight=self.channel_weights)
 
 		metric = {'acc': -math.log(loss.item())}
 

@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.11.23
+
+	+	scoreResidueU.py: channel_weights added.
+
+
 2022.11.16
 
 	+	validateMeasure.py created.
