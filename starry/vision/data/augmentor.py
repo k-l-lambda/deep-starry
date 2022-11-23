@@ -111,6 +111,7 @@ class Augmentor:
 					'scale_limit': AFFINE.get('scale_limit', float('inf')),
 					'size_limit': AFFINE.get('size_limit', float('inf')),
 					'size_fixed': AFFINE.get('size_fixed'),
+					'std_size': AFFINE.get('std_size'),
 					'round': AFFINE.get('round', 4),
 				}
 
@@ -131,6 +132,8 @@ class Augmentor:
 				self.gaussian_blur = options['gaussian_blur']['sigma']
 
 	def augment (self, source, target=None):
+		w, h, _ = source.shape
+
 		if self.skip_p > 0 and np.random.random() < self.skip_p:
 			if self.affine and (self.affine['size_limit'] or self.affine['size_fixed']) or self.affine['scale_mu'] != 1:
 				scale = min(math.exp(math.log(self.affine['scale_mu']) + np.random.randn() * self.affine['scale_sigma']), self.affine['scale_limit'])
@@ -181,7 +184,8 @@ class Augmentor:
 			source[:, :, 0] = source[:, :, 0] * bar
 
 		if self.affine:
-			scale = min(math.exp(math.log(self.affine['scale_mu']) + np.random.randn() * self.affine['scale_sigma']), self.affine['scale_limit'])
+			std_scale = self.affine['std_size'] / max(w, h) if self.affine['std_size'] is not None else 1
+			scale = std_scale * min(math.exp(math.log(self.affine['scale_mu']) + np.random.randn() * self.affine['scale_sigma']), self.affine['scale_limit'])
 			angle = np.random.randn() * self.affine['angle_sigma']
 
 			padding_scale = self.affine['padding_scale']

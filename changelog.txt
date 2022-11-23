@@ -7,6 +7,8 @@ TODO:
 
 2022.11.23
 
+	+	augmentor.py: added option of affine.std_size.
+
 	+	scoreResidueU.py: channel_weights added.
 
 

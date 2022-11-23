@@ -46,6 +46,7 @@ data:
         scale_mu:             0.6
         scale_limit:          1.
         size_limit:           800
+        std_size:             900
       crease:
         intensity:            4
         margin:               0.02
