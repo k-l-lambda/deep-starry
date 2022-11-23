@@ -72,6 +72,6 @@ optim:
     type:                 Exp
     args:
       lr_mul:             1.e-3
-      min_lr:             1.e-6
+      min_lr:             1.e-9
       decay_rate:         0.98
       n_warmup_steps:     5000
