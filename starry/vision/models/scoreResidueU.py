@@ -120,6 +120,9 @@ class ScoreResidueULoss (nn.Module):
 		self.deducer = ScoreResidueU(out_channels=out_channels, **kw_args)
 		self.compounder = Compounder(compounder)
 
+	def training_parameters (self):
+		return list(self.deducer.parameters()) + list(self.deducer.buffers())
+
 	def forward (self, batch):
 		feature, target = batch
 		pred = self.deducer(feature)
