@@ -75,6 +75,8 @@ def main ():
 	if args.data:
 		data_config = Configuration.createOrLoad(args.data, volatile=True)
 		config['data'] = data_config['data']
+		if config['data.args_variant.1']:
+			config['data.args_variant.0'] = config['data.args_variant.1']
 
 	if args.splits is not None:
 		config['data.splits'] = args.splits
