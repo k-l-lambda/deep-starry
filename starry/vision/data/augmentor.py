@@ -95,6 +95,7 @@ class Augmentor:
 					'intensity_sigma':	DISTORTION['intensity_sigma'],
 					'noise_weights_sigma':	DISTORTION.get('noise_weights_sigma', 1),
 					'squeeze_sigma': DISTORTION.get('squeeze_sigma', 0.2),
+					'target_border': DISTORTION.get('target_border', 'BORDER_TRANSPARENT'),
 				}
 
 			if options.get('gaussian_noise'):
@@ -223,7 +224,7 @@ class Augmentor:
 				if self.aa_scale > 1:
 					nx = cv2.resize(nx, (nx.shape[1] * self.aa_scale, nx.shape[0] * self.aa_scale), interpolation=cv2.INTER_LINEAR) * self.aa_scale
 					ny = cv2.resize(ny, (ny.shape[1] * self.aa_scale, ny.shape[0] * self.aa_scale), interpolation=cv2.INTER_LINEAR) * self.aa_scale
-				target = self.distorter.distort(target, nx, ny, borderMode=cv2.BORDER_TRANSPARENT)
+				target = self.distorter.distort(target, nx, ny, borderMode=getattr(cv2, self.distortion['target_border']))
 
 			if len(source.shape) < 3:
 				source = np.expand_dims(source, -1)
