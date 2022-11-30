@@ -11,6 +11,7 @@ model:
     base_init_width:        64
     channel_weights:        [1, 4, 2]
     freeze_base:            False
+    sigmoid_once:           True
     compounder:
       list:
         - label:              box_Staff

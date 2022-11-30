@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.11.30
+
+	+	scoreResidueU.py: added option of sigmoid_once.
+
+
 2022.11.23
 
 	+	augmentor.py: added option of affine.std_size.

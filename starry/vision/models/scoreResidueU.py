@@ -18,13 +18,13 @@ class ScoreResidueBlockUnet (nn.Module):
 	def forwardBase (self, input):
 		x = self.backbone(input)
 
-		return torch.sigmoid(x)
+		return x
 
 	def forwardRes (self, input, prev):
-		x = torch.cat([input, prev], dim = 1)
+		x = torch.cat([input, prev], dim=1)
 		x = self.backbone(x)
 
-		return torch.sigmoid(prev + x)
+		return prev + x
 
 
 class ScoreResidueBlockUnetBase (ScoreResidueBlockUnet):
@@ -46,11 +46,12 @@ class ScoreResidueBlockUnetRes (ScoreResidueBlockUnet):
 class ScoreResidueU (nn.Module):
 	def __init__ (self, in_channels, out_channels, residue_blocks,
 		base_depth, base_init_width, residue_depth=4, residue_init_width=64,
-		freeze_base=False, frozen_res=0, **args):
+		freeze_base=False, frozen_res=0, sigmoid_once=False, **args):
 		super().__init__()
 
 		self.freeze_base = freeze_base
 		self.frozen_res = frozen_res
+		self.sigmoid_once = sigmoid_once
 
 		self.base_block = ScoreResidueBlockUnetBase(in_channels=in_channels, out_channels=out_channels, depth=base_depth, init_width=base_init_width)
 		self.res_blocks = nn.ModuleList(modules=[
@@ -71,8 +72,17 @@ class ScoreResidueU (nn.Module):
 	def forward (self, input):
 		x = self.base_block(input)
 
+		if not self.sigmoid_once:
+			x = torch.sigmoid(x)
+
 		for block in self.res_blocks:
 			x = block(input, x)
+
+			if not self.sigmoid_once:
+				x = torch.sigmoid(x)
+
+		if self.sigmoid_once:
+			x = torch.sigmoid(x)
 
 		return x
 
