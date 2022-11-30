@@ -1,5 +1,6 @@
 
 import torch
+import logging
 
 
 
@@ -59,5 +60,6 @@ def loadModelAndWeights (config, checkpoint_name=None, device='cpu'):
 	if checkpoint_name is not None:
 		checkpoint = torch.load(config.localPath(checkpoint_name), map_location=device)
 		model.load_state_dict(checkpoint['model'])
+		logging.info('Weights file loaded: %s', config.localPath(checkpoint_name))
 
 	return model, checkpoint
