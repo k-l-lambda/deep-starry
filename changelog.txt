@@ -5,6 +5,13 @@ TODO:
 
 
 
+2022.12.2
+
+	+	scoreResidueU.py: move freeze options into loss model.
+
+	+	trainerQuantitative.py: detach when send parameters.
+
+
 2022.11.30
 
 	+	scoreResidueU.py: added option of sigmoid_once.

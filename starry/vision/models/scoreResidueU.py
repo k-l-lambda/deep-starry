@@ -46,11 +46,9 @@ class ScoreResidueBlockUnetRes (ScoreResidueBlockUnet):
 class ScoreResidueU (nn.Module):
 	def __init__ (self, in_channels, out_channels, residue_blocks,
 		base_depth, base_init_width, residue_depth=4, residue_init_width=64,
-		freeze_base=False, frozen_res=0, sigmoid_once=False, **args):
+		sigmoid_once=False, **args):
 		super().__init__()
 
-		self.freeze_base = freeze_base
-		self.frozen_res = frozen_res
 		self.sigmoid_once = sigmoid_once
 
 		self.base_block = ScoreResidueBlockUnetBase(in_channels=in_channels, out_channels=out_channels, depth=base_depth, init_width=base_init_width)
@@ -58,14 +56,6 @@ class ScoreResidueU (nn.Module):
 			ScoreResidueBlockUnetRes(in_channels=in_channels + out_channels, out_channels=out_channels, depth=residue_depth, init_width=residue_init_width)
 				for i in range(residue_blocks)
 		])
-
-		if self.freeze_base:
-			for param in self.base_block.parameters():
-				param.requires_grad = False
-
-		for l in range(self.frozen_res):
-			for param in self.res_blocks[l].parameters():
-				param.requires_grad = False
 
 		self.no_overwrite = False
 
@@ -111,24 +101,35 @@ class ScoreResidueU (nn.Module):
 				for i in range(len(res), len(self.res_blocks)):
 					self.res_blocks[i].load_state_dict(res[-1])
 
-	# overload
-	def train (self, mode=True):
-		self.base_block.train(mode and not self.freeze_base)
-
-		for i, block in enumerate(self.res_blocks):
-			frozen = i < self.frozen_res
-			block.train(mode and not frozen)
-
 
 class ScoreResidueULoss (nn.Module):
-	def __init__(self, compounder, out_channels=3, channel_weights=None, **kw_args):
+	def __init__(self, compounder, out_channels=3, channel_weights=None, freeze_base=False, frozen_res=0, **kw_args):
 		super().__init__()
+
+		self.freeze_base = freeze_base
+		self.frozen_res = frozen_res
 
 		channel_weights = torch.Tensor(channel_weights) if channel_weights else torch.ones((out_channels))
 		self.register_buffer('channel_weights', channel_weights.view((1, out_channels, 1, 1)), persistent=False)
 
 		self.deducer = ScoreResidueU(out_channels=out_channels, **kw_args)
 		self.compounder = Compounder(compounder)
+
+		if self.freeze_base:
+			for param in self.base_block.parameters():
+				param.requires_grad = False
+
+		for l in range(self.frozen_res):
+			for param in self.res_blocks[l].parameters():
+				param.requires_grad = False
+
+	# overload
+	def train (self, mode=True):
+		self.deducer.base_block.train(mode and not self.freeze_base)
+
+		for i, block in enumerate(self.deducer.res_blocks):
+			frozen = i < self.frozen_res
+			block.train(mode and not frozen)
 
 	def training_parameters (self):
 		return list(self.deducer.parameters()) + list(self.deducer.buffers())
