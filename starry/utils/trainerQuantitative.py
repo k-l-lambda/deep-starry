@@ -136,7 +136,7 @@ class Trainer:
 
 			start = time.time()
 
-			#self.model.train().requires_grad_(True)
+			self.model.train()
 			total_loss, n_batch = 0, 0
 			metric_data = {}
 
@@ -178,7 +178,6 @@ class Trainer:
 			torch.save(checkpoint, self.config.localPath('latest.chkpt'))	# NOTE: nccl backend will stuck here
 
 			self.log('Syncing training model parameters...')
-			#self.model.requires_grad_(False)
 			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 
 			self.config.load()
@@ -211,7 +210,7 @@ class Trainer:
 		#self.log('start_epoch: %d', self.start_epoch)
 
 		with torch.no_grad():
-			#self.model.eval().requires_grad_(False)
+			self.model.eval().requires_grad_(False)
 			for epoch_i in range(self.start_epoch, self.options['epochs']):
 				self.log('Waiting for training parameters...')
 				self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
