@@ -125,6 +125,8 @@ class ScoreResidueULoss (nn.Module):
 
 	# overload
 	def train (self, mode=True):
+		self.training = mode
+
 		self.deducer.base_block.train(mode and not self.freeze_base)
 
 		for i, block in enumerate(self.deducer.res_blocks):
