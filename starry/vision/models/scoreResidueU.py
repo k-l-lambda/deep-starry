@@ -116,11 +116,11 @@ class ScoreResidueULoss (nn.Module):
 		self.compounder = Compounder(compounder)
 
 		if self.freeze_base:
-			for param in self.base_block.parameters():
+			for param in self.deducer.base_block.parameters():
 				param.requires_grad = False
 
 		for l in range(self.frozen_res):
-			for param in self.res_blocks[l].parameters():
+			for param in self.deducer.res_blocks[l].parameters():
 				param.requires_grad = False
 
 	# overload
@@ -130,6 +130,8 @@ class ScoreResidueULoss (nn.Module):
 		for i, block in enumerate(self.deducer.res_blocks):
 			frozen = i < self.frozen_res
 			block.train(mode and not frozen)
+
+		return self
 
 	def training_parameters (self):
 		return list(self.deducer.parameters()) + list(self.deducer.buffers())
