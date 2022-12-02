@@ -24,6 +24,12 @@ if __name__ == "__main__":
 	main = Configuration.createOrLoad(args.main)
 	increment = Configuration(args.increment)
 
+	logging.basicConfig(format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%Y%m%d %H:%M:%S', level=logging.INFO,
+		force=True, handlers=[
+			logging.StreamHandler(sys.stdout),
+			logging.FileHandler(main.localPath('trainer.log')),
+		])
+
 	main_model, checkpoint = loadModelAndWeights(main, main['best'])
 	increment_model, _ = loadModelAndWeights(increment, increment['best'])
 
