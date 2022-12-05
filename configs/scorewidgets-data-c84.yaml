@@ -59,7 +59,7 @@ model:
   args:
     in_channels:            1
     out_channels:           84
-    freeze_mask:            True
+    freeze_mask:            False
     unit_size:              8
     labels:                 *labels
     mask:

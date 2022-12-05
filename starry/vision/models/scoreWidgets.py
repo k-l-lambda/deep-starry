@@ -143,7 +143,7 @@ class ScoreWidgetsLoss (nn.Module):
 		# update channel weights target
 		wws = self.stats['loss_weights'] ** 2
 		ww_sum = max(wws.sum(), 1e-9)
-		self.channel_weights_target = torch.tensor(wws * len(wws) / ww_sum, dtype=self.channel_weights_target.dtype)
+		self.channel_weights_target[:] = torch.from_numpy(wws * len(wws) / ww_sum)
 		self.metric_cost = 0
 
 
