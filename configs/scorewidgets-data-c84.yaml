@@ -34,15 +34,15 @@ data:
     augmentor:
       tinter:
         fore_pow:             4.
-        fore_sigma:           0.1
+        fore_sigma:           0.6
         fore_scale_range:     [40, 100]
         fore_blur_range:      [0, 1]
         back_pow:             3.
-        back_sigma:           0.1
+        back_sigma:           0.4
         back_scale_range:     [0.1, 0.5]
         back_blur_range:      [0, 8]
       gaussian_noise:
-        sigma:                0.01
+        sigma:                0.02
       gaussian_blur:
         sigma:                0.4
       distortion:
@@ -72,14 +72,18 @@ model:
       unet_init_width:      64
     channel_weights_rate:   1.e-5
     clip_margin:            12
-    metric_quota:           4000
+    metric_quota:           2000
+    wide_mask:              True
 
 trainer:
   device:         cuda
   save_mode:      best
   gpus:           1
+  epoch:          5
   epochs:         5
-  epoch_size:     200
+  epoch_size:     12000
+  epoch_duration: 3600
+  val_batch_size: 4
   moniter:
     field:        contour
     mode:         max

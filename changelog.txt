@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.12.5
+
+	+	scoreWidgets.py: freeze weights in loss model.
+
+
 2022.12.2
 
 	+	scoreResidueU.py: move freeze options into loss model.
