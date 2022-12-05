@@ -4,10 +4,10 @@ id:     score-vision/{date}-{filename}
 data:
   type:           RenderScore
   root:           working/test/
-  splits:         '*1,2,3,4,5,6,7,8/10:9/1000'
+  splits:         '*1..8/10:9/10'
   batch_size:     1
   args:
-    labels:                   [
+    labels:       &labels     [
                                 ClefG, ClefF, ClefC,
                                 NoteheadS0, NoteheadS1, NoteheadS2,
                                 Rest0, Rest1, Rest2, Rest3, Rest4, Rest5, Rest6,
@@ -54,6 +54,26 @@ data:
         squeeze_sigma:        0
         target_border:        BORDER_REPLICATE
 
+model:
+  type:                     ScoreWidgets
+  args:
+    in_channels:            1
+    out_channels:           84
+    freeze_mask:            True
+    unit_size:              8
+    labels:                 *labels
+    mask:
+      type:                 unet
+      unet_depth:           5
+      unet_init_width:      32
+    backbone:
+      type:                 unet
+      unet_depth:           4
+      unet_init_width:      64
+    channel_weights_rate:   1.e-5
+    clip_margin:            12
+    metric_quota:           4000
+
 trainer:
   device:         cuda
   save_mode:      best
@@ -73,11 +93,6 @@ optim:
     type:                 Exp
     args:
       lr_mul:             1.e-3
-      min_lr:             1.e-6
+      min_lr:             1.e-9
       decay_rate:         0.98
       n_warmup_steps:     10000
-
-
-_copy_fileds:
-- [model.args.labels,         data.args.labels]
-- [model.args.unit_size,      data.args.unit_size]
