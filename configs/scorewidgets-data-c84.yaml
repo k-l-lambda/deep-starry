@@ -78,7 +78,6 @@ model:
 trainer:
   device:         cuda
   save_mode:      best
-  gpus:           1
   epoch:          5
   epochs:         5
   epoch_size:     12000
