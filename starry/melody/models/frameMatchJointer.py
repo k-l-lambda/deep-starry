@@ -99,16 +99,16 @@ class FrameMatchJointerLoss (nn.Module):
 		ci_pred = torch.argmax(matching_pred_1, dim=-1)
 
 		corrects = (ci_pred[sample_mask] == ci[sample_mask]).sum().item()
-		accuracy = corrects / torch.numel(ci[sample_mask])
+		accuracy = corrects / max(1, torch.numel(ci[sample_mask]))
 
 		corrects_c1 = (ci_pred[sample_mask_c1] == ci[sample_mask_c1]).sum().item()
-		acc_c1 = corrects_c1 / torch.numel(ci[sample_mask_c1])
+		acc_c1 = corrects_c1 / max(1, torch.numel(ci[sample_mask_c1]))
 
 		corrects8 = (ci_pred[sample_mask8] == ci[sample_mask8]).sum().item()
-		acc_tail8 = corrects8 / torch.numel(ci[sample_mask8])
+		acc_tail8 = corrects8 / max(1, torch.numel(ci[sample_mask8]))
 
 		corrects_tip = (ci_pred[:, -1] == ci[:, -1]).sum().item()
-		acc_tip = corrects_tip / torch.numel(ci[:, -1])
+		acc_tip = corrects_tip / max(1, torch.numel(ci[:, -1]))
 
 		return loss, {
 			'loss_orth': loss_orth,
