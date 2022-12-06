@@ -25,13 +25,13 @@ model:
 
 data:
   type:                     FramePair
-  root:                     frame-20220725.zip
+  root:                     frame-20221206.zip
   splits:                   '*1,2/10:9/100'
   batch_size:               16
   args:
     c_seq_len:              32
     s_seq_len:              16
-    ci_bias_sigma:          4
+    ci_bias_sigma:          1
     ci_center_position:     0.5
     st_scale_sigma:         0.1
     ci_bias_constant:       -1
