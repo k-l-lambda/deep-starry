@@ -49,10 +49,15 @@ class Configuration:
 				self.save()
 
 		if self['env'] is not None:
-			for key, value in self['env'].items():
-				if os.environ.get(key) is None:
-					os.environ[key] = str(value)
-					logging.info('env set: %s=%s', key, value)
+			self.setEnv(self['env'])
+
+
+	@classmethod
+	def setEnv (cls, env):
+		for key, value in env.items():
+			if os.environ.get(key) is None:
+				os.environ[key] = str(value)
+				logging.info('env set: %s=%s', key, value)
 
 
 	def preprocess (self):
