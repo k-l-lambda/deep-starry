@@ -258,7 +258,7 @@ class VocalAnalyzerNotationJointerLoss (nn.Module):
 		pred = self.deducer(batch['pitch'], batch['gain'], batch['midi_pitch'], midi_tick)
 
 		mask = batch['mask']
-		pred[torch.logical_not(mask)] = 0
+		pred = pred * mask.float()
 
 		loss = F.cross_entropy(pred, target, ignore_index=-1)
 
