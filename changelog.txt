@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.12.20
+
+	+	scoreWidgets.py: added argument of channel_factor.
+
+
 2022.12.5
 
 	+	scoreWidgets.py: freeze weights in loss model.

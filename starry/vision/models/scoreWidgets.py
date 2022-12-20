@@ -60,12 +60,14 @@ class ScoreWidgetsLoss (nn.Module):
 	need_states = True
 
 
-	def __init__(self, labels, unit_size, out_channels, freeze_mask, metric_quota=float('inf'), channel_weights_rate=1e-4, clip_margin=12, **kw_args):
+	def __init__(self, labels, unit_size, out_channels, freeze_mask, metric_quota=float('inf'), channel_weights_rate=1e-4,
+		channel_factor={}, clip_margin=12, **kw_args):
 		super().__init__()
 
 		self.labels = labels
 		self.unit_size = unit_size
 		self.channel_weights_rate = channel_weights_rate
+		self.channel_factor = channel_factor
 		self.clip_margin = clip_margin
 		self.metric_quota = metric_quota
 
@@ -128,7 +130,7 @@ class ScoreWidgetsLoss (nn.Module):
 
 		semantic = metrics.get('semantic')
 		if semantic is not None:
-			stats = metrics['semantic'].stat()
+			stats = metrics['semantic'].stat(self.channel_factor)
 			self.stats = stats
 
 			result['contour'] = stats['accuracy']
