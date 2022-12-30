@@ -5,6 +5,11 @@ TODO:
 
 
 
+2022.12.30
+
+	+	cropScoreSemantic.py created.
+
+
 2022.12.20
 
 	+	scoreWidgets.py: added argument of channel_factor.
