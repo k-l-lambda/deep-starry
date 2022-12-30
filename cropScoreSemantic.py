@@ -25,7 +25,7 @@ def main ():
 	config = Configuration.createOrLoad(args.config, volatile=True)
 	cropper = ScoreSemanticCropper(config, DATA_DIR)
 
-	cropper.run(self.output)
+	cropper.run(args.output)
 
 
 if __name__ == '__main__':
