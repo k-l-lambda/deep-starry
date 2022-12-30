@@ -1,0 +1,17 @@
+
+Clef:
+  [ClefG, ClefF, ClefC]
+Notehead:
+  [NoteheadS0, NoteheadS1, NoteheadS2]
+RestFlag:
+  [Rest3, Rest4, Rest5, Rest6]
+Timesig:
+  [TimesigC44, TimesigC22, TimesigZero, TimesigOne, TimesigTwo, TimesigThree, TimesigFour, TimesigFive, TimesigSix, TimesigSeven, TimesigEight, TimesigNine]
+Fingering:
+  [One, Two, Three, Four, Five]
+Dynamic:
+  [f, p, m, s, z]
+Script:
+  [ScriptFermata, ScriptSforzato, ScriptStaccato, ScriptStaccatissimo, ScriptTurn, ScriptTrill, ScriptSegno, ScriptCoda, ScriptArpeggio, ScriptPrall, ScriptMordent, ScriptTenuto, PedalStar, PedalPed]
+Wedge:
+  [CrescendoBegin, CrescendoEnd, DecrescendoBegin, DecrescendoEnd]
