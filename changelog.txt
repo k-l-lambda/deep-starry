@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.1.3
+
+	+	renderScore.py: SemanticGroups loaded for renderTargetFromGraph.
+
+
 2022.12.30
 
 	+	cropScoreSemantic.py created.

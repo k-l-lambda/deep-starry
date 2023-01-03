@@ -8,6 +8,7 @@ import cv2
 import json
 import re
 import logging
+import yaml
 
 from ..transform import Composer
 from ..images import randomSliceImage, iterateSliceImage
@@ -17,6 +18,9 @@ from .imageReader import CachedImageReader, _S
 from .augmentor import Augmentor
 from .score import makeReader, listAllScoreNames, GRAPH, MASK, STAFF
 
+
+
+SemanticGroups = yaml.safe_load(open('assets/semanticGroups.yaml', 'r'))
 
 
 def normalizeName (name):
@@ -43,8 +47,10 @@ def renderTargetFromGraph (graph, labels, size, unit_size=16, point_radius=2 / 1
 		layer = reader.readImage(file_path) if reader and reader.exists(file_path) else None
 		assert layer is None or layer.shape == size, f'layer shape mismatch: {layer.shape}, {size}'
 
+		is_point_of_label = lambda point: (point['semantic'] in SemanticGroups[label]) if SemanticGroups.get(label) else (point['semantic'] == label)
+
 		if layer is None:
-			points = filter(lambda point: point['semantic'] == label, graph['points'])
+			points = filter(is_point_of_label, graph['points'])
 			layer = np.zeros(upsize, dtype=np.uint8)
 
 			if re.match(r'^vline_', label):
