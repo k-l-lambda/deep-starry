@@ -10,7 +10,7 @@ type_dict = None
 def registerTypes ():
 	global type_dict
 
-	from ..vision.data import RenderScore, ScoreMask, ScoreGauge, ScorePage, ScorePageRaw, ScoreFault
+	from ..vision.data import RenderScore, ScoreMask, ScoreGauge, ScorePage, ScorePageRaw, ScoreFault, Stamp
 	from ..topology.data import EventCluster
 
 	classes = [
@@ -20,6 +20,7 @@ def registerTypes ():
 		ScorePage,
 		ScorePageRaw,
 		ScoreFault,
+		Stamp,
 		EventCluster,
 	]
 
