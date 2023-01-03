@@ -27,6 +27,8 @@ class ScoreSemanticCropper:
 		for label in self.labels:
 			os.makedirs(os.path.join(outdir, label), exist_ok=True)
 
+		index = 0
+
 		for feature, target in tqdm(self.data):
 			#print('feature:', feature.shape, target.shape)
 
@@ -47,8 +49,8 @@ class ScoreSemanticCropper:
 					stamp = np.ones((STAMP_SIZE, STAMP_SIZE), dtype=np.uint8) * 255
 					stamp[t - tt:b - tt, l - ll:r - ll] = source[t:b, l:r]
 
-					stamp_path = os.path.join(outdir, point["semantic"], f'{int(x)},{int(y)}.png') # TODO: added instance name
+					stamp_path = os.path.join(outdir, point["semantic"], f'{index}-{int(x)},{int(y)}.png')
 					cv2.imwrite(stamp_path, stamp)
-					print('point:', stamp_path)
+					#print('point:', stamp_path)
 
-			break
+			index += 1
