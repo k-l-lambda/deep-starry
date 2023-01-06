@@ -15,7 +15,7 @@ class Stamp (IterableDataset):
 		return loadSplittedDatasets(Stamp, root=root, args=args, splits=splits, device=device, args_variant=args_variant)
 
 
-	def __init__(self, root, split='0/1', device='cpu', labels=None, epoch_size=100, shuffle=False):
+	def __init__(self, root, split='0/1', device='cpu', labels=None, epoch_size=100, shuffle=False, crop_size=32, bias_sigma=0.2):
 		super().__init__()
 
 		self.reader, self.root = makeReader(root)
@@ -23,6 +23,8 @@ class Stamp (IterableDataset):
 		self.labels = labels
 		self.shuffle = shuffle
 		self.epoch_size = epoch_size
+		self.crop_size = crop_size
+		self.bias_sigma = bias_sigma
 
 		self.names = [listAllScoreNames(self.reader, split, label) for label in labels]
 		#print('names:', self.names)
@@ -45,7 +47,16 @@ class Stamp (IterableDataset):
 			source = self.reader.readImage(os.path.join(label, name + ".png"))
 			source = torch.from_numpy(source)
 
-			# TODO: center crop with flicker
+			bias_max = (source.shape[-1] - self.crop_size) // 2
+			bias_x, bias_y = np.random.randn() * self.bias_sigma, np.random.randn() * self.bias_sigma
+			bias_x = int(max(-bias_max, min(bias_max, bias_x)))
+			bias_y = int(max(-bias_max, min(bias_max, bias_y)))
+			#print('bias:', bias_x, bias_y)
+
+			# center crop
+			source = source[bias_max + bias_x:bias_max + bias_x + self.crop_size, bias_max + bias_y:bias_max + bias_y + self.crop_size]
+
+			source = source.float() / 255.
 
 			yield source, li
 
