@@ -41,7 +41,7 @@ class NotationPair (IterableDataset):
 
 
 	def __init__ (self, package, entries, device, shuffle=False, seq_len=0x100, ci_bias_sigma=5, use_cache=False,
-		ci_center_position=0.5, st_scale_sigma=0, ci_bias_constant=-1, random_time0=0):
+		ci_center_position=0.5, st_scale_sigma=0, ci_bias_constant=-1, random_time0=0., guid_rate=0.5, guid_rate_sigma=0.4):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -53,6 +53,8 @@ class NotationPair (IterableDataset):
 		self.ci_center_position = ci_center_position
 		self.st_scale_sigma = st_scale_sigma
 		self.random_time0 = random_time0
+		self.guid_rate = guid_rate
+		self.guid_rate_sigma = guid_rate_sigma
 
 		self.entry_cache = {} if use_cache else None
 
@@ -108,6 +110,8 @@ class NotationPair (IterableDataset):
 			for sample in pair['samples']:
 				sample_len = len(sample['time'])
 
+				sample_ctime = torch.index_select(criterion['time'], 0, sample['ci'])
+
 				for si in range(1, sample_len + 1):
 					self.profile_check('iter.0')
 
@@ -145,6 +149,13 @@ class NotationPair (IterableDataset):
 					s_velocity[-si:] = sample['velocity'][s0i:si] + velocity_bias
 					ci[-si:] = cis
 
+					s_guid, s_guid_mask = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.bool)
+					s_guid[-si:] = sample_ctime[s0i:si] - c_time0
+					n_guid = int(self.seq_len * self.guid_rate * np.exp(np.random.randn() * self.guid_rate_sigma))
+					n_guid = min(n_guid, self.seq_len - 1)
+					if si > self.seq_len - n_guid:
+						s_guid_mask[-si:n_guid] = True
+
 					#self.profile_check('iter.4')
 
 					c_time, c_pitch, c_velocity = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long), torch.zeros(self.seq_len, dtype=torch.float32)
@@ -153,12 +164,14 @@ class NotationPair (IterableDataset):
 					c_velocity[:ci_range_len] = criterion['velocity'][ci_range[0]:ci_range[1]]
 
 					if self.random_time0 > 0:
-						s_time += (np.random.rand() - 0.5) * 2 * self.random_time0
-						c_time += (np.random.rand() - 0.5) * 2 * self.random_time0
+						bias_s, bias_c = (np.random.rand() - 0.5) * 2 * self.random_time0, (np.random.rand() - 0.5) * 2 * self.random_time0
+						s_time += bias_s
+						c_time += bias_c
+						s_guid += bias_c
 
 					self.profile_check('iter.-1')
 
-					yield c_time, c_pitch, c_velocity, s_time, s_pitch, s_velocity, ci
+					yield c_time, c_pitch, c_velocity, s_time, s_pitch, s_velocity, ci, s_guid, s_guid_mask
 
 
 	def collateBatch (self, batch):
@@ -170,7 +183,7 @@ class NotationPair (IterableDataset):
 
 		result = {
 			'criterion': (extract(0), extract(1), extract(2)),
-			'sample': (extract(3), extract(4), extract(5)),
+			'sample': (extract(3), extract(4), extract(5), extract(7), extract(8)),
 			'ci': extract(6),
 		}
 

@@ -36,6 +36,8 @@ data:
     st_scale_sigma:         0.1
     ci_bias_constant:       -1
     random_time0:           0
+    guid_rate:              0.5
+    guid_rate_sigma:        0.4
   #args_variant:
 
 
