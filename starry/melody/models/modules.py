@@ -253,7 +253,9 @@ class TimeGuidEncoder (nn.Module):
 		time, mask = x
 
 		vec_time = self.time_encoder(time)	# (n, seq, d_time)
-		vec_time[torch.logical_not(mask), :] = 0
+
+		if mask is not None:
+			vec_time[torch.logical_not(mask), :] = 0
 
 		return self.embed(vec_time)	# (n, seq, d_model)
 

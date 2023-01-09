@@ -137,13 +137,18 @@ class MatchJointerLossGeneric (nn.Module):
 		corrects_tip = (ci_pred[:, -1] == ci[:, -1]).sum().item()
 		acc_tip = corrects_tip / torch.numel(ci[:, -1])
 
-		return loss, {
-			'loss_orth': loss_orth,
-			'acc_full': accuracy,
-			'acc_c1': acc_c1,
-			'acc_tail8': acc_tail8,
-			'acc_tip': acc_tip,
-		}
+		metric = dict(loss_orth=loss_orth, acc_full=accuracy, acc_c1=acc_c1, acc_tail8=acc_tail8, acc_tip=acc_tip)
+
+		if len(sample) > 3:
+			sample_guid_mask = sample[4]
+			sample_ng_mask = torch.logical_not(sample_guid_mask)
+			corrects_guid = (ci_pred[sample_guid_mask] == ci[sample_guid_mask]).sum().item()
+			corrects_ng = (ci_pred[sample_ng_mask] == ci[sample_ng_mask]).sum().item()
+
+			metric['acc_guid'] = corrects_guid / max(1, torch.numel(ci[sample_guid_mask]))
+			metric['acc_ng'] = corrects_ng / torch.numel(ci[sample_ng_mask])
+
+		return loss, metric
 
 
 	def training_parameters (self):
@@ -286,7 +291,7 @@ class MatchJointer2Plus (nn.Module):
 
 
 	def forward (self, c_time, c_pitch, c_velocity, s_time, s_pitch, s_velocity, s_guid, s_guid_mask):
-		vec_c = self.note_encoder((c_time, c_pitch, c_velocity))
+		vec_c = self.note_encoder((c_time, c_pitch, c_velocity)) + self.guid_encoder((c_time, None))
 		vec_s = self.note_encoder((s_time, s_pitch, s_velocity)) + self.guid_encoder((s_guid, s_guid_mask))
 
 		vec_c = self.c_encoder(vec_c)
