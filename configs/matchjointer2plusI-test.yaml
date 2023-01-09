@@ -5,7 +5,7 @@ env: ~
   #CUDA_VISIBLE_DEVICES: 0
 
 model:
-  type:           MatchJointer2Plus
+  type:           MatchJointer2PlusI
   args:
     d_time:                 16
     n_layers_ce:            1
@@ -37,7 +37,7 @@ data:
     random_time0:           0
     guid_rate:              0.84
     guid_rate_sigma:        0.4
-    guid_time:              True
+    guid_time:              False
   #args_variant:
 
 
@@ -87,7 +87,7 @@ onnx:
     dtype: int8
   - name: sg
     shape: *tensor_shape
-    dtype: float32
+    dtype: long
   - name: sgm
     shape: *tensor_shape
     dtype: bool

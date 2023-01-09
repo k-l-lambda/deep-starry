@@ -5,6 +5,8 @@ TODO:
 
 2023.1.9
 
+	+	matchJointer.py: model class of MatchJointer2PlusI added.
+
 	+	matchJointer.py: model class of MatchJointer2Plus added.
 
 	+	notationViewer.py: display s_guid_mask.

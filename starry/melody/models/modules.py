@@ -254,7 +254,7 @@ class TimeGuidEncoder (nn.Module):
 	def forward (self, x):
 		time, mask = x
 
-		vec_time = self.time_encoder(time)	# (n, seq, d_time)
+		vec_time = self.time_encoder(time.float())	# (n, seq, d_time)
 
 		if mask is not None:
 			vec_time[mask.unsqueeze(-1).repeat(1, 1, self.d_time)] = 0
