@@ -247,6 +247,8 @@ class TimeGuidEncoder (nn.Module):
 		self.time_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_time)
 		self.embed = nn.Linear(d_time, d_model)
 
+		self.d_time = d_time
+
 
 	# x: (time, mask)
 	def forward (self, x):
@@ -255,7 +257,7 @@ class TimeGuidEncoder (nn.Module):
 		vec_time = self.time_encoder(time)	# (n, seq, d_time)
 
 		if mask is not None:
-			vec_time[mask, :] = 0
+			vec_time[mask.unsqueeze(-1).repeat(1, 1, self.d_time)] = 0
 
 		return self.embed(vec_time)	# (n, seq, d_model)
 
