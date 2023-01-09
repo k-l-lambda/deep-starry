@@ -30,7 +30,7 @@ class NotationViewer:
 
 		ci = inputs['ci']
 		ct, cp, cv = inputs['criterion']
-		st, sp, sv = inputs['sample']
+		st, sp, sv, sg, sgm = inputs['sample']
 
 		matching, src, tar = pred
 
@@ -38,14 +38,15 @@ class NotationViewer:
 			ax = axes if self.n_axes == 1 else axes[i // self.n_axes, i % self.n_axes]
 			ax.set_aspect(1)
 
-			self.showMatching(ax, (ct[i], cp[i], cv[i]), (st[i], sp[i], sv[i]), ci[i], matching[i] if matching is not None else None)
+			#print('sg:', sg[i])
+			self.showMatching(ax, (ct[i], cp[i], cv[i]), (st[i], sp[i], sv[i], sgm[i]), ci[i], matching[i] if matching is not None else None)
 
 		plt.show()
 
 
 	def showMatching (self, ax, criterion, sample, ci, matching=None):
 		ct, cp, cv = criterion
-		st, sp, sv = sample
+		st, sp, sv, sgm = sample
 
 		st_n0 = st[sp != 0]
 		ct_n0 = ct[cp != 0]
@@ -58,15 +59,18 @@ class NotationViewer:
 		ax.vlines(0, -0.16, 0.16, color='k')
 		ax.hlines(0, -0.16, 0.16, color='k')
 
-		for si, snote in enumerate(zip(st, sp, sv)):
+		for si, snote in enumerate(zip(st, sp, sv, sgm)):
 			cii = ci[si].item() - 1
-			sti, spi, svi = snote
-			sti, spi, svi = sti.item(), spi.item(), svi.item()
+			sti, spi, svi, sgmi = snote
+			sti, spi, svi, sgmi = sti.item(), spi.item(), svi.item(), sgmi.item()
 			if spi > 0 and cii >= 0:
 				cti, cpi, cvi = ct[cii].item(), cp[cii].item(), cv[cii].item()
-				#print('si:', si, cii, sti, cti)
+				#print('si:', si, cii, sti, cti, sgmi)
 
-				ax.add_patch(patches.Circle((sti * TIME_SCALE, cti * TIME_SCALE), 0.1, fill=True, facecolor='g'))
+				if sgmi:
+					ax.add_patch(patches.Rectangle((sti * TIME_SCALE - 0.15, cti * TIME_SCALE - 0.15), 0.3, 0.3, fill=True, facecolor='g'))
+				else:
+					ax.add_patch(patches.Circle((sti * TIME_SCALE, cti * TIME_SCALE), 0.1, fill=True, facecolor='g'))
 
 		if matching is not None:
 			#print('matching:', matching.shape, sp.shape)

@@ -5,6 +5,8 @@ TODO:
 
 2023.1.9
 
+	+	notationViewer.py: display s_guid_mask.
+
 	+	notationPair.py: fields of s_guid & s_guid_mask added.
 
 

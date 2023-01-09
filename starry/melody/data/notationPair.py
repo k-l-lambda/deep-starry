@@ -151,10 +151,11 @@ class NotationPair (IterableDataset):
 
 					s_guid, s_guid_mask = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.bool)
 					s_guid[-si:] = sample_ctime[s0i:si] - c_time0
-					n_guid = int(self.seq_len * self.guid_rate * np.exp(np.random.randn() * self.guid_rate_sigma))
+					n_guid = int(self.seq_len * (1 - (1 - self.guid_rate) * np.exp(np.random.randn() * self.guid_rate_sigma)))
 					n_guid = min(n_guid, self.seq_len - 1)
 					if si > self.seq_len - n_guid:
 						s_guid_mask[-si:n_guid] = True
+					s_guid[torch.logical_not(s_guid_mask)] = 0
 
 					#self.profile_check('iter.4')
 
