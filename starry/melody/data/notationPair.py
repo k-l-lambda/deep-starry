@@ -41,7 +41,7 @@ class NotationPair (IterableDataset):
 
 
 	def __init__ (self, package, entries, device, shuffle=False, seq_len=0x100, ci_bias_sigma=5, use_cache=False,
-		ci_center_position=0.5, st_scale_sigma=0, ci_bias_constant=-1, random_time0=0., guid_rate=0.5, guid_rate_sigma=0.4):
+		ci_center_position=0.5, st_scale_sigma=0, ci_bias_constant=-1, random_time0=0., guid_rate=0, guid_rate_sigma=0.4):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -184,7 +184,7 @@ class NotationPair (IterableDataset):
 
 		result = {
 			'criterion': (extract(0), extract(1), extract(2)),
-			'sample': (extract(3), extract(4), extract(5), extract(7), extract(8)),
+			'sample': (extract(3), extract(4), extract(5), extract(7), extract(8)) if self.guid_rate > 0 else (extract(3), extract(4), extract(5)),
 			'ci': extract(6),
 		}
 

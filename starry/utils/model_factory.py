@@ -11,7 +11,7 @@ def registerModels ():
 
 	from ..melody.models import (
 		TestEncoder,
-		MatchJointerRaw, MatchJointer1, MatchJointer1Loss, MatchJointer2, MatchJointer2Loss, MatchJointer3, MatchJointer3Loss, MatchJointer4, MatchJointer4Loss,
+		MatchJointerRaw, MatchJointer1, MatchJointer1Loss, MatchJointer2, MatchJointer2Loss, MatchJointer3, MatchJointer3Loss, MatchJointer4, MatchJointer4Loss, MatchJointer2Plus, MatchJointer2PlusLoss,
 		FrameMatchJointer, FrameMatchJointerLoss,
 		VocalAnalyzer, VocalAnalyzerLoss, VocalAnalyzerNotationBinary, VocalAnalyzerNotationBinaryLoss,
 		VocalAnalyzerNotationRegress, VocalAnalyzerNotationRegressLoss,
@@ -21,7 +21,7 @@ def registerModels ():
 
 	classes = [
 		TestEncoder, MatchJointerRaw, MatchJointer1, MatchJointer1Loss, MatchJointer2, MatchJointer2Loss,
-		MatchJointer3, MatchJointer3Loss, MatchJointer4, MatchJointer4Loss,
+		MatchJointer3, MatchJointer3Loss, MatchJointer4, MatchJointer4Loss, MatchJointer2Plus, MatchJointer2PlusLoss,
 		FrameMatchJointer, FrameMatchJointerLoss,
 		VocalAnalyzer, VocalAnalyzerLoss,
 		VocalAnalyzerNotationBinary, VocalAnalyzerNotationBinaryLoss,

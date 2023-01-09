@@ -240,6 +240,24 @@ class NoteEncoder2 (nn.Module):
 # TODO: relative time encoder?
 
 
+class TimeGuidEncoder (nn.Module):
+	def __init__ (self, d_model=128, d_time=64, angle_cycle=100000):
+		super().__init__()
+
+		self.time_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_time)
+		self.embed = nn.Linear(d_time, d_model)
+
+
+	# x: (time, mask)
+	def forward (self, x):
+		time, mask = x
+
+		vec_time = self.time_encoder(time)	# (n, seq, d_time)
+		vec_time[torch.logical_not(mask), :] = 0
+
+		return self.embed(vec_time)	# (n, seq, d_model)
+
+
 class FrameEncoder (nn.Module):
 	def __init__ (self, d_model=128, d_time=64, angle_cycle=100000):
 		super().__init__()

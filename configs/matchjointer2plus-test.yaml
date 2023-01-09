@@ -1,0 +1,88 @@
+
+id:     melody/{date}-{filename}
+
+env: ~
+  #CUDA_VISIBLE_DEVICES: 0
+
+model:
+  type:           MatchJointer2Plus
+  args:
+    d_time:                 16
+    n_layers_ce:            1
+    n_layers_se:            0
+    n_layers_sd:            1
+    angle_cycle:            10000
+    d_model:                128
+    d_inner:                512
+    n_head:                 8
+    d_k:                    16
+    d_v:                    16
+    d_time:                 16
+    dropout:                0.1
+    reg_orthogonality:      0.1
+    init_gain_n:            3
+
+
+data:
+  type:                     NotationPair
+  root:                     20220705.zip
+  splits:                   '*1,2/10:9/10'
+  batch_size:               4
+  args:
+    seq_len:                64
+    ci_bias_sigma:          5
+    ci_center_position:     0.3
+    st_scale_sigma:         0.1
+    ci_bias_constant:       -1
+    random_time0:           0
+    guid_rate:              0.84
+    guid_rate_sigma:        0.4
+  #args_variant:
+
+
+trainer:
+  device:                   cpu
+  save_mode:                best
+  epoch:                    2
+  epochs:                   2
+  epoch_size:               100
+  epoch_duration:           2
+  moniter:
+    field:                  acc
+    mode:                   max
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               0.2
+      n_warmup_steps:       4000
+      d_model:              512
+
+
+onnx:
+  inputs:
+  - name: ct
+    shape: &tensor_shape [1, 64]
+    dtype: float32
+  - name: cp
+    shape: *tensor_shape
+    dtype: int8
+  - name: cv
+    shape: *tensor_shape
+    dtype: int8
+  - name: st
+    shape: *tensor_shape
+    dtype: float32
+  - name: sp
+    shape: *tensor_shape
+    dtype: int8
+  - name: sv
+    shape: *tensor_shape
+    dtype: int8
+  outputs: [matching, src, tar]
+  opset:   14
