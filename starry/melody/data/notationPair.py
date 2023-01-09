@@ -155,7 +155,8 @@ class NotationPair (IterableDataset):
 					n_guid = min(n_guid, self.seq_len - 1)
 					if si > self.seq_len - n_guid:
 						s_guid_mask[-si:n_guid] = True
-					s_guid[torch.logical_not(s_guid_mask)] = 0
+					s_ng_mask = torch.logical_not(s_guid_mask)
+					s_guid[s_ng_mask] = 0
 
 					#self.profile_check('iter.4')
 
@@ -172,7 +173,7 @@ class NotationPair (IterableDataset):
 
 					self.profile_check('iter.-1')
 
-					yield c_time, c_pitch, c_velocity, s_time, s_pitch, s_velocity, ci, s_guid, s_guid_mask
+					yield c_time, c_pitch, c_velocity, s_time, s_pitch, s_velocity, ci, s_guid, s_ng_mask
 
 
 	def collateBatch (self, batch):

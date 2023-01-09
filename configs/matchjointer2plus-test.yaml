@@ -84,5 +84,11 @@ onnx:
   - name: sv
     shape: *tensor_shape
     dtype: int8
+  - name: sg
+    shape: *tensor_shape
+    dtype: float32
+  - name: sgm
+    shape: *tensor_shape
+    dtype: bool
   outputs: [matching, src, tar]
   opset:   14

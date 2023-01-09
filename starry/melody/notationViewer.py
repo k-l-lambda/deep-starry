@@ -67,7 +67,7 @@ class NotationViewer:
 				cti, cpi, cvi = ct[cii].item(), cp[cii].item(), cv[cii].item()
 				#print('si:', si, cii, sti, cti, sgmi)
 
-				if sgmi:
+				if not sgmi:
 					ax.add_patch(patches.Rectangle((sti * TIME_SCALE - 0.15, cti * TIME_SCALE - 0.15), 0.3, 0.3, fill=True, facecolor='g'))
 				else:
 					ax.add_patch(patches.Circle((sti * TIME_SCALE, cti * TIME_SCALE), 0.1, fill=True, facecolor='g'))
