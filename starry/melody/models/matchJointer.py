@@ -140,13 +140,14 @@ class MatchJointerLossGeneric (nn.Module):
 		metric = dict(loss_orth=loss_orth, acc_full=accuracy, acc_c1=acc_c1, acc_tail8=acc_tail8, acc_tip=acc_tip)
 
 		if len(sample) > 3:
-			sample_ng_mask = sample[4]
-			sample_guid_mask = torch.logical_not(sample_ng_mask)
-			corrects_guid = (ci_pred[sample_guid_mask] == ci[sample_guid_mask]).sum().item()
-			corrects_ng = (ci_pred[sample_ng_mask] == ci[sample_ng_mask]).sum().item()
+			ng_mask = sample[4]
+			guid_mask = torch.logical_not(ng_mask)
+			ng_ci_mask = torch.logical_and(ng_mask, sample_mask_c1)
+			corrects_guid = (ci_pred[guid_mask] == ci[guid_mask]).sum().item()
+			corrects_ng = (ci_pred[ng_ci_mask] == ci[ng_ci_mask]).sum().item()
 
-			metric['acc_guid'] = corrects_guid / max(1, torch.numel(ci[sample_guid_mask]))
-			metric['acc_ng'] = corrects_ng / torch.numel(ci[sample_ng_mask])
+			metric['acc_guid'] = corrects_guid / max(1, torch.numel(ci[guid_mask]))
+			metric['acc_ng'] = corrects_ng / torch.numel(ci[ng_ci_mask])
 
 		return loss, metric
 
