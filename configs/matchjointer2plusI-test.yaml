@@ -1,9 +1,6 @@
 
 id:     melody/{date}-{filename}
 
-env: ~
-  #CUDA_VISIBLE_DEVICES: 0
-
 model:
   type:           MatchJointer2PlusI
   args:
@@ -42,6 +39,8 @@ data:
 
 
 trainer:
+  env: ~
+    #CUDA_VISIBLE_DEVICES: 0
   device:                   cpu
   save_mode:                best
   epoch:                    2
