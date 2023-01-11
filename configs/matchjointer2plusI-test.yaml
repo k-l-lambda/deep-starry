@@ -18,11 +18,13 @@ model:
     dropout:                0.1
     reg_orthogonality:      0.1
     init_gain_n:            3
+    main_acc:               acc_ng
 
 
 data:
   type:                     NotationPair
-  root:                     20220705.zip
+  #root:                     20220705.zip
+  root:                     bach-20230111.zip
   splits:                   '*1,2/10:9/10'
   batch_size:               4
   args:

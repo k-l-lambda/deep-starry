@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .modules import Encoder, Decoder, ThinDecoder, Jointer, NoteEncoder, NoteEncoder2, TimeGuidEncoder
+from ...utils.weightedValue import WeightedValue
 
 
 
@@ -126,18 +127,18 @@ class MatchJointerLossGeneric (nn.Module):
 		ci_pred = torch.argmax(matching_pred_1, dim=-1)
 
 		corrects = (ci_pred[sample_mask] == ci[sample_mask]).sum().item()
-		accuracy = corrects / torch.numel(ci[sample_mask])
+		accuracy = WeightedValue(corrects, torch.numel(ci[sample_mask]))
 
 		corrects_c1 = (ci_pred[sample_mask_c1] == ci[sample_mask_c1]).sum().item()
-		acc_c1 = corrects_c1 / torch.numel(ci[sample_mask_c1])
+		acc_c1 = WeightedValue(corrects_c1, torch.numel(ci[sample_mask_c1]))
 
 		corrects8 = (ci_pred[sample_mask8] == ci[sample_mask8]).sum().item()
-		acc_tail8 = corrects8 / torch.numel(ci[sample_mask8])
+		acc_tail8 = WeightedValue(corrects8, torch.numel(ci[sample_mask8]))
 
 		corrects_tip = (ci_pred[:, -1] == ci[:, -1]).sum().item()
-		acc_tip = corrects_tip / torch.numel(ci[:, -1])
+		acc_tip = WeightedValue(corrects_tip, torch.numel(ci[:, -1]))
 
-		metric = dict(loss_orth=loss_orth, acc_full=accuracy, acc_c1=acc_c1, acc_tail8=acc_tail8, acc_tip=acc_tip)
+		metric = dict(loss_orth=WeightedValue(loss_orth.item()), acc_full=accuracy, acc_c1=acc_c1, acc_tail8=acc_tail8, acc_tip=acc_tip)
 
 		if len(sample) > 3:
 			ng_mask = sample[4]
@@ -146,8 +147,8 @@ class MatchJointerLossGeneric (nn.Module):
 			corrects_guid = (ci_pred[guid_mask] == ci[guid_mask]).sum().item()
 			corrects_ng = (ci_pred[ng_ci_mask] == ci[ng_ci_mask]).sum().item()
 
-			metric['acc_guid'] = corrects_guid / max(1, torch.numel(ci[guid_mask]))
-			metric['acc_ng'] = corrects_ng / torch.numel(ci[ng_ci_mask])
+			metric['acc_guid'] = WeightedValue(corrects_guid, torch.numel(ci[guid_mask]))
+			metric['acc_ng'] = WeightedValue(corrects_ng, torch.numel(ci[ng_ci_mask]))
 
 		return loss, metric
 
@@ -158,8 +159,8 @@ class MatchJointerLossGeneric (nn.Module):
 
 	def stat (self, metrics, n_batch):
 		return dict(
-			accuracy={k: v / n_batch for k, v in metrics.items()},
-			acc=metrics[self.main_acc] / n_batch,
+			accuracy={k: v.value for k, v in metrics.items()},
+			acc=metrics[self.main_acc].value,
 		)
 
 
