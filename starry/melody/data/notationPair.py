@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import IterableDataset
 
 from ...utils.parsers import parseFilterStr, mergeArgs
-from ..notation import SPECIAL_PITCH_MAX
+from ..notation import SPECIAL_PITCH_MAX, PITCH_BOS
 
 
 
@@ -42,7 +42,8 @@ class NotationPair (IterableDataset):
 
 
 	def __init__ (self, package, entries, device, shuffle=False, seq_len=0x100, ci_bias_sigma=5, use_cache=False,
-		ci_center_position=0.5, st_scale_sigma=0, ci_bias_constant=-1, random_time0=0., guid_rate=0, guid_rate_sigma=0.4, guid_time=True):
+		ci_center_position=0.5, st_scale_sigma=0, ci_bias_constant=-1, random_time0=0.,
+		guid_rate=0, guid_rate_sigma=0.4, guid_p=0.9, guid_time=True):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -56,6 +57,7 @@ class NotationPair (IterableDataset):
 		self.random_time0 = random_time0
 		self.guid_rate = guid_rate
 		self.guid_rate_sigma = guid_rate_sigma
+		self.guid_p = guid_p
 		self.guid_time = guid_time
 
 		self.entry_cache = {} if use_cache else None
@@ -160,8 +162,9 @@ class NotationPair (IterableDataset):
 					s_guid[-si:] = sample_ctime[s0i:si] - c_time0
 					n_guid = int(self.seq_len * (1 - (1 - self.guid_rate) * np.exp(np.random.randn() * self.guid_rate_sigma)))
 					n_guid = min(n_guid, self.seq_len - 1)
+					s_guid_mask[s_pitch == PITCH_BOS] = True
 					if si > self.seq_len - n_guid:
-						s_guid_mask[-si:n_guid] = True
+						s_guid_mask[-si:n_guid] = torch.rand_like(s_guid_mask[-si:n_guid].float()) < self.guid_p
 					s_ng_mask = torch.logical_not(s_guid_mask)
 					s_guid[s_ng_mask] = 0
 
