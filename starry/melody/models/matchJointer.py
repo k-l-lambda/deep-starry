@@ -94,6 +94,8 @@ class MatchJointerLossGeneric (nn.Module):
 		sample_mask_c1 = torch.logical_and(sample_mask, ci > 0)
 		sample_mask8 = sample_mask.clone()
 		sample_mask8[:, :-8] = False
+		if len(sample) > 3:
+			sample_mask8 = torch.logical_and(sample_mask8, sample[4])
 
 		#loss = self.bce(matching_pred[sample_mask], matching_truth[sample_mask])
 		weight = None

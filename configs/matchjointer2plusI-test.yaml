@@ -18,13 +18,12 @@ model:
     dropout:                0.1
     reg_orthogonality:      0.1
     init_gain_n:            3
-    main_acc:               acc_ng
+    main_acc:               acc_tail8
 
 
 data:
   type:                     NotationPair
-  #root:                     20220705.zip
-  root:                     bach-20230111.zip
+  root:                     20220705-bos.zip
   splits:                   '*1,2/10:9/10'
   batch_size:               4
   args:
@@ -34,8 +33,9 @@ data:
     st_scale_sigma:         0.1
     ci_bias_constant:       -1
     random_time0:           0
-    guid_rate:              0.84
-    guid_rate_sigma:        0.4
+    guid_rate:              0.93
+    guid_rate_sigma:        0.6
+    guid_p:                 0.8
     guid_time:              False
   #args_variant:
 
