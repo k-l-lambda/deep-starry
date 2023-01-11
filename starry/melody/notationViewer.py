@@ -4,6 +4,8 @@ import torch
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
+from .notation import PITCH_BOS
+
 
 
 TIME_SCALE = 1e-3
@@ -67,10 +69,13 @@ class NotationViewer:
 				cti, cpi, cvi = ct[cii].item(), cp[cii].item(), cv[cii].item()
 				#print('si:', si, cii, sti, cti, sgmi)
 
-				if not sgmi:
-					ax.add_patch(patches.Rectangle((sti * TIME_SCALE - 0.15, cti * TIME_SCALE - 0.15), 0.3, 0.3, fill=True, facecolor='g'))
+				x, y = sti * TIME_SCALE, cti * TIME_SCALE
+				if cpi == PITCH_BOS:
+					ax.add_patch(patches.Polygon([(x, y), (x - 0.1, y - 0.3), (x + 0.1, y - 0.3)], fill=True, facecolor='g'))
+				elif not sgmi:
+					ax.add_patch(patches.Rectangle((x - 0.15, y - 0.15), 0.3, 0.3, fill=True, facecolor='g'))
 				else:
-					ax.add_patch(patches.Circle((sti * TIME_SCALE, cti * TIME_SCALE), 0.1, fill=True, facecolor='g'))
+					ax.add_patch(patches.Circle((x, y), 0.1, fill=True, facecolor='g'))
 
 		if matching is not None:
 			#print('matching:', matching.shape, sp.shape)

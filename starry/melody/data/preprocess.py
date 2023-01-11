@@ -10,13 +10,26 @@ import dill as pickle
 import numpy as np
 import torch
 
-from ..notation import VELOCITY_MAX, KEYBOARD_SIZE, KEYBOARD_BEGIN
+from ..notation import VELOCITY_MAX, KEYBOARD_SIZE, KEYBOARD_BEGIN, PITCH_BOS
 
 
 
-def vectorizeNotationFile (file, with_ci=False):
+def vectorizeNotationFile (file, with_ci=False, append_bos=False):
 	notation = json.load(file)
 	notes = notation['notes']
+
+	if append_bos:
+		if with_ci:
+			for note in notes:
+				note['ci'] += 1
+
+		note0 = notes[0]
+		notes.insert(0, {
+			'start': note0['start'],
+			'pitch': PITCH_BOS,
+			'velocity': 0,
+			'ci': 0,
+		})
 
 	data = {
 		'time': torch.tensor([note['start'] for note in notes], dtype=torch.float32),
@@ -115,13 +128,13 @@ def preprocessDataset (source_dir, target_path):
 
 	for dirname in tqdm(dir_list, desc='Preprocess groups'):
 		criterion_file = open(os.path.join(source_dir, dirname, 'criterion.json'), 'r')
-		criterion = vectorizeNotationFile(criterion_file)
+		criterion = vectorizeNotationFile(criterion_file, append_bos=True)
 
 		sample_index = 0
 		samples = []
 		while os.path.exists(os.path.join(source_dir, dirname, f'{sample_index}.json')):
 			sample_file = open(os.path.join(source_dir, dirname, f'{sample_index}.json'), 'r')
-			samples.append(vectorizeNotationFile(sample_file, with_ci=True))
+			samples.append(vectorizeNotationFile(sample_file, with_ci=True, append_bos=True))
 
 			sample_index += 1
 
