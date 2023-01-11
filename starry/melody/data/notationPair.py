@@ -8,6 +8,7 @@ import torch
 from torch.utils.data import IterableDataset
 
 from ...utils.parsers import parseFilterStr, mergeArgs
+from ..notation import SPECIAL_PITCH_MAX
 
 
 
@@ -146,7 +147,12 @@ class NotationPair (IterableDataset):
 
 					s_time, s_pitch, s_velocity, ci = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long), torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long)
 					s_time[-si:] = (sample['time'][s0i:si] - s_time0) * st_scale
-					s_pitch[-si:] = sample['pitch'][s0i:si] + pitch_bias
+
+					sps = sample['pitch'][s0i:si]
+					sample_special_pitch = sps < SPECIAL_PITCH_MAX
+					s_pitch[-si:] = sps + pitch_bias
+					s_pitch[-si:][sample_special_pitch] = sps[sample_special_pitch]
+
 					s_velocity[-si:] = sample['velocity'][s0i:si] + velocity_bias
 					ci[-si:] = cis
 
@@ -163,7 +169,12 @@ class NotationPair (IterableDataset):
 
 					c_time, c_pitch, c_velocity = torch.zeros(self.seq_len, dtype=torch.float32), torch.zeros(self.seq_len, dtype=torch.long), torch.zeros(self.seq_len, dtype=torch.float32)
 					c_time[:ci_range_len] = criterion['time'][ci_range[0]:ci_range[1]] - c_time0
-					c_pitch[:ci_range_len] = criterion['pitch'][ci_range[0]:ci_range[1]] + pitch_bias
+
+					cps = criterion['pitch'][ci_range[0]:ci_range[1]]
+					criterion_special_pitch = cps < SPECIAL_PITCH_MAX
+					c_pitch[:ci_range_len] = cps + pitch_bias
+					c_pitch[:ci_range_len][criterion_special_pitch] = cps[criterion_special_pitch]
+
 					c_velocity[:ci_range_len] = criterion['velocity'][ci_range[0]:ci_range[1]]
 
 					if self.random_time0 > 0:
