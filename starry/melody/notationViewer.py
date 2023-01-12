@@ -71,7 +71,7 @@ class NotationViewer:
 
 				x, y = sti * TIME_SCALE, cti * TIME_SCALE
 				if cpi == PITCH_BOS:
-					ax.add_patch(patches.Polygon([(x, y), (x - 0.1, y - 0.3), (x + 0.1, y - 0.3)], fill=True, facecolor='g'))
+					ax.add_patch(patches.Polygon([(x, y), (x - 0.1, y - 0.45), (x + 0.1, y - 0.45)], fill=True, facecolor='g'))
 				elif not sgmi:
 					ax.add_patch(patches.Rectangle((x - 0.15, y - 0.15), 0.3, 0.3, fill=True, facecolor='g'))
 				else:
@@ -91,5 +91,5 @@ class NotationViewer:
 							is_pred = cii == cii_pred
 
 							ax.add_patch(patches.Circle((sti * TIME_SCALE, cti * TIME_SCALE), p * 0.4,
-								fill=True, alpha=0.8 if is_pred else 0.3,
+								fill=True, alpha=0.7 if is_pred else 0.3,
 								facecolor=('c' if is_truth else 'r') if is_pred else 'm'))
