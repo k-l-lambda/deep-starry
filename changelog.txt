@@ -5,6 +5,8 @@ TODO:
 
 2023.1.13
 
+	+	matchJointer.py: option of softindex_scale added.
+
 	+	melody/models/modules.py: added SoftIndex.
 
 

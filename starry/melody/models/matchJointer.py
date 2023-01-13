@@ -315,10 +315,10 @@ class MatchJointer2PlusLoss (MatchJointerLossGeneric):
 class MatchJointer2PlusI (nn.Module):
 	def __init__ (self, n_layers_ce=1, n_layers_se=1, n_layers_sd=1,
 			d_model=128, d_time=16, angle_cycle=10e+3, d_inner=512, n_head=8, d_k=64, d_v=64,
-			dropout=0.1, scale_emb=False, **_):
+			softindex_scale=0, dropout=0.1, scale_emb=False, **_):
 		super().__init__()
 
-		self.note_encoder = NoteEncoder2(d_model=d_model, d_time=d_time, angle_cycle=angle_cycle)
+		self.note_encoder = NoteEncoder2(d_model=d_model, d_time=d_time, angle_cycle=angle_cycle, softindex_scale=softindex_scale)
 
 		self.guid_encoder = TimeGuidEncoder(d_model=d_model, d_time=d_time, angle_cycle=angle_cycle)
 

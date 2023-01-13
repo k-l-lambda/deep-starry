@@ -18,6 +18,7 @@ model:
     reg_orthogonality:      1.e-2
     init_gain_n:            3
     exp_focal:              -8
+    softindex_scale:        64
     main_acc:               acc_tail8
 
 

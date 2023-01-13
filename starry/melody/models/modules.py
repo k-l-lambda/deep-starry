@@ -241,8 +241,10 @@ class SoftIndex (nn.Module):
 
 
 class NoteEncoder2 (nn.Module):
-	def __init__ (self, d_model=128, d_time=64, angle_cycle=100000):
+	def __init__ (self, d_model=128, d_time=64, angle_cycle=100000, softindex_scale=0):
 		super().__init__()
+
+		self.softindex = SoftIndex(scale=softindex_scale) if softindex_scale > 0 else None
 
 		self.time_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_time)
 		self.embed = nn.Linear(d_time + PITCH_OCTAVE_MAX + PITCH_OCTAVE_SIZE + 1, d_model)
@@ -251,6 +253,9 @@ class NoteEncoder2 (nn.Module):
 	# x: (time, pitch, velocity)
 	def forward (self, x):
 		time, pitch, velocity = x
+
+		if self.softindex is not None:
+			time = self.softindex(time)
 
 		vec_time = self.time_encoder(time)	# (n, seq, d_time)
 		vec_pitch = encodePitchByOctave(pitch.long())	# (n, seq, PITCH_OCTAVE_MAX + PITCH_OCTAVE_SIZE)
