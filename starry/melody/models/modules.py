@@ -225,10 +225,10 @@ class SoftIndex (nn.Module):
 
 		mtx_diff = torch.diag(torch.ones(seq_len), 0) - torch.diag(torch.ones(seq_len - 1), -1)
 		mtx_diff[0, 0] = 0
-		mtx_diff = self.mtx_diff[None, :, :]
+		mtx_diff = mtx_diff[None, :, :]
 
 		mtx_sum = 1 - torch.triu(torch.ones(seq_len, seq_len), diagonal=1)
-		mtx_sum = self.mtx_sum[None, :, :]
+		mtx_sum = mtx_sum[None, :, :]
 
 		self.register_buffer('mtx_diff', mtx_diff, persistent=False)
 		self.register_buffer('mtx_sum', mtx_sum, persistent=False)
