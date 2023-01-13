@@ -3,6 +3,11 @@ TODO:
 
 
 
+2023.1.13
+
+	+	melody/models/modules.py: added SoftIndex.
+
+
 2023.1.11
 
 	+	preprocess.py: prepended BOS on examples.

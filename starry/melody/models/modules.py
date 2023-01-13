@@ -217,6 +217,29 @@ def encodePitchByOctave (pitch):
 	return torch.cat([vec_octave, vec_step], dim=-1)		# (..., PITCH_OCTAVE_MAX + PITCH_OCTAVE_SIZE)
 
 
+class SoftIndex (nn.Module):
+	def __init__ (self, seq_len=64, scale=1):
+		super().__init__()
+
+		self.scale = scale
+
+		self.mtx_diff = torch.diag(torch.ones(seq_len), 0) - torch.diag(torch.ones(seq_len - 1), -1)
+		self.mtx_diff[0, 0] = 0
+		self.mtx_diff = self.mtx_diff[None, :, :]
+
+		self.mtx_sum = 1 - torch.triu(torch.ones(seq_len, seq_len), diagonal=1)
+		self.mtx_sum = self.mtx_sum[None, :, :]
+
+
+	# x shape: (n, seq)
+	def forward (self, x):
+		x = self.mtx_diff.matmul(x[:, :, None])
+		x = torch.tanh(x / self.scale)
+		x = self.mtx_sum.matmul(x)
+
+		return x[:, :, 0]
+
+
 class NoteEncoder2 (nn.Module):
 	def __init__ (self, d_model=128, d_time=64, angle_cycle=100000):
 		super().__init__()
