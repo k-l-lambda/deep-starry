@@ -236,11 +236,17 @@ class SoftIndex (nn.Module):
 
 	# x shape: (n, seq)
 	def forward (self, x):
+		x_abs = x.abs()
+		min_indices = torch.eq(x_abs, x_abs.min(-1).values[:, None])
+
 		x = self.mtx_diff.matmul(x[:, :, None])
 		x = torch.tanh(x / self.scale)
-		x = self.mtx_sum.matmul(x)
+		x = self.mtx_sum.matmul(x)[:, :, 0]
 
-		return x[:, :, 0]
+		i0 = x[min_indices][:, None]
+		x -= i0
+
+		return x
 
 
 class NoteEncoder2 (nn.Module):

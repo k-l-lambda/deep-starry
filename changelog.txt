@@ -3,6 +3,11 @@ TODO:
 
 
 
+2023.1.16
+
+	+	melody/models/modules.py: added zero bias in SoftIndex.
+
+
 2023.1.13
 
 	+	matchJointer.py: option of softindex_scale added.
