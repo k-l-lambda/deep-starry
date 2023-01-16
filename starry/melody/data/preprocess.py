@@ -5,7 +5,7 @@ import yaml
 from fs import open_fs
 from zipfile import ZipFile, ZIP_STORED
 from tqdm import tqdm
-#import logging
+import logging
 import dill as pickle
 import numpy as np
 import torch
@@ -134,7 +134,12 @@ def preprocessDataset (source_dir, target_path):
 		samples = []
 		while os.path.exists(os.path.join(source_dir, dirname, f'{sample_index}.json')):
 			sample_file = open(os.path.join(source_dir, dirname, f'{sample_index}.json'), 'r')
-			samples.append(vectorizeNotationFile(sample_file, with_ci=True, append_bos=True))
+			sample = vectorizeNotationFile(sample_file, with_ci=True, append_bos=True)
+			invalid_ci = [ci.item() for ci in sample['ci'] if ci < -1 or ci >= len(criterion['time'])]
+			if len(invalid_ci) > 0:
+				logging.warn('invalid ci: %s, %d, %s', dirname, sample_index, invalid_ci)
+				raise Exception('Invalid CI')
+			samples.append(sample)
 
 			sample_index += 1
 

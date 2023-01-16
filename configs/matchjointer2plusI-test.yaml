@@ -24,7 +24,7 @@ model:
 
 data:
   type:                     NotationPair
-  root:                     20220705-bos.zip
+  root:                     note-20230116.zip
   splits:                   '*1,2/10:9/10'
   batch_size:               4
   args:
