@@ -29,7 +29,7 @@ data:
   batch_size:               4
   args:
     seq_len:                64
-    ci_bias_sigma:          5
+    ci_bias_sigma:          1
     ci_center_position:     0.28
     st_scale_sigma:         0.06
     ci_bias_constant:       -1
