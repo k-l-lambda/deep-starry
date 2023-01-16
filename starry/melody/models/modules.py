@@ -236,7 +236,7 @@ class SoftIndex (nn.Module):
 
 	# x shape: (n, seq)
 	def forward (self, x):
-		x_abs = x.abs()
+		x_abs = (x + torch.arange(x.shape[1], device=x.device)[None, :] * 1e-6).abs()
 		min_indices = torch.eq(x_abs, x_abs.min(-1).values[:, None])
 
 		x = self.mtx_diff.matmul(x[:, :, None])
