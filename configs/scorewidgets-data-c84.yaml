@@ -1,0 +1,83 @@
+
+id:     score-vision/{date}-{filename}
+
+data:
+  type:           RenderScore
+  root:           working/test/
+  splits:         '*1,2,3,4,5,6,7,8/10:9/1000'
+  batch_size:     1
+  args:
+    labels:                   [
+                                ClefG, ClefF, ClefC,
+                                NoteheadS0, NoteheadS1, NoteheadS2,
+                                Rest0, Rest1, Rest2, Rest3, Rest4, Rest5, Rest6,
+                                Dot, Flag3,
+                                AccNatural, AccSharp, AccFlat, AccDoublesharp, AccFlatflat,
+                                TimesigC44, TimesigC22, TimesigZero, TimesigOne, TimesigTwo, TimesigThree, TimesigFour, TimesigFive, TimesigSix, TimesigSeven, TimesigEight, TimesigNine,
+                                OctaveShift8, OctaveShift0,
+                                One, Two, Three, Four, Five,
+                                f, p, m, s, z,
+                                ScriptFermata, ScriptSforzato, ScriptStaccato, ScriptStaccatissimo, ScriptTurn, ScriptTrill, ScriptSegno, ScriptCoda, ScriptArpeggio, ScriptPrall, ScriptMordent, ScriptTenuto, PedalStar, PedalPed,
+                                VoltaLeft, VoltaRight,
+                                vline_BarMeasure, vline_Stem, vline_BarTerminal, vline_BarSegment,
+                                rect_Lyric,
+                                SlurBegin, SlurEnd, CrescendoBegin, CrescendoEnd, DecrescendoBegin, DecrescendoEnd,
+                                TremoloLeft, TremoloRight, TremoloMiddle,
+                                KeyAcc, TempoNotehead, GraceNotehead, BeamLeft, BeamRight, BeamContinue, SignLined, SignInterval, StemTip, StemHead,
+                              ]
+    trans:                    [Mono, HWC2CHW, Tar_STDgray, Tar_HWC2CHW]
+    slicing_width:            512
+    unit_size:                8
+    input_mask:               False
+    cache_labels:             True
+    crop_margin:              136
+    augmentor:
+      tinter:
+        fore_pow:             4.
+        fore_sigma:           0.1
+        fore_scale_range:     [40, 100]
+        fore_blur_range:      [0, 1]
+        back_pow:             3.
+        back_sigma:           0.1
+        back_scale_range:     [0.1, 0.5]
+        back_blur_range:      [0, 8]
+      gaussian_noise:
+        sigma:                0.01
+      gaussian_blur:
+        sigma:                0.4
+      distortion:
+        noise:                temp/perlin-12.npy
+        scale:                1.4
+        scale_sigma:          0.2
+        intensity:            0.03
+        intensity_sigma:      0.4
+        squeeze_sigma:        0
+        target_border:        BORDER_REPLICATE
+
+trainer:
+  device:         cuda
+  save_mode:      best
+  gpus:           1
+  epochs:         5
+  epoch_size:     200
+  moniter:
+    field:        contour
+    mode:         max
+
+optim:
+  type:                   Adam
+  args:
+    betas:                [0.9, 0.9999]
+    eps:                  1.e-8
+  scheduler:
+    type:                 Exp
+    args:
+      lr_mul:             1.e-3
+      min_lr:             1.e-6
+      decay_rate:         0.98
+      n_warmup_steps:     10000
+
+
+_copy_fileds:
+- [model.args.labels,         data.args.labels]
+- [model.args.unit_size,      data.args.unit_size]

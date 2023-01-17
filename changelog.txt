@@ -5,6 +5,56 @@ TODO:
 
 
 
+2022.12.2
+
+	+	scoreResidueU.py: move freeze options into loss model.
+
+	+	trainerQuantitative.py: detach when send parameters.
+
+
+2022.11.30
+
+	+	scoreResidueU.py: added option of sigmoid_once.
+
+
+2022.11.23
+
+	+	augmentor.py: added option of affine.std_size.
+
+	+	scoreResidueU.py: channel_weights added.
+
+
+2022.11.16
+
+	+	validateMeasure.py created.
+
+	+	scoreGauge.py: added middle focus on mask.
+
+
+2022.11.15
+
+	+	scoreRegression.py: added backbone type of unet_ddpm.
+
+	+	scoreGauge.py: added option of mask_bg_value.
+
+	+	slicedScore.py: crop margin for training dataset.
+
+
+2022.11.14
+
+	+	scoreRegression.py: model class of ScoreRegressionLoss added.
+
+
+2022.11.10
+
+	+	distorter.py: added squeeze.
+
+
+2022.6.29
+
+	+	topology: model class of RectifySieveJointer2 added.
+
+
 2022.5.11
 
 	+	utils/check_host.py created.

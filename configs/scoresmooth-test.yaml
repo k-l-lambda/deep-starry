@@ -10,10 +10,19 @@ model:
     loss_gradient0:         0
     channel_weights:        [1, 20]
     loss_func:              mse_loss
+    init_param:             False
     backbone:
-      type:                 unet
-      unet_depth:           6
-      unet_init_width:      32
+      type:                 unet_ddpm
+      args:
+        model_channels:           32
+        num_res_blocks:           2
+        attention_resolutions:    [32]
+        dropout:                  0.1
+        channel_mult:             [1, 2, 4, 8, 16, 32]
+        conv_resample:            True
+        num_heads:                1
+        num_heads_upsample:       -1
+        use_scale_shift_norm:     False
 
 data:
   type:           ScoreGauge
@@ -28,7 +37,6 @@ data:
     y_unit:                   8
     with_mask:                True
     mask_bg_value:            0.06
-    mask_decay_radius:        8
     augmentor:
       tinter:
         fore_pow:             5.
@@ -72,6 +80,6 @@ optim:
     type:                 Exp
     args:
       lr_mul:             1.e-3
-      min_lr:             1.e-9
+      min_lr:             1.e-6
       decay_rate:         0.98
       n_warmup_steps:     5000

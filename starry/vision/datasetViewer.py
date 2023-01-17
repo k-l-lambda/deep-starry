@@ -158,15 +158,14 @@ def gaugeToFrame (gauge):	# gauge: [Y(h, w), K(h, w)]
 
 
 def gaugeToFrameFeature (gauge, feature):
-	frame = gaugeToFrame(gauge)
+	frame = gaugeToFrame(gauge).astype(np.float32)
 
-	inv_feature = np.uint8((255 - np.minimum(np.float32(feature) + 64, 255)))
+	inv_feature = 255 - np.minimum(np.float32(feature) + 64, 255)
+	inv_feature = np.clip(inv_feature, 0, 255)
 
-	frame[:, :, 0] = np.maximum(inv_feature, frame[:, :, 0])
-	frame[:, :, 1] = np.maximum(inv_feature, frame[:, :, 1])
-	frame[:, :, 2] = np.maximum(inv_feature, frame[:, :, 2])
+	inv_feature = np.tile(inv_feature[:, :, None], (1, 1, 3))
 
-	return frame
+	return (frame + inv_feature).clip(0, 255).astype(np.uint8)
 
 
 def scoreAnnoGauge (feature, targets, predictions=None):

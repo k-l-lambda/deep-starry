@@ -7,7 +7,7 @@ import PIL.Image
 import cv2
 import numpy as np
 import random
-#import logging
+import logging
 
 
 
@@ -15,6 +15,10 @@ MARGIN_DIVIDER = 8
 
 
 def arrayFromImageStream (buffer):
+	if type(buffer) is not bytes:
+		logging.warn('[arrayFromImageStream]: input data is not bytes: %s', type(buffer))
+		return None
+
 	stream = io.BytesIO(buffer)
 	image = PIL.Image.open(stream)
 
@@ -114,9 +118,14 @@ def spliceOutputTensor (tensor, keep_margin=False, soft=False, margin_divider=MA
 	return splicePieces(arr, margin_divider, keep_margin=keep_margin)
 
 
-def randomSliceImage (source, target, width):	# (256, w, 3), (256, w, labels)
+def randomSliceImage (source, target, width, crop_margin=0):	# (256, w, 3), (256, w, labels)
 	ratio = source.shape[0] // target.shape[0]
 	tw = width // ratio
+
+	if crop_margin > 0:
+		target_cm = crop_margin // ratio
+		source = source[:, crop_margin:-crop_margin]
+		target = target[:, target_cm:-target_cm]
 
 	sliced_source, sliced_target = None, None
 
@@ -147,13 +156,16 @@ def iterateSliceImage (source, target, width, overlapping=0.25, crop_margin=0):
 		sliced_source = np.ones((source.shape[0], width, source.shape[2]), dtype=np.float32)
 		sliced_target = np.zeros((target.shape[0], tw, target.shape[2]), dtype=np.float32)
 
-		tx = x // ratio
-		if x + width <= source.shape[1]:
-			sliced_source = source[:, x:x + width, :]
+		# avoid large empty area at last clipping
+		x_ = max(min(x, source.shape[1] - width - crop_margin), 0)
+
+		tx = x_ // ratio
+		if x_ + width <= source.shape[1]:
+			sliced_source = source[:, x_:x_ + width, :]
 			sliced_target = target[:, tx:tx + tw, :]
 		else:
 			# fill zeros for right residue
-			sliced_source[:, :source.shape[1] - x, :] = source[:, x:, :]
+			sliced_source[:, :source.shape[1] - x_, :] = source[:, x_:, :]
 			sliced_target[:, :target.shape[1] - tx, :] = target[:, tx:, :]
 
 		yield sliced_source, sliced_target

@@ -8,6 +8,7 @@ from tqdm import tqdm
 import logging
 import shutil
 import time
+import math
 
 from .optim import optim
 from .model_factory import loadModel
@@ -59,6 +60,9 @@ class Trainer:
 		self.rank = rank
 		self.role = 'TR' if rank == Trainer.TRAINER_RANK else 'VA'
 
+		if self.options.get('env'):
+			config.setEnv(self.options['env'])
+
 		self.start_epoch = 0
 
 		self.model = loadModel(config['model'], postfix='Loss')
@@ -80,7 +84,7 @@ class Trainer:
 		logging.info(f'[{self.role}]	' + message, *args)
 
 
-	def print_performances(self, loss, metric, start_time, lr):
+	def print_performances(self, loss, metric, start_time, lr=math.nan):
 		self.log('loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
 			.format(loss=loss, metric=print_metric(metric), elapse=(time.time()-start_time)/60, lr=lr))
 
@@ -92,7 +96,7 @@ class Trainer:
 
 	def broadcastParam (self, parameters, src):
 		for param in parameters:
-			torch.distributed.broadcast(param, src=src)
+			torch.distributed.broadcast(param.detach() if src == self.rank else param, src=src)
 
 
 	def broadcastScalar (self, scalar=None, src=0):
@@ -118,7 +122,7 @@ class Trainer:
 
 		if self.config['trainer.latest']:
 			self.log('Syncing training model parameters...')
-			self.model.requires_grad_(False)
+			#self.model.requires_grad_(False)
 			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 
 		data_it = self.infiniteTraverse(data)
@@ -132,7 +136,7 @@ class Trainer:
 
 			start = time.time()
 
-			self.model.train().requires_grad_(True)
+			self.model.train()
 			total_loss, n_batch = 0, 0
 			metric_data = {}
 
@@ -174,7 +178,6 @@ class Trainer:
 			torch.save(checkpoint, self.config.localPath('latest.chkpt'))	# NOTE: nccl backend will stuck here
 
 			self.log('Syncing training model parameters...')
-			self.model.requires_grad_(False)
 			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 
 			self.config.load()
@@ -236,7 +239,7 @@ class Trainer:
 
 				val_loss = total_loss / n_batch
 
-				self.print_performances(val_loss, metrics, start, 0)
+				self.print_performances(val_loss, metrics, start)
 
 				moniter_value, new_record = self.moniter.update({
 					**metrics,
@@ -245,11 +248,13 @@ class Trainer:
 
 				model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3f}.chkpt'
 				if self.options['save_mode'] == 'all':
-					shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
+					if os.path.isfile(self.config.localPath('latest.chkpt')):
+						shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
 					time.sleep(1)
 				elif self.options['save_mode'] == 'best':
 					if new_record or epoch_i == 0:
-						shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
+						if os.path.isfile(self.config.localPath('latest.chkpt')):
+							shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
 						time.sleep(1)
 
 						checkpoint = {

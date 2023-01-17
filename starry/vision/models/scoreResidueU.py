@@ -18,13 +18,13 @@ class ScoreResidueBlockUnet (nn.Module):
 	def forwardBase (self, input):
 		x = self.backbone(input)
 
-		return torch.sigmoid(x)
+		return x
 
 	def forwardRes (self, input, prev):
-		x = torch.cat([input, prev], dim = 1)
+		x = torch.cat([input, prev], dim=1)
 		x = self.backbone(x)
 
-		return torch.sigmoid(prev + x)
+		return prev + x
 
 
 class ScoreResidueBlockUnetBase (ScoreResidueBlockUnet):
@@ -46,11 +46,10 @@ class ScoreResidueBlockUnetRes (ScoreResidueBlockUnet):
 class ScoreResidueU (nn.Module):
 	def __init__ (self, in_channels, out_channels, residue_blocks,
 		base_depth, base_init_width, residue_depth=4, residue_init_width=64,
-		freeze_base=False, frozen_res=0, **args):
+		sigmoid_once=False, **args):
 		super().__init__()
 
-		self.freeze_base = freeze_base
-		self.frozen_res = frozen_res
+		self.sigmoid_once = sigmoid_once
 
 		self.base_block = ScoreResidueBlockUnetBase(in_channels=in_channels, out_channels=out_channels, depth=base_depth, init_width=base_init_width)
 		self.res_blocks = nn.ModuleList(modules=[
@@ -58,21 +57,22 @@ class ScoreResidueU (nn.Module):
 				for i in range(residue_blocks)
 		])
 
-		if self.freeze_base:
-			for param in self.base_block.parameters():
-				param.requires_grad = False
-
-		for l in range(self.frozen_res):
-			for param in self.res_blocks[l].parameters():
-				param.requires_grad = False
-
 		self.no_overwrite = False
 
 	def forward (self, input):
 		x = self.base_block(input)
 
+		if not self.sigmoid_once:
+			x = torch.sigmoid(x)
+
 		for block in self.res_blocks:
 			x = block(input, x)
+
+			if not self.sigmoid_once:
+				x = torch.sigmoid(x)
+
+		if self.sigmoid_once:
+			x = torch.sigmoid(x)
 
 		return x
 
@@ -101,26 +101,47 @@ class ScoreResidueU (nn.Module):
 				for i in range(len(res), len(self.res_blocks)):
 					self.res_blocks[i].load_state_dict(res[-1])
 
+
+class ScoreResidueULoss (nn.Module):
+	def __init__(self, compounder, out_channels=3, channel_weights=None, freeze_base=False, frozen_res=0, **kw_args):
+		super().__init__()
+
+		self.freeze_base = freeze_base
+		self.frozen_res = frozen_res
+
+		channel_weights = torch.Tensor(channel_weights) if channel_weights else torch.ones((out_channels))
+		self.register_buffer('channel_weights', channel_weights.view((1, out_channels, 1, 1)), persistent=False)
+
+		self.deducer = ScoreResidueU(out_channels=out_channels, **kw_args)
+		self.compounder = Compounder(compounder)
+
+		if self.freeze_base:
+			for param in self.deducer.base_block.parameters():
+				param.requires_grad = False
+
+		for l in range(self.frozen_res):
+			for param in self.deducer.res_blocks[l].parameters():
+				param.requires_grad = False
+
 	# overload
 	def train (self, mode=True):
-		self.base_block.train(mode and not self.freeze_base)
+		self.training = mode
 
-		for i, block in enumerate(self.res_blocks):
+		self.deducer.base_block.train(mode and not self.freeze_base)
+
+		for i, block in enumerate(self.deducer.res_blocks):
 			frozen = i < self.frozen_res
 			block.train(mode and not frozen)
 
+		return self
 
-class ScoreResidueULoss (nn.Module):
-	def __init__(self, compounder, **kw_args):
-		super().__init__()
-
-		self.deducer = ScoreResidueU(**kw_args)
-		self.compounder = Compounder(compounder)
+	def training_parameters (self):
+		return list(self.deducer.parameters()) + list(self.deducer.buffers())
 
 	def forward (self, batch):
 		feature, target = batch
 		pred = self.deducer(feature)
-		loss = nn.functional.binary_cross_entropy(pred, target)
+		loss = nn.functional.binary_cross_entropy(pred, target, weight=self.channel_weights)
 
 		metric = {'acc': -math.log(loss.item())}
 

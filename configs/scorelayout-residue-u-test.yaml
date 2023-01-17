@@ -9,7 +9,9 @@ model:
     residue_blocks:         0
     base_depth:             4
     base_init_width:        64
+    channel_weights:        [1, 4, 2]
     freeze_base:            False
+    sigmoid_once:           True
     compounder:
       list:
         - label:              box_Staff
@@ -20,7 +22,7 @@ model:
 data:
   type:           ScorePage
   root:           testPage/
-  splits:         '*1,2,3,4,5,6,7,8/10:0/10'
+  splits:         '*1..8/10:0/10'
   batch_size:     1
   args:
     trans:                    [HWC2CHW, Tar_STDgray, Tar_HWC2CHW]
@@ -28,44 +30,54 @@ data:
       skip_p:                 0.1
       aa_scale:               2
       tinter:
-        fore_pow:             6.
-        fore_sigma:           0.6
-        fore_scale_range:     [40, 100]
+        fore_pow:             9.
+        fore_sigma:           0.2
+        fore_scale_range:     [12, 100]
         fore_blur_range:      [0, 1]
-        back_pow:             8.
-        back_sigma:           0.24
-        back_scale_range:     [0.1, 1.6]
-        back_blur_range:      [0, 8]
+        back_pow:             6.
+        back_sigma:           0.3
+        back_scale_range:     [0.1, 1.2]
+        back_blur_range:      [0, 3]
       gaussian_noise:
         sigma:                0.03
       affine:
         padding_scale:        1.06
         angle_sigma:          1.
-        scale_sigma:          0.6
-        scale_mu:             0.6
-        scale_limit:          1.
-        size_limit:           800
+        scale_sigma:          0.3
+        scale_mu:             1
+        #scale_limit:          1.
+        size_limit:           1200
+        std_size:             720
       crease:
         intensity:            4
         margin:               0.02
         width:                0.03
         flip_p:               0.7
       gaussian_blur:
-        sigma:                1.5
+        sigma:                1.2
       flip_mark:
         intensity_range:      [0, 0.1]
       distortion:   
         scale:                2
         scale_sigma:          0.4
-        intensity:            1.2
-        intensity_sigma:      0.6
+        intensity:            0.8
+        intensity_sigma:      0.3
+        squeeze_sigma:        0.2
+        noise_weights_sigma:  1
+        noise:                temp/perlin-4.npy
   args_variant:
     1:
       augmentor:
-        skip_p:                 0.5
+        skip_p:               0.3
         distortion:
-          intensity:            0.01
-          intensity_sigma:      0.4
+          intensity:          0.2
+        flip_mark:
+          intensity_range:    [0, 0.06]
+        tinter:
+          back_sigma:         0.1
+          fore_sigma:         0.06
+      gaussian_noise:
+        sigma:                0.01
 
 trainer:
   device:         cpu
@@ -83,7 +95,7 @@ optim:
   scheduler:
     type:                 Exp
     args:
-      lr_mul:             1.e-4
-      min_lr:             1.e-6
-      decay_rate:         0.92
-      n_warmup_steps:     200
+      lr_mul:             2.e-4
+      min_lr:             1.e-7
+      decay_rate:         0.998
+      n_warmup_steps:     80000

@@ -94,6 +94,8 @@ class Augmentor:
 					'intensity':	DISTORTION['intensity'],
 					'intensity_sigma':	DISTORTION['intensity_sigma'],
 					'noise_weights_sigma':	DISTORTION.get('noise_weights_sigma', 1),
+					'squeeze_sigma': DISTORTION.get('squeeze_sigma', 0.2),
+					'target_border': DISTORTION.get('target_border', 'BORDER_TRANSPARENT'),
 				}
 
 			if options.get('gaussian_noise'):
@@ -110,6 +112,7 @@ class Augmentor:
 					'scale_limit': AFFINE.get('scale_limit', float('inf')),
 					'size_limit': AFFINE.get('size_limit', float('inf')),
 					'size_fixed': AFFINE.get('size_fixed'),
+					'std_size': AFFINE.get('std_size'),
 					'round': AFFINE.get('round', 4),
 				}
 
@@ -130,6 +133,8 @@ class Augmentor:
 				self.gaussian_blur = options['gaussian_blur']['sigma']
 
 	def augment (self, source, target=None):
+		w, h, _ = source.shape
+
 		if self.skip_p > 0 and np.random.random() < self.skip_p:
 			if self.affine and (self.affine['size_limit'] or self.affine['size_fixed']) or self.affine['scale_mu'] != 1:
 				scale = min(math.exp(math.log(self.affine['scale_mu']) + np.random.randn() * self.affine['scale_sigma']), self.affine['scale_limit'])
@@ -180,7 +185,8 @@ class Augmentor:
 			source[:, :, 0] = source[:, :, 0] * bar
 
 		if self.affine:
-			scale = min(math.exp(math.log(self.affine['scale_mu']) + np.random.randn() * self.affine['scale_sigma']), self.affine['scale_limit'])
+			std_scale = self.affine['std_size'] / max(w, h) if self.affine['std_size'] is not None else 1
+			scale = std_scale * min(math.exp(math.log(self.affine['scale_mu']) + np.random.randn() * self.affine['scale_sigma']), self.affine['scale_limit'])
 			angle = np.random.randn() * self.affine['angle_sigma']
 
 			padding_scale = self.affine['padding_scale']
@@ -209,15 +215,16 @@ class Augmentor:
 		if self.distorter:
 			scale = self.distortion['scale'] * math.exp(np.random.randn() * self.distortion['scale_sigma'])
 			intensity = self.distortion['intensity'] * math.exp(np.random.randn() * self.distortion['intensity_sigma'])
-			nx, ny = self.distorter.make_maps(source.shape, scale, intensity, self.distortion['noise_weights_sigma'])
+			nx, ny = self.distorter.make_maps(source.shape, scale, intensity, self.distortion['noise_weights_sigma'], squeeze=self.distortion['squeeze_sigma'])
 
-			source = self.distorter.distort(source, nx, ny, borderMode=cv2.BORDER_REFLECT_101)
+			#source = self.distorter.distort(source, nx, ny, borderMode=cv2.BORDER_REFLECT_101)
+			source = self.distorter.distort(source, nx, ny, borderMode=cv2.BORDER_REPLICATE)
 
 			if target is not None:
 				if self.aa_scale > 1:
 					nx = cv2.resize(nx, (nx.shape[1] * self.aa_scale, nx.shape[0] * self.aa_scale), interpolation=cv2.INTER_LINEAR) * self.aa_scale
 					ny = cv2.resize(ny, (ny.shape[1] * self.aa_scale, ny.shape[0] * self.aa_scale), interpolation=cv2.INTER_LINEAR) * self.aa_scale
-				target = self.distorter.distort(target, nx, ny)
+				target = self.distorter.distort(target, nx, ny, borderMode=getattr(cv2, self.distortion['target_border']))
 
 			if len(source.shape) < 3:
 				source = np.expand_dims(source, -1)

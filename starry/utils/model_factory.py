@@ -1,5 +1,6 @@
 
 import torch
+import logging
 
 
 
@@ -11,6 +12,7 @@ def registerModels ():
 
 	from ..topology.models import jointers as tj
 	from ..topology.models import rectifyJointer as tr
+	from ..topology.models import rectifyJointer2 as tr2
 	from ..vision import models as vm
 
 	classes = [
@@ -22,9 +24,10 @@ def registerModels ():
 		tj.TransformSieveJointerH, tj.TransformSieveJointerHLoss,
 		tj.TransformSieveJointerHV, tj.TransformSieveJointerHVLoss,
 		tr.RectifySieveJointer, tr.RectifySieveJointerLoss,
+		tr2.RectifySieveJointer2, tr2.RectifySieveJointer2Loss,
 		vm.ScoreWidgets, vm.ScoreWidgetsInspection, vm.ScoreWidgetsLoss,
 		vm.ScoreWidgetsMask, vm.ScoreWidgetsMaskLoss,
-		vm.ScoreRegression,
+		vm.ScoreRegression, vm.ScoreRegressionLoss,
 		vm.ScoreResidue, vm.ScoreResidueInspection,
 		vm.ScoreResidueU, vm.ScoreResidueUInspection, vm.ScoreResidueULoss,
 		vm.ScoreSemanticValue, vm.ScoreSemanticValueLoss,
@@ -57,5 +60,6 @@ def loadModelAndWeights (config, checkpoint_name=None, device='cpu'):
 	if checkpoint_name is not None:
 		checkpoint = torch.load(config.localPath(checkpoint_name), map_location=device)
 		model.load_state_dict(checkpoint['model'])
+		logging.info('Weights file loaded: %s', config.localPath(checkpoint_name))
 
 	return model, checkpoint
