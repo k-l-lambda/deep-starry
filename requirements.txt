@@ -9,3 +9,5 @@ pyyaml>=5.4.1
 msgpack==1.0.3
 zmq>=0.0.0
 opencv-python>=4.5.1.48
+torch
+torchvision
