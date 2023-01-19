@@ -62,7 +62,7 @@ class Stamp (IterableDataset):
 
 
 	def collateBatch (self, batch):
-		feature = torch.stack([ex[0] for ex in batch], dim=0).to(self.device)
+		feature = torch.stack([ex[0][None, :] for ex in batch], dim=0).to(self.device)
 		label = torch.tensor([ex[1] for ex in batch], dtype=torch.long).to(self.device)
 
 		return feature, label
