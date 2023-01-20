@@ -14,7 +14,7 @@ class GlyphRecognizer (nn.Module):
 		dropout=0.2, **kw_args):
 		super().__init__()
 
-		self.crops = [nn.Identity(), *[transforms.CenterCrop((size[0] // (2 ** i), size[1] // (2 ** i))) for i in range(1, len(backbones))]]
+		self.crops = nn.ModuleList(modules=[nn.Identity(), *[transforms.CenterCrop((size[0] // (2 ** i), size[1] // (2 ** i))) for i in range(1, len(backbones))]])
 
 		self.backbones = nn.ModuleList(modules=[HeadlessEffNet(backbone=backbone, mono_channel=True) for backbone in backbones])
 
@@ -62,4 +62,4 @@ class GlyphRecognizerLoss (nn.Module):
 
 		acc = (pred.argmax(dim=-1) == target).float().mean()
 
-		return loss, {'acc': acc}
+		return loss, {'acc': acc.item()}
