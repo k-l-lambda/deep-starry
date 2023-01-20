@@ -45,6 +45,8 @@ class Stamp (IterableDataset):
 
 			name = names[np.random.randint(0, len(names))]
 			source = self.reader.readImage(os.path.join(label, name + ".png"))
+			if source is None:
+				continue
 			source = torch.from_numpy(source)
 
 			bias_max = (source.shape[-1] - self.crop_size) // 2
