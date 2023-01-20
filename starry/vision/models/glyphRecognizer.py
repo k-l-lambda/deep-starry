@@ -16,7 +16,7 @@ class GlyphRecognizer (nn.Module):
 
 		self.crops = [nn.Identity(), *[transforms.CenterCrop((size[0] // (2 ** i), size[1] // (2 ** i))) for i in range(1, len(backbones))]]
 
-		self.backbones = [HeadlessEffNet(backbone=backbone, mono_channel=True) for backbone in backbones]
+		self.backbones = nn.ModuleList(modules=[HeadlessEffNet(backbone=backbone, mono_channel=True) for backbone in backbones])
 
 		lastconv_output_channels = sum(backbone.last_channel for backbone in self.backbones)
 
