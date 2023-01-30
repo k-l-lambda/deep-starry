@@ -26,6 +26,7 @@ class Stamp (IterableDataset):
 		self.crop_size = crop_size
 		self.bias_sigma = bias_sigma
 
+		# TODO: cache names in dataset
 		self.names = [listAllScoreNames(self.reader, split, label) for label in labels]
 		#print('names:', self.names)
 
