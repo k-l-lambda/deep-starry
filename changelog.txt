@@ -1,6 +1,5 @@
 
 TODO:
-	score stamp validation viewer
 	ScoreSemanticValue: unified validation set
 	construct score topology data by semantic predictor
 
