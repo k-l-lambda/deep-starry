@@ -3,10 +3,26 @@ import matplotlib.pyplot as plt
 
 
 
+class ExpandableCell:
+	def __init__ (self, unit_size, capacity=16):
+		self.unit_size = unit_size
+		self.size = 0
+		self.screen = None
+
+
+	def append (self, image):
+		# TODO:
+		self.screen = image
+
+
 class StampViewer:
-	def __init__(self, config):
+	def __init__ (self, config, cell_capacity=16):
 		self.n_class = config['model.args.n_classes']
 		self.labels = config['data.args.labels']
+
+		unit_size = config['data.args.crop_size']
+
+		self.cells = [[ExpandableCell(unit_size, cell_capacity) for x in range(self.n_class)] for y in range(self.n_class)]
 
 		_, self.axes = plt.subplots(self.n_class, self.n_class)
 
@@ -30,7 +46,8 @@ class StampViewer:
 		x = label.item()
 		y = pred.argmax().item()
 
-		self.axes[x][y].imshow(image[0])
+		self.cells[y][x].append(image[0].numpy())
+		self.axes[y][x].imshow(self.cells[y][x].screen)
 
 		plt.draw()
-		plt.pause(0.5)
+		plt.pause(0.01)

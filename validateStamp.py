@@ -44,6 +44,8 @@ class Validator (Predictor):
 			for i, img in enumerate(feature):
 				self.viewer.appendExample(img, label[i], pred[i])
 
+		input("Press Enter to continue...")
+
 
 def main ():
 	parser = argparse.ArgumentParser()
