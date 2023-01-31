@@ -1,4 +1,6 @@
 
+import math
+import numpy as np
 import matplotlib.pyplot as plt
 
 
@@ -6,13 +8,37 @@ import matplotlib.pyplot as plt
 class ExpandableCell:
 	def __init__ (self, unit_size, capacity=16):
 		self.unit_size = unit_size
+		self.capacity = capacity
 		self.size = 0
 		self.screen = None
 
+		levels = int(math.ceil(math.sqrt(capacity)))
+
+		coords = []
+		for l in range(levels):
+			coords += [(l, i) for i in range(l)]
+			coords += [(i, l) for i in range(l + 1)]
+
+		self.coords = coords
+
 
 	def append (self, image):
-		# TODO:
-		self.screen = image
+		x, y = self.coords[self.size % self.capacity]
+		if self.size < self.capacity:
+			if x == 0:
+				new_screen = np.zeros(((y + 1) * self.unit_size, (y + 1) * self.unit_size))
+			elif y == 0:
+				new_screen = np.zeros((x * self.unit_size, (x + 1) * self.unit_size))
+
+			if x * y == 0:
+				if self.screen is not None:
+					h, w = self.screen.shape
+					new_screen[:h, :w] = self.screen
+				self.screen = new_screen
+
+		self.screen[y * self.unit_size:(y + 1) * self.unit_size, x * self.unit_size:(x + 1) * self.unit_size] = image
+
+		self.size += 1
 
 
 class StampViewer:
