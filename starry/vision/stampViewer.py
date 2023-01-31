@@ -72,7 +72,7 @@ class StampViewer:
 		x = label.item()
 		y = pred.argmax().item()
 
-		self.cells[y][x].append(image[0].numpy())
+		self.cells[y][x].append(image[0].cpu().numpy())
 		self.axes[y][x].imshow(self.cells[y][x].screen)
 
 		plt.draw()

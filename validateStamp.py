@@ -4,6 +4,7 @@ import os
 import argparse
 import logging
 import torch
+from tqdm import tqdm
 
 from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
@@ -26,14 +27,14 @@ class Validator (Predictor):
 	def __init__ (self, config, args):
 		super().__init__(device=args.device)
 
-		self.viewer = StampViewer(config)
+		self.viewer = StampViewer(config, cell_capacity=12)
 
 		self.loadModel(config)
 
 
 	def run (self, data):
-		for batch, tensors in enumerate(data):
-			logging.info('batch: %d', batch)
+		for batch, tensors in enumerate(tqdm(data)):
+			#logging.info('batch: %d', batch)
 
 			feature, label = tensors
 
