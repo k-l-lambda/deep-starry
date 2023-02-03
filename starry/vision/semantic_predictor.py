@@ -19,7 +19,7 @@ from .score_semantic import ScoreSemantic
 
 
 class SemanticPredictor (Predictor):
-	def __init__(self, config, device='cpu', inspect=False, glyph_configs=None):
+	def __init__(self, config, device='cpu', inspect=False):
 		super().__init__(device=device)
 
 		self.inspect = inspect

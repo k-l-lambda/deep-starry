@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.2.3
+
+	+	vision/semanticClusterPredictor.py created.
+
+
 2023.1.30
 
 	+	validateStamp.py created.

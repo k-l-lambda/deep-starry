@@ -103,6 +103,19 @@ class ScoreSemantic:
 		return self.data
 
 
+	@staticmethod
+	def merge (ss):
+		sum_ = ScoreSemantic([], [])
+		sum_.marks = sum([s.marks for s in ss], sum_.marks)
+
+		if len(ss) > 0:
+			sum_.data['staffY'] = ss[0].data['staffY']
+
+		sum_.data['points'] = sum([s.data['points'] for s in ss], sum_.data['points'])
+
+		return sum_
+
+
 class ScoreSystem:
 	def __init__ (self):
 		self.points = []
