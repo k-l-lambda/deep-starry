@@ -19,13 +19,7 @@ class SemanticSubPredictor (Predictor):
 
 		self.loadModel(config)
 
-		data_args = config['data.args']
-
-		self.slicing_width = data_args['slicing_width']
-		self.labels = data_args['labels']
-
-		trans = [t for t in data_args['trans'] if not t.startswith('Tar_')]
-		self.composer = transform.Composer(trans)
+		self.labels = config['data.args.labels']
 
 
 	def __call__ (self, feature, confidence_table):
@@ -39,18 +33,17 @@ class SemanticClusterPredictor (Predictor):
 	def __init__ (self, config, device='cpu', **_):
 		super().__init__()
 
-		self.confidence_table = None
-		confidence_path = config.localPath('confidence.yaml')
-		if confidence_path and os.path.exists(confidence_path):
-			with open(confidence_path, 'r') as file:
-				self.confidence_table = yaml.safe_load(file)
-				logging.info('confidence_table loaded: %s', confidence_path)
+		self.slicing_width = config['predictor.slicing_width']
+		self.confidence_table = config['predictor.confidence_table']
 
 		sub_configs = [Configuration(config.localPath(dirname)) for dirname in config['subs']]
 		self.modules = [SemanticSubPredictor(cfg, device=device) for cfg in sub_configs]
 
+		trans = config['predictor.trans']
+		self.composer = transform.Composer(trans)
 
-	def predict (self, streams):
+
+	def predict (self, streams, **_):
 		for stream in streams:
 			image = arrayFromImageStream(stream)
 
