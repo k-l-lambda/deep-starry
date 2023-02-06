@@ -122,7 +122,7 @@ def main ():
 
 	config = Configuration(args.config)
 
-	logging.basicConfig(filename=config.localPath(f'measureScoreSemantic-{config["best"] or ''}.log'),
+	logging.basicConfig(filename=config.localPath(f'measureScoreSemantic-{config["best"] or ""}.log'),
 		format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%Y%m%d %H:%M:%S', level=logging.INFO)
 	logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
