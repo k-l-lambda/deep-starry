@@ -212,6 +212,15 @@ class ScoreSemanticDual:
 		return ScoreSemanticDual(labels, layers, true_count)
 
 
+	@staticmethod
+	def merge_layers (ss):
+		labels = sum([s.labels for s in ss], [])
+		layers = sum([s.layers for s in ss], [])
+		true_count = sum([s.true_count for s in ss], 0)
+
+		return ScoreSemanticDual(labels, layers, true_count)
+
+
 	def __init__ (self, labels, layers, true_count):
 		self.labels = labels
 		self.layers = layers

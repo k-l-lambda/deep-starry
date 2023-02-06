@@ -10,6 +10,7 @@ from tqdm import tqdm
 from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
 from starry.utils.model_factory import loadModel
+from starry.vision.score_semantic import ScoreSemanticDual
 
 
 
@@ -52,6 +53,62 @@ class MeasureDataset:
 			file.write(yaml.dump(table))
 
 
+class SubPredictor:
+	def __init__ (self, config, device='cpu', labels=None):
+		self.model = loadModel(config['model'], postfix='Loss')
+
+		checkpoint_path = config['best'] if config['best'].endswith('.chkpt') else config['best'] + '.chkpt'
+		checkpoint = torch.load(config.localPath(checkpoint_path), map_location=device)
+		self.model.deducer.load_state_dict(checkpoint['model'])
+		logging.info(f'checkpoint loaded: {checkpoint_path}')
+
+		self.model.to(device)
+		self.model.eval()
+
+		self.channels = torch.tensor([labels.index(name) for name in config['data.args.labels']]).long().to(device)
+
+
+	def __call__ (self, batch):
+		feature, target = batch
+		target = target.index_select(1, self.channels)
+		return self.model((feature, target))
+
+
+class MeasureDatasetCluster:
+	def __init__(self, config, device='cuda'):
+		super().__init__()
+
+		labels = config['data.args.labels']
+
+		sub_configs = [Configuration(config.localPath(dirname)) for dirname in config['subs']]
+		self.predictors = [SubPredictor(cfg, device=device, labels=labels) for cfg in sub_configs]
+
+		self.dataset, = loadDataset(config, data_dir=VISION_DATA_DIR, device=device)
+
+	def run (self):
+		with torch.no_grad():
+			semantics = [None for _ in self.predictors]
+
+			for batch in tqdm(self.dataset, mininterval=2, desc='Measuring', leave=False):
+				for i, predictor in enumerate(self.predictors):
+					loss, metric = predictor(batch)
+
+					#for k, v in metric.items():
+					#	metric_data[k] = metric_data[k] + v if k in metric_data else v
+					semantic = metric['semantic']
+					semantics[i] = semantic if semantics[i] is None else semantics[i] + semantic
+
+			ss = ScoreSemanticDual.merge_layers(semantics)
+			self.stat = ss.stat()
+
+			return self.stat
+
+	def saveConfidenceNormalization (self, filename):
+		with open(filename, 'w') as file:
+			table = list(map(lambda pair: {'semantic': pair[0], 'mean_confidence': pair[1]['confidence']}, self.stat['details'].items()))
+			file.write(yaml.dump(table))
+
+
 def main ():
 	parser = ArgumentParser(description='Run the score semantic measuring')
 	parser.add_argument('config', type=str)
@@ -65,7 +122,7 @@ def main ():
 
 	config = Configuration(args.config)
 
-	logging.basicConfig(filename=config.localPath(f'measureScoreSemantic-{config["best"]}.log'),
+	logging.basicConfig(filename=config.localPath(f'measureScoreSemantic-{config["best"] or ''}.log'),
 		format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%Y%m%d %H:%M:%S', level=logging.INFO)
 	logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
@@ -80,7 +137,8 @@ def main ():
 	if args.batch_size is not None:
 		config['data.batch_size'] = args.batch_size
 
-	measurer = MeasureDataset(config, device=args.device)
+	MeasurerClass = MeasureDatasetCluster if config['subs'] else MeasureDataset
+	measurer = MeasurerClass(config, device=args.device)
 
 	stat = measurer.run()
 
