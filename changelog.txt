@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.2.7
+
+	+	trainerQuantitative.py: set timeout to 2 hours.
+
+
 2023.2.6
 
 	+	measureScoreSemantic.py: cluster mode added.

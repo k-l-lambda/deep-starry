@@ -9,6 +9,7 @@ import logging
 import shutil
 import time
 import math
+from datetime import timedelta
 
 from .optim import optim
 from .model_factory import loadModel
@@ -32,7 +33,7 @@ class Trainer:
 			])
 
 		init_method = f'file:///{init_file}' if os.name == 'nt' else f'file://{init_file}'
-		torch.distributed.init_process_group(backend=backend, init_method=init_method, rank=rank, world_size=Trainer.PROC_COUNT)
+		torch.distributed.init_process_group(backend=backend, init_method=init_method, rank=rank, world_size=Trainer.PROC_COUNT, timeout=timedelta(seconds=7200))
 
 		gpus = config['trainer.gpus'] or Trainer.PROC_COUNT
 		device = torch.device(config['trainer.device'], rank % gpus)
