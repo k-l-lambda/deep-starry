@@ -130,7 +130,7 @@ class ScoreWidgetsLoss (nn.Module):
 
 		semantic = metrics.get('semantic')
 		if semantic is not None:
-			stats = metrics['semantic'].stat(self.channel_factor)
+			stats = metrics['semantic'].stat(self.channel_factor or {})
 			self.stats = stats
 
 			result['contour'] = stats['accuracy']
