@@ -18,6 +18,9 @@ from .dataset_factory import loadDataset
 
 
 
+INTERRUPTION_MARKER = '__SHUT'
+
+
 class Trainer:
 	TRAINER_RANK = 0
 	VALIDATOR_RANK = 1
@@ -80,6 +83,10 @@ class Trainer:
 
 		self.tb_writer = SummaryWriter(log_dir=config.localPath(self.role))
 
+		# remove interruption marker
+		if os.path.exists(INTERRUPTION_MARKER):
+			os.rename(INTERRUPTION_MARKER, INTERRUPTION_MARKER + '-')
+
 
 	def log (self, message, *args):
 		logging.info(f'[{self.role}]	' + message, *args)
@@ -133,6 +140,10 @@ class Trainer:
 		self.log('*	Training.')
 
 		for epoch_i in range(self.start_epoch, self.options['epochs']):
+			if os.path.exists(INTERRUPTION_MARKER):
+				logging.warn('Trainer interrupted by marker!')
+				break
+
 			self.log(f'[Epoch {epoch_i}]')
 
 			start = time.time()
@@ -213,6 +224,10 @@ class Trainer:
 		with torch.no_grad():
 			self.model.eval().requires_grad_(False)
 			for epoch_i in range(self.start_epoch, self.options['epochs']):
+				if os.path.exists(INTERRUPTION_MARKER):
+					logging.warn('Trainer interrupted by marker!')
+					break
+
 				self.log('Waiting for training parameters...')
 				self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 				self.log('Model training parameters synchronized.')

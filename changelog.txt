@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.2.9
+
+	+	trainerQuantitative.py: interruption marker added.
+
+
 2023.2.7
 
 	+	trainerQuantitative.py: set timeout to 2 hours.
