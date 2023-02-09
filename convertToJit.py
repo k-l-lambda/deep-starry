@@ -27,7 +27,11 @@ def main ():
 
 	name = 'untrained'
 	if config['best']:
-		name = os.path.splitext(config['best'])[0]
+		if config['best'].endswith('.chkpt'):
+			name = os.path.splitext(config['best'])[0]
+		else:
+			name = config['best']
+			config['best'] += '.chkpt'
 
 		checkpoint = torch.load(config.localPath(config['best']), map_location='cpu')
 		model.load_state_dict(checkpoint['model'])
