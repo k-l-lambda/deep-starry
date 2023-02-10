@@ -103,6 +103,19 @@ class ScoreSemantic:
 		return self.data
 
 
+	@staticmethod
+	def merge (ss):
+		sum_ = ScoreSemantic([], [])
+		sum_.marks = sum([s.marks for s in ss], sum_.marks)
+
+		if len(ss) > 0:
+			sum_.data['staffY'] = ss[0].data['staffY']
+
+		sum_.data['points'] = sum([s.data['points'] for s in ss], sum_.data['points'])
+
+		return sum_
+
+
 class ScoreSystem:
 	def __init__ (self):
 		self.points = []
@@ -199,6 +212,15 @@ class ScoreSemanticDual:
 		return ScoreSemanticDual(labels, layers, true_count)
 
 
+	@staticmethod
+	def merge_layers (ss):
+		labels = sum([s.labels for s in ss], [])
+		layers = sum([s.layers for s in ss], [])
+		true_count = sum([s.true_count for s in ss], 0)
+
+		return ScoreSemanticDual(labels, layers, true_count)
+
+
 	def __init__ (self, labels, layers, true_count):
 		self.labels = labels
 		self.layers = layers
@@ -216,7 +238,7 @@ class ScoreSemanticDual:
 		return sum(map(lambda points: len(points), self.layers))
 
 
-	def stat (self):
+	def stat (self, loss_factors={}):
 		total_error = 0
 		total_true_count = 0
 
@@ -225,6 +247,7 @@ class ScoreSemanticDual:
 		for i, layer in enumerate(self.layers):
 			label = self.labels[i]
 			neg_weight, pos_weight = LOSS_WEIGHTS.get(label, (1, 1))
+			loss_factor = loss_factors.get(label, 1)
 
 			true_count = len([p for p in layer if p['value'] > 0])
 
@@ -240,7 +263,7 @@ class ScoreSemanticDual:
 				'errors': f'{fake_neg}-|+{fake_pos}'
 			}
 
-			loss_weights.append(1 - feasibility)
+			loss_weights.append((1 - feasibility) * loss_factor)
 
 		accuracy = logAccuracy(total_error, total_true_count)
 

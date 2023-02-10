@@ -31,6 +31,7 @@ def registerModels ():
 		vm.ScoreResidue, vm.ScoreResidueInspection,
 		vm.ScoreResidueU, vm.ScoreResidueUInspection, vm.ScoreResidueULoss,
 		vm.ScoreSemanticValue, vm.ScoreSemanticValueLoss,
+		vm.GlyphRecognizer, vm.GlyphRecognizerLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

@@ -1,0 +1,13 @@
+
+id:     score-vision/{date}-{filename}
+
+data:
+  type:           Stamp
+  root:           test10/stamps/
+  splits:         '*1..8/10:9/10'
+  batch_size:     1
+  args:
+    labels:       [Rest3, Rest4, Rest5, Rest6]
+    epoch_size:   100
+    crop_size:    32
+    bias_sigma:   0.6

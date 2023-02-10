@@ -9,7 +9,7 @@ from ..score_semantic import ScoreSemanticDual
 
 
 class ScoreWidgets (nn.Module):
-	def __init__ (self, in_channels, out_channels, mask, backbone, freeze_mask, mask_channels=2, wide_mask=False, **kw_args):
+	def __init__ (self, in_channels, out_channels, mask, backbone, mask_channels=2, wide_mask=False, **kw_args):
 		super().__init__()
 
 		mask_out_channels = mask_channels
@@ -29,11 +29,6 @@ class ScoreWidgets (nn.Module):
 			self.backbone = UNet(trunk_channels, out_channels, depth=depth, init_width=init_width)
 		else:
 			self.backbone = None
-
-		self.freeze_mask = freeze_mask
-		if self.freeze_mask:
-			for param in self.mask.parameters():
-				param.requires_grad = False
 
 
 	def forward (self, x):
@@ -61,24 +56,18 @@ class ScoreWidgets (nn.Module):
 			self.backbone.load_state_dict(state_dict['backbone'])
 
 
-	# overload
-	def train (self, mode=True):
-		self.mask.train(mode and not self.freeze_mask)
-
-		if self.backbone:
-			self.backbone.train(mode)
-
-
 class ScoreWidgetsLoss (nn.Module):
 	need_states = True
 
 
-	def __init__(self, labels, unit_size, out_channels, metric_quota=float('inf'), channel_weights_rate=1e-4, clip_margin=12, **kw_args):
+	def __init__(self, labels, unit_size, out_channels, freeze_mask, metric_quota=float('inf'), channel_weights_rate=1e-4,
+		channel_factor={}, clip_margin=12, **kw_args):
 		super().__init__()
 
 		self.labels = labels
 		self.unit_size = unit_size
 		self.channel_weights_rate = channel_weights_rate
+		self.channel_factor = channel_factor
 		self.clip_margin = clip_margin
 		self.metric_quota = metric_quota
 
@@ -87,6 +76,23 @@ class ScoreWidgetsLoss (nn.Module):
 		self.register_buffer('channel_weights', torch.ones(out_channels, dtype=torch.float32))
 		self.register_buffer('channel_weights_target', torch.ones(out_channels, dtype=torch.float32))
 		self.metric_cost = 0
+
+		self.freeze_mask = freeze_mask
+		if self.freeze_mask:
+			for param in self.deducer.mask.parameters():
+				param.requires_grad = False
+
+
+	# overload
+	def train (self, mode=True):
+		self.training = mode
+
+		self.deducer.mask.train(mode and not self.freeze_mask)
+
+		if self.deducer.backbone:
+			self.deducer.backbone.train(mode)
+
+		return self
 
 
 	def forward (self, batch):
@@ -124,7 +130,7 @@ class ScoreWidgetsLoss (nn.Module):
 
 		semantic = metrics.get('semantic')
 		if semantic is not None:
-			stats = metrics['semantic'].stat()
+			stats = metrics['semantic'].stat(self.channel_factor or {})
 			self.stats = stats
 
 			result['contour'] = stats['accuracy']
@@ -143,7 +149,7 @@ class ScoreWidgetsLoss (nn.Module):
 		# update channel weights target
 		wws = self.stats['loss_weights'] ** 2
 		ww_sum = max(wws.sum(), 1e-9)
-		self.channel_weights_target = torch.tensor(wws * len(wws) / ww_sum, dtype=self.channel_weights_target.dtype)
+		self.channel_weights_target[:] = torch.from_numpy(wws * len(wws) / ww_sum)
 		self.metric_cost = 0
 
 

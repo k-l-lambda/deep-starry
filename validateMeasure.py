@@ -5,6 +5,7 @@ import argparse
 import torch
 import logging
 from tqdm import tqdm
+import yaml
 
 from starry.utils.config import Configuration
 from starry.utils.dataset_factory import loadDataset
@@ -59,6 +60,7 @@ class Validator:
 
 		logging.info('loss: %f', loss)
 		logging.info('metric: %s', print_metric(metrics))
+		print(yaml.dump(metrics))
 
 
 def main ():

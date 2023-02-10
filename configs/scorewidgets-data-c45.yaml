@@ -3,25 +3,24 @@ id:     score-vision/{date}-{filename}
 
 data:
   type:           RenderScore
-  root:           working/test/
+  root:           test10/
   splits:         '*1..8/10:9/10'
   batch_size:     1
   args:
     labels:       &labels     [
                                 ClefG, ClefF, ClefC,
                                 NoteheadS0, NoteheadS1, NoteheadS2,
-                                Rest0, Rest1, Rest2, Rest3, Rest4, Rest5, Rest6,
+                                Rest0, Rest1, Rest2, RestFlag,
                                 Dot, Flag3,
                                 AccNatural, AccSharp, AccFlat, AccDoublesharp, AccFlatflat,
-                                TimesigC44, TimesigC22, TimesigZero, TimesigOne, TimesigTwo, TimesigThree, TimesigFour, TimesigFive, TimesigSix, TimesigSeven, TimesigEight, TimesigNine,
+                                Timesig,
                                 OctaveShift8, OctaveShift0,
-                                One, Two, Three, Four, Five,
-                                f, p, m, s, z,
-                                ScriptFermata, ScriptSforzato, ScriptStaccato, ScriptStaccatissimo, ScriptTurn, ScriptTrill, ScriptSegno, ScriptCoda, ScriptArpeggio, ScriptPrall, ScriptMordent, ScriptTenuto, PedalStar, PedalPed,
+                                Fingering,
+                                Dynamic,
+                                Script,
                                 VoltaLeft, VoltaRight,
                                 vline_BarMeasure, vline_Stem, vline_BarTerminal, vline_BarSegment,
-                                rect_Lyric,
-                                SlurBegin, SlurEnd, CrescendoBegin, CrescendoEnd, DecrescendoBegin, DecrescendoEnd,
+                                SlurBegin, SlurEnd, Wedge,
                                 TremoloLeft, TremoloRight, TremoloMiddle,
                                 KeyAcc, TempoNotehead, GraceNotehead, BeamLeft, BeamRight, BeamContinue, SignLined, SignInterval, StemTip, StemHead,
                               ]
@@ -77,21 +76,16 @@ model:
     channel_factor:
       ClefG:                2
       ClefF:                2
-      TimesigFour:          2
-      TimesigThree:         2
-      TimesigTwo:           2
+      ClefC:                1
+      Timesig:              2
       NoteheadS0:           2
-      NoteheadS1:           2
-      NoteheadS2:           2
+      NoteheadS1:           2.4
+      NoteheadS2:           2.8
       Dot:                  2
       vline_BarMeasure:     2
       vline_Stem:           2
       Flag3:                4
 
-      TimesigC44:           1.2
-      TimesigC22:           1.2
-      TimesigEight:         1.2
-      TimesigSix:           1.2
       AccNatural:           1.6
       AccSharp:             1.6
       AccFlat:              1.6
@@ -99,28 +93,23 @@ model:
       Rest0:                2
       Rest1:                2
       Rest2:                1.6
-      Rest3:                1.6
-      Rest4:                1.6
+      RestFlag:             1.4
       OctaveShift8:         1.6
       OctaveShift0:         1.6
       OctaveShift15:        1
 
       AccDoublesharp:       1
       AccFlatflat:          1
-      TimesigOne:           1
-      TimesigNine:          1
-      Rest5:                1
-      Rest6:                1
       SlurBegin:            1
       SlurEnd:              1
-      VoltaLeft:            1
-      VoltaRight:           1
+      VoltaLeft:            1.2
+      VoltaRight:           1.2
       vline_BarTerminal:    1
       vline_BarSegment:     1
-      TempoNotehead:        1
-      GraceNotehead:        1
-      SignLined:            1
-      SignInterval:         1
+      TempoNotehead:        1.6
+      GraceNotehead:        1.6
+      SignLined:            1.6
+      SignInterval:         1.6
       BeamLeft:             1
       BeamRight:            1
       BeamContinue:         1
@@ -129,50 +118,13 @@ model:
       TremoloMiddle:        1
       StemTip:              1
       StemHead:             1
-      Zero:                 1
-      Six:                  1
-      Seven:                1
-      Eight:                1
-      Nine:                 1
-      ClefC:                1
 
-      f:                    0.6
-      p:                    0.6
-      m:                    0.6
-      s:                    0.6
-      r:                    0.6
-      z:                    0.6
-      ScriptFermata:        0.6
-      ScriptSforzato:       0.6
-      ScriptStaccato:       0.6
-      ScriptStaccatissimo:  0.6
-      ScriptTurn:           0.6
-      ScriptTrill:          0.6
-      ScriptSegno:          1
-      ScriptCoda:           1
-      ScriptArpeggio:       0.6
-      ScriptPrall:          0.6
-      ScriptMordent:        0.6
-      ScriptTenuto:         0.6
-      ScriptShortFermata:   0.6
-      ScriptMarcato:        0.6
-      ScriptPortato:        0.6
-      PedalStar:            0.6
-      PedalPed:             0.6
-      TimesigFive:          1
-      TimesigSeven:         1
-      TimesigZero:          1
-      One:                  1
-      Two:                  1
-      Three:                1
-      Four:                 1
-      Five:                 1
+      Fingering:            0.6
+      Dynamic:              0.6
+      Script:               0.6
       rect_Text:            0.2
       rect_Lyric:           0.2
-      CrescendoBegin:       0.8
-      CrescendoEnd:         0.8
-      DecrescendoBegin:     0.8
-      DecrescendoEnd:       0.8
+      Wedge:                0.6
 
 
 trainer:

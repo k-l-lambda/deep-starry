@@ -1,0 +1,44 @@
+
+id:     score-vision/{date}-{filename}
+
+
+data:
+  type:           Stamp
+  root:           test10/stamps/
+  splits:         '*1..8/10:9/10'
+  batch_size:     2
+  args:
+    labels:       [TimesigC44, TimesigC22, TimesigZero, TimesigOne, TimesigTwo, TimesigThree, TimesigFour, TimesigFive, TimesigSix, TimesigSeven, TimesigEight, TimesigNine]
+    epoch_size:   100
+    crop_size:    32
+    bias_sigma:   0.6
+
+
+model:
+  type:           GlyphRecognizer
+  args:
+    n_classes:    12
+    size:         [32, 32]
+    backbones:    ['efficientnet_b0', 'efficientnet_b0', 'efficientnet_b0']
+    dropout:      0.2
+
+
+trainer:
+  device:                   cuda
+  save_mode:                best
+  epoch:                    100
+  moniter:
+    field:                  acc
+    mode:                   max
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               1
+      n_warmup_steps:       80
+      d_model:              512

@@ -17,6 +17,7 @@ from starry.vision.gauge_predictor import GaugePredictor
 from starry.vision.layout_predictor import LayoutPredictor
 from starry.vision.scorePageProcessor import ScorePageProcessor
 from starry.vision.scoreSemanticProcessor import ScoreSemanticProcessor
+from starry.vision.semanticClusterPredictor import SemanticClusterPredictor
 from starry.utils.zero_server import ZeroServer
 
 
@@ -43,6 +44,7 @@ PREDICTOR_FACTORY = {
 	'layout':			LayoutPredictor,
 	'scorePage':		ScorePageProcessor,
 	'semanticBatch':	ScoreSemanticProcessor,
+	'semanticCluster':	SemanticClusterPredictor,
 }
 
 

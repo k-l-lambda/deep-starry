@@ -9,12 +9,16 @@ import logging
 import shutil
 import time
 import math
+from datetime import timedelta
 
 from .optim import optim
 from .model_factory import loadModel
 from .trainer import Moniter, print_metric, stat_average
 from .dataset_factory import loadDataset
 
+
+
+INTERRUPTION_MARKER = '__SHUT'
 
 
 class Trainer:
@@ -32,7 +36,7 @@ class Trainer:
 			])
 
 		init_method = f'file:///{init_file}' if os.name == 'nt' else f'file://{init_file}'
-		torch.distributed.init_process_group(backend=backend, init_method=init_method, rank=rank, world_size=Trainer.PROC_COUNT)
+		torch.distributed.init_process_group(backend=backend, init_method=init_method, rank=rank, world_size=Trainer.PROC_COUNT, timeout=timedelta(seconds=7200))
 
 		gpus = config['trainer.gpus'] or Trainer.PROC_COUNT
 		device = torch.device(config['trainer.device'], rank % gpus)
@@ -78,6 +82,10 @@ class Trainer:
 			self.loadCheckpoint(weights_path)
 
 		self.tb_writer = SummaryWriter(log_dir=config.localPath(self.role))
+
+		# remove interruption marker
+		if os.path.exists(INTERRUPTION_MARKER):
+			os.rename(INTERRUPTION_MARKER, INTERRUPTION_MARKER + '-')
 
 
 	def log (self, message, *args):
@@ -132,6 +140,10 @@ class Trainer:
 		self.log('*	Training.')
 
 		for epoch_i in range(self.start_epoch, self.options['epochs']):
+			if os.path.exists(INTERRUPTION_MARKER):
+				logging.warn('Trainer interrupted by marker!')
+				break
+
 			self.log(f'[Epoch {epoch_i}]')
 
 			start = time.time()
@@ -212,6 +224,10 @@ class Trainer:
 		with torch.no_grad():
 			self.model.eval().requires_grad_(False)
 			for epoch_i in range(self.start_epoch, self.options['epochs']):
+				if os.path.exists(INTERRUPTION_MARKER):
+					logging.warn('Trainer interrupted by marker!')
+					break
+
 				self.log('Waiting for training parameters...')
 				self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 				self.log('Model training parameters synchronized.')

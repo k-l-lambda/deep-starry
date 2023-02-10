@@ -13,7 +13,12 @@ from .score_semantic import ScoreSemantic
 
 
 
-class SemanticPredictor(Predictor):
+#class GlyphPredictor (Predictor):
+#	def __init__(self, config, device='cpu'):
+#		super().__init__(device=device)
+
+
+class SemanticPredictor (Predictor):
 	def __init__(self, config, device='cpu', inspect=False):
 		super().__init__(device=device)
 
