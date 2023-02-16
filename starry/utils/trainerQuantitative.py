@@ -84,8 +84,8 @@ class Trainer:
 		self.tb_writer = SummaryWriter(log_dir=config.localPath(self.role))
 
 		# remove interruption marker
-		if os.path.exists(INTERRUPTION_MARKER):
-			os.rename(INTERRUPTION_MARKER, INTERRUPTION_MARKER + '-')
+		if os.path.exists(config.localPath(INTERRUPTION_MARKER)):
+			os.rename(config.localPath(INTERRUPTION_MARKER), config.localPath(INTERRUPTION_MARKER + '-'))
 
 
 	def log (self, message, *args):
@@ -140,7 +140,7 @@ class Trainer:
 		self.log('*	Training.')
 
 		for epoch_i in range(self.start_epoch, self.options['epochs']):
-			if os.path.exists(INTERRUPTION_MARKER):
+			if os.path.exists(self.config.localPath(INTERRUPTION_MARKER)):
 				logging.warn('Trainer interrupted by marker!')
 				break
 
@@ -224,7 +224,7 @@ class Trainer:
 		with torch.no_grad():
 			self.model.eval().requires_grad_(False)
 			for epoch_i in range(self.start_epoch, self.options['epochs']):
-				if os.path.exists(INTERRUPTION_MARKER):
+				if os.path.exists(self.config.localPath(INTERRUPTION_MARKER)):
 					logging.warn('Trainer interrupted by marker!')
 					break
 

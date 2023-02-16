@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.2.16
+
+	+	semanticClusterPredictor.py: fixed confidence_table in SemanticSubPredictor.
+
+
 2023.2.9
 
 	+	trainerQuantitative.py: interruption marker added.
