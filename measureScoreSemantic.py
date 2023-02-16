@@ -95,8 +95,9 @@ class MeasureDatasetCluster:
 
 					#for k, v in metric.items():
 					#	metric_data[k] = metric_data[k] + v if k in metric_data else v
-					semantic = metric['semantic']
-					semantics[i] = semantic if semantics[i] is None else semantics[i] + semantic
+					if 'semantic' in metric:
+						semantic = metric['semantic']
+						semantics[i] = semantic if semantics[i] is None else semantics[i] + semantic
 
 			ss = ScoreSemanticDual.merge_layers(semantics)
 			self.stat = ss.stat()
