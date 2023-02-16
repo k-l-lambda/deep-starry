@@ -103,9 +103,12 @@ class MeasureDatasetCluster:
 
 			return self.stat
 
-	def saveConfidenceNormalization (self, filename):
+	def saveConfidenceNormalization (self, filename, by_dict=False):
 		with open(filename, 'w') as file:
-			table = list(map(lambda pair: {'semantic': pair[0], 'mean_confidence': pair[1]['confidence']}, self.stat['details'].items()))
+			if by_dict:
+				table = {pair[0]: pair[1]['confidence'] for pair in self.stat['details'].items()}
+			else:
+				table = list(map(lambda pair: {'semantic': pair[0], 'mean_confidence': pair[1]['confidence']}, self.stat['details'].items()))
 			file.write(yaml.dump(table))
 
 
@@ -153,7 +156,7 @@ def main ():
 
 	if args.confidence_table:
 		confidence_path = config.localPath('confidence.yaml')
-		measurer.saveConfidenceNormalization(confidence_path)
+		measurer.saveConfidenceNormalization(confidence_path, by_dict=True if config['subs'] else False)
 
 		logging.info('confidence table saved: %s', confidence_path)
 

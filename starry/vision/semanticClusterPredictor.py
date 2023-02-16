@@ -26,7 +26,9 @@ class SemanticSubPredictor (Predictor):
 		semantic = self.model(feature)
 		semantic = spliceOutputTensor(semantic)
 
-		return ScoreSemantic(np.uint8(semantic * 255), self.labels, confidence_table=confidence_table)
+		ct = [{'semantic': label, 'mean_confidence': confidence_table[label]} for label in self.labels]
+
+		return ScoreSemantic(np.uint8(semantic * 255), self.labels, confidence_table=ct)
 
 
 class SemanticClusterPredictor (Predictor):
