@@ -33,7 +33,7 @@ class SemanticSubPredictor (Predictor):
 
 class SemanticClusterPredictor (Predictor):
 	def __init__ (self, config, device='cpu', **_):
-		super().__init__()
+		super().__init__(device=device)
 
 		self.slicing_width = config['predictor.slicing_width']
 		self.confidence_table = config['predictor.confidence_table']
