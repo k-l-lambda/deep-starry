@@ -47,7 +47,7 @@ class MeasureDataset:
 
 			return self.stat
 
-	def saveConfidenceNormalization (self, filename):
+	def saveConfidenceNormalization (self, filename, **_):
 		with open(filename, 'w') as file:
 			table = list(map(lambda pair: {'semantic': pair[0], 'mean_confidence': pair[1]['confidence']}, self.stat['details'].items()))
 			file.write(yaml.dump(table))
