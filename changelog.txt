@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.3.1
+
+	+	paraff/data/paraffFile.py created.
+
+
 2023.2.16
 
 	+	semanticClusterPredictor.py: fixed confidence_table in SemanticSubPredictor.
