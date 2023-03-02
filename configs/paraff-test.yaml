@@ -29,9 +29,9 @@ model:
 
 onnx:
   inputs:
-  - name:   seq
+  - name:   in_seq
     dtype:  int8
     shape:  [1, 512]
   opset: 14
   outputs:
-  - seq
+  - out_seq
