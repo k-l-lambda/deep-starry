@@ -14,6 +14,7 @@ def registerModels ():
 	from ..topology.models import rectifyJointer as tr
 	from ..topology.models import rectifyJointer2 as tr2
 	from ..vision import models as vm
+	from ..paraff import models as pm
 
 	classes = [
 		tj.TransformJointer, tj.TransformJointerLoss,
@@ -32,6 +33,7 @@ def registerModels ():
 		vm.ScoreResidueU, vm.ScoreResidueUInspection, vm.ScoreResidueULoss,
 		vm.ScoreSemanticValue, vm.ScoreSemanticValueLoss,
 		vm.GlyphRecognizer, vm.GlyphRecognizerLoss,
+		pm.TokenGen, pm.TokenGenLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

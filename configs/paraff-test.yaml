@@ -1,0 +1,27 @@
+
+id:     paraff/{date}-{filename}
+
+
+data:
+  type:                     SentenceShift
+  root:                     20230301.paraff
+  splits:                   '*0/1:0/100'
+  batch_size:               2
+  args:
+    n_seq:                  512
+
+
+model:
+  type:                     TokenGen
+  args:
+    n_vocab:                81
+    n_seq_max:              512
+    d_model:                512
+    d_inner:                2048
+    n_layers:               2
+    n_head:                 8
+    d_k:                    64
+    d_v:                    64
+    dropout:                0.1
+    emb_prj_weight_sharing: True
+    scale_emb_or_prj:       prj
