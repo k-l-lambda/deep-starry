@@ -55,7 +55,7 @@ class SentenceShift (IterableDataset):
 		input_ids = [ex[0] for ex in batch]
 		output_ids = [ex[1] for ex in batch]
 
-		input_ids = torch.stack(input_ids, axis=0).long().to(self.device)
-		output_ids = torch.stack(output_ids, axis=0).long().to(self.device)
+		input_ids = torch.stack(input_ids, axis=0).to(self.device)
+		output_ids = torch.stack(output_ids, axis=0).to(self.device)
 
 		return dict(input_ids=input_ids, output_ids=output_ids)

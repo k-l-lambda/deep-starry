@@ -43,6 +43,7 @@ class TokenGen (nn.Module):
 	def forward(self, seq):
 		trg_mask = get_pad_mask(seq, self.pad_id) & get_subsequent_mask(seq)
 
+		seq = seq.long()
 		dec_output, *_ = self.decoder(seq, trg_mask)
 		seq_logit = self.word_prj(dec_output)
 		if self.scale_prj:
@@ -64,7 +65,7 @@ class TokenGenLoss (nn.Module):
 
 	def forward (self, batch):
 		pred = self.deducer(batch['input_ids'])
-		target = batch['output_ids']
+		target = batch['output_ids'].long()
 		pred_ncs = pred.permute(0, 2, 1)
 
 		loss = F.cross_entropy(pred_ncs, target)
