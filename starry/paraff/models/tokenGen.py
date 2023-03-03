@@ -70,7 +70,8 @@ class TokenGenLoss (nn.Module):
 
 		loss = F.cross_entropy(pred_ncs, target)
 
+		non_zero = target != 0
 		pred_ids = torch.argmax(pred, dim=-1)
-		acc = (pred_ids == target).float().mean()
+		acc = (pred_ids[non_zero] == target[non_zero]).float().mean()
 
 		return loss, {'acc': acc.item()}
