@@ -60,7 +60,7 @@ class TokenGenLoss (nn.Module):
 
 		for p in self.parameters():
 			if p.dim() > 1:
-				nn.init.xavier_uniform_(p) 
+				nn.init.xavier_uniform_(p, gain=kw_args['n_layers'] ** -0.5) 
 
 
 	def forward (self, batch):
