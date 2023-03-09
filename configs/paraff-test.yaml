@@ -4,7 +4,7 @@ id:     paraff/{date}-{filename}
 
 data:
   type:                     SentenceShift
-  root:                     20230301.paraff
+  root:                     20230308.paraff
   splits:                   '*0/1:0/100'
   batch_size:               2
   args:
@@ -14,7 +14,7 @@ data:
 model:
   type:                     TokenGen
   args:
-    n_vocab:                81
+    n_vocab:                123
     n_seq_max:              512
     d_model:                128
     d_inner:                512

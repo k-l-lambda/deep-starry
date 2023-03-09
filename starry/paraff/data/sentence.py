@@ -63,6 +63,8 @@ class SentenceShift (IterableDataset):
 			entries[i] = entries[i].index_select(0, idx)
 			body_mask[i] = body_mask[i].index_select(0, idx)
 
+		body_mask = body_mask.bool() & (entries != 0)
+
 		for entry, mask in zip(entries, body_mask):
 			yield entry[:-1], entry[1:], mask[:-1]
 
