@@ -40,7 +40,7 @@ class SentenceShift (IterableDataset):
 
 		padding_zeros = [0] * (n_seq + 1 - file.sentence_align_size)
 		sentences = [s + padding_zeros for i, s in enumerate(file.sentences) if i % cycle in phases]
-		self.entries = torch.tensor(sentences, dtype=torch.int8)
+		self.entries = torch.tensor(sentences, dtype=torch.uint8)
 
 
 	def __iter__ (self):
