@@ -58,8 +58,14 @@ class SentenceShift (IterableDataset):
 		indices = torch.arange(body_mask.shape[-1])[None, :].repeat(drops.shape[0], 1) + drops.matmul(mtx_sum)
 		indices = indices.long().clip(max=entries.shape[-1] - 1)
 
+		n_descs = (1 - body_mask - drops).int().sum(dim=1).tolist()
+
 		# drop descriptors
 		for i, idx in enumerate(indices):
+			# shuffle descriptors
+			n_desc = n_descs[i]
+			idx[:n_desc] = torch.randperm(n_desc)
+
 			entries[i] = entries[i].index_select(0, idx)
 			body_mask[i] = body_mask[i].index_select(0, idx)
 
