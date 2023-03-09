@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.3.9
+
+	+	paraff/data/sentence.py: added descriptor droping and body mask.
+
+
 2023.3.2
 
 	+	paraff/models/tokenGen.py created.
