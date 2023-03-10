@@ -87,7 +87,11 @@ def main ():
 
 		logging.info(f'ONNX model saved to: {outpath}')
 	elif config['onnx']:
-		runConfig(config['onnx'], model, outpath=config.localPath(f'{name}.onnx'))
+		if 'multiple' in config['onnx']:
+			for postfix, onnx_config in config['onnx.multiple'].items():
+				runConfig(onnx_config, model, outpath=config.localPath(f'{name}-{postfix}.onnx'))
+		else:
+			runConfig(config['onnx'], model, outpath=config.localPath(f'{name}.onnx'))
 
 
 if __name__ == '__main__':
