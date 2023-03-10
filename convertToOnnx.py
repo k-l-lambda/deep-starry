@@ -14,6 +14,29 @@ from onnxTypecast import convert_model_to_int32
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 
+def runConfig (onnx_config, model, outpath):
+	input_names = [input['name'] for input in onnx_config['inputs']]
+	output_names = onnx_config['outputs']
+
+	#shapes = [tuple(onnx_config['inputs'][name]) for name in input_names]
+	dummy_inputs = tuple(torch.zeros(*input['shape'], dtype=getattr(torch, input.get('dtype', 'float32'))) for input in onnx_config['inputs'])
+	opset = onnx_config['opset']
+
+	truncate_long = onnx_config.get('truncate_long')
+	temp_path = outpath.replace('.onnx', '.temp.onnx')
+
+	torch.onnx.export(model, dummy_inputs, temp_path if truncate_long else outpath,
+		verbose=True,
+		input_names=input_names,
+		output_names=output_names,
+		opset_version=opset)
+
+	if truncate_long:
+		convert_model_to_int32(temp_path, outpath)
+
+	logging.info(f'ONNX model saved to: {outpath}')
+
+
 def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('config', type=str)
@@ -38,41 +61,33 @@ def main ():
 	model.eval()
 	model.no_overwrite = True
 
-	truncate_long = config['onnx.truncate_long_tensor']
-	out_name = f'{name}.temp.onnx' if truncate_long else f'{name}.onnx'
-	outpath = config.localPath(out_name)
-
-	opset = args.opset
-	shapes = []
-
 	if args.shapes is not None:
+		truncate_long = config['onnx.truncate_long_tensor']
+		out_name = f'{name}.temp.onnx' if truncate_long else f'{name}.onnx'
+		outpath = config.localPath(out_name)
+
+		opset = args.opset
+
 		shapes = args.shapes.split(';')
 		shapes = [tuple(map(int, shape.split(','))) for shape in shapes]
 		input_names = args.input_names.split(';')
 		output_names = args.output_names.split(';')
 		dummy_inputs = tuple(torch.randn(*shape) for shape in shapes)
+
+		torch.onnx.export(model, dummy_inputs, outpath,
+			verbose=True,
+			input_names=input_names,
+			output_names=output_names,
+			opset_version=opset)
+
+		if truncate_long:
+			temp_path = outpath
+			outpath = config.localPath(f'{name}.onnx')
+			convert_model_to_int32(temp_path, outpath)
+
+		logging.info(f'ONNX model saved to: {outpath}')
 	elif config['onnx']:
-		onnx_config = config['onnx']
-		#input_names = [*onnx_config['inputs']]
-		input_names = [input['name'] for input in onnx_config['inputs']]
-		output_names = onnx_config['outputs']
-
-		#shapes = [tuple(onnx_config['inputs'][name]) for name in input_names]
-		dummy_inputs = tuple(torch.zeros(*input['shape'], dtype=getattr(torch, input.get('dtype', 'float32'))) for input in onnx_config['inputs'])
-		opset = onnx_config['opset']
-
-	torch.onnx.export(model, dummy_inputs, outpath,
-		verbose=True,
-		input_names=input_names,
-		output_names=output_names,
-		opset_version=opset)
-
-	if truncate_long:
-		temp_path = outpath
-		outpath = config.localPath(f'{name}.onnx')
-		convert_model_to_int32(temp_path, outpath)
-
-	logging.info(f'ONNX model saved to: {outpath}')
+		runConfig(config['onnx'], model, outpath=config.localPath(f'{name}.onnx'))
 
 
 if __name__ == '__main__':
