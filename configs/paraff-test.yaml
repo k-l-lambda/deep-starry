@@ -29,13 +29,47 @@ model:
 
 
 onnx:
-  inputs:
-  - name:   seq
-    dtype:  int8
-    shape:  [1, 512]
-  opset: 14
-  outputs:
-  - seq_out
+  multiple:
+    seq32:
+      inputs:
+      - dtype: int8
+        name: seq
+        shape:
+        - 1
+        - 32
+      opset: 14
+      outputs:
+      - seq_out
+    seq64:
+      inputs:
+      - dtype: int8
+        name: seq
+        shape:
+        - 1
+        - 64
+      opset: 14
+      outputs:
+      - seq_out
+    seq128:
+      inputs:
+      - dtype: int8
+        name: seq
+        shape:
+        - 1
+        - 128
+      opset: 14
+      outputs:
+      - seq_out
+    seq512:
+      inputs:
+      - dtype: int8
+        name: seq
+        shape:
+        - 1
+        - 512
+      opset: 14
+      outputs:
+      - seq_out
 
 
 trainer:
