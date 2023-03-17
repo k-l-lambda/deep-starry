@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.3.17
+
+	+	paraff/data/sentence.py: fixed descriptors dropping.
+
+
 2023.3.10
 
 	+	convertToOnnx.py: added multiple config support.

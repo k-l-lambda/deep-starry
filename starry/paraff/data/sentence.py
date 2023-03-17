@@ -27,12 +27,13 @@ class SentenceShift (IterableDataset):
 		)
 
 
-	def __init__ (self, root, split, device, shuffle, n_seq, descriptor_drop=0.1, **_):
+	def __init__ (self, root, split, device, shuffle, n_seq, descriptor_drop=0.1, descriptor_drop_sigma=0., **_):
 		super().__init__()
 
 		self.device = device
 		self.shuffle = shuffle
 		self.descriptor_drop = descriptor_drop
+		self.descriptor_drop_sigma = descriptor_drop_sigma
 
 		phases, cycle = parseFilterStr(split)
 
@@ -55,7 +56,10 @@ class SentenceShift (IterableDataset):
 		body_mask = body_mask.matmul(mtx_sum)
 
 		drops = (1 - body_mask) * (torch.rand_like(body_mask) < self.descriptor_drop)
-		indices = torch.arange(body_mask.shape[-1])[None, :].repeat(drops.shape[0], 1) + drops.matmul(mtx_sum)
+		indices = torch.arange(body_mask.shape[-1])[None, :].repeat(drops.shape[0], 1)
+		for idx, drop in zip(indices, drops):
+			idx_mask = idx[drop == 0]
+			idx[:idx_mask.shape[0]] = idx_mask
 		indices = indices.long().clip(max=entries.shape[-1] - 1)
 
 		n_descs = (1 - body_mask - drops).int().sum(dim=1).tolist()
@@ -65,7 +69,7 @@ class SentenceShift (IterableDataset):
 			# shuffle descriptors
 			if self.shuffle:
 				n_desc = n_descs[i]
-				idx[:n_desc] = torch.randperm(n_desc)
+				idx[:n_desc] = idx[:n_desc][torch.randperm(n_desc)]
 
 			entries[i] = entries[i].index_select(0, idx)
 			body_mask[i] = body_mask[i].index_select(0, idx)
