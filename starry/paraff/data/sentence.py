@@ -63,8 +63,9 @@ class SentenceShift (IterableDataset):
 		# drop descriptors
 		for i, idx in enumerate(indices):
 			# shuffle descriptors
-			n_desc = n_descs[i]
-			idx[:n_desc] = torch.randperm(n_desc)
+			if self.shuffle:
+				n_desc = n_descs[i]
+				idx[:n_desc] = torch.randperm(n_desc)
 
 			entries[i] = entries[i].index_select(0, idx)
 			body_mask[i] = body_mask[i].index_select(0, idx)

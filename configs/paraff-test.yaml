@@ -10,6 +10,9 @@ data:
   args:
     n_seq:                  512
     descriptor_drop:        0.2
+  args_variant:
+    1:
+      descriptor_drop:      0
 
 
 model:
