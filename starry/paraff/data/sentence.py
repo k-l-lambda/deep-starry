@@ -55,7 +55,10 @@ class SentenceShift (IterableDataset):
 		body_mask = (entries == BOS).float()
 		body_mask = body_mask.matmul(mtx_sum)
 
-		drops = (1 - body_mask) * (torch.rand_like(body_mask) < self.descriptor_drop)
+		drop_p_pow = torch.randn(body_mask.shape[0], dtype=torch.float) * self.descriptor_drop_sigma
+		drop_p = torch.pow(self.descriptor_drop, torch.exp(drop_p_pow))[:, None]
+
+		drops = (1 - body_mask) * (torch.rand_like(body_mask) < drop_p)
 		indices = torch.arange(body_mask.shape[-1])[None, :].repeat(drops.shape[0], 1)
 		for idx, drop in zip(indices, drops):
 			idx_mask = idx[drop == 0]
