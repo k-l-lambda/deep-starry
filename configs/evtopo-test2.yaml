@@ -48,7 +48,7 @@ model:
     - 3         # warped
     - 3         # full measure
     - 3         # fake
-    init_gain_n:            5
+    init_gain_n:            6     # 2 * max_layer_n
 
 
 trainer:
