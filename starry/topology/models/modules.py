@@ -418,7 +418,7 @@ class EventArgsEncoder (nn.Module):
 	def __init__ (self, d_model, angle_cycle=1000, feature_activation=None):
 		super().__init__()
 
-		self.feature_activate = getattr(F, feature_activation) if feature_activation else torch.nn.Identity()
+		self.feature_activate = getattr(torch, feature_activation) if feature_activation else torch.nn.Identity()
 
 		d_position = d_model - EventElementType.MAX - EV_STAFF_MAX - FEATURE_DIM
 		self.position_encoder = SinusoidEncoderXYY(angle_cycle=angle_cycle, d_hid=d_position)
