@@ -7,6 +7,8 @@ TODO:
 
 2023.3.23
 
+	+	rectifyJointer2.py: parameter of loss_weights added.
+
 	+	topology: fixed JIT conversion errors for RectifySieveJointer2.
 
 	+	transformer: fixed JIT conversion errors.

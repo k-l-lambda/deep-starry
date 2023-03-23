@@ -48,6 +48,8 @@ model:
     - 3         # warped
     - 3         # full measure
     - 3         # fake
+    #                       (loss_topo, loss_tick, loss_division, loss_dots, loss_beam, loss_direction, loss_grace, loss_warped, loss_full, loss_fake)
+    loss_weights:           [10, 1.e-6]
     init_gain_n:            6     # 2 * max_layer_n
 
 

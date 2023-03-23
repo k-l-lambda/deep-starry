@@ -70,10 +70,12 @@ DEFAULT_ERROR_WEIGHTS = [
 
 
 class RectifySieveJointer2Loss (nn.Module):
-	def __init__ (self, decisive_confidence=0.5, error_weights=DEFAULT_ERROR_WEIGHTS, init_gain_n=1, **kw_args):
+	def __init__ (self, decisive_confidence=0.5, error_weights=DEFAULT_ERROR_WEIGHTS, loss_weights=[10, 1e-6],
+		init_gain_n=6, **kw_args):
 		super().__init__()
 
 		self.error_weights = error_weights
+		self.loss_weights = [*loss_weights] + [1] * 20
 
 		self.j_metric = JaggedLoss(decisive_confidence)
 		self.deducer = RectifySieveJointer2(**kw_args)
@@ -155,7 +157,10 @@ class RectifySieveJointer2Loss (nn.Module):
 		val_fake = rec['fake'] > 0.5
 		acc_fake = (val_fake == batch['fake']).float().mean()
 
-		loss = loss_topo * 10 + loss_tick * 1e-6 + loss_division + loss_dots + loss_beam + loss_direction + loss_grace + loss_warped + loss_full + loss_fake
+		#loss = loss_topo * 10 + loss_tick * 1e-6 + loss_division + loss_dots + loss_beam + loss_direction + loss_grace + loss_warped + loss_full + loss_fake
+		loss = sum([w * l for w, l in zip(self.loss_weights, [
+			loss_topo, loss_tick, loss_division, loss_dots, loss_beam, loss_direction, loss_grace, loss_warped, loss_full, loss_fake,
+		])])
 
 		wv = WeightedValue.from_value
 
