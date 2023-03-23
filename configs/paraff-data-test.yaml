@@ -4,8 +4,10 @@ id:     paraff/{date}-{filename}
 
 data:
   type:                     SentenceShift
-  root:                     20230301.paraff
+  root:                     20230308.paraff
   splits:                   '*0/1'
   batch_size:               2
   args:
     n_seq:                  512
+    descriptor_drop:        0.4
+    descriptor_drop_sigma:  0.3

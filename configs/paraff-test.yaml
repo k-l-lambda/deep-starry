@@ -4,17 +4,21 @@ id:     paraff/{date}-{filename}
 
 data:
   type:                     SentenceShift
-  root:                     20230301.paraff
+  root:                     20230308.paraff
   splits:                   '*0/1:0/100'
   batch_size:               2
   args:
     n_seq:                  512
+    descriptor_drop:        0.2
+  args_variant:
+    1:
+      descriptor_drop:      0
 
 
 model:
   type:                     TokenGen
   args:
-    n_vocab:                81
+    n_vocab:                123
     n_seq_max:              512
     d_model:                128
     d_inner:                512
@@ -28,13 +32,47 @@ model:
 
 
 onnx:
-  inputs:
-  - name:   seq
-    dtype:  int8
-    shape:  [1, 512]
-  opset: 14
-  outputs:
-  - seq_out
+  multiple:
+    seq32:
+      inputs:
+      - dtype: int8
+        name: seq
+        shape:
+        - 1
+        - 32
+      opset: 14
+      outputs:
+      - seq_out
+    seq64:
+      inputs:
+      - dtype: int8
+        name: seq
+        shape:
+        - 1
+        - 64
+      opset: 14
+      outputs:
+      - seq_out
+    seq128:
+      inputs:
+      - dtype: int8
+        name: seq
+        shape:
+        - 1
+        - 128
+      opset: 14
+      outputs:
+      - seq_out
+    seq512:
+      inputs:
+      - dtype: int8
+        name: seq
+        shape:
+        - 1
+        - 512
+      opset: 14
+      outputs:
+      - seq_out
 
 
 trainer:

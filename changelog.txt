@@ -12,6 +12,24 @@ TODO:
 	+	transformer: fixed JIT conversion errors.
 
 
+2023.3.17
+
+	+	paraff/data/sentence.py: added parameter of descriptor_drop_sigma.
+	+	paraff/data/sentence.py: fixed descriptors dropping.
+
+
+2023.3.10
+
+	+	convertToOnnx.py: added multiple config support.
+
+
+2023.3.9
+
+	+	paraff/models/tokenGen.py: added body mask.
+
+	+	paraff/data/sentence.py: added descriptor droping and body mask.
+
+
 2023.3.2
 
 	+	paraff/models/tokenGen.py created.

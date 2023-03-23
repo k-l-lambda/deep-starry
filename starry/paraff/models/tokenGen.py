@@ -60,18 +60,20 @@ class TokenGenLoss (nn.Module):
 
 		for p in self.parameters():
 			if p.dim() > 1:
-				nn.init.xavier_uniform_(p) 
+				nn.init.xavier_uniform_(p, gain=kw_args['n_layers'] ** -0.5) 
 
 
 	def forward (self, batch):
+		mask = batch['body_mask']
+
 		pred = self.deducer(batch['input_ids'])
 		target = batch['output_ids'].long()
-		pred_ncs = pred.permute(0, 2, 1)
 
-		loss = F.cross_entropy(pred_ncs, target)
+		pred_flat = pred[mask]
 
-		non_zero = target != 0
-		pred_ids = torch.argmax(pred, dim=-1)
-		acc = (pred_ids[non_zero] == target[non_zero]).float().mean()
+		loss = F.cross_entropy(pred_flat, target[mask])
+
+		pred_ids = torch.argmax(pred_flat, dim=-1)
+		acc = (pred_ids == target[mask]).float().mean()
 
 		return loss, {'acc': acc.item()}
