@@ -414,6 +414,32 @@ class EventEncoder (nn.Module):
 		return torch.cat([vec_type, vec_staff, feature, position], dim=-1)
 
 
+class EventArgsEncoder (nn.Module):
+	def __init__ (self, d_model, angle_cycle=1000, feature_activation=None):
+		super().__init__()
+
+		self.feature_activate = getattr(F, feature_activation) if feature_activation else torch.nn.Identity()
+
+		d_position = d_model - EventElementType.MAX - EV_STAFF_MAX - FEATURE_DIM
+		self.position_encoder = SinusoidEncoderXYY(angle_cycle=angle_cycle, d_hid=d_position)
+
+
+	#	stype:		(n, seq)
+	#	staff:		(n, seq)
+	#	feature:	(n, seq, FEATURE_DIM)
+	#	x:			(n, seq)
+	#	y1:			(n, seq)
+	#	y2:			(n, seq)
+	def forward (self, stype, staff, feature, x, y1, y2):	# (n, seq, d_model)
+		vec_type = F.one_hot(stype, num_classes=5)	# EventElementType.MAX
+		vec_staff = F.one_hot(staff, num_classes=4)	# EV_STAFF_MAX
+		position = self.position_encoder(x, y1, y2)
+
+		feature = self.feature_activate(feature)
+
+		return torch.cat([vec_type, vec_staff, feature, position], dim=-1)
+
+
 class RectifierParser (nn.Module):
 	def __init__(self):
 		super().__init__()
@@ -425,7 +451,19 @@ class RectifierParser (nn.Module):
 	def forward (self, vec):
 		rec = {}
 		d = 0
-		for k, dims in TARGET_DIMS.items():
+		#target_dim_items = TARGET_DIMS.items()
+		target_dim_items = [
+			('tick', 1),
+			('division', 7),
+			('dots', 3),
+			('beam', 4),
+			('stemDirection', 3),
+			('grace', 1),
+			('timeWarped', 1),
+			('fullMeasure', 1),
+			('fake', 1),
+		]
+		for k, dims in target_dim_items:
 			rec[k] = vec[:, :, d:d + dims]
 			d += dims
 

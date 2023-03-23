@@ -4,7 +4,7 @@ import torch.nn as nn
 
 from ..event_element import TARGET_DIM, EventElementType
 from ...utils.weightedValue import WeightedValue
-from .modules import EventEncoder, SieveJointer2, RectifierParser, JaggedLoss, CrossEntropy
+from .modules import EventArgsEncoder, SieveJointer2, RectifierParser, JaggedLoss, CrossEntropy
 from .rectifyJointer import EncoderLayerStack, Encoder, Decoder
 
 
@@ -15,7 +15,7 @@ class RectifySieveJointer2 (nn.Module):
 			dropout=0.1, scale_emb=False, **_):
 		super().__init__()
 
-		self.event_encoder = EventEncoder(d_model, angle_cycle=angle_cycle, feature_activation=feature_activation)
+		self.event_encoder = EventArgsEncoder(d_model, angle_cycle=angle_cycle, feature_activation=feature_activation)
 
 		encoder_args = dict(n_head=n_head, d_k=d_k, d_v=d_v, d_model=d_model, d_inner=d_inner, dropout=dropout)
 
@@ -31,10 +31,10 @@ class RectifySieveJointer2 (nn.Module):
 		self.jointer = SieveJointer2(d_model)
 
 
-	def forward (self, inputs):	# dict(name -> T(n, seq, xtar)), list(n, T((n - 1) * (n - 1)))
-		x = self.event_encoder(inputs)	# (n, seq, d_model)
+	def forward (self, stype, staff, feature, x, y1, y2):	# dict(name -> T(n, seq, xtar)), list(n, T((n - 1) * (n - 1)))
+		x = self.event_encoder(stype, staff, feature, x, y1, y2)	# (n, seq, d_model)
 
-		mask_pad = inputs['type'] != EventElementType.PAD
+		mask_pad = stype != 5	# EventElementType.PAD
 		mask = mask_pad.unsqueeze(-2)
 
 		x = self.trunk_encoder(x, mask)
@@ -47,8 +47,8 @@ class RectifySieveJointer2 (nn.Module):
 		sieve = self.sieve_encoder(x, mask)
 		source = self.source_encoder(x, target, mask)
 
-		mask_src = mask_pad & (inputs['type'] != EventElementType.BOS)
-		mask_tar = mask_pad & (inputs['type'] != EventElementType.EOS)
+		mask_src = mask_pad & (stype != 1)	# EventElementType.BOS
+		mask_tar = mask_pad & (stype != 2)	# EventElementType.EOS
 
 		j = self.jointer(source, target, sieve, mask_src, mask_tar)
 
@@ -89,7 +89,8 @@ class RectifySieveJointer2Loss (nn.Module):
 
 
 	def forward (self, batch):
-		rec, matrixH = self.deducer(batch)
+		inputs = (batch['type'], batch['staff'], batch['feature'], batch['x'], batch['y1'], batch['y2'])
+		rec, matrixH = self.deducer(*inputs)
 
 		is_entity = batch['type'] != EventElementType.PAD
 		is_rest = batch['type'] == EventElementType.REST
