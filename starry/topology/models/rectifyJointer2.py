@@ -88,6 +88,10 @@ class RectifySieveJointer2Loss (nn.Module):
 				nn.init.xavier_uniform_(p, gain=init_gain_n ** -0.5)
 
 
+	def training_parameters (self):
+		return list(self.deducer.parameters()) + list(self.deducer.buffers())
+
+
 	def forward (self, batch):
 		inputs = (batch['type'], batch['staff'], batch['feature'], batch['x'], batch['y1'], batch['y2'])
 		rec, matrixH = self.deducer(*inputs)
