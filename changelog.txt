@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.3.23
+
+	+	transformer: fixed JIT conversion errors.
+
+
 2023.3.2
 
 	+	paraff/models/tokenGen.py created.
