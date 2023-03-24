@@ -51,6 +51,7 @@ TARGET_DIMS_LEGACY = dict(
 	fullMeasure=1,
 	fake=1,
 )
+TARGET_DIM_LEGACY = sum(TARGET_DIMS_LEGACY.values())
 
 TARGET_DIMS = dict(
 	tick=1,
