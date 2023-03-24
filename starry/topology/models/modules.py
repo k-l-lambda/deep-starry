@@ -1,4 +1,5 @@
 
+from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -477,10 +478,10 @@ class RectifierParser2 (nn.Module):
 	def __init__(self):
 		super().__init__()
 
-		self.softmax = nn.Softmax(dim=-1)
+		#self.softmax = nn.Softmax(dim=-1)
 		self.sigmoid = nn.Sigmoid()
 
-		self.target_dim_items = TARGET_DIMS.items()
+		self.target_dim_items = list(TARGET_DIMS.items())
 
 
 	def forward (self, vec):
@@ -490,10 +491,10 @@ class RectifierParser2 (nn.Module):
 			rec[k] = vec[:, :, d:d + dims]
 			d += dims
 
-		rec['division'] = self.softmax(rec['division'])
-		rec['dots'] = self.softmax(rec['dots'])
-		rec['beam'] = self.softmax(rec['beam'])
-		rec['stemDirection'] = self.softmax(rec['stemDirection'])
+		rec['division'] = rec['division']
+		rec['dots'] = rec['dots']
+		rec['beam'] = rec['beam']
+		rec['stemDirection'] = rec['stemDirection']
 
 		rec['tick'] = rec['tick'].squeeze(-1)
 		rec['grace'] = self.sigmoid(rec['grace'].squeeze(-1))
@@ -511,5 +512,8 @@ class CrossEntropy (nn.Module):
 		self.ce = nn.CrossEntropyLoss()
 
 
-	def forward (self, pred, target):
+	def forward (self, pred, target, mask: Optional[torch.Tensor] =None):
+		if mask is not None:
+			return self.ce(pred[mask], target[mask])
+
 		return self.ce(pred.view(-1, pred.shape[-1]), target.flatten())

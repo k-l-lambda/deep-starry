@@ -7,6 +7,8 @@ TODO:
 
 2023.3.24
 
+	+	topology/models/modules.py: removed softmax before CrossEntropy.
+
 	+	topology/models/modules.py: module of RectifierParser2 added.
 
 

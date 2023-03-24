@@ -98,15 +98,16 @@ class RectifySieveJointer2Loss (nn.Module):
 		inputs = (batch['type'], batch['staff'], batch['feature'], batch['x'], batch['y1'], batch['y2'])
 		rec, matrixH = self.deducer(*inputs)
 
-		is_entity = batch['type'] != EventElementType.PAD
+		#is_entity = batch['type'] != EventElementType.PAD
 		is_rest = batch['type'] == EventElementType.REST
 		is_chord = batch['type'] == EventElementType.CHORD
+		is_event = is_rest | is_chord
 
-		n_elements = is_entity.sum().item()
+		#n_elements = is_entity.sum().item()
+		n_events = is_event.sum().item()
 		n_chords = is_chord.sum().item()
 		n_rests = is_rest.sum().item()
 		n_rel_tick = batch['maskT'].sum().item()
-		#n_events = (is_rest | is_chord).sum().item()
 
 		loss_topo, acc_topo = self.j_metric(matrixH, batch['matrixH'])
 
@@ -125,35 +126,35 @@ class RectifySieveJointer2Loss (nn.Module):
 		eos = batch['type'] == EventElementType.EOS
 		error_duration = torch.sqrt(self.mse(rec['tick'][eos], batch['tick'][eos]))
 
-		loss_division = self.ce(rec['division'], batch['division'])
+		loss_division = self.ce(rec['division'], batch['division'], mask=is_event)
 		val_division = torch.argmax(rec['division'], dim=-1) == batch['division']
 		acc_division = val_division.float().mean()
 
-		loss_dots = self.ce(rec['dots'], batch['dots'])
+		loss_dots = self.ce(rec['dots'], batch['dots'], mask=is_event)
 		val_dots = torch.argmax(rec['dots'], dim=-1) == batch['dots']
 		acc_dots = val_dots.float().mean()
 
-		loss_beam = self.ce(rec['beam'], batch['beam'])
+		loss_beam = self.ce(rec['beam'], batch['beam'], mask=is_event)
 		val_beam = torch.argmax(rec['beam'], dim=-1)[is_chord] == batch['beam'][is_chord]
 		acc_beam = val_beam.float().mean()
 
-		loss_direction = self.ce(rec['stemDirection'], batch['stemDirection'])
+		loss_direction = self.ce(rec['stemDirection'], batch['stemDirection'], mask=is_event)
 		val_direction = torch.argmax(rec['stemDirection'], dim=-1)[is_chord] == batch['stemDirection'][is_chord]
 		acc_direction = val_direction.float().mean()
 
-		loss_grace = self.bce(rec['grace'], batch['grace'])
+		loss_grace = self.bce(rec['grace'][is_event], batch['grace'][is_event])
 		val_grace = rec['grace'][is_chord] > 0.5
 		acc_grace = (val_grace == batch['grace'][is_chord]).float().mean()
 
-		loss_warped = self.bce(rec['timeWarped'], batch['timeWarped'])
+		loss_warped = self.bce(rec['timeWarped'][is_event], batch['timeWarped'][is_event])
 		val_warped = rec['timeWarped'] > 0.5
 		acc_warped = (val_warped == batch['timeWarped']).float().mean()
 
-		loss_full = self.bce(rec['fullMeasure'], batch['fullMeasure'])
+		loss_full = self.bce(rec['fullMeasure'][is_event], batch['fullMeasure'][is_event])
 		val_full = rec['fullMeasure'][is_rest] > 0.5
 		acc_full = (val_full == batch['fullMeasure'][is_rest]).float().mean()
 
-		loss_fake = self.bce(rec['fake'], batch['fake'])
+		loss_fake = self.bce(rec['fake'][is_event], batch['fake'][is_event])
 		val_fake = rec['fake'] > 0.5
 		acc_fake = (val_fake == batch['fake']).float().mean()
 
@@ -167,17 +168,17 @@ class RectifySieveJointer2Loss (nn.Module):
 		metrics = dict(
 			acc_topo			=wv(acc_topo.item()),
 			loss_topo			=wv(loss_topo.item()),
-			error_tick			=wv(error_tick.item(), n_elements),
+			error_tick			=wv(error_tick.item(), n_events),
 			error_rel_tick		=wv(error_rel_tick.item(), n_rel_tick),
 			error_duration		=wv(error_duration.item()),
-			acc_division		=wv(acc_division.item(), n_elements),
-			acc_dots			=wv(acc_dots.item(), n_elements),
+			acc_division		=wv(acc_division.item(), n_events),
+			acc_dots			=wv(acc_dots.item(), n_events),
 			acc_beam			=wv(acc_beam.item(), n_chords),
 			acc_stemDirection	=wv(acc_direction.item(), n_chords),
 			acc_grace			=wv(acc_grace.item(), n_chords),
-			acc_timeWarped		=wv(acc_warped.item(), n_elements),
+			acc_timeWarped		=wv(acc_warped.item(), n_events),
 			acc_fullMeasure		=wv(acc_full.item(), n_rests),
-			acc_fake			=wv(acc_fake.item(), n_elements),
+			acc_fake			=wv(acc_fake.item(), n_events),
 		)
 
 		return loss, metrics
