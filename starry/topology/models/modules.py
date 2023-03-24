@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ..semantic_element import SemanticElementType, STAFF_MAX
-from ..event_element import FEATURE_DIM, STAFF_MAX as EV_STAFF_MAX, EventElementType, TARGET_DIMS
+from ..event_element import FEATURE_DIM, STAFF_MAX as EV_STAFF_MAX, EventElementType, TARGET_DIMS_LEGACY, TARGET_DIMS
 from ...modules.positionEncoder import SinusoidEncoderXYY
 
 
@@ -423,6 +423,9 @@ class EventArgsEncoder (nn.Module):
 		d_position = d_model - EventElementType.MAX - EV_STAFF_MAX - FEATURE_DIM
 		self.position_encoder = SinusoidEncoderXYY(angle_cycle=angle_cycle, d_hid=d_position)
 
+		self.n_class_type = EventElementType.MAX
+		self.n_class_staff = EV_STAFF_MAX
+
 
 	#	stype:		(n, seq)
 	#	staff:		(n, seq)
@@ -431,8 +434,8 @@ class EventArgsEncoder (nn.Module):
 	#	y1:			(n, seq)
 	#	y2:			(n, seq)
 	def forward (self, stype, staff, feature, x, y1, y2):	# (n, seq, d_model)
-		vec_type = F.one_hot(stype, num_classes=5)	# EventElementType.MAX
-		vec_staff = F.one_hot(staff, num_classes=4)	# EV_STAFF_MAX
+		vec_type = F.one_hot(stype, num_classes=self.n_class_type)
+		vec_staff = F.one_hot(staff, num_classes=self.n_class_staff)
 		position = self.position_encoder(x, y1, y2)
 
 		feature = self.feature_activate(feature)
@@ -451,19 +454,39 @@ class RectifierParser (nn.Module):
 	def forward (self, vec):
 		rec = {}
 		d = 0
-		#target_dim_items = TARGET_DIMS.items()
-		target_dim_items = [
-			('tick', 1),
-			('division', 7),
-			('dots', 3),
-			('beam', 4),
-			('stemDirection', 3),
-			('grace', 1),
-			('timeWarped', 1),
-			('fullMeasure', 1),
-			('fake', 1),
-		]
+		target_dim_items = TARGET_DIMS_LEGACY.items()
 		for k, dims in target_dim_items:
+			rec[k] = vec[:, :, d:d + dims]
+			d += dims
+
+		rec['division'] = self.softmax(rec['division'])
+		rec['dots'] = self.softmax(rec['dots'])
+		rec['beam'] = self.softmax(rec['beam'])
+		rec['stemDirection'] = self.softmax(rec['stemDirection'])
+
+		rec['tick'] = rec['tick'].squeeze(-1)
+		rec['grace'] = self.sigmoid(rec['grace'].squeeze(-1))
+		rec['timeWarped'] = self.sigmoid(rec['timeWarped'].squeeze(-1))
+		rec['fullMeasure'] = self.sigmoid(rec['fullMeasure'].squeeze(-1))
+		rec['fake'] = self.sigmoid(rec['fake'].squeeze(-1))
+
+		return rec
+
+
+class RectifierParser2 (nn.Module):
+	def __init__(self):
+		super().__init__()
+
+		self.softmax = nn.Softmax(dim=-1)
+		self.sigmoid = nn.Sigmoid()
+
+		self.target_dim_items = TARGET_DIMS.items()
+
+
+	def forward (self, vec):
+		rec = {}
+		d = 0
+		for k, dims in self.target_dim_items:
 			rec[k] = vec[:, :, d:d + dims]
 			d += dims
 

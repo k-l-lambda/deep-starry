@@ -40,9 +40,21 @@ STAFF_MAX = 4
 # d_feature = d_division + d_dots + d_beam + d_stemDirection + d_grace
 FEATURE_DIM = 7 + 2 + 3 + 2 + 1
 
-TARGET_DIMS = dict(
+TARGET_DIMS_LEGACY = dict(
 	tick=1,
 	division=7,
+	dots=3,
+	beam=4,
+	stemDirection=3,
+	grace=1,
+	timeWarped=1,
+	fullMeasure=1,
+	fake=1,
+)
+
+TARGET_DIMS = dict(
+	tick=1,
+	division=9,
 	dots=3,
 	beam=4,
 	stemDirection=3,

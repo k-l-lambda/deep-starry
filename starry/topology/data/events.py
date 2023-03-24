@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from perlin_noise import PerlinNoise
 
-from ..event_element import FEATURE_DIM, EventElementType, BeamType, StemDirection, STAFF_MAX
+from ..event_element import FEATURE_DIM, EventElementType, BeamType, StemDirection, STAFF_MAX, TARGET_DIMS
 
 
 
@@ -195,6 +195,14 @@ def exampleToTensorsAugment (cluster, n_augment):
 	}
 
 
+def validateTensors (tensors):
+	for key in ['division', 'dots', 'beam', 'stemDirection']:
+		if tensors[key].max().item() >= TARGET_DIMS[key]:
+			return False
+
+	return True
+
+
 def preprocessDataset (source_dir, target_path, n_augment=64):
 	source = open_fs(source_dir)
 	target = ZipFile(target_path, 'w', compression=ZIP_STORED)
@@ -224,6 +232,9 @@ def preprocessDataset (source_dir, target_path, n_augment=64):
 					target_filename = f'{id}-{ci}.pkl'
 
 					tensors = exampleToTensorsAugment(cluster, n_augment)
+					if not validateTensors(tensors):
+						logging.info('invalid cluster:, %s', target_filename)
+						continue
 					target.writestr(target_filename, pickle.dumps(tensors))
 
 					length = sum(map(lambda t: t.nelement(), tensors.values())) * 4

@@ -4,7 +4,7 @@ import torch.nn as nn
 
 from ..event_element import TARGET_DIM, EventElementType
 from ...utils.weightedValue import WeightedValue
-from .modules import EventArgsEncoder, SieveJointer2, RectifierParser, JaggedLoss, CrossEntropy
+from .modules import EventArgsEncoder, SieveJointer2, RectifierParser2, JaggedLoss, CrossEntropy
 from .rectifyJointer import EncoderLayerStack, Encoder, Decoder
 
 
@@ -26,7 +26,7 @@ class RectifySieveJointer2 (nn.Module):
 		self.source_encoder = Decoder(n_source_layers, **encoder_args, scale_emb=scale_emb)
 
 		self.rec_out = nn.Linear(d_model, TARGET_DIM)
-		self.rec_parser = RectifierParser()
+		self.rec_parser = RectifierParser2()
 
 		self.jointer = SieveJointer2(d_model)
 

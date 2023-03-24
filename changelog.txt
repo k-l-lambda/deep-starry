@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.3.24
+
+	+	topology/models/modules.py: module of RectifierParser2 added.
+
+
 2023.3.23
 
 	+	rectifyJointer2.py: parameter of loss_weights added.
