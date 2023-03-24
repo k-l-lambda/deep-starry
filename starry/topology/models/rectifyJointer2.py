@@ -22,7 +22,7 @@ class RectifySieveJointer2 (nn.Module):
 		self.trunk_encoder = EncoderLayerStack(n_trunk_layers, **encoder_args)
 		self.rectifier_encoder = Encoder(n_rectifier_layers, **encoder_args, scale_emb=scale_emb)
 		self.target_encoder = Encoder(n_target_layers, **encoder_args, scale_emb=scale_emb)
-		self.sieve_encoder = Encoder(n_sieve_layers, **encoder_args, scale_emb=scale_emb)
+		self.sieve_encoder = None if n_sieve_layers == 0 else Encoder(n_sieve_layers, **encoder_args, scale_emb=scale_emb)
 		self.source_encoder = Decoder(n_source_layers, **encoder_args, scale_emb=scale_emb)
 
 		self.rec_out = nn.Linear(d_model, TARGET_DIM)
@@ -44,7 +44,7 @@ class RectifySieveJointer2 (nn.Module):
 		rec = self.rec_parser(rec)
 
 		target = self.target_encoder(x, mask)
-		sieve = self.sieve_encoder(x, mask)
+		sieve = torch.ones(1).to(x.device) if self.sieve_encoder is None else self.sieve_encoder(x, mask)
 		source = self.source_encoder(x, target, mask)
 
 		mask_src = mask_pad & (stype != 1)	# EventElementType.BOS
