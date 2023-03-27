@@ -7,6 +7,7 @@ from zipfile import ZipFile, ZIP_STORED
 from tqdm import tqdm
 import logging
 import dill as pickle
+import math
 import numpy as np
 import torch
 from perlin_noise import PerlinNoise
@@ -143,6 +144,21 @@ def exampleToTensorsAugment (cluster, n_augment):
 	fullMeasure = torch.tensor([1 if elem['fullMeasure'] else 0 for elem in elements], dtype=torch.float32)
 	fake = torch.tensor([elem.get('fake', 0) for elem in elements], dtype=torch.float32)
 
+	# beading order
+	voices = list(set([elem['voice'] for elem in elements if elem.get('voice', -1) >= 0]))
+	np.random.shuffle(voices)
+	def beadingPrior (elem):
+		if elem['type'] == EventElementType.BOS:
+			return -1
+
+		if elem['type'] == EventElementType.EOS or elem.get('grace') or elem.get('voice', -1) < 0:
+			return math.inf
+
+		return voices.index(elem['voice']) * 10000 + elem['index']
+	beading_elems = sorted(elements, key=beadingPrior)
+	order_max = len([elem for elem in elements if not (elem['type'] == EventElementType.EOS or elem.get('grace') or elem.get('voice', -1) < 0)])
+	order = torch.tensor([min(order_max, beading_elems.index(elem)) for elem in elements], dtype=torch.int16)
+
 	rawMatrixH = torch.tensor(cluster['matrixH'], dtype=torch.float32)
 	matrixH = rawMatrixH[1:, :-1]	# exlude BOS & EOS
 	matrixH = matrixH.flatten()
@@ -192,6 +208,8 @@ def exampleToTensorsAugment (cluster, n_augment):
 		'matrixH':			matrixH,		# ((n_seq - 1) * (n_seq - 1))
 		'tickDiff':			tickDiff,		# (n_seq * n_seq)
 		'maskT':			maskT,			# (n_seq * n_seq)
+
+		'order':			order,			# (n_seq)
 	}
 
 

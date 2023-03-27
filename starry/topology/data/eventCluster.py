@@ -44,7 +44,7 @@ class EventCluster (IterableDataset):
 
 
 	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None,
-		batch_slice=None, use_cache=True):
+		batch_slice=None, use_cache=True, with_beading=False):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -54,6 +54,7 @@ class EventCluster (IterableDataset):
 		self.position_drift = position_drift
 		self.stem_amplitude = stem_amplitude
 		self.batch_slice = batch_slice
+		self.with_beading = with_beading
 
 		self.entry_cache = {} if use_cache else None
 
@@ -139,17 +140,38 @@ class EventCluster (IterableDataset):
 			y1[:, 1:-1] += torch.randn(batch_size, n_seq - 2, device=self.device) * self.position_drift + oy
 			y2[:, 1:-1] += torch.randn(batch_size, n_seq - 2, device=self.device) * self.position_drift + oy
 
-		result = {
-			'type': elem_type,
-			'staff': staff,
-			'feature': feature,
-			'x': x,
-			'y1': y1,
-			'y2': y2,
-			'matrixH': tensors['matrixH'].repeat(batch_size, 1),
-			'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
-			'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
-		}
+		if self.with_beading:
+			order_max = tensors['order'].max().item()
+			beading_tip = torch.multinomial(torch.ones(order_max), batch_size, replacement=batch_size > order_max)	# (batch_size)
+			beading_pos = torch.arange(n_seq)[None, :].repeat(batch_size, 1) - (beading_tip[:, None] + 1).to(self.device)
+			beading_pos[beading_pos > 0] = 0
+
+			# TODO: regularize duration fields
+
+			result = {
+				'type': elem_type,
+				'staff': staff,
+				'feature': feature,
+				'x': x,
+				'y1': y1,
+				'y2': y2,
+				'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
+				'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
+				'beading_pos': beading_pos,
+			}
+		else:
+			result = {
+				'type': elem_type,
+				'staff': staff,
+				'feature': feature,
+				'x': x,
+				'y1': y1,
+				'y2': y2,
+				'matrixH': tensors['matrixH'].repeat(batch_size, 1),
+				'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
+				'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
+				'beading_pos': beading_pos,
+			}
 
 		for field in TARGET_FIELDS:
 			result[field] = tensors[field].repeat(batch_size, 1)

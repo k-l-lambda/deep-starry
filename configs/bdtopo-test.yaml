@@ -1,0 +1,48 @@
+
+id:     score-topology/{date}-{filename}
+
+env: ~
+
+
+data:
+  type:                     EventCluster
+  root:                     ev-test-paraff.zip
+  splits:                   '*1,2/10:3/10'
+  batch_size:               1
+  args:
+    #batch_slice:            2
+    with_beading:           True
+    stability_base:         10
+    position_drift:         0.03
+    stem_amplitude:
+      mu:                   5.4
+      sigma:                2
+  args_variant:
+    1:
+      stability_base:       100
+
+
+#model:
+  #type:
+  #args:
+
+
+trainer:
+  device:                   cpu
+  save_mode:                best
+  epoch:                    2
+  moniter:
+    field:                  general_error
+    mode:                   min
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               1
+      n_warmup_steps:       4000
+      d_model:              512
