@@ -30,11 +30,13 @@ class RectifySieveJointer2 (nn.Module):
 
 		self.jointer = SieveJointer2(d_model)
 
+		self.EventElementType = EventElementType
+
 
 	def forward (self, stype, staff, feature, x, y1, y2):	# dict(name -> T(n, seq, xtar)), list(n, T((n - 1) * (n - 1)))
 		x = self.event_encoder(stype, staff, feature, x, y1, y2)	# (n, seq, d_model)
 
-		mask_pad = stype != 5	# EventElementType.PAD
+		mask_pad = stype != self.EventElementType.PAD
 		mask = mask_pad.unsqueeze(-2)
 
 		x = self.trunk_encoder(x, mask)
@@ -47,8 +49,8 @@ class RectifySieveJointer2 (nn.Module):
 		sieve = torch.ones(1).to(x.device) if self.sieve_encoder is None else self.sieve_encoder(x, mask)
 		source = self.source_encoder(x, target, mask)
 
-		mask_src = mask_pad & (stype != 1)	# EventElementType.BOS
-		mask_tar = mask_pad & (stype != 2)	# EventElementType.EOS
+		mask_src = mask_pad & (stype != self.EventElementType.BOS)
+		mask_tar = mask_pad & (stype != self.EventElementType.EOS)
 
 		j = self.jointer(source, target, sieve, mask_src, mask_tar)
 
