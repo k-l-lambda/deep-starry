@@ -491,10 +491,10 @@ class RectifierParser2 (nn.Module):
 			rec[k] = vec[:, :, d:d + dims]
 			d += dims
 
-		rec['division'] = rec['division']
-		rec['dots'] = rec['dots']
-		rec['beam'] = rec['beam']
-		rec['stemDirection'] = rec['stemDirection']
+		#rec['division'] = rec['division']
+		#rec['dots'] = rec['dots']
+		#rec['beam'] = rec['beam']
+		#rec['stemDirection'] = rec['stemDirection']
 
 		rec['tick'] = rec['tick'].squeeze(-1)
 		rec['grace'] = self.sigmoid(rec['grace'].squeeze(-1))
