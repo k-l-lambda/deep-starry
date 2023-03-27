@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.3.27
+
+	+	EvtopoPredictor: adapted to RectifySieveJointer2.
+
+
 2023.3.24
 
 	+	rectifyJointer2.py: skip sieve encode for zero layer.

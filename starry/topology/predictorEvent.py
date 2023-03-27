@@ -22,14 +22,11 @@ class EvtopoPredictor (Predictor):
 	def predict(self, clusters):
 		for i in range(0, len(clusters), self.batch_size):
 			batch_clusters = clusters[i:i+self.batch_size]
-			inputs = clusterFeatureToTensors(batch_clusters)
-
-			# to device
-			for key in inputs:
-				inputs[key] = inputs[key].to(self.device)
+			inputs_dict = clusterFeatureToTensors(batch_clusters)
+			inputs = [inputs_dict[k].to(self.device) for k in ['type', 'staff', 'feature', 'x', 'y1', 'y2']]
 
 			with torch.no_grad():
-				rec, mat = self.model(inputs)
+				rec, mat = self.model(*inputs)
 
 			for ii, cluster in enumerate(batch_clusters):
 				result = {
