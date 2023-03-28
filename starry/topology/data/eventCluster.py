@@ -155,7 +155,14 @@ class EventCluster (IterableDataset):
 			beading_pos[:, 0] = vhs.max(dim=-1).values
 
 			# TODO: regularize duration fields
-			# TODO: successor
+
+			matrixH = tensors['matrixH'].reshape(n_seq - 1, n_seq - 1)
+
+			successor = torch.zeros(batch_size, n_seq).bool()
+			order_list = tensors['order'].tolist()
+			for i, tip in enumerate(beading_tip.tolist()):
+				ti = order_list.index(tip) if tip in order_list else 0
+				successor[i, 1:] = (matrixH[:, ti] > 0) & (beading_pos[i, 1:] == 0)
 
 			result = {
 				'type': elem_type,
@@ -167,6 +174,7 @@ class EventCluster (IterableDataset):
 				'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
 				'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
 				'beading_pos': beading_pos.to(self.device),
+				'successor': successor.float().to(self.device),
 			}
 		else:
 			result = {
