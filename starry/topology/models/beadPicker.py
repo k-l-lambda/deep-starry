@@ -77,9 +77,11 @@ class BeadPickerLoss (nn.Module):
 		is_chord = batch['type'] == EventElementType.CHORD
 		is_event = is_rest | is_chord
 		is_candidate = is_entity & (batch['beading_pos'] == 0)
+		is_ce = is_candidate & is_event
 
 		n_candidates = is_candidate.sum().item()
 		n_events = is_event.sum().item()
+		n_ce = is_ce.sum().item()
 		n_chords = is_chord.sum().item()
 		n_rests = is_rest.sum().item()
 		n_rel_tick = batch['maskT'].sum().item()
@@ -103,11 +105,11 @@ class BeadPickerLoss (nn.Module):
 		err_duration = torch.sqrt(self.mse(rec['tick'][eos], batch['tick'][eos]))
 
 		loss_division = self.ce(rec['division'], batch['division'], mask=is_event)
-		val_division = torch.argmax(rec['division'][is_event], dim=-1) == batch['division'][is_event]
+		val_division = torch.argmax(rec['division'][is_ce], dim=-1) == batch['division'][is_ce]
 		err_division = 1 - val_division.float().mean()
 
 		loss_dots = self.ce(rec['dots'], batch['dots'], mask=is_event)
-		val_dots = torch.argmax(rec['dots'][is_event], dim=-1) == batch['dots'][is_event]
+		val_dots = torch.argmax(rec['dots'][is_ce], dim=-1) == batch['dots'][is_ce]
 		err_dots = 1 - val_dots.float().mean()
 
 		loss_beam = self.ce(rec['beam'], batch['beam'], mask=is_event)
@@ -146,8 +148,8 @@ class BeadPickerLoss (nn.Module):
 			err_tick			=wv(err_tick.item(), n_events),
 			err_rel_tick		=wv(err_rel_tick.item(), n_rel_tick),
 			err_duration		=wv(err_duration.item()),
-			err_division		=wv(err_division.item(), n_events),
-			err_dots			=wv(err_dots.item(), n_events),
+			err_division		=wv(err_division.item(), n_ce),
+			err_dots			=wv(err_dots.item(), n_ce),
 			err_beam			=wv(err_beam.item(), n_chords),
 			err_stemDirection	=wv(err_direction.item(), n_chords),
 			err_grace			=wv(err_grace.item(), n_chords),
