@@ -78,6 +78,7 @@ class BeadPickerLoss (nn.Module):
 		is_event = is_rest | is_chord
 		is_candidate = is_entity & (batch['beading_pos'] == 0)
 		is_ce = is_candidate & is_event
+		is_fixed = batch['beading_pos'] < 0
 
 		n_candidates = is_candidate.sum().item()
 		n_events = is_event.sum().item()
@@ -85,12 +86,16 @@ class BeadPickerLoss (nn.Module):
 		n_chords = is_chord.sum().item()
 		n_rests = is_rest.sum().item()
 		n_rel_tick = batch['maskT'].sum().item()
+		n_fixed = is_fixed.sum().item()
 
 		loss_suc = self.bce(pred_suc[is_entity], batch['successor'][is_entity])
 		err_suc = 1 - ((pred_suc[is_candidate] > self.decisive_confidence).float() == batch['successor'][is_candidate]).float().mean()
 
 		loss_tick = self.mse(rec['tick'], batch['tick'])
 		err_tick = torch.sqrt(loss_tick)
+
+		loss_tick_fixed = self.mse(rec['tick'][is_fixed], batch['tick'][is_fixed])
+		err_tick_fixed = torch.sqrt(loss_tick_fixed)
 
 		n_seq = batch['tick'].shape[-1]
 		tick_src = rec['tick'].unsqueeze(-1).repeat(1, 1, n_seq)
@@ -146,6 +151,7 @@ class BeadPickerLoss (nn.Module):
 			err_suc				=wv(err_suc.item(), n_candidates),
 			loss_suc			=wv(loss_suc.item()),
 			err_tick			=wv(err_tick.item(), n_events),
+			err_tick_fixed		=wv(err_tick_fixed.item(), n_fixed),
 			err_rel_tick		=wv(err_rel_tick.item(), n_rel_tick),
 			err_duration		=wv(err_duration.item()),
 			err_division		=wv(err_division.item(), n_ce),
@@ -165,6 +171,7 @@ class BeadPickerLoss (nn.Module):
 		error = dict(
 			suc				=metrics['err_suc'].value,
 			tick			=metrics['err_tick'].value,
+			tick_fixed		=metrics['err_tick_fixed'].value,
 			rel_tick		=metrics['err_rel_tick'].value,
 			duration		=metrics['err_duration'].value,
 			division		=metrics['err_division'].value,
@@ -179,7 +186,7 @@ class BeadPickerLoss (nn.Module):
 
 		errors = [
 			error['suc'],
-			error['rel_tick'] + error['duration'],
+			error['tick_fixed'] + error['duration'],
 			error['division'],
 			error['dots'],
 			error['beam'],
