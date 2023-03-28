@@ -147,7 +147,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 	# beading order
 	voices = list(set([elem['voice'] for elem in elements if elem.get('voice', -1) >= 0]))
 	np.random.shuffle(voices)
-	def beadingPrior (elem):
+	'''def beadingPrior (elem):
 		if elem['type'] == EventElementType.BOS:
 			return -1
 
@@ -157,7 +157,10 @@ def exampleToTensorsAugment (cluster, n_augment):
 		return voices.index(elem['voice']) * 10000 + elem['index']
 	beading_elems = sorted(elements, key=beadingPrior)
 	order_max = len([elem for elem in elements if not (elem['type'] == EventElementType.EOS or elem.get('grace') or elem.get('voice', -1) < 0)])
-	order = torch.tensor([min(order_max, beading_elems.index(elem)) for elem in elements], dtype=torch.int16)
+	order = torch.tensor([min(order_max, beading_elems.index(elem)) for elem in elements], dtype=torch.int16)'''
+	beading_elems = sum([[elements[0]] + [elem for elem in elements if elem.get('voice', -1) == vi] for vi in voices], [])
+	order_max = len(beading_elems)
+	order = torch.tensor([(beading_elems.index(elem) if (elem in beading_elems) else order_max) for elem in elements], dtype=torch.int16)
 
 	rawMatrixH = torch.tensor(cluster['matrixH'], dtype=torch.float32)
 	matrixH = rawMatrixH[1:, :-1]	# exlude BOS & EOS

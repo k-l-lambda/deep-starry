@@ -143,10 +143,19 @@ class EventCluster (IterableDataset):
 		if self.with_beading:
 			order_max = tensors['order'].max().item()
 			beading_tip = torch.multinomial(torch.ones(order_max), batch_size, replacement=batch_size > order_max)	# (batch_size)
-			beading_pos = torch.arange(n_seq)[None, :].repeat(batch_size, 1) - (beading_tip[:, None] + 1).to(self.device)
+			beading_pos = tensors['order'][None, :].repeat(batch_size, 1) - (beading_tip[:, None] + 1)				# (batch_size, n_seq)
 			beading_pos[beading_pos > 0] = 0
 
+			# move BOS pos to ahead of last voice
+			voice_head_pos = torch.tensor([i for i in range(order_max) if not i in tensors['order']])
+			vhs = voice_head_pos[None, :].repeat(batch_size, 1) - (beading_tip[:, None] + 1)
+			#print('vhs:', vhs)
+			for i, vh in enumerate(vhs):
+				vh[vh >= 0] = beading_pos[i, 0]
+			beading_pos[:, 0] = vhs.max(dim=-1).values
+
 			# TODO: regularize duration fields
+			# TODO: successor
 
 			result = {
 				'type': elem_type,
@@ -157,7 +166,7 @@ class EventCluster (IterableDataset):
 				'y2': y2,
 				'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
 				'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
-				'beading_pos': beading_pos,
+				'beading_pos': beading_pos.to(self.device),
 			}
 		else:
 			result = {
