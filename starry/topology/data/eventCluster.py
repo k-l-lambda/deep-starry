@@ -148,7 +148,7 @@ class EventCluster (IterableDataset):
 			beading_pos[beading_pos > 0] = 0
 
 			# move BOS pos to ahead of last voice
-			voice_head_pos = torch.tensor([i for i in range(order_max) if not i in tensors['order']], device=self.device)
+			voice_head_pos = torch.tensor([i for i in range(order_max) if i == 0 or (not i in tensors['order'])], dtype=beading_pos.dtype, device=self.device)
 			vhs = voice_head_pos[None, :].repeat(batch_size, 1) - (beading_tip[:, None] + 1)
 			#print('vhs:', vhs)
 			for i, vh in enumerate(vhs):
