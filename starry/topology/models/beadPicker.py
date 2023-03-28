@@ -142,7 +142,7 @@ class BeadPickerLoss (nn.Module):
 		err_fake = 1 - (val_fake == batch['fake'][is_event]).float().mean()
 
 		loss = sum([w * l for w, l in zip(self.loss_weights, [
-			loss_suc, loss_tick, loss_division, loss_dots, loss_beam, loss_direction, loss_grace, loss_warped, loss_full, loss_fake,
+			loss_suc, loss_tick_fixed, loss_tick, loss_division, loss_dots, loss_beam, loss_direction, loss_grace, loss_warped, loss_full, loss_fake,
 		])])
 
 		wv = WeightedValue.from_value
