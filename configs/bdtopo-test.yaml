@@ -1,8 +1,6 @@
 
 id:     score-topology/{date}-{filename}
 
-env: ~
-
 
 data:
   type:                     EventCluster
@@ -22,12 +20,38 @@ data:
       stability_base:       100
 
 
-#model:
-  #type:
-  #args:
+model:
+  type:                     BeadPicker
+  args:
+    n_layers:               2
+    d_position:             512
+    angle_cycle:            10000
+    feature_activation:     tanh
+    d_model:                512
+    d_inner:                2048
+    n_head:                 8
+    d_k:                    64
+    d_v:                    64
+    dropout:                0.1
+    scale_emb:              False
+    error_weights:
+    - 5         # topo
+    - 1.e-3     # tick
+    - 3         # division
+    - 3         # dots
+    - 1         # beam
+    - 0.1       # stemDirection
+    - 3         # grace
+    - 3         # warped
+    - 3         # full measure
+    - 3         # fake
+    #                       (loss_topo, loss_tick, loss_division, loss_dots, loss_beam, loss_direction, loss_grace, loss_warped, loss_full, loss_fake)
+    loss_weights:           [10, 1.e-6]
+    init_gain_n:            4     # 2 * n_layers
 
 
 trainer:
+  env: ~
   device:                   cpu
   save_mode:                best
   epoch:                    2

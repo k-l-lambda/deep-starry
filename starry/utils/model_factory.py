@@ -13,6 +13,7 @@ def registerModels ():
 	from ..topology.models import jointers as tj
 	from ..topology.models import rectifyJointer as tr
 	from ..topology.models import rectifyJointer2 as tr2
+	from ..topology.models import beadPicker as tb
 	from ..vision import models as vm
 	from ..paraff import models as pm
 
@@ -26,6 +27,7 @@ def registerModels ():
 		tj.TransformSieveJointerHV, tj.TransformSieveJointerHVLoss,
 		tr.RectifySieveJointer, tr.RectifySieveJointerLoss,
 		tr2.RectifySieveJointer2, tr2.RectifySieveJointer2Loss,
+		tb.BeadPicker, tb.BeadPickerLoss,
 		vm.ScoreWidgets, vm.ScoreWidgetsInspection, vm.ScoreWidgetsLoss,
 		vm.ScoreWidgetsMask, vm.ScoreWidgetsMaskLoss,
 		vm.ScoreRegression, vm.ScoreRegressionLoss,

@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ..semantic_element import SemanticElementType, STAFF_MAX
 from ..event_element import FEATURE_DIM, STAFF_MAX as EV_STAFF_MAX, EventElementType, TARGET_DIMS_LEGACY, TARGET_DIMS
-from ...modules.positionEncoder import SinusoidEncoderXYY
+from ...modules.positionEncoder import SinusoidEncoderXYY, SinusoidEncoder
 
 
 
@@ -442,6 +442,43 @@ class EventArgsEncoder (nn.Module):
 		feature = self.feature_activate(feature)
 
 		return torch.cat([vec_type, vec_staff, feature, position], dim=-1)
+
+
+class EventOrderedEncoder (nn.Module):
+	def __init__ (self, d_model, d_position, angle_cycle=1000, feature_activation=None):
+		super().__init__()
+
+		self.feature_activate = getattr(torch, feature_activation) if feature_activation else torch.nn.Identity()
+
+		self.position_encoder = SinusoidEncoderXYY(angle_cycle=angle_cycle, d_hid=d_position)
+
+		self.order_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_position)
+
+		self.n_class_type = EventElementType.MAX
+		self.n_class_staff = EV_STAFF_MAX
+
+		d_in = EventElementType.MAX + EV_STAFF_MAX + FEATURE_DIM + d_position + d_position
+		self.embed = nn.Linear(d_in, d_model)
+
+
+	#	stype:		(n, seq)
+	#	staff:		(n, seq)
+	#	feature:	(n, seq, FEATURE_DIM)
+	#	x:			(n, seq)
+	#	y1:			(n, seq)
+	#	y2:			(n, seq)
+	#	pos:		(n, seq)
+	def forward (self, stype, staff, feature, x, y1, y2, pos):	# (n, seq, d_model)
+		vec_type = F.one_hot(stype.long(), num_classes=self.n_class_type)
+		vec_staff = F.one_hot(staff.long(), num_classes=self.n_class_staff)
+		position = self.position_encoder(x, y1, y2)
+		pos = self.order_encoder(pos.float())
+
+		feature = self.feature_activate(feature)
+
+		x = torch.cat([vec_type, vec_staff, feature, position, pos], dim=-1)
+
+		return self.embed(x)
 
 
 class RectifierParser (nn.Module):
