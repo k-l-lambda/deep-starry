@@ -35,18 +35,18 @@ model:
     dropout:                0.1
     scale_emb:              False
     error_weights:
-    - 5         # topo
+    - 10        # suc
     - 1.e-3     # tick
     - 3         # division
     - 3         # dots
     - 1         # beam
-    - 0.1       # stemDirection
+    - 1         # stemDirection
     - 3         # grace
     - 3         # warped
-    - 3         # full measure
-    - 3         # fake
-    #                       (loss_topo, loss_tick, loss_division, loss_dots, loss_beam, loss_direction, loss_grace, loss_warped, loss_full, loss_fake)
-    loss_weights:           [10, 1.e-6]
+    - 1         # full measure
+    - 1         # fake
+    #                       (loss_suc, loss_tick, loss_division, loss_dots, loss_beam, loss_direction, loss_grace, loss_warped, loss_full, loss_fake)
+    loss_weights:           [10, 4.e-6, 2, 2]
     init_gain_n:            4     # 2 * n_layers
 
 
@@ -70,3 +70,49 @@ optim:
       lr_mul:               1
       n_warmup_steps:       4000
       d_model:              512
+
+
+onnx:
+  multiple:
+    seq32:
+      inputs:
+      - dtype: int8
+        name: type
+        shape:
+        - 1
+        - 32
+      - dtype: int8
+        name: staff
+        shape:
+        - 1
+        - 32
+      - dtype: float
+        name: feature
+        shape:
+        - 1
+        - 32
+        - 15
+      - dtype: float
+        name: x
+        shape:
+        - 1
+        - 32
+      - dtype: float
+        name: y1
+        shape:
+        - 1
+        - 32
+      - dtype: float
+        name: y2
+        shape:
+        - 1
+        - 32
+      - dtype: int16
+        name: beading_pos
+        shape:
+        - 1
+        - 32
+      opset: 14
+      outputs:
+      - successor
+      - rectification
