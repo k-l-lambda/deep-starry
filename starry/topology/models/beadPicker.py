@@ -175,7 +175,7 @@ class BeadPickerLoss (nn.Module):
 		)
 
 		errors = [
-			error['topo'],
+			error['suc'],
 			error['rel_tick'] + error['duration'],
 			error['division'],
 			error['dots'],
@@ -191,7 +191,7 @@ class BeadPickerLoss (nn.Module):
 		) / sum(self.error_weights)
 
 		return dict(
-			loss_topo=metrics['loss_topo'].value,
+			loss_suc=metrics['loss_suc'].value,
 			error=error,
 			general_error=general_error,
 		)

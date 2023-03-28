@@ -143,12 +143,12 @@ class EventCluster (IterableDataset):
 
 		if self.with_beading:
 			order_max = tensors['order'].max().item()
-			beading_tip = torch.multinomial(torch.ones(order_max), batch_size, replacement=batch_size > order_max)	# (batch_size)
-			beading_pos = tensors['order'][None, :].repeat(batch_size, 1) - (beading_tip[:, None] + 1)				# (batch_size, n_seq)
+			beading_tip = torch.multinomial(torch.ones(order_max), batch_size, replacement=batch_size > order_max).to(self.device)	# (batch_size)
+			beading_pos = tensors['order'][None, :].repeat(batch_size, 1) - (beading_tip[:, None] + 1)								# (batch_size, n_seq)
 			beading_pos[beading_pos > 0] = 0
 
 			# move BOS pos to ahead of last voice
-			voice_head_pos = torch.tensor([i for i in range(order_max) if not i in tensors['order']])
+			voice_head_pos = torch.tensor([i for i in range(order_max) if not i in tensors['order']], device=self.device)
 			vhs = voice_head_pos[None, :].repeat(batch_size, 1) - (beading_tip[:, None] + 1)
 			#print('vhs:', vhs)
 			for i, vh in enumerate(vhs):
