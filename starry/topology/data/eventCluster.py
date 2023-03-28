@@ -5,6 +5,7 @@ import numpy as np
 import dill as pickle
 import torch
 from torch.utils.data import IterableDataset
+import torch.nn.functional as F
 
 from ...utils.parsers import parseFilterStr, mergeArgs
 from ..event_element import TARGET_FIELDS
@@ -153,8 +154,7 @@ class EventCluster (IterableDataset):
 			for i, vh in enumerate(vhs):
 				vh[vh >= 0] = beading_pos[i, 0]
 			beading_pos[:, 0] = vhs.max(dim=-1).values
-
-			# TODO: regularize duration fields
+			beading_pos = beading_pos.to(self.device)
 
 			matrixH = tensors['matrixH'].reshape(n_seq - 1, n_seq - 1)
 
@@ -163,6 +163,18 @@ class EventCluster (IterableDataset):
 			for i, tip in enumerate(beading_tip.tolist()):
 				ti = order_list.index(tip) if tip in order_list else 0
 				successor[i, 1:] = (matrixH[:, ti] > 0) & (beading_pos[i, 1:] == 0)
+
+			# regularize duration feature fields
+			fixed_indices = (beading_pos < 0) & (elem_type > 2)
+			fixed_feature = feature[fixed_indices]
+			fixed_division = tensors['division'].repeat(batch_size, 1)[fixed_indices].long()
+			fixed_dots = tensors['dots'].repeat(batch_size, 1)[fixed_indices]
+
+			fixed_feature[:, :7] = F.one_hot(fixed_division, num_classes=7)
+			fixed_feature[:, 7] = (fixed_dots > 0).float()
+			fixed_feature[:, 8] = (fixed_dots > 1).float()
+
+			feature[fixed_indices] = fixed_feature
 
 			result = {
 				'type': elem_type,
@@ -173,7 +185,7 @@ class EventCluster (IterableDataset):
 				'y2': y2,
 				'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
 				'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
-				'beading_pos': beading_pos.to(self.device),
+				'beading_pos': beading_pos,
 				'successor': successor.float().to(self.device),
 			}
 		else:
