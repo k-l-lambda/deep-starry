@@ -24,8 +24,8 @@ model:
   type:                     BeadPicker
   args:
     n_layers:               2
-    d_position:             512
-    angle_cycle:            10000
+    d_position:             256
+    angle_cycle:            1000
     feature_activation:     tanh
     d_model:                512
     d_inner:                2048
