@@ -27,7 +27,7 @@ def registerModels ():
 		tj.TransformSieveJointerHV, tj.TransformSieveJointerHVLoss,
 		tr.RectifySieveJointer, tr.RectifySieveJointerLoss,
 		tr2.RectifySieveJointer2, tr2.RectifySieveJointer2Loss,
-		tb.BeadPicker, tb.BeadPickerLoss,
+		tb.BeadPicker, tb.BeadPickerLoss, tb.BeadPickerOnnx,
 		vm.ScoreWidgets, vm.ScoreWidgetsInspection, vm.ScoreWidgetsLoss,
 		vm.ScoreWidgetsMask, vm.ScoreWidgetsMaskLoss,
 		vm.ScoreRegression, vm.ScoreRegressionLoss,
