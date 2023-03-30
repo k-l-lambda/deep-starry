@@ -445,10 +445,11 @@ class EventArgsEncoder (nn.Module):
 
 
 class EventOrderedEncoder (nn.Module):
-	def __init__ (self, d_model, d_position, angle_cycle=1000, feature_activation=None):
+	def __init__ (self, d_model, d_position, angle_cycle=1000, feature_activation=None, zero_candidates=False):
 		super().__init__()
 
 		self.feature_activate = getattr(torch, feature_activation) if feature_activation else torch.nn.Identity()
+		self.zero_candidates = zero_candidates
 
 		self.position_encoder = SinusoidEncoderXYY(angle_cycle=angle_cycle, d_hid=d_position)
 
@@ -472,11 +473,14 @@ class EventOrderedEncoder (nn.Module):
 		vec_type = F.one_hot(stype.long(), num_classes=self.n_class_type).float()
 		vec_staff = F.one_hot(staff.long(), num_classes=self.n_class_staff).float()
 		position = self.position_encoder(x, y1, y2)
-		pos = self.order_encoder(pos.float())
+		vec_pos = self.order_encoder(pos.float())
+
+		if self.zero_candidates:
+			vec_pos[pos == 0] = 0
 
 		feature = self.feature_activate(feature)
 
-		x = torch.cat([vec_type, vec_staff, feature, position, pos], dim=-1)
+		x = torch.cat([vec_type, vec_staff, feature, position, vec_pos], dim=-1)
 
 		return self.embed(x)
 

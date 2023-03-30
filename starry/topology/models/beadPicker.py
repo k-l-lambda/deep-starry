@@ -10,12 +10,13 @@ from .rectifyJointer import EncoderLayerStack, DEFAULT_ERROR_WEIGHTS
 
 
 class BeadPicker (nn.Module):
-	def __init__ (self, n_layers=1, angle_cycle=1000, d_position=512, feature_activation=None,
+	def __init__ (self, n_layers=1, angle_cycle=1000, d_position=512, feature_activation=None, zero_candidates=False,
 			d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64,
 			dropout=0.1, scale_emb=False, **_):
 		super().__init__()
 
-		self.event_encoder = EventOrderedEncoder(d_model, angle_cycle=angle_cycle, d_position=d_position, feature_activation=feature_activation)
+		self.event_encoder = EventOrderedEncoder(d_model, angle_cycle=angle_cycle, d_position=d_position,
+			feature_activation=feature_activation, zero_candidates=zero_candidates)
 
 		encoder_args = dict(n_head=n_head, d_k=d_k, d_v=d_v, d_model=d_model, d_inner=d_inner, dropout=dropout)
 
