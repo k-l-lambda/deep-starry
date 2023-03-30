@@ -44,6 +44,14 @@ class BeadPicker (nn.Module):
 		return successor, rec
 
 
+class BeadPickerOnnx (BeadPicker):
+	def forward (self, *args):
+		successor, rec = super().forward(*args)
+
+		return (successor, *[rec[key] for key in
+			['tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']])
+
+
 class BeadPickerLoss (nn.Module):
 	def __init__ (self, decisive_confidence=0.5, error_weights=DEFAULT_ERROR_WEIGHTS, loss_weights=[10, 1e-6],
 		init_gain_n=2, **kw_args):

@@ -77,85 +77,51 @@ onnx:
   multiple:
     seq32:
       inputs:
-      - dtype: int8
-        name: type
-        shape:
-        - 1
-        - 32
-      - dtype: int8
-        name: staff
-        shape:
-        - 1
-        - 32
-      - dtype: float
-        name: feature
-        shape:
-        - 1
-        - 32
-        - 15
-      - dtype: float
-        name: x
-        shape:
-        - 1
-        - 32
-      - dtype: float
-        name: y1
-        shape:
-        - 1
-        - 32
-      - dtype: float
-        name: y2
-        shape:
-        - 1
-        - 32
-      - dtype: int16
-        name: beading_pos
-        shape:
-        - 1
-        - 32
-      opset: 14
-      outputs:
-      - successor
-      - rectification
+      - dtype:    int8
+        name:     type
+        shape:    [1, 32]
+      - dtype:    int8
+        name:     staff
+        shape:    [1, 32]
+      - dtype:    float
+        name:     feature
+        shape:    [1, 32, 15]
+      - dtype:    float
+        name:     x
+        shape:    [1, 32]
+      - dtype:    float
+        name:     y1
+        shape:    [1, 32]
+      - dtype:    float
+        name:     y2
+        shape:    [1, 32]
+      - dtype:    int16
+        name:     beading_pos
+        shape:    [1, 32]
+      opset:      14
+      outputs:    ['successor', 'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']
     seq128:
       inputs:
-      - dtype: int8
-        name: type
-        shape:
-        - 1
-        - 128
-      - dtype: int8
-        name: staff
-        shape:
-        - 1
-        - 128
-      - dtype: float
-        name: feature
-        shape:
-        - 1
-        - 128
-        - 15
-      - dtype: float
-        name: x
-        shape:
-        - 1
-        - 128
-      - dtype: float
-        name: y1
-        shape:
-        - 1
-        - 128
-      - dtype: float
-        name: y2
-        shape:
-        - 1
-        - 128
-      - dtype: int16
-        name: beading_pos
-        shape:
-        - 1
-        - 128
-      opset: 14
-      outputs:
-      - successor
-      - rectification
+      - dtype:    int8
+        name:     type
+        shape:    [1, 128]
+      - dtype:    int8
+        name:     staff
+        shape:    [1, 128]
+      - dtype:    float
+        name:     feature
+        shape:    [1, 128, 15]
+      - dtype:    float
+        name:     x
+        shape:    [1, 128]
+      - dtype:    float
+        name:     y1
+        shape:    [1, 128]
+      - dtype:    float
+        name:     y2
+        shape:    [1, 128]
+      - dtype:    int16
+        name:     beading_pos
+        shape:    [1, 128]
+      opset:      14
+      outputs:    ['successor', 'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']

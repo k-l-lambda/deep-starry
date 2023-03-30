@@ -6,7 +6,7 @@ import torch
 import argparse
 
 from starry.utils.config import Configuration
-from starry.utils.model_factory import loadModel
+from starry.utils.model_factory import loadModel, registerModels
 from onnxTypecast import convert_model_to_int32
 
 
@@ -47,8 +47,11 @@ def main ():
 
 	args = parser.parse_args()
 
+	registerModels()
+	from starry.utils.model_factory import model_dict
+
 	config = Configuration.createOrLoad(args.config)
-	model = loadModel(config['model'])
+	model = loadModel(config['model'], postfix='Onnx' if (config['model.type'] + 'Onnx' in model_dict) else '')
 
 	name = 'untrained'
 	if config['best']:
