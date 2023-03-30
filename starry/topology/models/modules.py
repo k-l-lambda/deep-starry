@@ -469,8 +469,8 @@ class EventOrderedEncoder (nn.Module):
 	#	y2:			(n, seq)
 	#	pos:		(n, seq)
 	def forward (self, stype, staff, feature, x, y1, y2, pos):	# (n, seq, d_model)
-		vec_type = F.one_hot(stype.long(), num_classes=self.n_class_type)
-		vec_staff = F.one_hot(staff.long(), num_classes=self.n_class_staff)
+		vec_type = F.one_hot(stype.long(), num_classes=self.n_class_type).float()
+		vec_staff = F.one_hot(staff.long(), num_classes=self.n_class_staff).float()
 		position = self.position_encoder(x, y1, y2)
 		pos = self.order_encoder(pos.float())
 

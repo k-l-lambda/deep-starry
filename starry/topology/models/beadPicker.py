@@ -25,13 +25,13 @@ class BeadPicker (nn.Module):
 		self.rec_parser = RectifierParser2()
 		self.sigmoid = nn.Sigmoid()
 
-		self.EventElementType = EventElementType
+		self.PAD = EventElementType.PAD
 
 
 	def forward (self, stype, staff, feature, x, y1, y2, beading_pos):
 		x = self.event_encoder(stype, staff, feature, x, y1, y2, beading_pos)	# (n, seq, d_model)
 
-		mask_pad = stype != self.EventElementType.PAD
+		mask_pad = stype != self.PAD
 		mask = mask_pad.unsqueeze(-2)
 
 		x = self.attention(x, mask)

@@ -116,3 +116,45 @@ onnx:
       outputs:
       - successor
       - rectification
+    seq128:
+      inputs:
+      - dtype: int8
+        name: type
+        shape:
+        - 1
+        - 128
+      - dtype: int8
+        name: staff
+        shape:
+        - 1
+        - 128
+      - dtype: float
+        name: feature
+        shape:
+        - 1
+        - 128
+        - 15
+      - dtype: float
+        name: x
+        shape:
+        - 1
+        - 128
+      - dtype: float
+        name: y1
+        shape:
+        - 1
+        - 128
+      - dtype: float
+        name: y2
+        shape:
+        - 1
+        - 128
+      - dtype: int16
+        name: beading_pos
+        shape:
+        - 1
+        - 128
+      opset: 14
+      outputs:
+      - successor
+      - rectification
