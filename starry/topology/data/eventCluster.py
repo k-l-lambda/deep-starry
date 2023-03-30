@@ -170,7 +170,7 @@ class EventCluster (IterableDataset):
 			fixed_division = tensors['division'].repeat(batch_size, 1)[fixed_indices].long()
 			fixed_dots = tensors['dots'].repeat(batch_size, 1)[fixed_indices]
 
-			fixed_feature[:, :7] = F.one_hot(fixed_division, num_classes=7)
+			fixed_feature[:, :7] = F.one_hot(fixed_division, num_classes=9)[:, :7]
 			fixed_feature[:, 7] = (fixed_dots > 0).float()
 			fixed_feature[:, 8] = (fixed_dots > 1).float()
 
