@@ -38,6 +38,8 @@ class DatasetViewer:
 			grace = inputs['grace'][ei]
 			fullMeasure = inputs['fullMeasure'][ei]
 			tick = inputs['tick'][ei]
+			beading_pos = inputs['beading_pos'][ei]
+			successor = inputs['successor'][ei]
 			features = inputs['feature'][ei]
 
 			x = xs[ei]
@@ -103,6 +105,10 @@ class DatasetViewer:
 
 			# features
 			ax.text(x - 0.2, y2[ei] + 0.9, '%d' % tick, color='k', fontsize='small', ha='right')
+			if beading_pos != 0:
+				ax.text(x - 0.2, y2[ei] + 1.4, '[%d]' % beading_pos, color='k', fontsize='small', ha='right')
+			elif successor > 0:
+				ax.text(x - 0.2, y2[ei] + 1.4, '[*]', color='k', fontsize='small', ha='right')
 
 			def drawDot (i, li, y, color):
 				alpha = math.tanh(features[i].item() * 0.4)

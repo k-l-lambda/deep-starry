@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.3.31
+
+	+	topology/viewer.py: visualized beading fields.
+
+
 2023.3.30
 
 	+	convertToOnnx.py: added Onnx model postfix.
