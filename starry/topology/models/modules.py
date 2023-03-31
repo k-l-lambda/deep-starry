@@ -476,7 +476,11 @@ class EventOrderedEncoder (nn.Module):
 		vec_pos = self.order_encoder(pos.float())
 
 		if self.zero_candidates:
-			vec_pos[pos == 0] = 0
+			#vec_pos[pos == 0] = 0
+
+			# to workaround onnx issue
+			zero_pos = (pos != 0).float().unsqueeze(-1)
+			vec_pos *= zero_pos
 
 		feature = self.feature_activate(feature)
 
