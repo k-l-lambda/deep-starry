@@ -100,6 +100,31 @@ onnx:
         shape:    [1, 32]
       opset:      14
       outputs:    ['successor', 'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']
+    seq64:
+      inputs:
+      - dtype:    int8
+        name:     type
+        shape:    [1, 64]
+      - dtype:    int8
+        name:     staff
+        shape:    [1, 64]
+      - dtype:    float
+        name:     feature
+        shape:    [1, 64, 15]
+      - dtype:    float
+        name:     x
+        shape:    [1, 64]
+      - dtype:    float
+        name:     y1
+        shape:    [1, 64]
+      - dtype:    float
+        name:     y2
+        shape:    [1, 64]
+      - dtype:    int16
+        name:     beading_pos
+        shape:    [1, 64]
+      opset:      14
+      outputs:    ['successor', 'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']
     seq128:
       inputs:
       - dtype:    int8
