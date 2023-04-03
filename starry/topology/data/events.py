@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from perlin_noise import PerlinNoise
 
-from ..event_element import FEATURE_DIM, EventElementType, BeamType, StemDirection, STAFF_MAX, TARGET_DIMS
+from ..event_element import FEATURE_DIM, EventElementType, BeamType, StemDirection, STAFF_MAX, TARGET_DIMS, TIME8TH_MAX
 
 
 
@@ -130,6 +130,10 @@ def exampleToTensorsAugment (cluster, n_augment):
 	elements = cluster['elements']
 	n_seq = len(elements)
 
+	duration = cluster['duration']
+	time8th = min(TIME8TH_MAX, math.ceil(duration / 240))
+	time8th = torch.tensor(time8th, dtype=torch.int8)
+
 	opv = lambda x, default=0: default if x is None else x
 
 	elem_type = torch.tensor([elem['type'] for elem in elements], dtype=torch.int32)
@@ -213,6 +217,8 @@ def exampleToTensorsAugment (cluster, n_augment):
 		'maskT':			maskT,			# (n_seq * n_seq)
 
 		'order':			order,			# (n_seq)
+
+		'time8th':			time8th,		# scalar
 	}
 
 

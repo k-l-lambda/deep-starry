@@ -201,6 +201,8 @@ class EventCluster (IterableDataset):
 				'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
 			}
 
+		result['time8th'] = tensors['time8th'].repeat(batch_size).to(self.device)
+
 		for field in TARGET_FIELDS:
 			result[field] = tensors[field].repeat(batch_size, 1)
 

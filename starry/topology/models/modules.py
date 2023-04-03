@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ..semantic_element import SemanticElementType, STAFF_MAX
-from ..event_element import FEATURE_DIM, STAFF_MAX as EV_STAFF_MAX, EventElementType, TARGET_DIMS_LEGACY, TARGET_DIMS
+from ..event_element import FEATURE_DIM, STAFF_MAX as EV_STAFF_MAX, EventElementType, TARGET_DIMS_LEGACY, TARGET_DIMS, TIME8TH_MAX
 from ...modules.positionEncoder import SinusoidEncoderXYY, SinusoidEncoder
 
 
@@ -485,6 +485,51 @@ class EventOrderedEncoder (nn.Module):
 		feature = self.feature_activate(feature)
 
 		x = torch.cat([vec_type, vec_staff, feature, position, vec_pos], dim=-1)
+
+		return self.embed(x)
+
+
+class EventEncoderV4 (nn.Module):
+	def __init__ (self, d_model, d_position, angle_cycle=1000, feature_activation=None, zero_candidates=False):
+		super().__init__()
+
+		self.feature_activate = getattr(torch, feature_activation) if feature_activation else torch.nn.Identity()
+		self.zero_candidates = zero_candidates
+
+		self.position_encoder = SinusoidEncoderXYY(angle_cycle=angle_cycle, d_hid=d_position)
+
+		self.order_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_position)
+
+		self.n_class_type = EventElementType.MAX
+		self.n_class_staff = EV_STAFF_MAX
+		self.n_class_time8th = TIME8TH_MAX
+
+		d_in = EventElementType.MAX + EV_STAFF_MAX + FEATURE_DIM + d_position + d_position + TIME8TH_MAX
+		self.embed = nn.Linear(d_in, d_model)
+
+
+	#	stype:		(n, seq)
+	#	staff:		(n, seq)
+	#	feature:	(n, seq, FEATURE_DIM)
+	#	x:			(n, seq)
+	#	y1:			(n, seq)
+	#	y2:			(n, seq)
+	#	pos:		(n, seq)
+	#	time8th:	(n)
+	def forward (self, stype, staff, feature, x, y1, y2, pos, time8th):	# (n, seq, d_model)
+		vec_type = F.one_hot(stype.long(), num_classes=self.n_class_type).float()
+		vec_staff = F.one_hot(staff.long(), num_classes=self.n_class_staff).float()
+		position = self.position_encoder(x, y1, y2)
+		vec_pos = self.order_encoder(pos.float())
+		vec_time = F.one_hot(time8th[:, None].repeat(1, stype.shape[-1]).long(), num_classes=self.n_class_time8th).float()
+
+		if self.zero_candidates:
+			zero_pos = (pos != 0).float().unsqueeze(-1)
+			vec_pos *= zero_pos
+
+		feature = self.feature_activate(feature)
+
+		x = torch.cat([vec_type, vec_staff, feature, position, vec_pos, vec_time], dim=-1)
 
 		return self.embed(x)
 

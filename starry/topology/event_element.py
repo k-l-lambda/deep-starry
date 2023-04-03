@@ -66,3 +66,6 @@ TARGET_DIMS = dict(
 )
 TARGET_FIELDS = list(TARGET_DIMS.keys())
 TARGET_DIM = sum(TARGET_DIMS.values())
+
+
+TIME8TH_MAX = 16

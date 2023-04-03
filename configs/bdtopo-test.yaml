@@ -23,6 +23,7 @@ data:
 model:
   type:                     BeadPicker
   args:
+    with_time8th:           True
     n_layers:               2
     d_position:             256
     angle_cycle:            1000
