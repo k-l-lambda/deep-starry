@@ -7,6 +7,8 @@ TODO:
 
 2023.4.3
 
+	+	eventCluster.py: added augment parameter of chaos_exp.
+
 	+	beadPicker.py: added input parameter of timeth.
 
 

@@ -45,13 +45,14 @@ class EventCluster (IterableDataset):
 
 
 	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None,
-		batch_slice=None, use_cache=True, with_beading=False):
+		chaos_exp=-1, batch_slice=None, use_cache=True, with_beading=False):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
 		self.device = device
 
 		self.stability_base = stability_base
+		self.chaos_exp = chaos_exp
 		self.position_drift = position_drift
 		self.stem_amplitude = stem_amplitude
 		self.batch_slice = batch_slice
@@ -117,7 +118,7 @@ class EventCluster (IterableDataset):
 		feature = tensors['feature'][:batch_size]
 		stability = np.random.power(self.stability_base)
 		error = torch.rand(*feature.shape, device=self.device) > stability
-		chaos = torch.exp(torch.randn(*feature.shape, device=self.device) - 1)
+		chaos = torch.exp(torch.randn(*feature.shape, device=self.device) + self.chaos_exp)
 		feature[error] *= chaos[error]
 
 		# sort division[3:] & dots
