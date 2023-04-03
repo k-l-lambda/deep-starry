@@ -502,9 +502,9 @@ class EventEncoderV4 (nn.Module):
 
 		self.n_class_type = EventElementType.MAX
 		self.n_class_staff = EV_STAFF_MAX
-		self.n_class_time8th = TIME8TH_MAX
+		self.n_class_time8th = TIME8TH_MAX + 1
 
-		d_in = EventElementType.MAX + EV_STAFF_MAX + FEATURE_DIM + d_position + d_position + TIME8TH_MAX
+		d_in = EventElementType.MAX + EV_STAFF_MAX + FEATURE_DIM + d_position + d_position + (TIME8TH_MAX + 1)
 		self.embed = nn.Linear(d_in, d_model)
 
 
