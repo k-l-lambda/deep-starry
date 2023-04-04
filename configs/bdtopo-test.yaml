@@ -100,6 +100,9 @@ onnx:
       - dtype:    int16
         name:     beading_pos
         shape:    [1, 32]
+      - name:     time8th
+        dtype:    int8
+        shape:    [1]
       opset:      14
       outputs:    ['successor', 'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']
     seq64:
@@ -125,6 +128,9 @@ onnx:
       - dtype:    int16
         name:     beading_pos
         shape:    [1, 64]
+      - name:     time8th
+        dtype:    int8
+        shape:    [1]
       opset:      14
       outputs:    ['successor', 'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']
     seq128:
@@ -150,5 +156,8 @@ onnx:
       - dtype:    int16
         name:     beading_pos
         shape:    [1, 128]
+      - name:     time8th
+        dtype:    int8
+        shape:    [1]
       opset:      14
       outputs:    ['successor', 'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']
