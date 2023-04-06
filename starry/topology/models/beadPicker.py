@@ -52,13 +52,19 @@ class BeadPicker (nn.Module):
 
 
 class BeadPickerOnnx (BeadPicker):
+	def __init__ (self, out_temperature=1, **kw_args):
+		super().__init__(**kw_args)
+
+		self.out_temperature = out_temperature
+
+
 	def forward (self, *args):
 		successor, rec = super().forward(*args)
 
-		rec['division'] = torch.softmax(rec['division'], dim=-1)
-		rec['dots'] = torch.softmax(rec['dots'], dim=-1)
-		rec['beam'] = torch.softmax(rec['beam'], dim=-1)
-		rec['stemDirection'] = torch.softmax(rec['stemDirection'], dim=-1)
+		rec['division'] = torch.softmax(rec['division'] / self.out_temperature, dim=-1)
+		rec['dots'] = torch.softmax(rec['dots'] / self.out_temperature, dim=-1)
+		rec['beam'] = torch.softmax(rec['beam'] / self.out_temperature, dim=-1)
+		rec['stemDirection'] = torch.softmax(rec['stemDirection'] / self.out_temperature, dim=-1)
 
 		return (successor, *[rec[key] for key in
 			['tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']])
