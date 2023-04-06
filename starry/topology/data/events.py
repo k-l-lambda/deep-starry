@@ -130,7 +130,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 	elements = cluster['elements']
 	n_seq = len(elements)
 
-	duration = cluster['duration']
+	duration = cluster.get('signatureDuration', cluster['duration'])
 	time8th = min(TIME8TH_MAX, math.ceil(duration / 240))
 	time8th = torch.tensor(time8th, dtype=torch.int8)
 
