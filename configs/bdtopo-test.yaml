@@ -11,7 +11,7 @@ data:
     #batch_slice:            2
     with_beading:           True
     stability_base:         4
-    chaos_exp:              -10
+    chaos_flip:             True
     position_drift:         0.03
     stem_amplitude:
       mu:                   5.4

@@ -45,7 +45,7 @@ class EventCluster (IterableDataset):
 
 
 	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None,
-		chaos_exp=-1, batch_slice=None, use_cache=True, with_beading=False):
+		chaos_exp=-1, chaos_flip=False, batch_slice=None, use_cache=True, with_beading=False):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -53,6 +53,7 @@ class EventCluster (IterableDataset):
 
 		self.stability_base = stability_base
 		self.chaos_exp = chaos_exp
+		self.chaos_flip = chaos_flip
 		self.position_drift = position_drift
 		self.stem_amplitude = stem_amplitude
 		self.batch_slice = batch_slice
@@ -118,8 +119,12 @@ class EventCluster (IterableDataset):
 		feature = tensors['feature'][:batch_size]
 		stability = np.random.power(self.stability_base)
 		error = torch.rand(*feature.shape, device=self.device) > stability
-		chaos = torch.exp(torch.randn(*feature.shape, device=self.device) + self.chaos_exp)
-		feature[error] *= chaos[error]
+		if self.chaos_flip:
+			feature_err_tanh = torch.tanh(feature[error] / 0.4).clip(min=0.0000001, max=0.9999999)
+			feature[error] = torch.atanh(1 - feature_err_tanh)
+		else:
+			chaos = torch.exp(torch.randn(*feature.shape, device=self.device) + self.chaos_exp)
+			feature[error] *= chaos[error]
 
 		# sort division[3:] & dots
 		feature[:, :, 3:7], _ = feature[:, :, 3:7].sort(descending=True)
