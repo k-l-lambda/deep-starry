@@ -103,6 +103,10 @@ class DatasetViewer:
 			elif elem_type[ei] == EventElementType.EOS:
 				ax.add_patch(patches.Polygon([(x - 0.3, y + 1), (x + 0.3, y + 1), (x, y),], fill=True, facecolor='r'))
 
+				if inputs.get('time8th'):
+					#logging.info('time8th: %d', inputs['time8th'].item())
+					ax.text(x, y2[ei] - 0.4, 'time8th: %d' % inputs['time8th'].item(), color='k', fontsize='small', ha='right')
+
 			# features
 			ax.text(x - 0.2, y2[ei] + 0.9, '%d' % tick, color='k', fontsize='small', ha='right')
 			if beading_pos != 0:
