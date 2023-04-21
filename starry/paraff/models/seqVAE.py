@@ -75,7 +75,7 @@ class SeqvaeDecoderHead (nn.Module):
 	# summary: (n, d_model)
 	def forward(self, seq, summary):
 		head = torch.tensor([[self.summary_id]], device=seq.device).repeat(seq.shape[0], 1)
-		seq = torch.concat([head, seq], dim=1)	# prepend head element
+		seq = torch.cat([head, seq], dim=1)	# prepend head element
 		trg_mask = get_pad_mask(seq, self.pad_id) & get_subsequent_mask(seq)
 
 		seq = seq.long()
@@ -98,6 +98,8 @@ class SeqvaeLoss (nn.Module):
 		self.encoder = SeqvaeEncoder(n_vocab, n_layers=n_encoder_layer, scale_emb=encoder_scale_emb, **kw_args)
 		self.decoder = SeqvaeDecoderHead(n_vocab + 1, n_layers=n_decoder_layer, scale_emb=decoder_scale_emb,
 			emb_prj_weight_sharing=emb_prj_weight_sharing, **kw_args)
+
+		self.deducer = nn.ModuleList([self.encoder, self.decoder])	# placeholder to load/save checkpoint
 
 		for p in self.encoder.parameters():
 			if p.dim() > 1:
