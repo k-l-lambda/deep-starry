@@ -120,7 +120,6 @@ class SeqvaeLoss (nn.Module):
 
 		mu, logvar = self.encoder(batch['input_ids'])
 		z = self.reparameterize(mu, logvar)	# (n, d_model)
-		print('z:', z)
 		pred = self.decoder(batch['input_ids'], z)
 		target = batch['output_ids'].long()
 
