@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.4.21
+
+	+	paraff/models: added model classes of Seqvae.
+
+
 2023.4.9
 
 	+	eventCluster.py: added parameter of chaos_flip.

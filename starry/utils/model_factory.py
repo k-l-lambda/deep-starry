@@ -36,6 +36,7 @@ def registerModels ():
 		vm.ScoreSemanticValue, vm.ScoreSemanticValueLoss,
 		vm.GlyphRecognizer, vm.GlyphRecognizerLoss,
 		pm.TokenGen, pm.TokenGenLoss,
+		pm.SeqvaeLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

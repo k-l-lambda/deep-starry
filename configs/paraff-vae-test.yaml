@@ -1,0 +1,55 @@
+
+id:     paraff/{date}-{filename}
+
+
+data:
+  type:                     SentenceShift
+  root:                     20230316.paraff
+  splits:                   '*0/1:0/100'
+  batch_size:               2
+  args:
+    n_seq:                  320
+    descriptor_drop:        0.4
+  args_variant:
+    1:
+      descriptor_drop:      0
+
+
+model:
+  type:                     Seqvae
+  args:
+    n_vocab:                108
+    n_encoder_layer:        4
+    n_decoder_layer:        4
+    encoder_scale_emb:      True
+    decoder_scale_emb:      True
+    emb_prj_weight_sharing: True
+    kld_weight:             0.001
+    n_seq_max:              512
+    d_model:                128
+    d_inner:                512
+    n_head:                 8
+    d_k:                    16
+    d_v:                    16
+    dropout:                0.1
+
+
+trainer:
+  device:                   cuda
+  save_mode:                best
+  epoch:                    100
+  moniter:
+    field:                  loss
+    mode:                   min
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               1
+      n_warmup_steps:       3200
+      d_model:              128
