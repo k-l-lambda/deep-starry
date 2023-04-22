@@ -34,12 +34,14 @@ class SeqvaeEncoder (nn.Module):
 		seq = seq.long()
 		enc_output, *_ = self.encoder(seq, trg_mask)
 
-		mu, *_ = self.out_mu(enc_output)
+		mu, *_ = self.out_mu(enc_output)		# (n, seq, d_model)
 		logvar, *_ = self.out_var(enc_output)
 
-		# sum along sequence dim
-		mu = mu.sum(dim=1)
-		logvar = logvar.sum(dim=1).clip(max=80)	# avoid inf after exp
+		trg_mask = trg_mask.squeeze(dim=1).unsqueeze(-1)	# (n, seq)
+
+		# reduce along sequence dim
+		mu = mu.masked_fill(trg_mask == 0, 0).mean(dim=1)
+		logvar = logvar.masked_fill(trg_mask == 0, 0).mean(dim=1).clip(max=80)	# avoid inf after exp
 
 		return mu, logvar
 
@@ -112,14 +114,14 @@ class SeqvaeLoss (nn.Module):
 				nn.init.xavier_uniform_(p, gain=(n_decoder_layer * 2) ** -0.5)
 
 
-	def reparameterize(self, mu, logvar):
+	def reparameterize (self, mu, logvar):
 		std = torch.exp(0.5 * logvar)
 		eps = torch.randn_like(std)
 
 		return eps * std + mu
 
 
-	def forward(self, batch):
+	def forward (self, batch):
 		mask = batch['body_mask']
 
 		mu, logvar = self.encoder(batch['input_ids'])
