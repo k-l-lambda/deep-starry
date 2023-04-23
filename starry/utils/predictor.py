@@ -26,7 +26,10 @@ class Predictor:
 					weights_filename += '.chkpt'
 
 				checkpoint = torch.load(config.localPath(weights_filename), map_location=self.device)
-				self.model.load_state_dict(checkpoint['model'])
+				if postfix == 'Loss':
+					self.model.deducer.load_state_dict(checkpoint['model'])
+				else:
+					self.model.load_state_dict(checkpoint['model'])
 				logging.info(f'checkpoint loaded: {weights_filename}')
 
 		self.model.to(self.device)
