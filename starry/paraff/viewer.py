@@ -23,7 +23,7 @@ class ParaffViewer:
 		plt.gca().format_coord = format_coord
 
 		plt.get_current_fig_manager().full_screen_toggle()
-		plt.pcolormesh(inspection['pred_flat'].transpose(0, 1).numpy(), cmap='RdBu')
+		plt.pcolormesh(inspection['pred_flat'].transpose(0, 1).numpy(), cmap='RdBu', vmin=-25, vmax=30)
 		plt.xlabel('seq')
 		plt.ylabel('vocab id')
 		plt.xticks([i for i, _ in enumerate(target_ids)], [self.vocab[id] + ('' if truth[i] else ' *') for i, id in enumerate(target_ids)], rotation=-60)

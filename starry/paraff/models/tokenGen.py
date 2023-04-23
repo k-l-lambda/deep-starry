@@ -77,3 +77,25 @@ class TokenGenLoss (nn.Module):
 		acc = (pred_ids == target[mask]).float().mean()
 
 		return loss, {'acc': acc.item()}
+
+
+	def inspectRun (self, batch):
+		mask = batch['body_mask']
+
+		pred = self.deducer(batch['input_ids'])
+		target = batch['output_ids'].long()
+
+		pred_flat = pred[mask]
+
+		loss = F.cross_entropy(pred_flat, target[mask])
+
+		pred_ids = torch.argmax(pred_flat, dim=-1)
+		acc = (pred_ids == target[mask]).float().mean()
+
+		return {
+			'pred': pred,
+			'pred_flat': pred_flat,
+			'target_flat': target[mask],
+			'truth': pred_ids == target[mask],
+			'acc': acc.item(),
+		}
