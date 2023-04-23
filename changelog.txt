@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.4.23
+
+	+	seqVAE.py: method of inspectRun added.
+
+
 2023.4.22
 
 	+	seqVAE.py: refined encoder output reduction.

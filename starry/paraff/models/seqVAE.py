@@ -145,3 +145,34 @@ class SeqvaeLoss (nn.Module):
 			'recons_loss': recons_loss.item(),
 			'kld_loss': kld_loss.item(),
 		}
+
+
+	def inspectRun (self, batch):
+		mask = batch['body_mask']
+
+		mu, logvar = self.encoder(batch['input_ids'])
+		z = self.reparameterize(mu, logvar)	# (n, d_model)
+		pred = self.decoder(batch['input_ids'], z)
+		target = batch['output_ids'].long()
+
+		pred_flat = pred[mask]
+		target_flat = target[mask]
+
+		recons_loss = F.cross_entropy(pred_flat, target_flat)
+		kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+
+		loss = recons_loss + kld_loss * self.kld_weight
+
+		pred_ids = torch.argmax(pred_flat, dim=-1)
+		acc = (pred_ids == target_flat).float().mean()
+
+		return {
+			'mu': mu,
+			'logvar': logvar,
+			'z': z,
+			'pred': pred,
+			'truth': pred_ids == target_flat,
+			'acc': acc.item(),
+			'recons_loss': recons_loss.item(),
+			'kld_loss': kld_loss.item(),
+		}
