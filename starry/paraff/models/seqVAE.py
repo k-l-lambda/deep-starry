@@ -171,6 +171,8 @@ class SeqvaeLoss (nn.Module):
 			'logvar': logvar,
 			'z': z,
 			'pred': pred,
+			'pred_flat': pred_flat,
+			'target_flat': target_flat,
 			'truth': pred_ids == target_flat,
 			'acc': acc.item(),
 			'recons_loss': recons_loss.item(),

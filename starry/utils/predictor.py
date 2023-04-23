@@ -14,13 +14,13 @@ class Predictor:
 		self.device = device
 
 
-	def loadModel (self, config):
+	def loadModel (self, config, postfix=''):
 		weights_filename = config['best']
 		if weights_filename and os.path.exists(config.localPath(weights_filename + '.pt')):
 			self.model = torch.jit.load(config.localPath(weights_filename + '.pt'))
 			logging.info(f'checkpoint loaded: {weights_filename}.pt')
 		else:
-			self.model = loadModel(config['model'])
+			self.model = loadModel(config['model'], postfix=postfix)
 			if weights_filename:
 				if not os.path.exists(config.localPath(weights_filename)):
 					weights_filename += '.chkpt'
