@@ -1,4 +1,5 @@
 
+from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -28,20 +29,23 @@ class SeqvaeEncoder (nn.Module):
 		self.out_var = EncoderLayer(d_model=d_model, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v, dropout=dropout)
 
 
-	def forward(self, seq):
-		trg_mask = get_pad_mask(seq, self.pad_id)
+	# seq:	(n, seq)
+	# mask:	(n, seq)
+	def forward(self, seq, mask: Optional[torch.Tensor] =None):
+		if mask is None:
+			mask = torch.ones_like(seq)
 
 		seq = seq.long()
-		enc_output, *_ = self.encoder(seq, trg_mask)
+		enc_output, *_ = self.encoder(seq, mask.unsqueeze(-2))
 
 		mu, *_ = self.out_mu(enc_output)		# (n, seq, d_model)
 		logvar, *_ = self.out_var(enc_output)
 
-		trg_mask = trg_mask.squeeze(dim=1).unsqueeze(-1)	# (n, seq)
-
 		# reduce along sequence dim
-		mu = mu.masked_fill(trg_mask == 0, 0).mean(dim=1)
-		logvar = logvar.masked_fill(trg_mask == 0, 0).mean(dim=1).clip(max=80)	# avoid inf after exp
+		mask = mask.unsqueeze(-1)
+		mask_sum = mask.sum(dim=1)
+		mu = mu.masked_fill(mask == 0, 0).sum(dim=1) / mask_sum
+		logvar = (logvar.masked_fill(mask == 0, 0).sum(dim=1) / mask_sum).clip(max=80)	# avoid inf after exp
 
 		return mu, logvar
 
@@ -124,7 +128,7 @@ class SeqvaeLoss (nn.Module):
 	def forward (self, batch):
 		mask = batch['body_mask']
 
-		mu, logvar = self.encoder(batch['input_ids'])
+		mu, logvar = self.encoder(batch['input_ids'], mask=mask)
 		z = self.reparameterize(mu, logvar)	# (n, d_model)
 		pred = self.decoder(batch['input_ids'], z)
 		target = batch['output_ids'].long()
