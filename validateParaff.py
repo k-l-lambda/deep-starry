@@ -23,10 +23,10 @@ DATA_DIR = os.environ.get('DATA_DIR')
 
 
 class Validator (Predictor):
-	def __init__ (self, config, device='cuda'):
+	def __init__ (self, config, device='cuda', **kw_args):
 		super().__init__(device=device)
 
-		self.viewer = ParaffViewer(config)
+		self.viewer = ParaffViewer(config, **kw_args)
 
 		self.loadModel(config, postfix='Loss')
 
@@ -47,6 +47,7 @@ def main ():
 	parser.add_argument('-d', '--data', type=str, help='data configuration file')
 	parser.add_argument('-s', '--splits', type=str, default='0/1')
 	parser.add_argument('-dv', '--device', type=str, default='cpu')
+	parser.add_argument('-z', '--show_latent', action='store_true')
 
 	args = parser.parse_args()
 
@@ -62,7 +63,7 @@ def main ():
 	config['data.batch_size'] = 1
 
 	data, = loadDataset(config, data_dir=DATA_DIR, device=args.device)
-	validator = Validator(config, device=args.device)
+	validator = Validator(config, device=args.device, show_latent=args.show_latent)
 
 	validator.run(data)
 

@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.4.24
+
+	+	paraff/viewer.py: showLatent added.
+
+
 2023.4.23
 
 	+	paraff/viewer.py created.

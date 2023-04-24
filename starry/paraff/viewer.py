@@ -6,8 +6,9 @@ import math
 
 
 class ParaffViewer:
-	def __init__ (self, config):
+	def __init__ (self, config, show_latent=False):
 		self.vocab = config['_vocab'].split(',')
+		self.show_latent = show_latent
 
 
 	def show (self, batch, inspection):
@@ -29,4 +30,19 @@ class ParaffViewer:
 		plt.xticks([i for i, _ in enumerate(target_ids)], [self.vocab[id] + ('' if truth[i] else ' *') for i, id in enumerate(target_ids)], rotation=-60)
 		plt.yticks([i for i, _ in enumerate(self.vocab)], [token for token in self.vocab])
 		plt.colorbar()
+
+		if self.show_latent:
+			self.showLatent(inspection['mu'], inspection['logvar'])
+
 		plt.show()
+
+
+	def showLatent (self, mu, logvar):
+		plt.figure(1)
+		fig, axes = plt.subplots(1, 2)
+
+		mu = mu[0].reshape(-1, 32).numpy()
+		var = logvar[0].reshape(-1, 32).numpy()
+		m0 = axes[0].pcolormesh(mu, cmap='RdBu', vmin=-0.001, vmax=0.001)
+		axes[1].pcolormesh(var, cmap='RdBu', vmin=-0.001, vmax=0.001)
+		fig.colorbar(m0)
