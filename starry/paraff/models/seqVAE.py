@@ -108,11 +108,7 @@ class SeqvaeLoss (nn.Module):
 		self.deducer = nn.ModuleList([self.encoder, self.decoder])	# placeholder to load/save checkpoint
 
 		for p in self.encoder.parameters():
-			if p.dim() > 1:
-				#nn.init.xavier_uniform_(p, gain=(n_encoder_layer * 2) ** -0.5)
-				nn.init.xavier_uniform_(p, gain=encoder_init_gain)
-			else:
-				nn.init.zeros_(p)
+			nn.init.normal_(p, std=encoder_init_gain)
 
 		for p in self.decoder.parameters():
 			if p.dim() > 1:
