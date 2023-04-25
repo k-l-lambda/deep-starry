@@ -96,7 +96,7 @@ class SeqvaeDecoderHead (nn.Module):
 class SeqvaeLoss (nn.Module):
 	def __init__ (self, n_vocab, n_encoder_layer=6, n_decoder_layer=6,
 		encoder_scale_emb=True, decoder_scale_emb=True, emb_prj_weight_sharing=True,
-		kld_weight=0.001, **kw_args):
+		kld_weight=0.001, encoder_init_gain=0, **kw_args):
 		super().__init__()
 
 		self.kld_weight = kld_weight
@@ -108,10 +108,11 @@ class SeqvaeLoss (nn.Module):
 		self.deducer = nn.ModuleList([self.encoder, self.decoder])	# placeholder to load/save checkpoint
 
 		for p in self.encoder.parameters():
-			#if p.dim() > 1:
+			if p.dim() > 1:
 				#nn.init.xavier_uniform_(p, gain=(n_encoder_layer * 2) ** -0.5)
-				#nn.init.xavier_uniform_(p, gain=1e-9)
-			nn.init.zeros_(p)
+				nn.init.xavier_uniform_(p, gain=encoder_init_gain)
+			else:
+				nn.init.zeros_(p)
 
 		for p in self.decoder.parameters():
 			if p.dim() > 1:

@@ -21,6 +21,7 @@ model:
     n_vocab:                108
     n_encoder_layer:        4
     n_decoder_layer:        4
+    encoder_init_gain:      1.e-2
     encoder_scale_emb:      True
     decoder_scale_emb:      True
     emb_prj_weight_sharing: True
