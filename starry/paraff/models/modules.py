@@ -3,13 +3,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-#from ...transformer.layers import EncoderLayer
+from ...transformer.layers import EncoderLayer
 from ...transformer.models import PositionalEncoding
 
 
 
 class HeadSummaryEncoder (nn.Module):
-	def __init__ (self, EncoderLayerCls, n_src_vocab, n_layers,
+	def __init__ (self, n_src_vocab, n_layers,
 			d_model, pad_idx, dropout=0.1, n_position=200, scale_emb=False, **kw_args):
 		super().__init__()
 
@@ -17,7 +17,7 @@ class HeadSummaryEncoder (nn.Module):
 		self.position_enc = PositionalEncoding(d_model, n_position=n_position)
 		self.dropout = nn.Dropout(p=dropout)
 		self.layer_stack = nn.ModuleList([
-			EncoderLayerCls(d_model=d_model, dropout=dropout, **kw_args)
+			EncoderLayer(d_model=d_model, dropout=dropout, **kw_args)
 			for _ in range(n_layers)])
 		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 		self.scale_emb = scale_emb

@@ -16,6 +16,17 @@ class LoraMultiHeadAttention (MultiHeadAttention):
 		self.v_lora = LoraInjectedLinear(d_model, n_head * d_k, bias=bias, r=r, dropout_p=dropout, alpha=alpha)
 
 
+	def initialize (self):
+		self.q_lora.initialize()
+		self.v_lora.initialize()
+
+
+	def freezeTrunk (self):
+		for module in [self.w_qs, self.w_ks, self.w_vs, self.fc]:
+			for p in module.parameters():
+				p.requires_grad = False
+
+
 	# overload
 	def train (self, mode=True):
 		super().train(mode=False)
@@ -66,3 +77,20 @@ class LoraEncoderLayer (EncoderLayer):
 		super().__init__(d_inner=d_inner, **kw_args)
 
 		self.slf_attn = LoraMultiHeadAttention(r=r, alpha=alpha, bias=bias, **kw_args)
+
+
+	#def wrap (self, plain_layer):
+	#	self.load_state_dict(plain_layer.state_dict(), strict=False)
+
+	#	return self
+
+
+	def initialize (self):
+		self.slf_attn.initialize()
+
+
+	def freezeTrunk (self):
+		self.slf_attn.freezeTrunk()
+
+		for p in self.pos_ffn.parameters():
+			p.requires_grad = False

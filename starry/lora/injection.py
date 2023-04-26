@@ -20,7 +20,7 @@ class LoraInjectedLinear(nn.Module):
 
 
 	def initialize (self):
-		nn.init.normal_(self.lora_down.weight, std=1 / r)
+		nn.init.normal_(self.lora_down.weight, std=1 / self.r)
 		nn.init.zeros_(self.lora_up.weight)
 
 

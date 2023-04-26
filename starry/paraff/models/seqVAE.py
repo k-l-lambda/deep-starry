@@ -54,7 +54,7 @@ class SeqvaeEncoder (nn.Module):
 class SeqvaeDecoderHead (nn.Module):
 	def __init__ (self,
 			n_vocab, n_layers=6, pad_id=0, d_model=512, dropout=0.1, n_seq_max=512,
-			emb_prj_weight_sharing=True, scale_emb=True, pending_decoder=False, **kw_args):
+			emb_prj_weight_sharing=True, scale_emb=True, **kw_args):
 		super().__init__()
 
 		self.pad_id = pad_id
@@ -63,15 +63,14 @@ class SeqvaeDecoderHead (nn.Module):
 		self.scale_prj = scale_emb and emb_prj_weight_sharing
 		self.d_model = d_model
 
-		if not pending_decoder:
-			self.decoder = HeadSummaryEncoder(EncoderLayer,
+		self.decoder = HeadSummaryEncoder(
 				n_src_vocab=n_vocab, n_position=n_seq_max,
 				d_model=d_model, n_layers=n_layers,
 				pad_idx=pad_id, dropout=dropout, scale_emb=not emb_prj_weight_sharing, **kw_args)
 
 		self.word_prj = nn.Linear(d_model, n_vocab, bias=False)
 
-		if emb_prj_weight_sharing and not pending_decoder:
+		if emb_prj_weight_sharing:
 			# Share the weight between target word embedding & last dense layer
 			self.word_prj.weight = self.decoder.src_word_emb.weight
 
@@ -93,24 +92,28 @@ class SeqvaeDecoderHead (nn.Module):
 
 
 class SeqvaeDecoderHeadLora (SeqvaeDecoderHead):
-	def __init__(self, n_vocab, r=4, alpha=1., bias=False,
-			n_layers=6, pad_id=0, d_model=512, d_inner=2048,
-			n_head=8, d_k=64, d_v=64,
-			dropout=0.1, n_seq_max=512,
-			emb_prj_weight_sharing=True, scale_emb=True):
-		super().__init__(n_vocab, pending_decoder=True,
-			n_layers=n_layers, pad_id=pad_id, d_model=d_model, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v,
-			dropout=dropout, n_seq_max=n_seq_max, emb_prj_weight_sharing=emb_prj_weight_sharing, scale_emb=scale_emb)
+	def __init__(self, n_vocab, r=4, alpha=1., bias=False, n_lora_layers=6, n_seq_max=512,
+		n_layers=6, emb_prj_weight_sharing=True, scale_emb=True, **kw_args):
+		super().__init__(n_vocab, n_layers=n_layers, n_seq_max=n_seq_max, emb_prj_weight_sharing=emb_prj_weight_sharing, scale_emb=scale_emb, **kw_args)
 
-		self.decoder = HeadSummaryEncoder(LoraEncoderLayer,
-			n_src_vocab=n_vocab, r=r, alpha=alpha, bias=bias,
-			n_position=n_seq_max, d_model=d_model, d_inner=d_inner,
-			n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v,
-			pad_idx=pad_id, dropout=dropout, scale_emb=not emb_prj_weight_sharing)
+		lora_layers = [LoraEncoderLayer(r=4, alpha=1., bias=False, **kw_args) for i in range(n_lora_layers)]
+		layers = [lora_layers[i] if i < n_lora_layers else layer for i, layer in enumerate(self.decoder.layer_stack)]
+		self.decoder.layer_stack = nn.ModuleList(layers)
 
-		if emb_prj_weight_sharing:
-			# Share the weight between target word embedding & last dense layer
-			self.word_prj.weight = self.decoder.src_word_emb.weight
+
+	def initialize (self):
+		for layer in self.decoder.layer_stack:
+			if hasattr(layer, 'initialize'):
+				layer.initialize()
+
+
+	def freezeTrunk (self):
+		for layer in self.decoder.layer_stack:
+			if hasattr(layer, 'freezeTrunk'):
+				layer.freezeTrunk()
+			else:
+				for p in layer.parameters():
+					p.requires_grad = False
 
 
 class SeqvaeLoss (nn.Module):
@@ -126,6 +129,9 @@ class SeqvaeLoss (nn.Module):
 		if lora_config is not None:
 			self.decoder = SeqvaeDecoderHeadLora(n_vocab + 1, n_layers=n_decoder_layer, scale_emb=decoder_scale_emb,
 				emb_prj_weight_sharing=emb_prj_weight_sharing, **lora_config, **kw_args)
+
+			self.decoder.initialize()
+			self.decoder.freezeTrunk()
 		else:
 			self.decoder = SeqvaeDecoderHead(n_vocab + 1, n_layers=n_decoder_layer, scale_emb=decoder_scale_emb,
 				emb_prj_weight_sharing=emb_prj_weight_sharing, **kw_args)
