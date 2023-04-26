@@ -9,15 +9,15 @@ from ...transformer.models import PositionalEncoding
 
 
 class HeadSummaryEncoder (nn.Module):
-	def __init__ (self, EncoderLayerCls, n_src_vocab, n_layers, n_head, d_k, d_v,
-			d_model, d_inner, pad_idx, dropout=0.1, n_position=200, scale_emb=False):
+	def __init__ (self, EncoderLayerCls, n_src_vocab, n_layers,
+			d_model, pad_idx, dropout=0.1, n_position=200, scale_emb=False, **kw_args):
 		super().__init__()
 
 		self.src_word_emb = nn.Embedding(n_src_vocab, d_model, padding_idx=pad_idx)
 		self.position_enc = PositionalEncoding(d_model, n_position=n_position)
 		self.dropout = nn.Dropout(p=dropout)
 		self.layer_stack = nn.ModuleList([
-			EncoderLayerCls(d_model, d_inner, n_head, d_k, d_v, dropout=dropout)
+			EncoderLayerCls(d_model, dropout=dropout, **kw_args)
 			for _ in range(n_layers)])
 		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 		self.scale_emb = scale_emb
