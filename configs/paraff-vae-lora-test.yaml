@@ -18,25 +18,25 @@ data:
 model:
   type:                     Seqvae
   args:
-    n_vocab:                108
+    n_vocab:                115
     lora_config:
       r:                    8
       alpha:                1
       bias:                 False
       n_lora_layers:        2
     n_encoder_layer:        4
-    n_decoder_layer:        4
+    n_decoder_layer:        8
     encoder_init_gain:      1.e-2
     encoder_scale_emb:      True
     decoder_scale_emb:      True
     emb_prj_weight_sharing: True
     kld_weight:             0.001
     n_seq_max:              512
-    d_model:                128
-    d_inner:                512
+    d_model:                256
+    d_inner:                1024
     n_head:                 8
-    d_k:                    16
-    d_v:                    16
+    d_k:                    32
+    d_v:                    32
     dropout:                0.1
 
 

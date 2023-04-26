@@ -59,8 +59,8 @@ def loadModel (config, postfix=''):
 
 
 
-def loadModelAndWeights (config, checkpoint_name=None, device='cpu'):
-	model = loadModel(config['model'])
+def loadModelAndWeights (config, checkpoint_name=None, device='cpu', postfix=''):
+	model = loadModel(config['model'], postfix=postfix)
 
 	checkpoint = {}
 	if checkpoint_name is not None:

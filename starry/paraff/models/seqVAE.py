@@ -3,6 +3,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import logging
 
 from ...transformer.models import Encoder, get_pad_mask, get_subsequent_mask
 from ...transformer.layers import EncoderLayer
@@ -127,7 +128,7 @@ class SeqvaeLoss (nn.Module):
 		self.encoder = SeqvaeEncoder(n_vocab, n_layers=n_encoder_layer, scale_emb=encoder_scale_emb, **kw_args)
 
 		if lora_config is not None:
-			self.decoder = SeqvaeDecoderHeadLora(n_vocab + 1, n_layers=n_decoder_layer, scale_emb=decoder_scale_emb,
+			self.decoder = SeqvaeDecoderHeadLora(n_vocab, n_layers=n_decoder_layer, scale_emb=decoder_scale_emb,
 				emb_prj_weight_sharing=emb_prj_weight_sharing, **lora_config, **kw_args)
 
 			self.decoder.initialize()
@@ -144,6 +145,12 @@ class SeqvaeLoss (nn.Module):
 		for p in self.decoder.parameters():
 			if p.dim() > 1:
 				nn.init.xavier_uniform_(p, gain=(n_decoder_layer * 2) ** -0.5)
+
+
+	def preloadDecoder (self, other):
+		m, u = self.decoder.decoder.load_state_dict(other.decoder.state_dict(), strict=False)
+		if len(u) > 0:
+			logging.warn('[SeqvaeLoss.preloadDecoder] unexpected states: %s', u)
 
 
 	def reparameterize (self, mu, logvar):
