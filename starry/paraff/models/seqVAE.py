@@ -130,9 +130,6 @@ class SeqvaeLoss (nn.Module):
 		if lora_config is not None:
 			self.decoder = SeqvaeDecoderHeadLora(n_vocab, n_layers=n_decoder_layer, scale_emb=decoder_scale_emb,
 				emb_prj_weight_sharing=emb_prj_weight_sharing, **lora_config, **kw_args)
-
-			self.decoder.initialize()
-			self.decoder.freezeTrunk()
 		else:
 			self.decoder = SeqvaeDecoderHead(n_vocab + 1, n_layers=n_decoder_layer, scale_emb=decoder_scale_emb,
 				emb_prj_weight_sharing=emb_prj_weight_sharing, **kw_args)
@@ -145,6 +142,10 @@ class SeqvaeLoss (nn.Module):
 		for p in self.decoder.parameters():
 			if p.dim() > 1:
 				nn.init.xavier_uniform_(p, gain=(n_decoder_layer * 2) ** -0.5)
+
+		if lora_config is not None:
+			self.decoder.initialize()
+			self.decoder.freezeTrunk()
 
 
 	def preloadDecoder (self, other):

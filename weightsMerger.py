@@ -40,7 +40,7 @@ if __name__ == "__main__":
 		load(increment_model)
 	else:
 		main_model.load_state_dict(increment_model.state_dict())
-	checkpoint['model'] = main_model.state_dict()
+	checkpoint['model'] = (main_model.deducer if args.postfix == 'Loss' else main_model).state_dict()
 	checkpoint['epoch'] = checkpoint.get('epoch', -1)
 
 	output_filename = f'{args.output}.chkpt'
