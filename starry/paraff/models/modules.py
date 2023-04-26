@@ -17,7 +17,7 @@ class HeadSummaryEncoder (nn.Module):
 		self.position_enc = PositionalEncoding(d_model, n_position=n_position)
 		self.dropout = nn.Dropout(p=dropout)
 		self.layer_stack = nn.ModuleList([
-			EncoderLayerCls(d_model, dropout=dropout, **kw_args)
+			EncoderLayerCls(d_model=d_model, dropout=dropout, **kw_args)
 			for _ in range(n_layers)])
 		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 		self.scale_emb = scale_emb

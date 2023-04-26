@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.4.26
+
+	+	config of paraff-vae-lora-test added.
+
+
 2023.4.25
 
 	+	seqVAE.py: added parameter of encoder_init_gain.
