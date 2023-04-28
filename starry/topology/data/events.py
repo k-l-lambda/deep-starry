@@ -2,8 +2,10 @@
 import json
 import yaml
 import re
+import os
 from fs import open_fs
 from zipfile import ZipFile, ZIP_STORED
+from ruamel.std.zipfile import delete_from_zip_file
 from tqdm import tqdm
 import logging
 import dill as pickle
@@ -16,7 +18,7 @@ from ..event_element import FEATURE_DIM, EventElementType, BeamType, StemDirecti
 
 
 
-SCORE_ID = re.compile(r'(.+)\.\d+\.\w+\.\w+$')
+SCORE_ID = re.compile(r'(.+)[.-]\d+\.\w+\.\w+$')
 
 
 NOISE_Y_SIGMA = 0.12
@@ -231,8 +233,18 @@ def validateTensors (tensors):
 
 
 def preprocessDataset (source_dir, target_path, n_augment=64):
+	archive_info = None
+	appendMode = os.path.exists(target_path)
+	if appendMode:
+		archive = open_fs(f'zip://{target_path}')
+		with archive.open('index.yaml') as index_file:
+			archive_info = yaml.safe_load(index_file)
+			logging.info('Appending to exist archive: %d examples, %s groups.', len(archive_info['examples']), len(archive_info['groups']))
+		archive.close()
+		delete_from_zip_file(target_path, pattern='index.yaml')
+
 	source = open_fs(source_dir)
-	target = ZipFile(target_path, 'w', compression=ZIP_STORED)
+	target = ZipFile(target_path, 'a' if appendMode else 'w', compression=ZIP_STORED)
 
 	file_list = [name for name in source.listdir('/') if source.isfile(name)]
 
@@ -245,7 +257,7 @@ def preprocessDataset (source_dir, target_path, n_augment=64):
 
 	#logging.info('ids: %s', '\n'.join(ids))
 
-	example_infos = []
+	example_infos = [] if archive_info is None else archive_info['examples']
 
 	for id in tqdm(ids, desc='Preprocess groups'):
 		filenames = [name for name, id_ in id_map.items() if id_ == id]
@@ -273,6 +285,9 @@ def preprocessDataset (source_dir, target_path, n_augment=64):
 					})
 
 					ci += 1
+
+	if archive_info is not None:
+		ids = archive_info['groups'] + ids
 
 	logging.info('Dumping index.')
 	target.writestr('index.yaml', yaml.dump({

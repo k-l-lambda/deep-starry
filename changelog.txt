@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.4.28
+
+	+	topology/data/events.py: added append mode for preprocessDataset.
+
+
 2023.4.25
 
 	+	seqVAE.py: added parameter of encoder_init_gain.
