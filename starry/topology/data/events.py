@@ -229,6 +229,9 @@ def validateTensors (tensors):
 		if tensors[key].max().item() >= TARGET_DIMS[key]:
 			return False
 
+	if tensors['order'].max().item() <= 0:
+		return False
+
 	return True
 
 
