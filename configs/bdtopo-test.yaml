@@ -4,13 +4,13 @@ id:     score-topology/{date}-{filename}
 
 data:
   type:                     EventCluster
-  root:                     ev-test-paraff.zip
+  root:                     test0428.zip
   splits:                   '*1,2/10:3/10'
   batch_size:               1
   args:
     #batch_slice:            2
     with_beading:           True
-    stability_base:         4
+    stability_base:         100
     chaos_flip:             True
     position_drift:         0.03
     stem_amplitude:
@@ -18,7 +18,7 @@ data:
       sigma:                2
   args_variant:
     1:
-      stability_base:       100
+      stability_base:       1000
 
 
 model:
