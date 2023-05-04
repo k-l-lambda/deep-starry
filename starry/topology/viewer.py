@@ -23,7 +23,7 @@ class DatasetViewer:
 			self.showEventTopology(tensors)
 
 
-	def showEventCluster (self, ax, inputs, pred_rec=None):
+	def showEventCluster (self, ax, inputs, pred_rec=None, pred_suc=None):
 		n_seq = inputs['feature'].shape[0]
 
 		xs = inputs['x']
@@ -138,6 +138,8 @@ class DatasetViewer:
 			if pred_rec is not None:
 				pred_event = {k: seq[ei] for k, seq in pred_rec.items()}
 				pred_event = {k: v.item() if v.numel() == 1 else v.tolist() for k, v in pred_event.items()}
+				if pred_suc is not None:
+					pred_event['suc'] = pred_suc[ei].item()
 				#print('pred_event:', pred_event)
 
 				ax.text(x + 0.2, y2[ei] + 0.9, '%d' % round(pred_event['tick']), color='maroon', fontsize='small', ha='left')
@@ -163,6 +165,10 @@ class DatasetViewer:
 					drawDot(pred_event['timeWarped'], warped, 1, y2[ei] - 2.9, 'darkcyan')
 					drawDot(pred_event['fullMeasure'], fullMeasure, 2, y2[ei] - 2.9, 'yellow')
 					drawDot(pred_event['fake'], False, 3, y2[ei] - 2.9, 'black')
+
+					# suc prediction
+					if beading_pos == 0 and pred_event.get('suc') is not None:
+						drawDot(pred_event['suc'], successor > 0, 0, y2[ei] + 1.4, 'red')
 
 
 	def showMatrix (self, ax, truth_matrix, pred_matrix=None):
@@ -244,6 +250,6 @@ class DatasetViewer:
 			for key in ['division', 'dots', 'beam', 'stemDirection']:
 				cluster_rec[key] = torch.softmax(cluster_rec[key] / self.out_temperature, dim=-1)
 
-			self.showEventCluster(ax, cluster_inputs, cluster_rec)
+			self.showEventCluster(ax, cluster_inputs, cluster_rec, pred_suc=pred_suc[i])
 
 		plt.show()
