@@ -1,3 +1,3 @@
 
 from .tokenGen import TokenGen, TokenGenLoss
-from .seqVAE import SeqvaeEncoder, SeqvaeDecoderHead, SeqvaeLoss
+from .seqVAE import SeqvaeEncoderMean, SeqvaeEncoderFinale, SeqvaeDecoderHead, SeqvaeLoss

@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.5.4
+
+	+	seqVAE.py: added encoder class of SeqvaeEncoderFinale.
+
+
 2023.4.26
 
 	+	weightsMerger.py: added arguments of postfix & load_method.

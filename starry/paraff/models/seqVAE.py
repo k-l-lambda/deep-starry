@@ -12,7 +12,7 @@ from .modules import HeadSummaryEncoder
 
 
 
-class SeqvaeEncoder (nn.Module):
+class SeqvaeEncoderMean (nn.Module):
 	def __init__ (self,
 			n_vocab, n_layers=6, pad_id=0, d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64,
 			dropout=0.1, n_seq_max=512, scale_emb=True):
@@ -35,7 +35,7 @@ class SeqvaeEncoder (nn.Module):
 	# mask:	(n, seq)
 	def forward(self, seq, mask: Optional[torch.Tensor] =None):
 		if mask is None:
-			mask = torch.ones_like(seq)
+			mask = torch.ones_like(seq)	# double directional mask
 
 		seq = seq.long()
 		enc_output, *_ = self.encoder(seq, mask.unsqueeze(-2))
@@ -48,6 +48,42 @@ class SeqvaeEncoder (nn.Module):
 		mask_sum = mask.sum(dim=1)
 		mu = mu.masked_fill(mask == 0, 0).sum(dim=1) / mask_sum
 		logvar = (logvar.masked_fill(mask == 0, 0).sum(dim=1) / mask_sum).clip(max=80)	# avoid inf after exp
+
+		return mu, logvar
+
+
+class SeqvaeEncoderFinale (nn.Module):
+	def __init__ (self,
+			n_vocab, n_layers=6, pad_id=0, finale_id=2, d_model=512, d_emb=512, d_inner=2048, n_head=8, d_k=64, d_v=64,
+			dropout=0.1, n_seq_max=512, scale_emb=True):
+		super().__init__()
+
+		self.pad_id = pad_id
+		self.finale_id = finale_id
+		self.d_model = d_model
+
+		self.encoder = Encoder(
+			n_src_vocab=n_vocab, n_position=n_seq_max,
+			d_word_vec=d_model, d_model=d_model, d_inner=d_inner,
+			n_layers=n_layers-1, n_head=n_head, d_k=d_k, d_v=d_v,
+			pad_idx=pad_id, dropout=dropout, scale_emb=scale_emb)
+
+		self.out_mu = nn.Linear(d_model, d_emb, bias=False)
+		self.out_var = nn.Linear(d_model, d_emb, bias=False)
+
+
+	# seq:	(n, seq)
+	# mask:	(n, seq)
+	def forward(self, seq, mask: Optional[torch.Tensor] =None):
+		mask = mask.unsqueeze(-2) & get_pad_mask(seq, self.pad_id) & get_subsequent_mask(seq)
+
+		seq = seq.long()
+		enc_output, *_ = self.encoder(seq, mask)
+
+		finale = enc_output[seq == self.finale_id]	# (n, d_model)
+
+		mu = self.out_mu(finale)		# (n, d_emb)
+		logvar = self.out_var(finale)	# (n, d_emb)
 
 		return mu, logvar
 
@@ -118,26 +154,38 @@ class SeqvaeDecoderHeadLora (SeqvaeDecoderHead):
 
 
 class SeqvaeLoss (nn.Module):
-	def __init__ (self, n_vocab, n_encoder_layer=6, n_decoder_layer=6,
+	# encoder_type: 'mean'|'finale'
+	def __init__ (self, n_vocab, encoder_type='mean',
+		d_model=512, n_encoder_layer=6, n_decoder_layer=6,
+		d_enc_model=512, finale_id=2,
 		encoder_scale_emb=True, decoder_scale_emb=True, emb_prj_weight_sharing=True,
 		kld_weight=0.001, encoder_init_gain=0, lora_config=None, **kw_args):
 		super().__init__()
 
 		self.kld_weight = kld_weight
+		#self.encoder_type = encoder_type
 
-		self.encoder = SeqvaeEncoder(n_vocab, n_layers=n_encoder_layer, scale_emb=encoder_scale_emb, **kw_args)
+		if encoder_type == 'finale':
+			self.encoder = SeqvaeEncoderFinale(n_vocab, d_model=d_enc_model, d_emb=d_model, finale_id=finale_id, n_layers=n_encoder_layer, scale_emb=encoder_scale_emb, **kw_args)
+		else:
+			self.encoder = SeqvaeEncoderMean(n_vocab, d_model=d_model, n_layers=n_encoder_layer, scale_emb=encoder_scale_emb, **kw_args)
 
 		if lora_config is not None:
-			self.decoder = SeqvaeDecoderHeadLora(n_vocab, n_layers=n_decoder_layer, scale_emb=decoder_scale_emb,
+			self.decoder = SeqvaeDecoderHeadLora(n_vocab, d_model=d_model, n_layers=n_decoder_layer, scale_emb=decoder_scale_emb,
 				emb_prj_weight_sharing=emb_prj_weight_sharing, **lora_config, **kw_args)
 		else:
-			self.decoder = SeqvaeDecoderHead(n_vocab + 1, n_layers=n_decoder_layer, scale_emb=decoder_scale_emb,
+			self.decoder = SeqvaeDecoderHead(n_vocab + 1, d_model=d_model, n_layers=n_decoder_layer, scale_emb=decoder_scale_emb,
 				emb_prj_weight_sharing=emb_prj_weight_sharing, **kw_args)
 
 		self.deducer = nn.ModuleList([self.encoder, self.decoder])	# placeholder to load/save checkpoint
 
-		for p in self.encoder.parameters():
-			nn.init.normal_(p, std=encoder_init_gain)
+		if encoder_type == 'finale':
+			for p in self.encoder.parameters():
+				if p.dim() > 1:
+					nn.init.xavier_uniform_(p, gain=(n_encoder_layer * 2) ** -0.5)
+		else:
+			for p in self.encoder.parameters():
+				nn.init.normal_(p, std=encoder_init_gain)
 
 		for p in self.decoder.parameters():
 			if p.dim() > 1:
