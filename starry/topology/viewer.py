@@ -166,9 +166,9 @@ class DatasetViewer:
 					drawDot(pred_event['fullMeasure'], fullMeasure, 2, y2[ei] - 2.9, 'yellow')
 					drawDot(pred_event['fake'], False, 3, y2[ei] - 2.9, 'black')
 
-					# suc prediction
-					if beading_pos == 0 and pred_event.get('suc') is not None:
-						drawDot(pred_event['suc'], successor > 0, 0, y2[ei] + 1.4, 'red')
+				# suc prediction
+				if beading_pos == 0 and pred_event.get('suc') is not None:
+					drawDot(pred_event['suc'], successor > 0, 0, y2[ei] + 1.4, 'red')
 
 
 	def showMatrix (self, ax, truth_matrix, pred_matrix=None):
