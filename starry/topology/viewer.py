@@ -3,6 +3,7 @@ import logging
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import math
+import torch
 
 from .event_element import EventElementType, StemDirection, BeamType
 
@@ -12,6 +13,7 @@ class DatasetViewer:
 	def __init__(self, config, n_axes=4, show_matrix=False):
 		self.n_axes = n_axes
 		self.show_matrix = show_matrix
+		self.out_temperature = config['model.args.out_temperature'] or 1
 
 
 	def show(self, data):
@@ -213,5 +215,35 @@ class DatasetViewer:
 				n_seq = len(cluster_inputs['type'])
 				self.showMatrix(ax, cluster_inputs['matrixH'].reshape((n_seq - 1, -1)),
 					pred_matrixH and pred_matrixH[i].reshape((n_seq - 1, -1)))
+
+		plt.show()
+
+
+	def showBeadTopology (self, inputs, pred=(None, None)):
+		batch_size = min(self.n_axes ** 2, inputs['feature'].shape[0])
+
+		_, axes = plt.subplots(batch_size // self.n_axes, self.n_axes)
+
+		plt.get_current_fig_manager().full_screen_toggle()
+
+		if self.show_matrix:
+			plt.figure(1)
+			_, axesM = plt.subplots(batch_size // self.n_axes, self.n_axes)
+
+		pred_suc, pred_rec = pred
+
+		for i in range(batch_size):
+			ax = axes if self.n_axes == 1 else axes[i // self.n_axes, i % self.n_axes]
+			ax.invert_yaxis()
+			ax.set_aspect(1)
+
+			cluster_inputs = {k: tensor[i] for k, tensor in inputs.items()}
+			cluster_rec = {k: tensor[i] for k, tensor in pred_rec.items()} if pred_rec is not None else None
+
+			# softmax rectification fields
+			for key in ['division', 'dots', 'beam', 'stemDirection']:
+				cluster_rec[key] = torch.softmax(cluster_rec[key] / self.out_temperature, dim=-1)
+
+			self.showEventCluster(ax, cluster_inputs, cluster_rec)
 
 		plt.show()

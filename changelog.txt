@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.5.4
+
+	+	validateTopology.py: added bead mode.
+
+
 2023.4.28
 
 	+	topology/data/events.py: added append mode for preprocessDataset.
