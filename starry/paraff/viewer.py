@@ -43,6 +43,6 @@ class ParaffViewer:
 
 		mu = mu[0].reshape(-1, 32).numpy()
 		var = logvar[0].reshape(-1, 32).numpy()
-		m0 = axes[0].pcolormesh(mu, cmap='RdBu', vmin=-0.0016, vmax=0.0016)
-		axes[1].pcolormesh(var, cmap='RdBu', vmin=-0.0016, vmax=0.0016)
+		m0 = axes[0].pcolormesh(mu, cmap='RdBu', vmin=-1, vmax=1)
+		axes[1].pcolormesh(var, cmap='RdBu', vmin=-1.5, vmax=1.)
 		fig.colorbar(m0)
