@@ -75,7 +75,8 @@ class SeqvaeEncoderFinale (nn.Module):
 	# seq:	(n, seq)
 	# mask:	(n, seq)
 	def forward(self, seq, mask: Optional[torch.Tensor] =None):
-		mask = mask.unsqueeze(-2) & get_pad_mask(seq, self.pad_id) & get_subsequent_mask(seq)
+		mask = get_pad_mask(seq, self.pad_id) if mask is None else mask.unsqueeze(-2)
+		mask = mask & get_subsequent_mask(seq)
 
 		seq = seq.long()
 		enc_output, *_ = self.encoder(seq, mask)
