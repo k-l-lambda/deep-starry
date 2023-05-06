@@ -10,7 +10,7 @@ data:
   args:
     #batch_slice:            2
     with_beading:           True
-    stability_base:         100
+    stability_base:         10
     chaos_flip:             True
     position_drift:         0.03
     stem_amplitude:
