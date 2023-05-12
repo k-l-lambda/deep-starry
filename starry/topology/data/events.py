@@ -2,20 +2,23 @@
 import json
 import yaml
 import re
+import os
 from fs import open_fs
 from zipfile import ZipFile, ZIP_STORED
+from ruamel.std.zipfile import delete_from_zip_file
 from tqdm import tqdm
 import logging
 import dill as pickle
+import math
 import numpy as np
 import torch
 from perlin_noise import PerlinNoise
 
-from ..event_element import FEATURE_DIM, EventElementType, BeamType, StemDirection, STAFF_MAX
+from ..event_element import FEATURE_DIM, EventElementType, BeamType, StemDirection, STAFF_MAX, TARGET_DIMS, TIME8TH_MAX
 
 
 
-SCORE_ID = re.compile(r'(.+)\.\d+\.\w+\.\w+$')
+SCORE_ID = re.compile(r'(.+)[.-]\d+\.\w+\.\w+$')
 
 
 NOISE_Y_SIGMA = 0.12
@@ -129,6 +132,10 @@ def exampleToTensorsAugment (cluster, n_augment):
 	elements = cluster['elements']
 	n_seq = len(elements)
 
+	duration = cluster.get('signatureDuration', cluster['duration'])
+	time8th = min(TIME8TH_MAX, math.ceil(duration / 240))
+	time8th = torch.tensor(time8th, dtype=torch.int8)
+
 	opv = lambda x, default=0: default if x is None else x
 
 	elem_type = torch.tensor([elem['type'] for elem in elements], dtype=torch.int32)
@@ -142,6 +149,24 @@ def exampleToTensorsAugment (cluster, n_augment):
 	timeWarped = torch.tensor([1 if elem['timeWarped'] else 0 for elem in elements], dtype=torch.float32)
 	fullMeasure = torch.tensor([1 if elem['fullMeasure'] else 0 for elem in elements], dtype=torch.float32)
 	fake = torch.tensor([elem.get('fake', 0) for elem in elements], dtype=torch.float32)
+
+	# beading order
+	voices = list(set([elem['voice'] for elem in elements if elem.get('voice', -1) >= 0]))
+	np.random.shuffle(voices)
+	'''def beadingPrior (elem):
+		if elem['type'] == EventElementType.BOS:
+			return -1
+
+		if elem['type'] == EventElementType.EOS or elem.get('grace') or elem.get('voice', -1) < 0:
+			return math.inf
+
+		return voices.index(elem['voice']) * 10000 + elem['index']
+	beading_elems = sorted(elements, key=beadingPrior)
+	order_max = len([elem for elem in elements if not (elem['type'] == EventElementType.EOS or elem.get('grace') or elem.get('voice', -1) < 0)])
+	order = torch.tensor([min(order_max, beading_elems.index(elem)) for elem in elements], dtype=torch.int16)'''
+	beading_elems = sum([[elements[0]] + [elem for elem in elements if elem.get('voice', -1) == vi] for vi in voices], [])
+	order_max = len(beading_elems)
+	order = torch.tensor([(beading_elems.index(elem) if (elem in beading_elems) else order_max) for elem in elements], dtype=torch.int16)
 
 	rawMatrixH = torch.tensor(cluster['matrixH'], dtype=torch.float32)
 	matrixH = rawMatrixH[1:, :-1]	# exlude BOS & EOS
@@ -192,12 +217,37 @@ def exampleToTensorsAugment (cluster, n_augment):
 		'matrixH':			matrixH,		# ((n_seq - 1) * (n_seq - 1))
 		'tickDiff':			tickDiff,		# (n_seq * n_seq)
 		'maskT':			maskT,			# (n_seq * n_seq)
+
+		'order':			order,			# (n_seq)
+
+		'time8th':			time8th,		# scalar
 	}
 
 
+def validateTensors (tensors):
+	for key in ['division', 'dots', 'beam', 'stemDirection']:
+		if tensors[key].max().item() >= TARGET_DIMS[key]:
+			return False
+
+	if tensors['order'].max().item() <= 0:
+		return False
+
+	return True
+
+
 def preprocessDataset (source_dir, target_path, n_augment=64):
+	archive_info = None
+	appendMode = os.path.exists(target_path)
+	if appendMode:
+		archive = open_fs(f'zip://{target_path}')
+		with archive.open('index.yaml') as index_file:
+			archive_info = yaml.safe_load(index_file)
+			logging.info('Appending to exist archive: %d examples, %s groups.', len(archive_info['examples']), len(archive_info['groups']))
+		archive.close()
+		delete_from_zip_file(target_path, pattern='index.yaml')
+
 	source = open_fs(source_dir)
-	target = ZipFile(target_path, 'w', compression=ZIP_STORED)
+	target = ZipFile(target_path, 'a' if appendMode else 'w', compression=ZIP_STORED)
 
 	file_list = [name for name in source.listdir('/') if source.isfile(name)]
 
@@ -210,7 +260,7 @@ def preprocessDataset (source_dir, target_path, n_augment=64):
 
 	#logging.info('ids: %s', '\n'.join(ids))
 
-	example_infos = []
+	example_infos = [] if archive_info is None else archive_info['examples']
 
 	for id in tqdm(ids, desc='Preprocess groups'):
 		filenames = [name for name, id_ in id_map.items() if id_ == id]
@@ -224,6 +274,9 @@ def preprocessDataset (source_dir, target_path, n_augment=64):
 					target_filename = f'{id}-{ci}.pkl'
 
 					tensors = exampleToTensorsAugment(cluster, n_augment)
+					if not validateTensors(tensors):
+						logging.info('invalid cluster:, %s', target_filename)
+						continue
 					target.writestr(target_filename, pickle.dumps(tensors))
 
 					length = sum(map(lambda t: t.nelement(), tensors.values())) * 4
@@ -235,6 +288,9 @@ def preprocessDataset (source_dir, target_path, n_augment=64):
 					})
 
 					ci += 1
+
+	if archive_info is not None:
+		ids = archive_info['groups'] + ids
 
 	logging.info('Dumping index.')
 	target.writestr('index.yaml', yaml.dump({

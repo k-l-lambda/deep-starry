@@ -1,4 +1,5 @@
 
+from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -6,8 +7,8 @@ import torch.nn.functional as F
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ..semantic_element import SemanticElementType, STAFF_MAX
-from ..event_element import FEATURE_DIM, STAFF_MAX as EV_STAFF_MAX, EventElementType, TARGET_DIMS
-from ...modules.positionEncoder import SinusoidEncoderXYY
+from ..event_element import FEATURE_DIM, STAFF_MAX as EV_STAFF_MAX, EventElementType, TARGET_DIMS_LEGACY, TARGET_DIMS, TIME8TH_MAX
+from ...modules.positionEncoder import SinusoidEncoderXYY, SinusoidEncoder
 
 
 
@@ -414,6 +415,125 @@ class EventEncoder (nn.Module):
 		return torch.cat([vec_type, vec_staff, feature, position], dim=-1)
 
 
+class EventArgsEncoder (nn.Module):
+	def __init__ (self, d_model, angle_cycle=1000, feature_activation=None):
+		super().__init__()
+
+		self.feature_activate = getattr(torch, feature_activation) if feature_activation else torch.nn.Identity()
+
+		d_position = d_model - EventElementType.MAX - EV_STAFF_MAX - FEATURE_DIM
+		self.position_encoder = SinusoidEncoderXYY(angle_cycle=angle_cycle, d_hid=d_position)
+
+		self.n_class_type = EventElementType.MAX
+		self.n_class_staff = EV_STAFF_MAX
+
+
+	#	stype:		(n, seq)
+	#	staff:		(n, seq)
+	#	feature:	(n, seq, FEATURE_DIM)
+	#	x:			(n, seq)
+	#	y1:			(n, seq)
+	#	y2:			(n, seq)
+	def forward (self, stype, staff, feature, x, y1, y2):	# (n, seq, d_model)
+		vec_type = F.one_hot(stype, num_classes=self.n_class_type)
+		vec_staff = F.one_hot(staff, num_classes=self.n_class_staff)
+		position = self.position_encoder(x, y1, y2)
+
+		feature = self.feature_activate(feature)
+
+		return torch.cat([vec_type, vec_staff, feature, position], dim=-1)
+
+
+class EventOrderedEncoder (nn.Module):
+	def __init__ (self, d_model, d_position, angle_cycle=1000, feature_activation=None, zero_candidates=False):
+		super().__init__()
+
+		self.feature_activate = getattr(torch, feature_activation) if feature_activation else torch.nn.Identity()
+		self.zero_candidates = zero_candidates
+
+		self.position_encoder = SinusoidEncoderXYY(angle_cycle=angle_cycle, d_hid=d_position)
+
+		self.order_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_position)
+
+		self.n_class_type = EventElementType.MAX
+		self.n_class_staff = EV_STAFF_MAX
+
+		d_in = EventElementType.MAX + EV_STAFF_MAX + FEATURE_DIM + d_position + d_position
+		self.embed = nn.Linear(d_in, d_model)
+
+
+	#	stype:		(n, seq)
+	#	staff:		(n, seq)
+	#	feature:	(n, seq, FEATURE_DIM)
+	#	x:			(n, seq)
+	#	y1:			(n, seq)
+	#	y2:			(n, seq)
+	#	pos:		(n, seq)
+	def forward (self, stype, staff, feature, x, y1, y2, pos):	# (n, seq, d_model)
+		vec_type = F.one_hot(stype.long(), num_classes=self.n_class_type).float()
+		vec_staff = F.one_hot(staff.long(), num_classes=self.n_class_staff).float()
+		position = self.position_encoder(x, y1, y2)
+		vec_pos = self.order_encoder(pos.float())
+
+		if self.zero_candidates:
+			#vec_pos[pos == 0] = 0
+
+			# to workaround onnx issue
+			zero_pos = (pos != 0).float().unsqueeze(-1)
+			vec_pos *= zero_pos
+
+		feature = self.feature_activate(feature)
+
+		x = torch.cat([vec_type, vec_staff, feature, position, vec_pos], dim=-1)
+
+		return self.embed(x)
+
+
+class EventEncoderV4 (nn.Module):
+	def __init__ (self, d_model, d_position, angle_cycle=1000, feature_activation=None, zero_candidates=False):
+		super().__init__()
+
+		self.feature_activate = getattr(torch, feature_activation) if feature_activation else torch.nn.Identity()
+		self.zero_candidates = zero_candidates
+
+		self.position_encoder = SinusoidEncoderXYY(angle_cycle=angle_cycle, d_hid=d_position)
+
+		self.order_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_position)
+
+		self.n_class_type = EventElementType.MAX
+		self.n_class_staff = EV_STAFF_MAX
+		self.n_class_time8th = TIME8TH_MAX + 1
+
+		d_in = EventElementType.MAX + EV_STAFF_MAX + FEATURE_DIM + d_position + d_position + (TIME8TH_MAX + 1)
+		self.embed = nn.Linear(d_in, d_model)
+
+
+	#	stype:		(n, seq)
+	#	staff:		(n, seq)
+	#	feature:	(n, seq, FEATURE_DIM)
+	#	x:			(n, seq)
+	#	y1:			(n, seq)
+	#	y2:			(n, seq)
+	#	pos:		(n, seq)
+	#	time8th:	(n)
+	def forward (self, stype, staff, feature, x, y1, y2, pos, time8th):	# (n, seq, d_model)
+		vec_type = F.one_hot(stype.long(), num_classes=self.n_class_type).float()
+		vec_staff = F.one_hot(staff.long(), num_classes=self.n_class_staff).float()
+		position = self.position_encoder(x, y1, y2)
+		vec_pos = self.order_encoder(pos.float())
+		vec_time = F.one_hot(time8th[:, None].repeat(1, stype.shape[-1]).long(), num_classes=self.n_class_time8th).float()
+
+		if self.zero_candidates:
+			zero_pos = (pos != 0).float().unsqueeze(-1)
+			vec_pos *= zero_pos
+
+		feature = self.feature_activate(feature)
+
+		x = torch.cat([vec_type, vec_staff, feature, position, vec_pos, vec_time], dim=-1)
+
+		return self.embed(x)
+
+
 class RectifierParser (nn.Module):
 	def __init__(self):
 		super().__init__()
@@ -425,7 +545,8 @@ class RectifierParser (nn.Module):
 	def forward (self, vec):
 		rec = {}
 		d = 0
-		for k, dims in TARGET_DIMS.items():
+		target_dim_items = TARGET_DIMS_LEGACY.items()
+		for k, dims in target_dim_items:
 			rec[k] = vec[:, :, d:d + dims]
 			d += dims
 
@@ -443,6 +564,37 @@ class RectifierParser (nn.Module):
 		return rec
 
 
+class RectifierParser2 (nn.Module):
+	def __init__(self):
+		super().__init__()
+
+		#self.softmax = nn.Softmax(dim=-1)
+		self.sigmoid = nn.Sigmoid()
+
+		self.target_dim_items = list(TARGET_DIMS.items())
+
+
+	def forward (self, vec):
+		rec = {}
+		d = 0
+		for k, dims in self.target_dim_items:
+			rec[k] = vec[:, :, d:d + dims]
+			d += dims
+
+		#rec['division'] = rec['division']
+		#rec['dots'] = rec['dots']
+		#rec['beam'] = rec['beam']
+		#rec['stemDirection'] = rec['stemDirection']
+
+		rec['tick'] = rec['tick'].squeeze(-1)
+		rec['grace'] = self.sigmoid(rec['grace'].squeeze(-1))
+		rec['timeWarped'] = self.sigmoid(rec['timeWarped'].squeeze(-1))
+		rec['fullMeasure'] = self.sigmoid(rec['fullMeasure'].squeeze(-1))
+		rec['fake'] = self.sigmoid(rec['fake'].squeeze(-1))
+
+		return rec
+
+
 class CrossEntropy (nn.Module):
 	def __init__ (self):
 		super().__init__()
@@ -450,5 +602,8 @@ class CrossEntropy (nn.Module):
 		self.ce = nn.CrossEntropyLoss()
 
 
-	def forward (self, pred, target):
+	def forward (self, pred, target, mask: Optional[torch.Tensor] =None):
+		if mask is not None:
+			return self.ce(pred[mask], target[mask])
+
 		return self.ce(pred.view(-1, pred.shape[-1]), target.flatten())

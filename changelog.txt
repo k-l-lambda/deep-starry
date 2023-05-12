@@ -5,6 +5,138 @@ TODO:
 
 
 
+2023.5.4
+
+	+	validateTopology.py: added bead mode.
+
+
+2023.4.28
+
+	+	topology/data/events.py: added append mode for preprocessDataset.
+
+	+	seqVAE.py: added encoder class of SeqvaeEncoderFinale.
+
+
+2023.4.26
+
+	+	weightsMerger.py: added arguments of postfix & load_method.
+
+	+	seqVAE.py: added freezeTrunk method for SeqvaeDecoderHeadLora.
+
+	+	config of paraff-vae-lora-test added.
+
+
+2023.4.25
+
+	+	seqVAE.py: added parameter of encoder_init_gain.
+
+
+2023.4.24
+
+	+	paraff/seqVAE.py: refined encoder output reduction.
+
+	+	paraff/viewer.py: showLatent added.
+
+
+2023.4.23
+
+	+	paraff/viewer.py created.
+
+	+	seqVAE.py: method of inspectRun added.
+
+
+2023.4.22
+
+	+	seqVAE.py: refined encoder output reduction.
+
+
+2023.4.21
+
+	+	paraff/models: added model classes of Seqvae.
+
+
+2023.4.9
+
+	+	eventCluster.py: added parameter of chaos_flip.
+
+
+2023.4.3
+
+	+	eventCluster.py: added augment parameter of chaos_exp.
+
+	+	beadPicker.py: added input parameter of timeth.
+
+
+2023.3.31
+
+	+	topology/viewer.py: visualized beading fields.
+
+
+2023.3.30
+
+	+	convertToOnnx.py: added Onnx model postfix.
+
+
+2023.3.28
+
+	+	topology/models/beadPicker.py created.
+
+
+2023.3.27
+
+	+	eventCluster.py: added field of beading_pos.
+
+	+	EvtopoPredictor: adapted to RectifySieveJointer2.
+
+
+2023.3.24
+
+	+	rectifyJointer2.py: skip sieve encode for zero layer.
+
+	+	topology/models/modules.py: removed softmax before CrossEntropy.
+
+	+	topology/models/modules.py: module of RectifierParser2 added.
+
+
+2023.3.23
+
+	+	rectifyJointer2.py: parameter of loss_weights added.
+
+	+	topology: fixed JIT conversion errors for RectifySieveJointer2.
+
+	+	transformer: fixed JIT conversion errors.
+
+
+2023.3.17
+
+	+	paraff/data/sentence.py: added parameter of descriptor_drop_sigma.
+	+	paraff/data/sentence.py: fixed descriptors dropping.
+
+
+2023.3.10
+
+	+	convertToOnnx.py: added multiple config support.
+
+
+2023.3.9
+
+	+	paraff/models/tokenGen.py: added body mask.
+
+	+	paraff/data/sentence.py: added descriptor droping and body mask.
+
+
+2023.3.2
+
+	+	paraff/models/tokenGen.py created.
+
+	+	paraff/data/sentence.py created.
+
+
+2023.3.1
+
+	+	paraff/data/paraffFile.py created.
+
+
 2023.2.16
 
 	+	semanticClusterPredictor.py: fixed confidence_table in SemanticSubPredictor.

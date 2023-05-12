@@ -13,7 +13,9 @@ def registerModels ():
 	from ..topology.models import jointers as tj
 	from ..topology.models import rectifyJointer as tr
 	from ..topology.models import rectifyJointer2 as tr2
+	from ..topology.models import beadPicker as tb
 	from ..vision import models as vm
+	from ..paraff import models as pm
 
 	classes = [
 		tj.TransformJointer, tj.TransformJointerLoss,
@@ -25,6 +27,7 @@ def registerModels ():
 		tj.TransformSieveJointerHV, tj.TransformSieveJointerHVLoss,
 		tr.RectifySieveJointer, tr.RectifySieveJointerLoss,
 		tr2.RectifySieveJointer2, tr2.RectifySieveJointer2Loss,
+		tb.BeadPicker, tb.BeadPickerLoss, tb.BeadPickerOnnx,
 		vm.ScoreWidgets, vm.ScoreWidgetsInspection, vm.ScoreWidgetsLoss,
 		vm.ScoreWidgetsMask, vm.ScoreWidgetsMaskLoss,
 		vm.ScoreRegression, vm.ScoreRegressionLoss,
@@ -32,6 +35,8 @@ def registerModels ():
 		vm.ScoreResidueU, vm.ScoreResidueUInspection, vm.ScoreResidueULoss,
 		vm.ScoreSemanticValue, vm.ScoreSemanticValueLoss,
 		vm.GlyphRecognizer, vm.GlyphRecognizerLoss,
+		pm.TokenGen, pm.TokenGenLoss,
+		pm.SeqvaeLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])
@@ -54,8 +59,8 @@ def loadModel (config, postfix=''):
 
 
 
-def loadModelAndWeights (config, checkpoint_name=None, device='cpu'):
-	model = loadModel(config['model'])
+def loadModelAndWeights (config, checkpoint_name=None, device='cpu', postfix=''):
+	model = loadModel(config['model'], postfix=postfix)
 
 	checkpoint = {}
 	if checkpoint_name is not None:

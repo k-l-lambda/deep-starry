@@ -5,6 +5,7 @@ import numpy as np
 import dill as pickle
 import torch
 from torch.utils.data import IterableDataset
+import torch.nn.functional as F
 
 from ...utils.parsers import parseFilterStr, mergeArgs
 from ..event_element import TARGET_FIELDS
@@ -44,16 +45,19 @@ class EventCluster (IterableDataset):
 
 
 	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None,
-		batch_slice=None, use_cache=True):
+		chaos_exp=-1, chaos_flip=False, batch_slice=None, use_cache=True, with_beading=False):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
 		self.device = device
 
 		self.stability_base = stability_base
+		self.chaos_exp = chaos_exp
+		self.chaos_flip = chaos_flip
 		self.position_drift = position_drift
 		self.stem_amplitude = stem_amplitude
 		self.batch_slice = batch_slice
+		self.with_beading = with_beading
 
 		self.entry_cache = {} if use_cache else None
 
@@ -115,8 +119,12 @@ class EventCluster (IterableDataset):
 		feature = tensors['feature'][:batch_size]
 		stability = np.random.power(self.stability_base)
 		error = torch.rand(*feature.shape, device=self.device) > stability
-		chaos = torch.exp(torch.randn(*feature.shape, device=self.device) - 1)
-		feature[error] *= chaos[error]
+		if self.chaos_flip:
+			feature_err_tanh = torch.tanh(feature[error] / 0.4).clip(min=0.0000001, max=0.9999999)
+			feature[error] = torch.atanh(1 - feature_err_tanh)
+		else:
+			chaos = torch.exp(torch.randn(*feature.shape, device=self.device) + self.chaos_exp)
+			feature[error] *= chaos[error]
 
 		# sort division[3:] & dots
 		feature[:, :, 3:7], _ = feature[:, :, 3:7].sort(descending=True)
@@ -139,17 +147,67 @@ class EventCluster (IterableDataset):
 			y1[:, 1:-1] += torch.randn(batch_size, n_seq - 2, device=self.device) * self.position_drift + oy
 			y2[:, 1:-1] += torch.randn(batch_size, n_seq - 2, device=self.device) * self.position_drift + oy
 
-		result = {
-			'type': elem_type,
-			'staff': staff,
-			'feature': feature,
-			'x': x,
-			'y1': y1,
-			'y2': y2,
-			'matrixH': tensors['matrixH'].repeat(batch_size, 1),
-			'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
-			'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
-		}
+		if self.with_beading:
+			order_max = tensors['order'].max().item()
+			beading_tip = torch.multinomial(torch.ones(order_max), batch_size, replacement=batch_size > order_max).to(self.device)	# (batch_size)
+			beading_pos = tensors['order'][None, :].repeat(batch_size, 1) - (beading_tip[:, None] + 1)								# (batch_size, n_seq)
+			beading_pos[beading_pos > 0] = 0
+
+			# move BOS pos to ahead of last voice
+			voice_head_pos = torch.tensor([i for i in range(order_max) if i == 0 or (not i in tensors['order'])], dtype=beading_pos.dtype, device=self.device)
+			vhs = voice_head_pos[None, :].repeat(batch_size, 1) - (beading_tip[:, None] + 1)
+			#print('vhs:', vhs)
+			for i, vh in enumerate(vhs):
+				vh[vh >= 0] = beading_pos[i, 0]
+			beading_pos[:, 0] = vhs.max(dim=-1).values
+			beading_pos = beading_pos.to(self.device)
+
+			matrixH = tensors['matrixH'].reshape(n_seq - 1, n_seq - 1)
+
+			successor = torch.zeros(batch_size, n_seq).bool()
+			order_list = tensors['order'].tolist()
+			for i, tip in enumerate(beading_tip.tolist()):
+				ti = order_list.index(tip) if tip in order_list else 0
+				successor[i, 1:] = (matrixH[:, ti] > 0) & (beading_pos[i, 1:] == 0)
+
+			# regularize duration feature fields
+			fixed_indices = (beading_pos < 0) & (elem_type > 2)
+			fixed_feature = feature[fixed_indices]
+			fixed_division = tensors['division'].repeat(batch_size, 1)[fixed_indices].long()
+			fixed_dots = tensors['dots'].repeat(batch_size, 1)[fixed_indices]
+
+			fixed_feature[:, :7] = F.one_hot(fixed_division, num_classes=9)[:, :7]
+			fixed_feature[:, 7] = (fixed_dots > 0).float()
+			fixed_feature[:, 8] = (fixed_dots > 1).float()
+
+			feature[fixed_indices] = fixed_feature
+
+			result = {
+				'type': elem_type,
+				'staff': staff,
+				'feature': feature,
+				'x': x,
+				'y1': y1,
+				'y2': y2,
+				'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
+				'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
+				'beading_pos': beading_pos,
+				'successor': successor.float().to(self.device),
+			}
+		else:
+			result = {
+				'type': elem_type,
+				'staff': staff,
+				'feature': feature,
+				'x': x,
+				'y1': y1,
+				'y2': y2,
+				'matrixH': tensors['matrixH'].repeat(batch_size, 1),
+				'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
+				'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
+			}
+
+		result['time8th'] = tensors['time8th'].repeat(batch_size).to(self.device)
 
 		for field in TARGET_FIELDS:
 			result[field] = tensors[field].repeat(batch_size, 1)
