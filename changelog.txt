@@ -14,6 +14,17 @@ TODO:
 
 	+	topology/data/events.py: added append mode for preprocessDataset.
 
+	+	seqVAE.py: added encoder class of SeqvaeEncoderFinale.
+
+
+2023.4.26
+
+	+	weightsMerger.py: added arguments of postfix & load_method.
+
+	+	seqVAE.py: added freezeTrunk method for SeqvaeDecoderHeadLora.
+
+	+	config of paraff-vae-lora-test added.
+
 
 2023.4.25
 
