@@ -132,7 +132,8 @@ class DatasetViewer:
 					drawDot(i, 11 - i, y2[ei] - 1.7, 'navy')
 				for i in range(12, 14):	# stemDirection
 					drawDot(i, i - 12, y2[ei] - 2.3, 'violet')
-				drawDot(14, 0, y2[ei] - 2.9, 'cyan')
+				drawDot(14, 0, y2[ei] - 2.9, 'cyan')	# grace
+				drawDot(15, 1.5, y2[ei] - 2.9, 'blueviolet')	# tremoloCatcher
 
 			# predicted features
 			if pred_rec is not None:
