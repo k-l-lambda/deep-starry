@@ -85,9 +85,10 @@ def genElementFeature (elem, drop_source=False):
 		]
 
 		feature['grace'] = boolRandn(elem['grace'], true_bias=0)
+		feature['tremoloCatcher'] = boolRandn(elem.get('tremoloCatcher', False), true_bias=0)
 
 	return torch.tensor([
-		*feature['divisions'], *feature['dots'], *feature['beams'], *feature['stemDirections'], feature['grace'],
+		*feature['divisions'], *feature['dots'], *feature['beams'], *feature['stemDirections'], feature['grace'], feature['tremoloCatcher'],
 	], dtype=torch.float32)
 
 
@@ -178,7 +179,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 	tickDiff = tickSrc - tickTar
 	maskT = (rawMatrixH > 0) | torch.tril(tickDiff == 0, diagonal=-1)
 
-	feature = torch.zeros((n_augment, n_seq, 15), dtype=torch.float32)
+	feature = torch.zeros((n_augment, n_seq, FEATURE_DIM), dtype=torch.float32)
 	x = torch.zeros((n_augment, n_seq), dtype=torch.float32)
 	y1 = torch.zeros((n_augment, n_seq), dtype=torch.float32)
 	y2 = torch.zeros((n_augment, n_seq), dtype=torch.float32)
@@ -199,7 +200,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 		# source
 		'type':				elem_type,		# (n_seq)
 		'staff':			staff,			# (n_seq)
-		'feature':			feature,		# (n_augment, n_seq, 15)
+		'feature':			feature,		# (n_augment, n_seq, FEATURE_DIM)
 		'x':				x,				# (n_augment, n_seq)
 		'y1':				y1,				# (n_augment, n_seq)
 		'y2':				y2,				# (n_augment, n_seq)
@@ -239,6 +240,7 @@ def preprocessDataset (source_dir, target_path, n_augment=64):
 	archive_info = None
 	appendMode = os.path.exists(target_path)
 	if appendMode:
+		logging.info('Appending to archive %s', target_path)
 		archive = open_fs(f'zip://{target_path}')
 		with archive.open('index.yaml') as index_file:
 			archive_info = yaml.safe_load(index_file)
