@@ -5,7 +5,7 @@ import re
 import os
 from fs import open_fs
 from zipfile import ZipFile, ZIP_STORED
-from ruamel.std.zipfile import delete_from_zip_file
+#from ruamel.std.zipfile import delete_from_zip_file
 from tqdm import tqdm
 import logging
 import dill as pickle
@@ -18,7 +18,7 @@ from ..event_element import FEATURE_DIM, EventElementType, BeamType, StemDirecti
 
 
 
-SCORE_ID = re.compile(r'(.+)[.-]\d+\.\w+\.\w+$')
+SCORE_ID = re.compile(r'(.+)([.-]\d+\.)?\w+\.\w+$')
 
 
 NOISE_Y_SIGMA = 0.12
@@ -244,17 +244,20 @@ def validateTensors (tensors):
 	return True
 
 
-def preprocessDataset (source_dir, target_path, n_augment=64):
+def preprocessDataset (source_dir, target_path, n_augment=64, index0=False):
+	if index0:
+		logging.info('preprocessDataset.index0')
+
 	archive_info = None
 	appendMode = os.path.exists(target_path)
 	if appendMode:
 		logging.info('Appending to archive %s', target_path)
 		archive = open_fs(f'zip://{target_path}')
-		with archive.open('index.yaml') as index_file:
+		with archive.open('index0.yaml') as index_file:
 			archive_info = yaml.safe_load(index_file)
 			logging.info('Appending to exist archive: %d examples, %s groups.', len(archive_info['examples']), len(archive_info['groups']))
 		archive.close()
-		delete_from_zip_file(target_path, pattern='index.yaml')
+		#delete_from_zip_file(target_path, pattern='index.yaml')
 
 	source = open_fs(source_dir)
 	target = ZipFile(target_path, 'a' if appendMode else 'w', compression=ZIP_STORED)
@@ -303,7 +306,7 @@ def preprocessDataset (source_dir, target_path, n_augment=64):
 		ids = archive_info['groups'] + ids
 
 	logging.info('Dumping index.')
-	target.writestr('index.yaml', yaml.dump({
+	target.writestr('index0.yaml' if index0 else 'index.yaml', yaml.dump({
 		'examples': example_infos,
 		'groups': ids,
 	}))
