@@ -24,6 +24,7 @@ data:
 model:
   type:                     BeadPicker
   args:
+    usePivotX:              True
     with_time8th:           True
     n_layers:               2
     d_position:             256

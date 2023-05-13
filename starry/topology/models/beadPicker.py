@@ -72,12 +72,13 @@ class BeadPickerOnnx (BeadPicker):
 
 class BeadPickerLoss (nn.Module):
 	def __init__ (self, decisive_confidence=0.5, error_weights=DEFAULT_ERROR_WEIGHTS, loss_weights=[10, 1e-6],
-		init_gain_n=2, **kw_args):
+		usePivotX=False, init_gain_n=2, **kw_args):
 		super().__init__()
 
 		self.error_weights = error_weights
 		self.loss_weights = [*loss_weights] + [1] * 20
 		self.decisive_confidence = decisive_confidence
+		self.usePivotX = usePivotX
 
 		self.deducer = BeadPicker(**kw_args)
 
@@ -96,7 +97,16 @@ class BeadPickerLoss (nn.Module):
 
 
 	def forward (self, batch):
-		inputs = (batch['type'], batch['staff'], batch['feature'], batch['x'], batch['y1'], batch['y2'], batch['beading_pos'], batch['time8th'])
+		inputs = (
+			batch['type'],
+			batch['staff'],
+			batch['feature'],
+			batch['pivotX'] if self.usePivotX else batch['x'],
+			batch['y1'],
+			batch['y2'],
+			batch['beading_pos'],
+			batch['time8th'],
+		)
 		pred_suc, rec = self.deducer(*inputs)
 
 		is_entity = batch['type'] != EventElementType.PAD
