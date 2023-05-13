@@ -27,6 +27,7 @@ class DatasetViewer:
 		n_seq = inputs['feature'].shape[0]
 
 		xs = inputs['x']
+		pivotXs = inputs.get('pivotX')
 		y1 = inputs['y1']
 		y2 = inputs['y2']
 		elem_type = inputs['type']
@@ -39,12 +40,14 @@ class DatasetViewer:
 			warped = inputs['timeWarped'][ei]
 			grace = inputs['grace'][ei]
 			fullMeasure = inputs['fullMeasure'][ei]
+			fake = inputs['fake'][ei]
 			tick = inputs['tick'][ei]
 			beading_pos = inputs['beading_pos'][ei]
 			successor = inputs['successor'][ei]
 			features = inputs['feature'][ei]
 
 			x = xs[ei]
+			pivotX = None if pivotXs is None else pivotXs[ei]
 			y = y2[ei] if direction == StemDirection.u else y1[ei]
 			ty = y2[ei] if direction == StemDirection.d else y1[ei]
 
@@ -68,17 +71,19 @@ class DatasetViewer:
 					dx = x + 1.2 + di * 0.4
 					ax.add_patch(patches.Circle((dx, y), 0.16, fill=True, facecolor='g'))
 			elif elem_type[ei] == EventElementType.CHORD:
-				color = 'c' if warped else 'b'
+				color = 'r' if fake else ('c' if warped else 'b')
 				scale = 0.6 if grace else 1
 
 				# stem
 				ax.vlines(x, y1[ei], y2[ei], color=color)
 
 				# head
-				head_x = x
-				head_x = head_x - 0.7 * scale if direction == StemDirection.u else head_x
-				head_x = head_x + 0.7 * scale if direction == StemDirection.d else head_x
-				ax.add_patch(patches.Ellipse((head_x, y), 1.4 * scale, 0.8 * scale, fill=division >= 2, facecolor=color, edgecolor=color))
+				head_x = pivotX
+				if head_x is None:
+					head_x = x
+					head_x = head_x - 0.65 * scale if direction == StemDirection.u else head_x
+					head_x = head_x + 0.65 * scale if direction == StemDirection.d else head_x
+				ax.add_patch(patches.Ellipse((head_x, y), 1.3 * scale, 0.8 * scale, fill=division >= 2, facecolor=color, edgecolor=color))
 
 				# flags
 				if division > 2:
