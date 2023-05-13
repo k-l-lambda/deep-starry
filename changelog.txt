@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.5.13
+
+	+	topology/data: added input field of pivotX.
+
+
 2023.5.12
 
 	+	topology/viewer.py: display feature of tremoloCatcher.

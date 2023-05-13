@@ -30,11 +30,16 @@ def distortElements (elements, noise, xfactor):
 		x *= xfactor
 		x += noise([elem['x'], elem['y1'] / 100])
 
+		pivotX = elem['pivotX']
+		pivotX *= xfactor
+		pivotX += noise([elem['pivotX'], elem['y1'] / 100])
+
 		dy1 = np.random.randn() * NOISE_Y_SIGMA
 		dy2 = dy1 if elem['y2'] == elem['y1'] else np.random.randn() * NOISE_Y_SIGMA
 
 		return {
 			'x': x,
+			'pivotX': pivotX,
 			'y1': elem['y1'] + dy1,
 			'y2': elem['y2'] + dy2,
 		}
@@ -181,6 +186,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 
 	feature = torch.zeros((n_augment, n_seq, FEATURE_DIM), dtype=torch.float32)
 	x = torch.zeros((n_augment, n_seq), dtype=torch.float32)
+	pivotX = torch.zeros((n_augment, n_seq), dtype=torch.float32)
 	y1 = torch.zeros((n_augment, n_seq), dtype=torch.float32)
 	y2 = torch.zeros((n_augment, n_seq), dtype=torch.float32)
 	for i in range(n_augment):
@@ -189,6 +195,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 		positions = distortElements(elements, noise, xfactor)
 
 		x[i] = torch.tensor([elem['x'] for elem in positions], dtype=torch.float32)
+		pivotX[i] = torch.tensor([elem['pivotX'] for elem in positions], dtype=torch.float32)
 		y1[i] = torch.tensor([elem['y1'] for elem in positions], dtype=torch.float32)
 		y2[i] = torch.tensor([elem['y2'] for elem in positions], dtype=torch.float32)
 
@@ -202,6 +209,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 		'staff':			staff,			# (n_seq)
 		'feature':			feature,		# (n_augment, n_seq, FEATURE_DIM)
 		'x':				x,				# (n_augment, n_seq)
+		'pivotX':			pivotX,			# (n_augment, n_seq)
 		'y1':				y1,				# (n_augment, n_seq)
 		'y2':				y2,				# (n_augment, n_seq)
 

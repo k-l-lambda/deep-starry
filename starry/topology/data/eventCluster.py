@@ -137,11 +137,14 @@ class EventCluster (IterableDataset):
 
 		# augment for position
 		x = tensors['x'][:batch_size]
+		pivotX = tensors['pivotX'][:batch_size]
 		y1 = tensors['y1'][:batch_size]
 		y2 = tensors['y2'][:batch_size]
 		ox, oy = (torch.rand(batch_size, 1, device=self.device) - 0.2) * 24, (torch.rand(batch_size, 1, device=self.device) - 0.2) * 12
 		if self.position_drift > 0:
-			x += torch.randn(batch_size, n_seq, device=self.device) * self.position_drift + ox
+			dx = torch.randn(batch_size, n_seq, device=self.device) * self.position_drift + ox
+			x += dx
+			pivotX += dx
 
 			# exclude BOS, EOS from global Y offset
 			y1[:, 1:-1] += torch.randn(batch_size, n_seq - 2, device=self.device) * self.position_drift + oy
@@ -187,6 +190,7 @@ class EventCluster (IterableDataset):
 				'staff': staff,
 				'feature': feature,
 				'x': x,
+				'pivotX': pivotX,
 				'y1': y1,
 				'y2': y2,
 				'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
@@ -200,6 +204,7 @@ class EventCluster (IterableDataset):
 				'staff': staff,
 				'feature': feature,
 				'x': x,
+				'pivotX': pivotX,
 				'y1': y1,
 				'y2': y2,
 				'matrixH': tensors['matrixH'].repeat(batch_size, 1),
