@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.5.29
+
+	+	eventCluster.py: added option of time8th_drop.
+
+
 2023.5.13
 
 	+	beadPicker.py: added option of usePivotX.

@@ -110,7 +110,7 @@ class DatasetViewer:
 			elif elem_type[ei] == EventElementType.EOS:
 				ax.add_patch(patches.Polygon([(x - 0.3, y + 1), (x + 0.3, y + 1), (x, y),], fill=True, facecolor='r'))
 
-				if inputs.get('time8th'):
+				if inputs.get('time8th', -1) >= 0:
 					#logging.info('time8th: %d', inputs['time8th'].item())
 					ax.text(x, y2[ei] - 0.4, 'time8th: %d' % inputs['time8th'].item(), color='k', fontsize='small', ha='right')
 
