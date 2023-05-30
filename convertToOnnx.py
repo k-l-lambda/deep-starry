@@ -44,7 +44,6 @@ def main ():
 	parser.add_argument('-op', '--opset', type=int, default=11, help='ONNX opset version')
 	parser.add_argument('-in', '--input_names', type=str, default='in', help='e.g. in1;in2')
 	parser.add_argument('-out', '--output_names', type=str, default='out', help='e.g. out1;out2')
-	parser.add_argument('-pf', '--model_postfix', type=str, help='postfix on model class name')
 
 	args = parser.parse_args()
 
@@ -53,7 +52,7 @@ def main ():
 
 	config = Configuration.createOrLoad(args.config)
 
-	model_postfix = args.model_postfix or ('Onnx' if (config['model.type'] + 'Onnx' in model_dict) else '')
+	model_postfix = config['onnx.postfix'] or ('Onnx' if (config['model.type'] + 'Onnx' in model_dict) else '')
 	model = loadModel(config['model'], postfix=model_postfix)
 
 	name = 'untrained'

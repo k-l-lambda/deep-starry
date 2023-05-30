@@ -58,3 +58,13 @@ optim:
       lr_mul:               1
       n_warmup_steps:       3200
       d_model:              128
+
+
+onnx:
+  postfix:    EncoderOnnx
+  inputs:
+  - dtype:    uint8
+    name:     ids
+    shape:    [1, 320]
+  opset:      14
+  outputs:    ['z']
