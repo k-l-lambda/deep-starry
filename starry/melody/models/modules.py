@@ -208,7 +208,7 @@ class NoteEncoder (nn.Module):
 
 
 def encodePitchByOctave (pitch):
-	octave = torch.div(pitch, PITCH_OCTAVE_SIZE).long()
+	octave = torch.div(pitch, PITCH_OCTAVE_SIZE).long().clip(max=PITCH_OCTAVE_MAX - 1, min=0)
 	step = torch.remainder(pitch, PITCH_OCTAVE_SIZE)
 
 	vec_octave = F.one_hot(octave, num_classes=PITCH_OCTAVE_MAX).float()	# (..., PITCH_OCTAVE_MAX)
