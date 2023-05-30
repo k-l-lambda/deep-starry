@@ -60,7 +60,7 @@ optim:
 
 
 onnx:
-  postfix:    EncoderOnnx
+  postfix:    EncoderJit
   inputs:
   - name:     ids
     shape:    [1, 320]

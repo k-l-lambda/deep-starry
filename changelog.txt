@@ -7,7 +7,7 @@ TODO:
 
 2023.5.30
 
-	+	seqVAE.py: model class of SeqvaeEncoderOnnx added.
+	+	seqVAE.py: model class of SeqvaeEncoderJit added.
 
 
 2023.5.4

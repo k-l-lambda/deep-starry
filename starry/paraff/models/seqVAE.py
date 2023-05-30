@@ -89,7 +89,7 @@ class SeqvaeEncoderFinale (nn.Module):
 		return mu, logvar
 
 
-class SeqvaeEncoderOnnx (nn.Module):
+class SeqvaeEncoderJit (nn.Module):
 	def __init__(self, n_vocab, encoder_type, d_enc_model, d_model, n_encoder_layer, encoder_scale_emb,
 			pad_id=0, finale_id=2, d_inner=2048, n_head=8, d_k=64, d_v=64,
 			n_seq_max=512, **kw_args):
