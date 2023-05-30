@@ -89,6 +89,31 @@ class SeqvaeEncoderFinale (nn.Module):
 		return mu, logvar
 
 
+class SeqvaeEncoderOnnx (nn.Module):
+	def __init__(self, n_vocab, encoder_type, d_enc_model, d_model, n_encoder_layer, encoder_scale_emb, onnx_var_factor=1,
+			pad_id=0, finale_id=2, d_inner=2048, n_head=8, d_k=64, d_v=64,
+			n_seq_max=512, **kw_args):
+		super().__init__()
+
+		self.var_factor = onnx_var_factor
+		assert encoder_type == 'finale', 'encoder type not supported: %s' % encoder_type
+
+		self.encoder = SeqvaeEncoderFinale(n_vocab, d_model=d_enc_model, d_emb=d_model, n_layers=n_encoder_layer, scale_emb=encoder_scale_emb,
+			pad_id=pad_id, finale_id=finale_id, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v, n_seq_max=n_seq_max)
+
+
+	def forward (self, input_ids):
+		mu, logvar = self.encoder(input_ids)
+		z = mu
+
+		if self.var_factor != 0:
+			std = torch.exp(0.5 * logvar)
+			eps = torch.randn_like(std)
+			z += eps * std * self.var_factor
+
+		return z
+
+
 class SeqvaeDecoderHead (nn.Module):
 	def __init__ (self,
 			n_vocab, n_layers=6, pad_id=0, d_model=512, dropout=0.1, n_seq_max=512,
@@ -160,7 +185,7 @@ class SeqvaeLoss (nn.Module):
 		d_model=512, n_encoder_layer=6, n_decoder_layer=6,
 		d_enc_model=512, finale_id=2,
 		encoder_scale_emb=True, decoder_scale_emb=True, emb_prj_weight_sharing=True,
-		kld_weight=0.001, encoder_init_gain=0, lora_config=None, **kw_args):
+		kld_weight=0.001, encoder_init_gain=0, lora_config=None, onnx_var_factor=1, **kw_args):
 		super().__init__()
 
 		self.kld_weight = kld_weight

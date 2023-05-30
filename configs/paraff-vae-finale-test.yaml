@@ -36,6 +36,7 @@ model:
     dropout:                0.1
     pad_id:                 0
     finale_id:              2
+    onnx_var_factor:        1
 
 
 trainer:
