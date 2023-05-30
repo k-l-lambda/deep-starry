@@ -60,7 +60,10 @@ def main ():
 		name = os.path.splitext(config['best'])[0]
 
 		checkpoint = torch.load(config.localPath(config['best']), map_location='cpu')
-		model.load_state_dict(checkpoint['model'])
+		if hasattr(model, 'deducer'):
+			model.deducer.load_state_dict(checkpoint['model'], strict=False)
+		else:
+			model.load_state_dict(checkpoint['model'])
 		logging.info(f'checkpoint loaded: {config["best"]}')
 
 	model.eval()

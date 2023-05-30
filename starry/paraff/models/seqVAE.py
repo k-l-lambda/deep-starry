@@ -101,6 +101,8 @@ class SeqvaeEncoderOnnx (nn.Module):
 		self.encoder = SeqvaeEncoderFinale(n_vocab, d_model=d_enc_model, d_emb=d_model, n_layers=n_encoder_layer, scale_emb=encoder_scale_emb,
 			pad_id=pad_id, finale_id=finale_id, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v, n_seq_max=n_seq_max)
 
+		self.deducer = nn.ModuleList([self.encoder])	# placeholder to load/save checkpoint
+
 
 	def forward (self, input_ids):
 		mu, logvar = self.encoder(input_ids)
