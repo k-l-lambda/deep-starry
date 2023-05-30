@@ -19,11 +19,12 @@ def main ():
 	parser.add_argument('config', type=str)
 	parser.add_argument('-l', '--lite', action='store_true', help='save model for lite interpreter')
 	parser.add_argument('-m', '--mobile', action='store_true', help='optimize for mobile')
+	parser.add_argument('-p', '--postfix', default='', help='postfix on model class name')
 
 	args = parser.parse_args()
 
 	config = Configuration.createOrLoad(args.config)
-	model = loadModel(config['model'])
+	model = loadModel(config['model'], postfix=args.postfix)
 
 	name = 'untrained'
 	if config['best']:
@@ -34,7 +35,10 @@ def main ():
 			config['best'] += '.chkpt'
 
 		checkpoint = torch.load(config.localPath(config['best']), map_location='cpu')
-		model.load_state_dict(checkpoint['model'])
+		if hasattr(model, 'deducer'):
+			model.deducer.load_state_dict(checkpoint['model'], strict=False)
+		else:
+			model.load_state_dict(checkpoint['model'])
 		logging.info(f'checkpoint loaded: {config["best"]}')
 
 	scriptedm = torch.jit.script(model)
