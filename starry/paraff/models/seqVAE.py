@@ -90,12 +90,11 @@ class SeqvaeEncoderFinale (nn.Module):
 
 
 class SeqvaeEncoderOnnx (nn.Module):
-	def __init__(self, n_vocab, encoder_type, d_enc_model, d_model, n_encoder_layer, encoder_scale_emb, onnx_var_factor=1,
+	def __init__(self, n_vocab, encoder_type, d_enc_model, d_model, n_encoder_layer, encoder_scale_emb,
 			pad_id=0, finale_id=2, d_inner=2048, n_head=8, d_k=64, d_v=64,
 			n_seq_max=512, **kw_args):
 		super().__init__()
 
-		self.var_factor = onnx_var_factor
 		assert encoder_type == 'finale', 'encoder type not supported: %s' % encoder_type
 
 		self.encoder = SeqvaeEncoderFinale(n_vocab, d_model=d_enc_model, d_emb=d_model, n_layers=n_encoder_layer, scale_emb=encoder_scale_emb,
@@ -104,14 +103,14 @@ class SeqvaeEncoderOnnx (nn.Module):
 		self.deducer = nn.ModuleList([self.encoder])	# placeholder to load/save checkpoint
 
 
-	def forward (self, input_ids):
+	def forward (self, input_ids, var_factor=1):
 		mu, logvar = self.encoder(input_ids)
 		z = mu
 
-		if self.var_factor != 0:
+		if var_factor != 0:
 			std = torch.exp(0.5 * logvar)
 			eps = torch.randn_like(std)
-			z += eps * std * self.var_factor
+			z += eps * std * var_factor
 
 		return z
 
@@ -187,7 +186,7 @@ class SeqvaeLoss (nn.Module):
 		d_model=512, n_encoder_layer=6, n_decoder_layer=6,
 		d_enc_model=512, finale_id=2,
 		encoder_scale_emb=True, decoder_scale_emb=True, emb_prj_weight_sharing=True,
-		kld_weight=0.001, encoder_init_gain=0, lora_config=None, onnx_var_factor=1, **kw_args):
+		kld_weight=0.001, encoder_init_gain=0, lora_config=None, **kw_args):
 		super().__init__()
 
 		self.kld_weight = kld_weight

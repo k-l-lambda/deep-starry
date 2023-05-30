@@ -36,7 +36,6 @@ model:
     dropout:                0.1
     pad_id:                 0
     finale_id:              2
-    onnx_var_factor:        1
 
 
 trainer:
@@ -63,8 +62,11 @@ optim:
 onnx:
   postfix:    EncoderOnnx
   inputs:
-  - dtype:    uint8
-    name:     ids
+  - name:     ids
     shape:    [1, 320]
+    dtype:    uint8
+  - name:     var_factor
+    shape:    [1]
+    dtype:    float32
   opset:      14
   outputs:    ['z']
