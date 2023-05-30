@@ -74,7 +74,7 @@ class SeqvaeEncoderFinale (nn.Module):
 
 	# seq:	(n, seq)
 	# mask:	(n, seq)
-	def forward(self, seq, mask: Optional[torch.Tensor] =None):
+	def forward(self, seq: torch.Tensor, mask: Optional[torch.Tensor] =None):
 		mask = get_pad_mask(seq, self.pad_id) if mask is None else mask.unsqueeze(-2)
 		mask = mask & get_subsequent_mask(seq)
 
@@ -103,7 +103,7 @@ class SeqvaeEncoderJit (nn.Module):
 		self.deducer = nn.ModuleList([self.encoder])	# placeholder to load/save checkpoint
 
 
-	def forward (self, input_ids, var_factor=1):
+	def forward (self, input_ids, var_factor: float=1):
 		mu, logvar = self.encoder(input_ids)
 		z = mu
 
