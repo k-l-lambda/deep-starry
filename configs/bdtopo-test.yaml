@@ -4,18 +4,19 @@ id:     score-topology/{date}-{filename}
 
 data:
   type:                     EventCluster
-  root:                     test0428.zip
+  root:                     ev-test-paraff.zip
   splits:                   '*1,2/10:3/10'
   batch_size:               1
   args:
     #batch_slice:            2
     with_beading:           True
-    stability_base:         10
+    stability_base:         100
     chaos_flip:             True
     position_drift:         0.03
     stem_amplitude:
       mu:                   5.4
       sigma:                2
+    time8th_drop:           0.2
   args_variant:
     1:
       stability_base:       1000
@@ -24,6 +25,7 @@ data:
 model:
   type:                     BeadPicker
   args:
+    usePivotX:              True
     with_time8th:           True
     n_layers:               2
     d_position:             256

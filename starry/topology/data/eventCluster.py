@@ -45,7 +45,7 @@ class EventCluster (IterableDataset):
 
 
 	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None,
-		chaos_exp=-1, chaos_flip=False, batch_slice=None, use_cache=True, with_beading=False):
+		chaos_exp=-1, chaos_flip=False, batch_slice=None, use_cache=True, with_beading=False, time8th_drop=0):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -58,6 +58,7 @@ class EventCluster (IterableDataset):
 		self.stem_amplitude = stem_amplitude
 		self.batch_slice = batch_slice
 		self.with_beading = with_beading
+		self.time8th_drop = time8th_drop
 
 		self.entry_cache = {} if use_cache else None
 
@@ -137,11 +138,14 @@ class EventCluster (IterableDataset):
 
 		# augment for position
 		x = tensors['x'][:batch_size]
+		pivotX = tensors['pivotX'][:batch_size]
 		y1 = tensors['y1'][:batch_size]
 		y2 = tensors['y2'][:batch_size]
 		ox, oy = (torch.rand(batch_size, 1, device=self.device) - 0.2) * 24, (torch.rand(batch_size, 1, device=self.device) - 0.2) * 12
 		if self.position_drift > 0:
-			x += torch.randn(batch_size, n_seq, device=self.device) * self.position_drift + ox
+			dx = torch.randn(batch_size, n_seq, device=self.device) * self.position_drift + ox
+			x += dx
+			pivotX += dx
 
 			# exclude BOS, EOS from global Y offset
 			y1[:, 1:-1] += torch.randn(batch_size, n_seq - 2, device=self.device) * self.position_drift + oy
@@ -187,6 +191,7 @@ class EventCluster (IterableDataset):
 				'staff': staff,
 				'feature': feature,
 				'x': x,
+				'pivotX': pivotX,
 				'y1': y1,
 				'y2': y2,
 				'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
@@ -200,6 +205,7 @@ class EventCluster (IterableDataset):
 				'staff': staff,
 				'feature': feature,
 				'x': x,
+				'pivotX': pivotX,
 				'y1': y1,
 				'y2': y2,
 				'matrixH': tensors['matrixH'].repeat(batch_size, 1),
@@ -207,7 +213,9 @@ class EventCluster (IterableDataset):
 				'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
 			}
 
-		result['time8th'] = tensors['time8th'].repeat(batch_size).to(self.device)
+		result['time8th'] = tensors['time8th'].repeat(batch_size)
+		result['time8th'][torch.rand(result['time8th'].shape) < self.time8th_drop] = 0
+		result['time8th'] = result['time8th'].to(self.device)
 
 		for field in TARGET_FIELDS:
 			result[field] = tensors[field].repeat(batch_size, 1)

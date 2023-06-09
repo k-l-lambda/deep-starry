@@ -37,8 +37,8 @@ StemDirection_values = NONE_LIST([x.name for x in StemDirection])
 STAFF_MAX = 4
 
 
-# d_feature = d_division + d_dots + d_beam + d_stemDirection + d_grace
-FEATURE_DIM = 7 + 2 + 3 + 2 + 1
+# d_feature = d_division + d_dots + d_beam + d_stemDirection + d_grace + d_tremoloCatcher
+FEATURE_DIM = 7 + 2 + 3 + 2 + 1 + 1
 
 TARGET_DIMS_LEGACY = dict(
 	tick=1,

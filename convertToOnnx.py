@@ -51,14 +51,19 @@ def main ():
 	from starry.utils.model_factory import model_dict
 
 	config = Configuration.createOrLoad(args.config)
-	model = loadModel(config['model'], postfix='Onnx' if (config['model.type'] + 'Onnx' in model_dict) else '')
+
+	model_postfix = config['onnx.postfix'] or ('Onnx' if (config['model.type'] + 'Onnx' in model_dict) else '')
+	model = loadModel(config['model'], postfix=model_postfix)
 
 	name = 'untrained'
 	if config['best']:
 		name = os.path.splitext(config['best'])[0]
 
 		checkpoint = torch.load(config.localPath(config['best']), map_location='cpu')
-		model.load_state_dict(checkpoint['model'])
+		if hasattr(model, 'deducer'):
+			model.deducer.load_state_dict(checkpoint['model'], strict=False)
+		else:
+			model.load_state_dict(checkpoint['model'])
 		logging.info(f'checkpoint loaded: {config["best"]}')
 
 	model.eval()

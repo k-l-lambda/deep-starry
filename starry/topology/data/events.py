@@ -5,7 +5,7 @@ import re
 import os
 from fs import open_fs
 from zipfile import ZipFile, ZIP_STORED
-from ruamel.std.zipfile import delete_from_zip_file
+#from ruamel.std.zipfile import delete_from_zip_file
 from tqdm import tqdm
 import logging
 import dill as pickle
@@ -18,7 +18,7 @@ from ..event_element import FEATURE_DIM, EventElementType, BeamType, StemDirecti
 
 
 
-SCORE_ID = re.compile(r'(.+)[.-]\d+\.\w+\.\w+$')
+SCORE_ID = re.compile(r'(.+)([.-]\d+\.)?\w+\.\w+$')
 
 
 NOISE_Y_SIGMA = 0.12
@@ -30,11 +30,16 @@ def distortElements (elements, noise, xfactor):
 		x *= xfactor
 		x += noise([elem['x'], elem['y1'] / 100])
 
+		pivotX = elem['pivotX']
+		pivotX *= xfactor
+		pivotX += noise([elem['pivotX'], elem['y1'] / 100])
+
 		dy1 = np.random.randn() * NOISE_Y_SIGMA
 		dy2 = dy1 if elem['y2'] == elem['y1'] else np.random.randn() * NOISE_Y_SIGMA
 
 		return {
 			'x': x,
+			'pivotX': pivotX,
 			'y1': elem['y1'] + dy1,
 			'y2': elem['y2'] + dy2,
 		}
@@ -85,9 +90,10 @@ def genElementFeature (elem, drop_source=False):
 		]
 
 		feature['grace'] = boolRandn(elem['grace'], true_bias=0)
+		feature['tremoloCatcher'] = boolRandn(elem.get('tremoloCatcher', False), true_bias=0)
 
 	return torch.tensor([
-		*feature['divisions'], *feature['dots'], *feature['beams'], *feature['stemDirections'], feature['grace'],
+		*feature['divisions'], *feature['dots'], *feature['beams'], *feature['stemDirections'], feature['grace'], feature['tremoloCatcher'],
 	], dtype=torch.float32)
 
 
@@ -178,8 +184,9 @@ def exampleToTensorsAugment (cluster, n_augment):
 	tickDiff = tickSrc - tickTar
 	maskT = (rawMatrixH > 0) | torch.tril(tickDiff == 0, diagonal=-1)
 
-	feature = torch.zeros((n_augment, n_seq, 15), dtype=torch.float32)
+	feature = torch.zeros((n_augment, n_seq, FEATURE_DIM), dtype=torch.float32)
 	x = torch.zeros((n_augment, n_seq), dtype=torch.float32)
+	pivotX = torch.zeros((n_augment, n_seq), dtype=torch.float32)
 	y1 = torch.zeros((n_augment, n_seq), dtype=torch.float32)
 	y2 = torch.zeros((n_augment, n_seq), dtype=torch.float32)
 	for i in range(n_augment):
@@ -188,6 +195,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 		positions = distortElements(elements, noise, xfactor)
 
 		x[i] = torch.tensor([elem['x'] for elem in positions], dtype=torch.float32)
+		pivotX[i] = torch.tensor([elem['pivotX'] for elem in positions], dtype=torch.float32)
 		y1[i] = torch.tensor([elem['y1'] for elem in positions], dtype=torch.float32)
 		y2[i] = torch.tensor([elem['y2'] for elem in positions], dtype=torch.float32)
 
@@ -199,8 +207,9 @@ def exampleToTensorsAugment (cluster, n_augment):
 		# source
 		'type':				elem_type,		# (n_seq)
 		'staff':			staff,			# (n_seq)
-		'feature':			feature,		# (n_augment, n_seq, 15)
+		'feature':			feature,		# (n_augment, n_seq, FEATURE_DIM)
 		'x':				x,				# (n_augment, n_seq)
+		'pivotX':			pivotX,			# (n_augment, n_seq)
 		'y1':				y1,				# (n_augment, n_seq)
 		'y2':				y2,				# (n_augment, n_seq)
 
@@ -235,16 +244,20 @@ def validateTensors (tensors):
 	return True
 
 
-def preprocessDataset (source_dir, target_path, n_augment=64):
+def preprocessDataset (source_dir, target_path, n_augment=64, index0=False):
+	if index0:
+		logging.info('preprocessDataset.index0')
+
 	archive_info = None
 	appendMode = os.path.exists(target_path)
 	if appendMode:
+		logging.info('Appending to archive %s', target_path)
 		archive = open_fs(f'zip://{target_path}')
-		with archive.open('index.yaml') as index_file:
+		with archive.open('index0.yaml') as index_file:
 			archive_info = yaml.safe_load(index_file)
 			logging.info('Appending to exist archive: %d examples, %s groups.', len(archive_info['examples']), len(archive_info['groups']))
 		archive.close()
-		delete_from_zip_file(target_path, pattern='index.yaml')
+		#delete_from_zip_file(target_path, pattern='index.yaml')
 
 	source = open_fs(source_dir)
 	target = ZipFile(target_path, 'a' if appendMode else 'w', compression=ZIP_STORED)
@@ -293,7 +306,7 @@ def preprocessDataset (source_dir, target_path, n_augment=64):
 		ids = archive_info['groups'] + ids
 
 	logging.info('Dumping index.')
-	target.writestr('index.yaml', yaml.dump({
+	target.writestr('index0.yaml' if index0 else 'index.yaml', yaml.dump({
 		'examples': example_infos,
 		'groups': ids,
 	}))

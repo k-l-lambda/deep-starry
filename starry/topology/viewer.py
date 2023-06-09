@@ -27,6 +27,7 @@ class DatasetViewer:
 		n_seq = inputs['feature'].shape[0]
 
 		xs = inputs['x']
+		pivotXs = inputs.get('pivotX')
 		y1 = inputs['y1']
 		y2 = inputs['y2']
 		elem_type = inputs['type']
@@ -39,12 +40,14 @@ class DatasetViewer:
 			warped = inputs['timeWarped'][ei]
 			grace = inputs['grace'][ei]
 			fullMeasure = inputs['fullMeasure'][ei]
+			fake = inputs['fake'][ei]
 			tick = inputs['tick'][ei]
 			beading_pos = inputs['beading_pos'][ei]
 			successor = inputs['successor'][ei]
 			features = inputs['feature'][ei]
 
 			x = xs[ei]
+			pivotX = None if pivotXs is None else pivotXs[ei]
 			y = y2[ei] if direction == StemDirection.u else y1[ei]
 			ty = y2[ei] if direction == StemDirection.d else y1[ei]
 
@@ -68,17 +71,19 @@ class DatasetViewer:
 					dx = x + 1.2 + di * 0.4
 					ax.add_patch(patches.Circle((dx, y), 0.16, fill=True, facecolor='g'))
 			elif elem_type[ei] == EventElementType.CHORD:
-				color = 'c' if warped else 'b'
+				color = 'r' if fake else ('c' if warped else 'b')
 				scale = 0.6 if grace else 1
 
 				# stem
 				ax.vlines(x, y1[ei], y2[ei], color=color)
 
 				# head
-				head_x = x
-				head_x = head_x - 0.7 * scale if direction == StemDirection.u else head_x
-				head_x = head_x + 0.7 * scale if direction == StemDirection.d else head_x
-				ax.add_patch(patches.Ellipse((head_x, y), 1.4 * scale, 0.8 * scale, fill=division >= 2, facecolor=color, edgecolor=color))
+				head_x = pivotX
+				if head_x is None:
+					head_x = x
+					head_x = head_x - 0.65 * scale if direction == StemDirection.u else head_x
+					head_x = head_x + 0.65 * scale if direction == StemDirection.d else head_x
+				ax.add_patch(patches.Ellipse((head_x, y), 1.3 * scale, 0.8 * scale, fill=division >= 2, facecolor=color, edgecolor=color))
 
 				# flags
 				if division > 2:
@@ -105,7 +110,7 @@ class DatasetViewer:
 			elif elem_type[ei] == EventElementType.EOS:
 				ax.add_patch(patches.Polygon([(x - 0.3, y + 1), (x + 0.3, y + 1), (x, y),], fill=True, facecolor='r'))
 
-				if inputs.get('time8th'):
+				if inputs.get('time8th', -1) >= 0:
 					#logging.info('time8th: %d', inputs['time8th'].item())
 					ax.text(x, y2[ei] - 0.4, 'time8th: %d' % inputs['time8th'].item(), color='k', fontsize='small', ha='right')
 
@@ -132,7 +137,8 @@ class DatasetViewer:
 					drawDot(i, 11 - i, y2[ei] - 1.7, 'navy')
 				for i in range(12, 14):	# stemDirection
 					drawDot(i, i - 12, y2[ei] - 2.3, 'violet')
-				drawDot(14, 0, y2[ei] - 2.9, 'cyan')
+				drawDot(14, 0, y2[ei] - 2.9, 'cyan')	# grace
+				drawDot(15, 1.5, y2[ei] - 2.9, 'blueviolet')	# tremoloCatcher
 
 			# predicted features
 			if pred_rec is not None:
