@@ -57,3 +57,16 @@ optim:
       lr_mul:               1
       n_warmup_steps:       3200
       d_model:              128
+
+
+onnx:
+  postfix:    EncoderJit
+  inputs:
+  - name:     ids
+    shape:    [1, 320]
+    dtype:    uint8
+  - name:     var_factor
+    shape:    [1]
+    dtype:    float32
+  opset:      14
+  outputs:    ['z']

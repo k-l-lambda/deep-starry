@@ -5,6 +5,13 @@ TODO:
 
 
 
+2023.5.30
+
+	+	convertToJit.py: added arg of postfix.
+
+	+	seqVAE.py: model class of SeqvaeEncoderJit added.
+
+
 2023.5.29
 
 	+	eventCluster.py: added option of time8th_drop.
