@@ -7,6 +7,8 @@ TODO:
 
 2023.6.9
 
+	+	paraff/data/sentence.py: mask out EOM token.
+
 	+	trainer.py: added trainer option of report_step_unit.
 
 

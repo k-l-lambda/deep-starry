@@ -8,9 +8,6 @@ from .paraffFile import ParaffFile
 
 
 
-BOS = 1
-
-
 class SentenceShift (IterableDataset):
 	@classmethod
 	def load (cls, root, args, splits, device='cpu', args_variant=None, **_):
@@ -43,6 +40,10 @@ class SentenceShift (IterableDataset):
 		sentences = [s + padding_zeros for i, s in enumerate(file.sentences) if i % cycle in phases]
 		self.entries = torch.tensor(sentences, dtype=torch.uint8)
 
+		#self.tokens = file.tokens
+		self.id_BOM = file.tokens.index('BOM')
+		self.id_EOM = file.tokens.index('EOM')
+
 
 	def __iter__ (self):
 		entries = self.entries.clone()
@@ -52,7 +53,7 @@ class SentenceShift (IterableDataset):
 
 		mtx_sum = torch.triu(torch.ones(entries.shape[-1], entries.shape[-1]), diagonal=0)
 
-		body_mask = (entries == BOS).float()
+		body_mask = (entries == self.id_BOM).float()
 		body_mask = body_mask.matmul(mtx_sum)
 
 		drop_p_pow = torch.randn(body_mask.shape[0], dtype=torch.float) * self.descriptor_drop_sigma
@@ -78,6 +79,7 @@ class SentenceShift (IterableDataset):
 			body_mask[i] = body_mask[i].index_select(0, idx)
 
 		body_mask = body_mask.bool() & (entries != 0)
+		body_mask[entries == self.id_EOM] = False
 
 		for entry, mask in zip(entries, body_mask):
 			yield entry[:-1], entry[1:], mask[:-1]
