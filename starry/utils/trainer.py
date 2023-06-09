@@ -76,13 +76,13 @@ class Trainer:
 		self.tb_writer = SummaryWriter(log_dir=config.dir)
 
 
-	def reportScalars (self, scalars, epoch_i):
+	def reportScalars (self, scalars, step):
 		for k, v in scalars.items():
 			if type(v) == dict:
 				for kk, vv in v.items():
-					self.tb_writer.add_scalar(f'{k}/{kk}', vv, epoch_i)
+					self.tb_writer.add_scalar(f'{k}/{kk}', vv, step)
 			else:
-				self.tb_writer.add_scalar(k, v, epoch_i)
+				self.tb_writer.add_scalar(k, v, step)
 
 
 	def train (self, training_data, validation_data):
@@ -144,7 +144,9 @@ class Trainer:
 			for k, v in val_acc.items():
 				scalars['val_' + k] = v
 
-			self.reportScalars(scalars, epoch_i)
+			report_step_unit = self.options.get('report_step_unit')
+			report_step = self.optimizer.n_steps * self.config['data.batch_size'] if report_step_unit == 'examples' else epoch_i
+			self.reportScalars(scalars, report_step)
 
 			self.options['steps'] = self.optimizer.n_steps
 

@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.6.9
+
+	+	trainer.py: added trainer option of report_step_unit.
+
+
 2023.5.30
 
 	+	convertToJit.py: added arg of postfix.

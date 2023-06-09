@@ -39,9 +39,12 @@ model:
 
 
 trainer:
-  device:                   cuda
+  env:
+    CUDA_VISIBLE_DEVICES:   -1
+  device:                   cpu
   save_mode:                best
   epoch:                    100
+  report_step_unit:         examples
   moniter:
     field:                  loss
     mode:                   min
