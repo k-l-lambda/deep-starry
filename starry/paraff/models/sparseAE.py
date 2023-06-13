@@ -169,8 +169,6 @@ class SparseAELoss (nn.Module):
 		z = torch.softmax(z * self.deducer.latent_freeze, dim=-1)
 		pred = self.decoder(x, z, mask=mask1)
 
-		# TODO: unconditional pred
-
 		pred_flat = pred[:, 1:][mask]
 		target_flat = target[mask]
 
@@ -185,9 +183,18 @@ class SparseAELoss (nn.Module):
 
 		z_density = 1 - z.max(dim=-1).values.mean()
 
-		return loss, {
+		metric = {
 			'acc': acc.item(),
 			'z_density': z_density.item(),
 			'latent_freeze': self.deducer.latent_freeze.item(),
 			'freeze_target': freeze_target.item(),
 		}
+
+		if not self.training:
+			pred_unconditional = self.decoder(x, torch.zeros_like(z), mask=mask1)
+			pred_u_flat = pred_unconditional[:, 1:][mask]
+			pred_u_ids = torch.argmax(pred_u_flat, dim=-1)
+			acc_uncond = (pred_u_ids == target_flat).float().mean()
+			metric['acc_uncond'] = acc_uncond.item()
+
+		return loss, metric

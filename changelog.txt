@@ -7,6 +7,8 @@ TODO:
 
 2023.6.13
 
+	+	sparseAE.py: metric of acc_uncond added.
+
 	+	sparseAE.py: mask dropout added.
 
 	+	sparseAE.py: added parameter of latent_freeze.
