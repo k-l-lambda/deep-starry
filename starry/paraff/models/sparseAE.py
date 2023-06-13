@@ -60,7 +60,7 @@ class SaeEncoder (nn.Module):
 
 
 class SaeDecoder (nn.Module):
-	def __init__(self, d_model, word_emb, word_prj, latent_emb, position_enc, dropout, attention, pad_id):
+	def __init__(self, d_model, word_emb, word_prj, latent_emb, position_enc, dropout, mask_dropout, attention, pad_id):
 		super().__init__()
 
 		self.word_emb = word_emb
@@ -72,11 +72,13 @@ class SaeDecoder (nn.Module):
 		#self.summary_id = summary_id
 
 		self.dropout = nn.Dropout(p=dropout)
+		self.mask_dropout = nn.Dropout(p=mask_dropout)
 		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 
 
 	def forward (self, seq: torch.Tensor, latent: torch.Tensor, mask: Optional[torch.Tensor] =None):
 		mask = get_pad_mask(seq, self.pad_id) if mask is None else mask.unsqueeze(-2)
+		mask[:, 1:] = self.mask_dropout(mask[:, 1:].float()).bool()
 		mask = mask & get_subsequent_mask(seq)
 
 		summary = self.latent_emb(latent)
@@ -97,11 +99,12 @@ class SaeDecoder (nn.Module):
 class SparseAE (nn.Module):
 	def __init__ (self, n_vocab, d_latent=0x10000, pad_id=0, summary_id=1, finale_id=5,
 		n_layers=6, d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64,
-		dropout=0.1, n_seq_max=512):
+		dropout=0.1, mask_dropout=0.2, n_seq_max=512):
 		super().__init__()
 
 		self.d_model = d_model
 		self.dropout = dropout
+		self.mask_dropout = mask_dropout
 		self.pad_id = pad_id
 		self.summary_id = summary_id
 		self.finale_id = finale_id
@@ -128,7 +131,7 @@ class SparseAE (nn.Module):
 
 	def getDecoder (self):
 		return SaeDecoder(d_model=self.d_model, word_emb=self.word_emb, word_prj=self.word_prj, latent_emb=self.latent_emb,
-			position_enc=self.position_enc, dropout=self.dropout, attention=self.attention, pad_id=self.pad_id)
+			position_enc=self.position_enc, dropout=self.dropout, mask_dropout=self.mask_dropout, attention=self.attention, pad_id=self.pad_id)
 
 
 class SparseAELoss (nn.Module):
@@ -165,6 +168,8 @@ class SparseAELoss (nn.Module):
 		z = self.encoder(x)
 		z = torch.softmax(z * self.deducer.latent_freeze, dim=-1)
 		pred = self.decoder(x, z, mask=mask1)
+
+		# TODO: unconditional pred
 
 		pred_flat = pred[:, 1:][mask]
 		target_flat = target[mask]
