@@ -7,6 +7,8 @@ TODO:
 
 2023.6.13
 
+	+	sparseAE.py: added parameter of latent_freeze.
+
 	+	paraff/models/sparseAE.py created.
 
 

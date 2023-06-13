@@ -118,6 +118,8 @@ class SparseAE (nn.Module):
 
 		self.attention = AttentionStack(d_model=d_model, n_layers=n_layers, dropout=dropout, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v)
 
+		self.register_buffer('latent_freeze', torch.tensor([1], dtype=torch.float32), persistent=True)
+
 
 	def getEncoder (self):
 		return SaeEncoder(d_model=self.d_model, word_emb=self.word_emb, latent_prj=self.latent_prj, position_enc=self.position_enc,
@@ -130,11 +132,13 @@ class SparseAE (nn.Module):
 
 
 class SparseAELoss (nn.Module):
-	def __init__ (self, n_layers, summary_id, **kw_args):
+	def __init__ (self, n_layers, summary_id, freeze_factor=1, freeze_step=1e-4, **kw_args):
 		super().__init__()
 
 		self.n_layers = n_layers
 		self.summary_id = summary_id
+		self.freeze_factor = freeze_factor
+		self.freeze_step = freeze_step
 
 		self.deducer = SparseAE(n_layers=n_layers, summary_id=summary_id, **kw_args)
 
@@ -156,10 +160,10 @@ class SparseAELoss (nn.Module):
 		x = torch.cat([head, x], dim=1)
 
 		head_true = torch.ones_like(head)
-		mask1 = torch.cat([head_true, mask], dim=1)	
+		mask1 = torch.cat([head_true, mask], dim=1)
 
 		z = self.encoder(x)
-		z = torch.softmax(z, dim=-1)
+		z = torch.softmax(z * self.deducer.latent_freeze, dim=-1)
 		pred = self.decoder(x, z, mask=mask1)
 
 		pred_flat = pred[:, 1:][mask]
@@ -170,9 +174,15 @@ class SparseAELoss (nn.Module):
 		pred_ids = torch.argmax(pred_flat, dim=-1)
 		acc = (pred_ids == target_flat).float().mean()
 
+		# update latent_freeze
+		freeze_target = (-torch.log(1 - acc) * self.freeze_factor).clip(min=1)
+		self.deducer.latent_freeze += (freeze_target - self.deducer.latent_freeze) * self.freeze_step
+
 		z_density = 1 - z.max(dim=-1).values.mean()
 
 		return loss, {
 			'acc': acc.item(),
 			'z_density': z_density.item(),
+			'latent_freeze': self.deducer.latent_freeze.item(),
+			'freeze_target': freeze_target.item(),
 		}
