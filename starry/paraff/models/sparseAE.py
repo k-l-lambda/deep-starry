@@ -121,7 +121,7 @@ class SparseAE (nn.Module):
 
 		self.attention = AttentionStack(d_model=d_model, n_layers=n_layers, dropout=dropout, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v)
 
-		self.register_buffer('latent_freeze', torch.tensor([1], dtype=torch.float32), persistent=True)
+		self.register_buffer('latent_freeze', torch.tensor([1], dtype=torch.float32, requires_grad=False), persistent=True)
 
 
 	def getEncoder (self):
@@ -152,6 +152,8 @@ class SparseAELoss (nn.Module):
 			if p.dim() > 1:
 				nn.init.xavier_uniform_(p, gain=(self.n_layers * 2) ** -0.5)
 
+		self.freeze_target = 1
+
 
 	def forward (self, batch):
 		x = batch['input_ids']
@@ -165,6 +167,9 @@ class SparseAELoss (nn.Module):
 		head_true = torch.ones_like(head)
 		mask1 = torch.cat([head_true, mask], dim=1)
 
+		# update latent_freeze
+		self.deducer.latent_freeze += (self.freeze_target - self.deducer.latent_freeze) * self.freeze_step
+
 		z = self.encoder(x)
 		z = torch.softmax(z * self.deducer.latent_freeze, dim=-1)
 		pred = self.decoder(x, z, mask=mask1)
@@ -177,9 +182,7 @@ class SparseAELoss (nn.Module):
 		pred_ids = torch.argmax(pred_flat, dim=-1)
 		acc = (pred_ids == target_flat).float().mean()
 
-		# update latent_freeze
-		freeze_target = (-torch.log(1 - acc) * self.freeze_factor).clip(min=1)
-		self.deducer.latent_freeze += (freeze_target - self.deducer.latent_freeze) * self.freeze_step
+		self.freeze_target = (-torch.log(1 - acc) * self.freeze_factor).clip(min=1)
 
 		z_density = 1 - z.max(dim=-1).values.mean()
 
@@ -187,7 +190,7 @@ class SparseAELoss (nn.Module):
 			'acc': acc.item(),
 			'z_density': z_density.item(),
 			'latent_freeze': self.deducer.latent_freeze.item(),
-			'freeze_target': freeze_target.item(),
+			'freeze_target': self.freeze_target.item(),
 		}
 
 		if not self.training:
