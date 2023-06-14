@@ -197,6 +197,14 @@ class SparseAELoss (nn.Module):
 			pred_u_ids = torch.argmax(pred_u_flat, dim=-1)
 			acc_uncond = (pred_u_ids == target_flat).float().mean()
 			metric['acc_uncond'] = acc_uncond.item()
+
+			zh = z.argmax(dim=-1)
+			zh = F.one_hot(zh, z.shape[-1]).float()
+			pred_hard = self.decoder(x, zh, mask=mask1)
+			pred_hard_flat = pred_hard[:, 1:][mask]
+			pred_hard_ids = torch.argmax(pred_hard_flat, dim=-1)
+			acc_hard = (pred_hard_ids == target_flat).float().mean()
+			metric['acc_hard'] = acc_hard.item()
 		else:
 			self.freeze_target = (-torch.log(1 - acc) * self.freeze_factor).clip(min=1)
 			metric['freeze_target'] = self.freeze_target.item()
