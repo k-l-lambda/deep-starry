@@ -7,6 +7,8 @@ TODO:
 
 2023.6.14
 
+	+	sparseAE.py: refined sparse loss as log.
+
 	+	sparseAE.py: sparse loss added.
 
 	+	sparseAE.py: scale embedding added.

@@ -187,7 +187,7 @@ class SparseAELoss (nn.Module):
 		target_flat = target[mask]
 
 		recons_loss = F.cross_entropy(pred_flat, target_flat)
-		sparse_loss = (1 - z.square().sum(dim=-1)).mean()
+		sparse_loss = (-z.square().sum(dim=-1).log()).mean()
 		loss = recons_loss + sparse_loss * self.sparse_loss_weight
 
 		pred_ids = torch.argmax(pred_flat, dim=-1)
