@@ -41,6 +41,7 @@ trainer:
   device:                   cuda
   save_mode:                best
   epoch:                    100
+  report_step_unit:         examples
   moniter:
     field:                  loss
     mode:                   min
