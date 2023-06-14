@@ -127,7 +127,7 @@ class SparseAE (nn.Module):
 
 		self.attention = AttentionStack(d_model=d_model, n_layers=n_layers, dropout=dropout, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v)
 
-		self.register_buffer('latent_freeze', torch.tensor([1], dtype=torch.float32, requires_grad=False), persistent=True)
+		#self.register_buffer('latent_freeze', torch.tensor([1], dtype=torch.float32, requires_grad=False), persistent=True)
 
 
 	def getEncoder (self):
@@ -141,13 +141,14 @@ class SparseAE (nn.Module):
 
 
 class SparseAELoss (nn.Module):
-	def __init__ (self, n_layers, summary_id, freeze_factor=1, freeze_step=1e-4, **kw_args):
+	def __init__ (self, n_layers, summary_id, freeze_factor=1, freeze_step=1e-4, sparse_loss_weight=1, **kw_args):
 		super().__init__()
 
 		self.n_layers = n_layers
 		self.summary_id = summary_id
 		self.freeze_factor = freeze_factor
 		self.freeze_step = freeze_step
+		self.sparse_loss_weight = sparse_loss_weight
 
 		self.deducer = SparseAE(n_layers=n_layers, summary_id=summary_id, **kw_args)
 
@@ -174,17 +175,20 @@ class SparseAELoss (nn.Module):
 		mask1 = torch.cat([head_true, mask], dim=1)
 
 		# update latent_freeze
-		if self.training:
-			self.deducer.latent_freeze += (self.freeze_target - self.deducer.latent_freeze) * self.freeze_step
+		#if self.training:
+		#	self.deducer.latent_freeze += (self.freeze_target - self.deducer.latent_freeze) * self.freeze_step
 
 		z = self.encoder(x)
-		z = torch.softmax(z * self.deducer.latent_freeze, dim=-1)
+		#z = torch.softmax(z * self.deducer.latent_freeze, dim=-1)
+		z = torch.softmax(z, dim=-1)
 		pred = self.decoder(x, z, mask=mask1)
 
 		pred_flat = pred[:, 1:][mask]
 		target_flat = target[mask]
 
-		loss = F.cross_entropy(pred_flat, target_flat)
+		recons_loss = F.cross_entropy(pred_flat, target_flat)
+		sparse_loss = (1 - z.square().sum(dim=-1)).mean()
+		loss = recons_loss + sparse_loss * self.sparse_loss_weight
 
 		pred_ids = torch.argmax(pred_flat, dim=-1)
 		acc = (pred_ids == target_flat).float().mean()
@@ -192,9 +196,11 @@ class SparseAELoss (nn.Module):
 		z_density = 1 - z.max(dim=-1).values.mean()
 
 		metric = {
+			'recons_loss': recons_loss.item(),
+			'sparse_loss': sparse_loss.item(),
 			'acc': acc.item(),
 			'z_density': z_density.item(),
-			'latent_freeze': self.deducer.latent_freeze.item(),
+			#'latent_freeze': self.deducer.latent_freeze.item(),
 		}
 
 		if not self.training:
@@ -211,8 +217,8 @@ class SparseAELoss (nn.Module):
 			pred_hard_ids = torch.argmax(pred_hard_flat, dim=-1)
 			acc_hard = (pred_hard_ids == target_flat).float().mean()
 			metric['acc_hard'] = acc_hard.item()
-		else:
-			self.freeze_target = (-torch.log(1 - acc) * self.freeze_factor).clip(min=1)
-			metric['freeze_target'] = self.freeze_target.item()
+		#else:
+		#	self.freeze_target = (-torch.log(1 - acc) * self.freeze_factor).clip(min=1)
+		#	metric['freeze_target'] = self.freeze_target.item()
 
 		return loss, metric
