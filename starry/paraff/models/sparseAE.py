@@ -32,6 +32,8 @@ class SaeEncoder (nn.Module):
 	def __init__(self, d_model, word_emb, latent_prj, position_enc, dropout, attention, pad_id, finale_id):
 		super().__init__()
 
+		self.d_model = d_model
+
 		self.word_emb = word_emb
 		self.latent_prj = latent_prj
 		self.position_enc = position_enc
@@ -49,6 +51,7 @@ class SaeEncoder (nn.Module):
 
 		x = seq.long()
 		x = self.word_emb(x)
+		x *= self.d_model ** 0.5	# scale embedding
 		x = self.dropout(self.position_enc(x))
 		x = self.layer_norm(x)
 		x = self.attention(x, mask)
@@ -62,6 +65,8 @@ class SaeEncoder (nn.Module):
 class SaeDecoder (nn.Module):
 	def __init__(self, d_model, word_emb, word_prj, latent_emb, position_enc, dropout, mask_dropout, attention, pad_id):
 		super().__init__()
+
+		self.d_model = d_model
 
 		self.word_emb = word_emb
 		self.word_prj = word_prj
@@ -86,6 +91,7 @@ class SaeDecoder (nn.Module):
 		x = seq.long()
 		x = self.word_emb(x)
 		x[:, 0] += summary	# add summary embedding on the first element
+		x *= self.d_model ** 0.5	# scale embedding
 
 		x = self.dropout(self.position_enc(x))
 		x = self.layer_norm(x)
