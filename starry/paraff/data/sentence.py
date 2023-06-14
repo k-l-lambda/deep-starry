@@ -24,7 +24,7 @@ class SentenceShift (IterableDataset):
 		)
 
 
-	def __init__ (self, root, split, device, shuffle, n_seq, descriptor_drop=0.1, descriptor_drop_sigma=0., **_):
+	def __init__ (self, root, split, device, shuffle, n_seq, descriptor_drop=0.1, descriptor_drop_sigma=0., BOM='BOM', EOM='EOM', **_):
 		super().__init__()
 
 		self.device = device
@@ -41,8 +41,8 @@ class SentenceShift (IterableDataset):
 		self.entries = torch.tensor(sentences, dtype=torch.uint8)
 
 		#self.tokens = file.tokens
-		self.id_BOM = file.tokens.index('BOM')
-		self.id_EOM = file.tokens.index('EOM')
+		self.id_BOM = file.tokens.index(BOM)
+		self.id_EOM = file.tokens.index(EOM)
 
 
 	def __iter__ (self):
