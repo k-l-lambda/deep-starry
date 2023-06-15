@@ -32,9 +32,8 @@ model:
     d_k:                    32
     d_v:                    32
     dropout:                0.1
-    #freeze_factor:          1
-    #freeze_step:            1.e-4
-    sparse_loss_weight:     5
+    sparse_loss_weight:     1
+    sparse_slope_unit:      1.e+7
     mask_dropout:           0.3
 
 
