@@ -34,6 +34,7 @@ model:
     dropout:                0.1
     sparse_loss_weight:     1
     sparse_slope_unit:      1.e+7
+    sparse_pow:             2
     mask_dropout:           0.3
 
 
