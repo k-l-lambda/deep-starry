@@ -1,4 +1,5 @@
 
+import os
 import torch
 from tensorboardX import SummaryWriter
 import time
@@ -69,7 +70,8 @@ class Trainer:
 
 		self.optimizer = optim(config['optim'], self.model.parameters(), init_step=self.options.get('steps', 0))
 
-		weights = self.config['best'] or self.config['trainer.pretrained_weights']
+		latest_path = 'latest.chkpt' if os.path.exists(self.config.localPath('latest.chkpt')) else self.config['best']
+		weights = latest_path or self.config['trainer.pretrained_weights']
 		if weights:
 			self.loadCheckpoint(weights)
 
