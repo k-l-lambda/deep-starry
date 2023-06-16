@@ -7,6 +7,8 @@ TODO:
 
 2023.6.16
 
+	+	sparseAE.py: save state buffer in loss model.
+
 	+	trainer.py: run validation epoch first.
 
 	+	sparseAE.py: hard latent mix added.

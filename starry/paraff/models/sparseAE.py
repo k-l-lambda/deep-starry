@@ -127,8 +127,6 @@ class SparseAE (nn.Module):
 
 		self.attention = AttentionStack(d_model=d_model, n_layers=n_layers, dropout=dropout, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v)
 
-		self.register_buffer('steps', torch.zeros([1], dtype=torch.long, requires_grad=False), persistent=True)
-
 
 	def getEncoder (self):
 		return SaeEncoder(d_model=self.d_model, word_emb=self.word_emb, latent_prj=self.latent_prj, position_enc=self.position_enc,
@@ -141,6 +139,9 @@ class SparseAE (nn.Module):
 
 
 class SparseAELoss (nn.Module):
+	need_states = True
+
+
 	def __init__ (self, n_layers, summary_id, sparse_loss_weight=1, sparse_slope_unit=1e+7, sparse_pow=1, **kw_args):
 		super().__init__()
 
@@ -161,6 +162,18 @@ class SparseAELoss (nn.Module):
 
 		self.freeze_target = 1
 
+		self.register_buffer('steps', torch.zeros([1], dtype=torch.long, requires_grad=False), persistent=True)
+
+
+	def state_dict (self, destination=None, prefix='', keep_vars=False):
+		return {
+			'steps': self.steps,
+		}
+
+
+	def updateStates(self):
+		pass
+
 
 	def forward (self, batch):
 		x = batch['input_ids']
@@ -176,7 +189,7 @@ class SparseAELoss (nn.Module):
 
 		# update steps
 		if self.training:
-			self.deducer.steps += 1
+			self.steps += 1
 
 		z = self.encoder(x)
 		z = torch.softmax(z, dim=-1)
@@ -184,7 +197,7 @@ class SparseAELoss (nn.Module):
 		zh = z.argmax(dim=-1)
 		zh = F.one_hot(zh, z.shape[-1]).float()
 
-		sparse_slope = torch.tanh(self.deducer.steps.float() / self.sparse_slope_unit)
+		sparse_slope = torch.tanh(self.steps.float() / self.sparse_slope_unit)
 		if self.training:
 			# mix hard latent
 			hard_mask = torch.rand_like(z) < sparse_slope

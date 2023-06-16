@@ -323,7 +323,7 @@ class Trainer:
 		self.start_epoch = checkpoint['epoch'] + 1
 
 		if hasattr(self.model, 'need_states') and checkpoint.get('extra') is not None:
-			self.model.load_state_dict(checkpoint['extra'])
+			self.model.load_state_dict(checkpoint['extra'], strict=False)
 
 		if 'optim' in checkpoint and self.optimizer is not None:
 			self.optimizer._optimizer.load_state_dict(checkpoint['optim'])
