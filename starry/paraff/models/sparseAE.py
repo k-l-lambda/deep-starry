@@ -179,9 +179,21 @@ class SparseAELoss (nn.Module):
 			self.deducer.steps += 1
 
 		z = self.encoder(x)
-		#z = torch.softmax(z * self.deducer.latent_freeze, dim=-1)
 		z = torch.softmax(z, dim=-1)
-		pred = self.decoder(x, z, mask=mask1)
+
+		zh = z.argmax(dim=-1)
+		zh = F.one_hot(zh, z.shape[-1]).float()
+
+		sparse_slope = torch.tanh(self.deducer.steps.float() / self.sparse_slope_unit)
+		if self.training:
+			# mix hard latent
+			hard_mask = torch.rand_like(z) < sparse_slope
+			z_mix = z.clone()
+			z_mix[hard_mask] = zh[hard_mask]
+		else:
+			z_mix = z
+
+		pred = self.decoder(x, z_mix, mask=mask1)
 
 		pred_flat = pred[:, 1:][mask]
 		target_flat = target[mask]
@@ -189,7 +201,6 @@ class SparseAELoss (nn.Module):
 		recons_loss = F.cross_entropy(pred_flat, target_flat)
 		sparse_loss = (-z.square().sum(dim=-1).log()).pow(self.sparse_pow).mean()
 
-		sparse_slope = torch.tanh(self.deducer.steps.float() / self.sparse_slope_unit)
 		loss = recons_loss + sparse_loss * self.sparse_loss_weight * sparse_slope
 
 		pred_ids = torch.argmax(pred_flat, dim=-1)
@@ -212,12 +223,15 @@ class SparseAELoss (nn.Module):
 			acc_uncond = (pred_u_ids == target_flat).float().mean()
 			metric['acc_uncond'] = acc_uncond.item()
 
-			zh = z.argmax(dim=-1)
-			zh = F.one_hot(zh, z.shape[-1]).float()
 			pred_hard = self.decoder(x, zh, mask=mask1)
 			pred_hard_flat = pred_hard[:, 1:][mask]
 			pred_hard_ids = torch.argmax(pred_hard_flat, dim=-1)
 			acc_hard = (pred_hard_ids == target_flat).float().mean()
 			metric['acc_hard'] = acc_hard.item()
+
+			le_soft = self.deducer.latent_emb(z)
+			le_hard = self.deducer.latent_emb(zh)
+			z_emb_diff = (le_soft - le_hard).norm()
+			metric['z_emb_diff'] = z_emb_diff.item()
 
 		return loss, metric

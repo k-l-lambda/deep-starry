@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.6.16
+
+	+	sparseAE.py: hard latent mix added.
+
+
 2023.6.15
 
 	+	sparseAE.py: added option of sparse_pow.
