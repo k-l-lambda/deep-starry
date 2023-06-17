@@ -103,7 +103,7 @@ class SaeDecoder (nn.Module):
 
 
 class SparseAE (nn.Module):
-	def __init__ (self, n_vocab, d_latent=0x10000, pad_id=0, summary_id=1, finale_id=5,
+	def __init__ (self, n_vocab, d_latent=0x10000, pad_id=0, summary_id=1, finale_id=5, share_latent_prj=True,
 		n_layers=6, d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64,
 		dropout=0.1, mask_dropout=0.2, n_seq_max=512):
 		super().__init__()
@@ -117,7 +117,8 @@ class SparseAE (nn.Module):
 
 		self.word_emb = nn.Embedding(n_vocab, d_model, padding_idx=pad_id)
 		self.word_prj = nn.Linear(d_model, n_vocab, bias=False)
-		self.word_prj.weight = self.word_emb.weight
+		if share_latent_prj:
+			self.word_prj.weight = self.word_emb.weight
 
 		self.latent_prj = nn.Linear(d_model, d_latent, bias=False)
 		self.latent_emb = nn.Linear(d_latent, d_model)
