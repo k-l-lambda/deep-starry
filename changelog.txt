@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.6.19
+
+	+	sparseAE.py: diversity_loss added.
+
+
 2023.6.16
 
 	+	sparseAE.py: save state buffer in loss model.

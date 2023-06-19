@@ -143,7 +143,7 @@ class SparseAELoss (nn.Module):
 	need_states = True
 
 
-	def __init__ (self, n_layers, summary_id, sparse_loss_weight=1, sparse_slope_unit=1e+7, sparse_pow=1, **kw_args):
+	def __init__ (self, n_layers, summary_id, sparse_loss_weight=1, diversity_loss_weight=0, sparse_slope_unit=1e+7, sparse_pow=1, **kw_args):
 		super().__init__()
 
 		self.n_layers = n_layers
@@ -151,6 +151,7 @@ class SparseAELoss (nn.Module):
 		self.sparse_loss_weight = sparse_loss_weight
 		self.sparse_slope_unit = sparse_slope_unit
 		self.sparse_pow = sparse_pow
+		self.diversity_loss_weight = diversity_loss_weight
 
 		self.deducer = SparseAE(n_layers=n_layers, summary_id=summary_id, **kw_args)
 
@@ -214,8 +215,9 @@ class SparseAELoss (nn.Module):
 
 		recons_loss = F.cross_entropy(pred_flat, target_flat)
 		sparse_loss = (-z.square().sum(dim=-1).log()).pow(self.sparse_pow).mean()
+		diversity_loss = -(z.max(dim=0).values.sum() / z.shape[0]).log()
 
-		loss = recons_loss + sparse_loss * self.sparse_loss_weight * sparse_slope
+		loss = recons_loss + sparse_loss * self.sparse_loss_weight * sparse_slope + self.diversity_loss_weight * diversity_loss
 
 		pred_ids = torch.argmax(pred_flat, dim=-1)
 		acc = (pred_ids == target_flat).float().mean()
@@ -225,6 +227,7 @@ class SparseAELoss (nn.Module):
 		metric = {
 			'recons_loss': recons_loss.item(),
 			'sparse_loss': sparse_loss.item(),
+			'diversity_loss': diversity_loss.item(),
 			'acc': acc.item(),
 			'z_density': z_density.item(),
 			'sparse_slope': sparse_slope.item(),

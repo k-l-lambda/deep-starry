@@ -32,9 +32,10 @@ model:
     d_k:                    32
     d_v:                    32
     dropout:                0.1
-    sparse_loss_weight:     1
-    sparse_slope_unit:      1.e+7
-    sparse_pow:             2
+    sparse_loss_weight:     0.1
+    sparse_slope_unit:      1.e+5
+    sparse_pow:             1
+    diversity_loss_weight:  1
     mask_dropout:           0.3
 
 
