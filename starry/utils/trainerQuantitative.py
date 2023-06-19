@@ -262,7 +262,7 @@ class Trainer:
 					'loss': val_loss,
 				})
 
-				model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3f}.chkpt'
+				model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3e}.chkpt'
 				if self.options['save_mode'] == 'all':
 					if os.path.isfile(self.config.localPath('latest.chkpt')):
 						shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
