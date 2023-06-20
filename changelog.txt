@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.6.20
+
+	+	paraff/models/seqShareVAE.py created.
+
+
 2023.6.19
 
 	+	sparseAE.py: diversity_loss added.
