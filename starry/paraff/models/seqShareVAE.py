@@ -86,7 +86,7 @@ class SeqShareDecoder (nn.Module):
 
 
 class SeqShareVAE (nn.Module):
-	def __init__ (self, n_vocab, d_latent=0x10000, pad_id=0, finale_id=5,
+	def __init__ (self, n_vocab, d_latent=256, pad_id=0, finale_id=5,
 		n_layers=6, d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64,
 		dropout=0.1, mask_dropout=0.2, n_seq_max=512):
 		super().__init__()

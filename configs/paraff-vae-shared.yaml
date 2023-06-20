@@ -20,7 +20,7 @@ model:
   type:                     SeqShareVAE
   args:
     n_vocab:                137
-    d_latent:               0xfff8
+    d_latent:               256
     pad_id:                 0
     summary_id:             1
     finale_id:              5
