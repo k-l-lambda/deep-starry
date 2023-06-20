@@ -117,12 +117,12 @@ class SparseAE (nn.Module):
 
 		self.word_emb = nn.Embedding(n_vocab, d_model, padding_idx=pad_id)
 		self.word_prj = nn.Linear(d_model, n_vocab, bias=False)
-		if share_latent_prj:
-			self.word_prj.weight = self.word_emb.weight
+		self.word_prj.weight = self.word_emb.weight
 
 		self.latent_prj = nn.Linear(d_model, d_latent, bias=False)
 		self.latent_emb = nn.Linear(d_latent, d_model)
-		self.latent_emb.weight.data = self.latent_prj.weight.data.transpose(0, 1)
+		if share_latent_prj:
+			self.latent_emb.weight.data = self.latent_prj.weight.data.transpose(0, 1)
 
 		self.position_enc = PositionalEncoding(d_model, n_position=n_seq_max)
 
