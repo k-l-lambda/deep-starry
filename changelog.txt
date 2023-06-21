@@ -7,6 +7,8 @@ TODO:
 
 2023.6.21
 
+	+	seqShareVAE.py: JIT model classes added.
+
 	+	convertToOnnx.py: added postfix option in config.
 
 

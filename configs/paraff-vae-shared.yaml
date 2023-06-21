@@ -57,3 +57,34 @@ optim:
       lr_mul:               1
       n_warmup_steps:       3200
       d_model:              256
+
+
+onnx:
+  multiple:
+    enc128:
+      model_postfix: JitEnc
+      inputs:
+      - name: seq
+        dtype: int8
+        shape: [1, 128]
+      - name: sigma
+        dtype: float32
+        shape: [1]
+      opset: 14
+      outputs:
+      - latent
+    dec128:
+      model_postfix: JitDec
+      inputs:
+      - name: seq
+        dtype: int8
+        shape: [1, 128]
+      - name: latent
+        dtype: float32
+        shape: [1, 256]
+      - name: mask
+        dtype: bool
+        shape: [1, 128]
+      opset: 14
+      outputs:
+      - logit

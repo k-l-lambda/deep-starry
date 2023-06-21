@@ -88,7 +88,7 @@ class SeqShareDecoder (nn.Module):
 class SeqShareVAE (nn.Module):
 	def __init__ (self, n_vocab, d_latent=256, pad_id=0, finale_id=5,
 		n_layers=6, d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64,
-		dropout=0.1, mask_dropout=0.2, n_seq_max=512):
+		dropout=0.1, mask_dropout=0.2, n_seq_max=512, **_):
 		super().__init__()
 
 		self.d_model = d_model
@@ -120,6 +120,61 @@ class SeqShareVAE (nn.Module):
 	def getDecoder (self):
 		return SeqShareDecoder(d_model=self.d_model, word_emb=self.word_emb, word_prj=self.word_prj, latent_emb=self.latent_emb,
 			position_enc=self.position_enc, dropout=self.dropout, mask_dropout=self.mask_dropout, attention=self.attention, pad_id=self.pad_id)
+
+
+class SeqShareVAEJitEnc (SeqShareVAE):
+	def __init__ (self, **kw_args):
+		super().__init__(**kw_args)
+
+		self.layer_norm = nn.LayerNorm(self.d_model, eps=1e-6)
+
+
+	# sigma: scalar
+	def forward (self, seq: torch.Tensor, sigma: torch.Tensor):
+		mask = torch.ones_like(seq).bool().unsqueeze(-2)
+
+		x = seq.long()
+		x = self.word_emb(x)
+		x *= self.d_model ** 0.5	# scale embedding
+		x = self.position_enc(x)
+		x = self.layer_norm(x)
+		x = self.attention(x, mask)
+
+		finale = x[seq == self.finale_id]	# (n, d_model)
+		mu = self.latent_prj_mu(finale)
+		logvar = self.latent_prj_var(finale)
+
+		std = torch.exp(0.5 * logvar)
+		eps = torch.randn_like(std)
+
+		return mu + eps * std * sigma
+
+
+class SeqShareVAEJitDec (SeqShareVAE):
+	def __init__ (self, **kw_args):
+		super().__init__(**kw_args)
+
+		self.layer_norm = nn.LayerNorm(self.d_model, eps=1e-6)
+
+
+	def forward (self, seq: torch.Tensor, latent: torch.Tensor, mask: Optional[torch.Tensor] =None):
+		mask = get_pad_mask(seq, self.pad_id) if mask is None else mask.unsqueeze(-2)
+		mask = mask & get_subsequent_mask(seq)
+
+		summary = self.latent_emb(latent)
+
+		x = seq.long()
+		x = self.word_emb(x)
+		x[:, 0] += summary	# add summary embedding on the first element
+		x *= self.d_model ** 0.5	# scale embedding
+
+		x = self.position_enc(x)
+		x = self.layer_norm(x)
+		x = self.attention(x, mask)
+
+		x = self.word_prj(x)
+
+		return x[:, -1]
 
 
 class SeqShareVAELoss (nn.Module):
