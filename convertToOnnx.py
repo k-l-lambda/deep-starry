@@ -25,8 +25,8 @@ def runConfig (onnx_config, model_loader, outpath):
 	truncate_long = onnx_config.get('truncate_long')
 	temp_path = outpath.replace('.onnx', '.temp.onnx')
 
-	postfix = onnx_config.get('postfix', '')
-	model = model_loader(postfix)
+	model_postfix = onnx_config.get('model_postfix', '')
+	model = model_loader(model_postfix)
 
 	torch.onnx.export(model, dummy_inputs, temp_path if truncate_long else outpath,
 		verbose=True,
@@ -105,8 +105,8 @@ def main ():
 		logging.info(f'ONNX model saved to: {outpath}')
 	elif config['onnx']:
 		if 'multiple' in config['onnx']:
-			for postfix, onnx_config in config['onnx.multiple'].items():
-				runConfig(onnx_config, loadModel_, outpath=config.localPath(f'{name}-{postfix}.onnx'))
+			for key, onnx_config in config['onnx.multiple'].items():
+				runConfig(onnx_config, loadModel_, outpath=config.localPath(f'{name}-{key}.onnx'))
 		else:
 			runConfig(config['onnx'], loadModel_, outpath=config.localPath(f'{name}.onnx'))
 
