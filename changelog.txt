@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.6.21
+
+	+	convertToOnnx.py: adde postfix option in config.
+
+
 2023.6.20
 
 	+	paraff/models/seqShareVAE.py created.

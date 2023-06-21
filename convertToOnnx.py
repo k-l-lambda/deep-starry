@@ -14,7 +14,7 @@ from onnxTypecast import convert_model_to_int32
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 
-def runConfig (onnx_config, model, outpath):
+def runConfig (onnx_config, model_loader, outpath):
 	input_names = [input['name'] for input in onnx_config['inputs']]
 	output_names = onnx_config['outputs']
 
@@ -24,6 +24,9 @@ def runConfig (onnx_config, model, outpath):
 
 	truncate_long = onnx_config.get('truncate_long')
 	temp_path = outpath.replace('.onnx', '.temp.onnx')
+
+	postfix = onnx_config.get('postfix', '')
+	model = model_loader(postfix)
 
 	torch.onnx.export(model, dummy_inputs, temp_path if truncate_long else outpath,
 		verbose=True,
@@ -52,24 +55,30 @@ def main ():
 
 	config = Configuration.createOrLoad(args.config)
 
-	model_postfix = config['onnx.postfix'] or ('Onnx' if (config['model.type'] + 'Onnx' in model_dict) else '')
-	model = loadModel(config['model'], postfix=model_postfix)
-
 	name = 'untrained'
 	if config['best']:
 		name = os.path.splitext(config['best'])[0]
 
-		checkpoint = torch.load(config.localPath(config['best']), map_location='cpu')
-		if hasattr(model, 'deducer'):
-			model.deducer.load_state_dict(checkpoint['model'], strict=False)
-		else:
-			model.load_state_dict(checkpoint['model'])
-		logging.info(f'checkpoint loaded: {config["best"]}')
+	def loadModel_ (postfix):
+		model = loadModel(config['model'], postfix=postfix)
 
-	model.eval()
-	model.no_overwrite = True
+		if config['best']:
+			checkpoint = torch.load(config.localPath(config['best']), map_location='cpu')
+			if hasattr(model, 'deducer'):
+				model.deducer.load_state_dict(checkpoint['model'], strict=False)
+			else:
+				model.load_state_dict(checkpoint['model'])
+			logging.info(f'checkpoint loaded: {config["best"]}')
+
+		model.eval()
+		model.no_overwrite = True
+
+		return model
 
 	if args.shapes is not None:
+		model_postfix = config['onnx.postfix'] or ('Onnx' if (config['model.type'] + 'Onnx' in model_dict) else '')
+		model = loadModel_(model_postfix)
+
 		truncate_long = config['onnx.truncate_long_tensor']
 		out_name = f'{name}.temp.onnx' if truncate_long else f'{name}.onnx'
 		outpath = config.localPath(out_name)
@@ -97,9 +106,9 @@ def main ():
 	elif config['onnx']:
 		if 'multiple' in config['onnx']:
 			for postfix, onnx_config in config['onnx.multiple'].items():
-				runConfig(onnx_config, model, outpath=config.localPath(f'{name}-{postfix}.onnx'))
+				runConfig(onnx_config, loadModel_, outpath=config.localPath(f'{name}-{postfix}.onnx'))
 		else:
-			runConfig(config['onnx'], model, outpath=config.localPath(f'{name}.onnx'))
+			runConfig(config['onnx'], loadModel_, outpath=config.localPath(f'{name}.onnx'))
 
 
 if __name__ == '__main__':
