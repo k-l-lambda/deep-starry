@@ -11,7 +11,7 @@ from .sparseAE import AttentionStack
 
 
 class SeqShareEncoder (nn.Module):
-	def __init__(self, d_model, word_emb, latent_prj_mu, latent_prj_var, position_enc, dropout, attention, pad_id, finale_id):
+	def __init__(self, d_model, word_emb, latent_prj_mu, latent_prj_var, position_enc, dropout, layer_norm, attention, pad_id, finale_id):
 		super().__init__()
 
 		self.d_model = d_model
@@ -25,7 +25,7 @@ class SeqShareEncoder (nn.Module):
 		self.finale_id = finale_id
 
 		self.dropout = nn.Dropout(p=dropout)
-		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
+		self.layer_norm = layer_norm
 
 
 	def forward (self, seq: torch.Tensor, mask: Optional[torch.Tensor] =None):
@@ -47,7 +47,7 @@ class SeqShareEncoder (nn.Module):
 
 
 class SeqShareDecoder (nn.Module):
-	def __init__(self, d_model, word_emb, word_prj, latent_emb, position_enc, dropout, mask_dropout, attention, pad_id):
+	def __init__(self, d_model, word_emb, word_prj, latent_emb, position_enc, dropout, layer_norm, mask_dropout, attention, pad_id):
 		super().__init__()
 
 		self.d_model = d_model
@@ -61,7 +61,7 @@ class SeqShareDecoder (nn.Module):
 
 		self.dropout = nn.Dropout(p=dropout)
 		self.mask_dropout = nn.Dropout(p=mask_dropout)
-		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
+		self.layer_norm = layer_norm
 
 
 	def forward (self, seq: torch.Tensor, latent: torch.Tensor, mask: Optional[torch.Tensor] =None):
@@ -106,6 +106,7 @@ class SeqShareVAE (nn.Module):
 		self.latent_emb = nn.Linear(d_latent, d_model)
 
 		self.position_enc = PositionalEncoding(d_model, n_position=n_seq_max)
+		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 
 		self.attention = AttentionStack(d_model=d_model, n_layers=n_layers, dropout=dropout, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v)
 
@@ -113,20 +114,19 @@ class SeqShareVAE (nn.Module):
 	def getEncoder (self):
 		return SeqShareEncoder(d_model=self.d_model, word_emb=self.word_emb,
 			latent_prj_mu=self.latent_prj_mu, latent_prj_var=self.latent_prj_var,
-			position_enc=self.position_enc,
+			position_enc=self.position_enc, layer_norm=self.layer_norm,
 			dropout=self.dropout, attention=self.attention, pad_id=self.pad_id, finale_id=self.finale_id)
 
 
 	def getDecoder (self):
 		return SeqShareDecoder(d_model=self.d_model, word_emb=self.word_emb, word_prj=self.word_prj, latent_emb=self.latent_emb,
-			position_enc=self.position_enc, dropout=self.dropout, mask_dropout=self.mask_dropout, attention=self.attention, pad_id=self.pad_id)
+			position_enc=self.position_enc, layer_norm=self.layer_norm, dropout=self.dropout, mask_dropout=self.mask_dropout,
+			attention=self.attention, pad_id=self.pad_id)
 
 
 class SeqShareVAEJitEnc (SeqShareVAE):
 	def __init__ (self, **kw_args):
 		super().__init__(**kw_args)
-
-		self.layer_norm = nn.LayerNorm(self.d_model, eps=1e-6)
 
 
 	# sigma: scalar
@@ -153,8 +153,6 @@ class SeqShareVAEJitEnc (SeqShareVAE):
 class SeqShareVAEJitDec (SeqShareVAE):
 	def __init__ (self, **kw_args):
 		super().__init__(**kw_args)
-
-		self.layer_norm = nn.LayerNorm(self.d_model, eps=1e-6)
 
 
 	def forward (self, seq: torch.Tensor, latent: torch.Tensor, mask: Optional[torch.Tensor] =None):
