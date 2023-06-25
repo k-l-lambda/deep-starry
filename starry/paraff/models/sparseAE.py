@@ -42,7 +42,7 @@ class SaeEncoder (nn.Module):
 		self.finale_id = finale_id
 
 		self.dropout = nn.Dropout(p=dropout)
-		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
+		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)	# TODO: layer_norm should share with decoder
 
 
 	def forward (self, seq: torch.Tensor, mask: Optional[torch.Tensor] =None):
@@ -78,7 +78,7 @@ class SaeDecoder (nn.Module):
 
 		self.dropout = nn.Dropout(p=dropout)
 		self.mask_dropout = nn.Dropout(p=mask_dropout)
-		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
+		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)	# TODO: layer_norm should share with encoder
 
 
 	def forward (self, seq: torch.Tensor, latent: torch.Tensor, mask: Optional[torch.Tensor] =None):
