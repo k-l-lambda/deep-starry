@@ -131,7 +131,7 @@ class SeqShareVAEJitEnc (SeqShareVAE):
 
 	# sigma: scalar
 	def forward (self, seq: torch.Tensor, sigma: torch.Tensor):
-		mask = torch.ones_like(seq).bool().unsqueeze(-2)
+		mask = get_pad_mask(seq, self.pad_id)
 
 		x = seq.long()
 		x = self.word_emb(x)
