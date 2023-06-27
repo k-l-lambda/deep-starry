@@ -20,7 +20,7 @@ class ParaffViewer:
 			x, y = math.floor(x), math.floor(y)
 			token = self.vocab[y] if y < len(self.vocab) else f'[{y}]'
 			pred = inspection['pred_flat'][x][y]
-			return f'seq_i={x}, token={token}, pred={pred:.4f}'
+			return f'(seq_i, token, pred) = {x},\t{token:>8},\t{pred:8.4f}'
 		plt.gca().format_coord = format_coord
 
 		plt.get_current_fig_manager().full_screen_toggle()

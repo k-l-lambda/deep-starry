@@ -237,3 +237,43 @@ class SeqShareVAELoss (nn.Module):
 		}
 
 		return loss, metric
+
+
+	def inspectRun (self, batch):
+		x = batch['input_ids']
+		mask = batch['body_mask']
+		target = batch['output_ids'].long()
+
+		# prepend summary_id on head
+		head = torch.tensor([[self.summary_id]], device=x.device).repeat(x.shape[0], 1)
+		x = torch.cat([head, x], dim=1)
+
+		head_true = torch.ones_like(head)
+		mask1 = torch.cat([head_true, mask], dim=1)
+
+		mu, logvar = self.encoder(x)
+		z = self.reparameterize(mu, logvar)
+
+		pred = self.decoder(x, z, mask=mask1)
+
+		pred_flat = pred[:, 1:][mask]
+		target_flat = target[mask]
+
+		#recons_loss = F.cross_entropy(pred_flat, target_flat)
+		#kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+
+		#loss = recons_loss + kld_loss * self.kld_weight
+
+		pred_ids = torch.argmax(pred_flat, dim=-1)
+		acc = (pred_ids == target_flat).float().mean()
+
+		return {
+			'pred': pred,
+			'pred_flat': pred_flat,
+			'target_flat': target[mask],
+			'truth': pred_ids == target[mask],
+			'acc': acc.item(),
+			'mu': mu,
+			'logvar': logvar,
+			'z': z,
+		}
