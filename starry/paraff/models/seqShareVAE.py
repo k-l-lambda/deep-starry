@@ -158,6 +158,9 @@ class SeqShareVAEJitDec (SeqShareVAE):
 
 	def forward (self, seq: torch.Tensor, latent: torch.Tensor, mask: Optional[torch.Tensor] =None):
 		mask = get_pad_mask(seq, self.pad_id) if mask is None else mask.unsqueeze(-2)
+		tip = torch.zeros_like(mask).bool()
+		tip[:, :, :-1] = mask[:, :, :-1] > mask[:, :, 1:]
+		tip = tip.squeeze(-2)
 		mask = mask & get_subsequent_mask(seq)
 
 		summary = self.latent_emb(latent)
@@ -173,7 +176,7 @@ class SeqShareVAEJitDec (SeqShareVAE):
 
 		x = self.word_prj(x)
 
-		return x[:, -1]
+		return x[tip]
 
 
 class SeqShareVAELoss (nn.Module):
