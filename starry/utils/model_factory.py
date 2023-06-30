@@ -37,6 +37,8 @@ def registerModels ():
 		vm.GlyphRecognizer, vm.GlyphRecognizerLoss,
 		pm.TokenGen, pm.TokenGenLoss,
 		pm.SeqvaeLoss, pm.SeqvaeEncoderJit,
+		pm.SparseAE, pm.SparseAELoss,
+		pm.SeqShareVAE, pm.SeqShareVAELoss, pm.SeqShareVAEJitEnc, pm.SeqShareVAEJitDec
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

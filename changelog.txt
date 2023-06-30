@@ -5,6 +5,70 @@ TODO:
 
 
 
+2023.6.25
+
+	+	seqShareVAE.py: share layer_norm between encoder & decoder.
+
+
+2023.6.21
+
+	+	seqShareVAE.py: JIT model classes added.
+
+	+	convertToOnnx.py: added postfix option in config.
+
+
+2023.6.20
+
+	+	paraff/models/seqShareVAE.py created.
+
+
+2023.6.19
+
+	+	sparseAE.py: diversity_loss added.
+
+
+2023.6.16
+
+	+	sparseAE.py: save state buffer in loss model.
+
+	+	trainer.py: run validation epoch first.
+
+	+	sparseAE.py: hard latent mix added.
+
+
+2023.6.15
+
+	+	sparseAE.py: added option of sparse_pow.
+	+	sparseAE.py: sparse loss slope added.
+
+
+2023.6.14
+
+	+	sparseAE.py: refined sparse loss as log.
+
+	+	sparseAE.py: sparse loss added.
+
+	+	sparseAE.py: scale embedding added.
+
+
+2023.6.13
+
+	+	sparseAE.py: metric of acc_uncond added.
+
+	+	sparseAE.py: mask dropout added.
+
+	+	sparseAE.py: added parameter of latent_freeze.
+
+	+	paraff/models/sparseAE.py created.
+
+
+2023.6.9
+
+	+	paraff/data/sentence.py: mask out EOM token.
+
+	+	trainer.py: added trainer option of report_step_unit.
+
+
 2023.5.30
 
 	+	convertToJit.py: added arg of postfix.
