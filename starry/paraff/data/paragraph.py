@@ -27,7 +27,7 @@ class MeasureLibrary:
 		codes = []
 		sigma = torch.zeros(1).to(encoder_config['device'])
 		with torch.no_grad():
-			for ei in tqdm(range(0, self.entries.shape[0], batch_size), 'encoding measures'):
+			for ei in tqdm(range(0, self.entries.shape[0], batch_size), 'Encoding measures'):
 				es = self.entries[ei:ei + batch_size].to(encoder_config['device'])
 				z = encoder(es, sigma)
 				codes.append(z)
@@ -84,27 +84,32 @@ class PhasedParagraph (IterableDataset):
 
 		self.measure = self.loadMeasures(paraff_path, n_seq_word, encoder)
 
-		ph_ids = torch.zeros(len(paragraphs), n_seq_phase, dtype=torch.uint8)
+		self.d_summary = self.measure.summaries.shape[-1]
+
+		ph_id = torch.zeros(len(paragraphs), n_seq_phase, dtype=torch.uint8)
 		#ph_body_mask = torch.zeros(len(paragraphs), n_seq_phase, dtype=torch.bool)
 		ph_f_num = torch.zeros(len(paragraphs), n_seq_phase, dtype=torch.int16)
 		ph_b_num = torch.zeros(len(paragraphs), n_seq_phase, dtype=torch.int16)
-		# TODO: ph_summary
+		ph_ranges = []
 
-		for i, paragraph in enumerate(tqdm(paragraphs, 'load paragraphs')):
-			descriptors, types, numbers = paragraph['descriptors'], paragraph['phaseTypes'], paragraph['phaseNumbers']
+		for i, paragraph in enumerate(tqdm(paragraphs, 'Load paragraphs')):
+			descriptors, types, numbers, range = paragraph['descriptors'], paragraph['phaseTypes'], paragraph['phaseNumbers'], paragraph['sentenceRange']
 			n_desc = len(descriptors)
 			types = types[:n_seq_phase - n_desc]
 			numbers = numbers[:n_seq_phase - n_desc]
 
 			assert not (None in descriptors), 'invalid descriptors: %s, %s' % (paragraph['name'], descriptors)
 
-			ph_ids[i, :n_desc] = torch.tensor(descriptors, dtype=ph_ids.dtype)
-			ph_ids[i, n_desc:n_desc + len(types)] = torch.tensor(types, dtype=ph_ids.dtype)
-			#ph_body_mask[i] = ph_ids[i] == PHID_BOS
+			ph_id[i, :n_desc] = torch.tensor(descriptors, dtype=ph_id.dtype)
+			ph_id[i, n_desc:n_desc + len(types)] = torch.tensor(types, dtype=ph_id.dtype)
+			#ph_body_mask[i] = ph_id[i] == PHID_BOS
 			ph_f_num[i, n_desc:n_desc + len(types)] = torch.tensor([fb[0] for fb in numbers], dtype=ph_f_num.dtype)
 			ph_b_num[i, n_desc:n_desc + len(types)] = torch.tensor([fb[1] for fb in numbers], dtype=ph_b_num.dtype)
 
-		self.paragraphs = dict(ids=ph_ids, f_num=ph_f_num, b_num=ph_b_num)
+			#ph_summary[i, ph_id[i] == PHID_BOS] = self.measure.summaries[range[0]:range[1]]
+			ph_ranges.append(range)
+
+		self.paragraphs = dict(id=ph_id, f_num=ph_f_num, b_num=ph_b_num, range=ph_ranges)
 		self.n_measure = sum(paragraph['sentenceRange'][1] - paragraph['sentenceRange'][0] for paragraph in paragraphs)
 
 
