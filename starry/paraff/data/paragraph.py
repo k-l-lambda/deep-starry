@@ -10,7 +10,7 @@ from .paraffFile import ParaffFile
 
 
 
-PHID_BOS = 3
+PHID_MEASURE = 3
 
 
 class MeasureLibrary:
@@ -22,6 +22,7 @@ class MeasureLibrary:
 		self.entries = torch.tensor(sentences, dtype=torch.uint8)
 
 		encoder = torch.jit.load(encoder_config['weight']).to(encoder_config['device'])
+		encoder.eval()
 		batch_size = encoder_config.get('batch_size', 1)
 
 		codes = []
@@ -109,7 +110,7 @@ class PhasedParagraph (IterableDataset):
 			#ph_summary[i, ph_id[i] == PHID_BOS] = self.measure.summaries[range[0]:range[1]]
 			ph_ranges.append(range)
 
-		self.paragraphs = dict(id=ph_id, f_num=ph_f_num, b_num=ph_b_num, range=ph_ranges)
+		self.paragraphs = dict(id=ph_id, f_num=ph_f_num, b_num=ph_b_num, range=torch.tensor(ph_ranges, dtype=torch.int32))
 		self.n_measure = sum(paragraph['sentenceRange'][1] - paragraph['sentenceRange'][0] for paragraph in paragraphs)
 
 
@@ -117,5 +118,64 @@ class PhasedParagraph (IterableDataset):
 		return self.n_measure
 
 
+	def __iter__ (self):
+		if self.shuffle:
+			disorder = torch.randperm(self.paragraphs['id'].shape[0])
+
+			for key in self.paragraphs:
+				self.paragraphs[key] = self.paragraphs[key][disorder]
+
+			for i in range(self.paragraphs['id'].shape[0]):
+				measure_begin, measure_end = self.paragraphs['range'][i].tolist()
+
+				ph_id = self.paragraphs['id'][i]
+				ph_f_num = self.paragraphs['f_num'][i]
+				ph_b_num = self.paragraphs['b_num'][i]
+				ph_summary = torch.zeros(self.n_seq_phase, self.d_summary)
+				ph_body_mask = ph_id == PHID_MEASURE
+				ph_summary[ph_body_mask] = self.measure.summaries[measure_begin:measure_end]
+
+				entris = self.measure.entries[measure_begin:measure_end]
+				pids = entris.flatten()
+				pids = pids[pids != 0]
+				pids_arange = torch.arange(pids.shape[0], dtype=torch.int16)
+				measure_size = (entris != 0).int().sum(dim=-1)
+
+				for mi in range(measure_begin, measure_end):
+					ids_begin = measure_size[:mi - measure_begin].sum()
+					ids_end = measure_size[:mi - measure_begin + 1].sum()
+					ids = pids[max(0, ids_end - self.n_seq_word):ids_end]
+
+					input_ids = torch.zeros(self.n_seq_word, dtype=torch.uint8)
+					output_ids = torch.zeros(self.n_seq_word, dtype=torch.uint8)
+					body_mask = torch.zeros(self.n_seq_word, dtype=torch.bool)
+					position = torch.zeros(self.n_seq_word, dtype=torch.int16)
+
+					input_ids[:ids.shape[0] - 1] = ids[:-1]
+					output_ids[:ids.shape[0] - 1] = ids[1:]
+
+					body_mask[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] > ids_begin
+
+					position[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] - ids_begin
+
+					yield ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask, input_ids, output_ids, body_mask, position
+
+
 	def collateBatch (self, batch):
-		pass
+		def extract (i):
+			tensors = [ex[i] for ex in batch]
+			return torch.stack(tensors, axis=0).to(self.device)
+
+		ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask, input_ids, output_ids, body_mask, position = [extract(i) for i in range(9)]
+
+		return dict(
+			ph_id=ph_id,
+			ph_f_num=ph_f_num,
+			ph_b_num=ph_b_num,
+			ph_summary=ph_summary,
+			ph_body_mask=ph_body_mask,
+			input_ids=input_ids,
+			output_ids=output_ids,
+			body_mask=body_mask,
+			position=position,
+		)
