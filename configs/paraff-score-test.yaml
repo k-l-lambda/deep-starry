@@ -1,0 +1,13 @@
+
+id:     paraff/{date}-{filename}
+
+
+data:
+  type:                     PhasedParagraph
+  root:                     20230630-paragraph.yaml
+  splits:                   '*1..8/10:9/10'
+  batch_size:               2
+  args:
+    n_seq_word:             512
+    n_seq_phase:            256
+    descriptor_drop:        0.2

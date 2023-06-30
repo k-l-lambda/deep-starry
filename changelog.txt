@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.6.30
+
+	+	paraff/data/paragraph.py created.
+
+
 2023.6.25
 
 	+	seqShareVAE.py: share layer_norm between encoder & decoder.
