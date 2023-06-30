@@ -31,10 +31,10 @@ class MeasureLibrary:
 		with torch.no_grad():
 			for ei in tqdm(range(0, self.entries.shape[0], batch_size), 'Encoding measures'):
 				es = self.entries[ei:ei + batch_size].to(encoder_config['device'])
-				z = encoder(es, sigma)
+				z = encoder(es, sigma).cpu()
 				codes.append(z)
 
-		self.summaries = torch.concatenate(codes, dim=0)
+		self.summaries = torch.cat(codes, dim=0)
 
 
 class PhasedParagraph (IterableDataset):
@@ -134,9 +134,9 @@ class PhasedParagraph (IterableDataset):
 				ph_b_num = self.paragraphs['b_num'][i]
 				ph_summary = torch.zeros(self.n_seq_phase, self.d_summary)
 				ph_body_mask = torch.zeros_like(ph_id).bool()
-				ph_summary[ph_body_mask] = self.measure.summaries[measure_begin:measure_end]
-
-				ph_mask_idx = torch.arange(ph_id.shape[0])[ph_id == PHID_MEASURE]
+				ph_is_measure = ph_id == PHID_MEASURE
+				ph_summary[ph_is_measure] = self.measure.summaries[measure_begin:measure_end]
+				ph_mask_idx = torch.arange(ph_id.shape[0])[ph_is_measure]
 
 				entris = self.measure.entries[measure_begin:measure_end]
 				pids = entris.flatten()
