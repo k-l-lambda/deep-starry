@@ -13,7 +13,32 @@ from .paraffFile import ParaffFile
 PHID_BOS = 3
 
 
+class MeasureLibrary:
+	def __init__(self, file, n_seq, encoder_config):
+		paraff = ParaffFile(file)
+
+		padding_zeros = [0] * (n_seq + 1 - paraff.sentence_align_size)
+		sentences = [s + padding_zeros for s in paraff.sentences]
+		self.entries = torch.tensor(sentences, dtype=torch.uint8)
+
+		encoder = torch.jit.load(encoder_config['weight']).to(encoder_config['device'])
+		batch_size = encoder_config.get('batch_size', 1)
+
+		codes = []
+		sigma = torch.zeros(1).to(encoder_config['device'])
+		with torch.no_grad():
+			for ei in tqdm(range(0, self.entries.shape[0], batch_size), 'encoding measures'):
+				es = self.entries[ei:ei + batch_size].to(encoder_config['device'])
+				z = encoder(es, sigma)
+				codes.append(z)
+
+		self.summaries = torch.concatenate(codes, dim=0)
+
+
 class PhasedParagraph (IterableDataset):
+	measure_lib = {}
+
+
 	@classmethod
 	def load (cls, root, args, splits, device='cpu', args_variant=None, **_):
 		splits = splits.split(':')
@@ -29,7 +54,17 @@ class PhasedParagraph (IterableDataset):
 		)
 
 
-	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_phase,
+	@classmethod
+	def loadMeasures (cls, paraff_path, n_seq, encoder_config):
+		if paraff_path in cls.measure_lib:
+			return cls.measure_lib[paraff_path]
+
+		cls.measure_lib[paraff_path] = MeasureLibrary(open(paraff_path, 'rb'), n_seq, encoder_config)
+
+		return cls.measure_lib[paraff_path]
+
+
+	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_phase, encoder,
 		descriptor_drop=0.1, descriptor_drop_sigma=0., **_):
 		super().__init__()
 
@@ -42,10 +77,12 @@ class PhasedParagraph (IterableDataset):
 
 		phases, cycle = parseFilterStr(split)
 
-		index = yaml.safe_load(open(root, 'rb'))
+		index = yaml.safe_load(open(root, 'r'))
 		paraff_path = os.path.join(os.path.dirname(root), index['paraff'])
 		groups = [group for i, group in enumerate(index['groups']) if i % cycle in phases]
 		paragraphs = [paragraph for paragraph in index['paragraphs'] if paragraph['group'] in groups]
+
+		self.measure = self.loadMeasures(paraff_path, n_seq_word, encoder)
 
 		ph_ids = torch.zeros(len(paragraphs), n_seq_phase, dtype=torch.uint8)
 		#ph_body_mask = torch.zeros(len(paragraphs), n_seq_phase, dtype=torch.bool)
@@ -69,15 +106,6 @@ class PhasedParagraph (IterableDataset):
 
 		self.paragraphs = dict(ids=ph_ids, f_num=ph_f_num, b_num=ph_b_num)
 		self.n_measure = sum(paragraph['sentenceRange'][1] - paragraph['sentenceRange'][0] for paragraph in paragraphs)
-
-		'''paraff = ParaffFile(paraff_path)
-
-		padding_zeros = [0] * (n_seq_word + 1 - paraff.sentence_align_size)
-		sentences = [s + padding_zeros for i, s in paraff.sentences]
-		self.entries = torch.tensor(sentences, dtype=torch.uint8)
-
-		self.id_BOM = paraff.tokens.index('BOM')
-		self.id_EOM = paraff.tokens.index('EOM')'''
 
 
 	def __len__ (self):

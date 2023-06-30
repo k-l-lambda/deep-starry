@@ -8,6 +8,10 @@ data:
   splits:                   '*1..8/10:9/10'
   batch_size:               2
   args:
-    n_seq_word:             512
+    n_seq_word:             256
     n_seq_phase:            256
     descriptor_drop:        0.2
+    encoder:
+      weight:               ./training/paraff/20230627-paraff-vae-shared-0613-d256-l4-kld1e-6/model_59_loss_6.662e-02.pt
+      device:               cpu
+      batch_size:           4
