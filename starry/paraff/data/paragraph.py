@@ -16,6 +16,7 @@ PHID_MEASURE = 3
 class MeasureLibrary:
 	def __init__(self, file, n_seq, encoder_config):
 		paraff = ParaffFile(file)
+		self.tokens = paraff.tokens
 
 		padding_zeros = [0] * (n_seq + 1 - paraff.sentence_align_size)
 		sentences = [s + padding_zeros for s in paraff.sentences]
@@ -132,8 +133,10 @@ class PhasedParagraph (IterableDataset):
 				ph_f_num = self.paragraphs['f_num'][i]
 				ph_b_num = self.paragraphs['b_num'][i]
 				ph_summary = torch.zeros(self.n_seq_phase, self.d_summary)
-				ph_body_mask = ph_id == PHID_MEASURE
+				ph_body_mask = torch.zeros_like(ph_id).bool()
 				ph_summary[ph_body_mask] = self.measure.summaries[measure_begin:measure_end]
+
+				ph_mask_idx = torch.arange(ph_id.shape[0])[ph_id == PHID_MEASURE]
 
 				entris = self.measure.entries[measure_begin:measure_end]
 				pids = entris.flatten()
@@ -154,11 +157,13 @@ class PhasedParagraph (IterableDataset):
 					input_ids[:ids.shape[0] - 1] = ids[:-1]
 					output_ids[:ids.shape[0] - 1] = ids[1:]
 
-					body_mask[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] > ids_begin
+					body_mask[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] >= ids_begin
 
 					position[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] - ids_begin
 
 					yield ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask, input_ids, output_ids, body_mask, position
+
+					ph_body_mask[ph_mask_idx[mi - measure_begin].item()] = True
 
 
 	def collateBatch (self, batch):
