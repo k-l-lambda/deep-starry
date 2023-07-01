@@ -130,13 +130,15 @@ class PhasedParagraph (IterableDataset):
 				measure_begin, measure_end = self.paragraphs['range'][i].tolist()
 
 				ph_id = self.paragraphs['id'][i]
+				ph_indecies = torch.arange(ph_id.shape[0])
 				ph_f_num = self.paragraphs['f_num'][i]
 				ph_b_num = self.paragraphs['b_num'][i]
 				ph_summary = torch.zeros(self.n_seq_phase, self.d_summary)
 				ph_body_mask = torch.zeros_like(ph_id).bool()
 				ph_is_measure = ph_id == PHID_MEASURE
 				ph_summary[ph_is_measure] = self.measure.summaries[measure_begin:measure_end]
-				ph_mask_idx = torch.arange(ph_id.shape[0])[ph_is_measure]
+				ph_body_idx = ph_indecies[ph_is_measure]
+				ph_body_mask[ph_indecies < ph_body_idx[0].item()] = True	# TODO: random drop decriptors
 
 				entris = self.measure.entries[measure_begin:measure_end]
 				pids = entris.flatten()
@@ -161,9 +163,12 @@ class PhasedParagraph (IterableDataset):
 
 					position[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] - ids_begin
 
-					yield ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask, input_ids, output_ids, body_mask, position
+					ph_next_mask = torch.zeros_like(ph_id).bool()
+					ph_next_mask[ph_body_idx[mi - measure_begin].item()] = True
 
-					ph_body_mask[ph_mask_idx[mi - measure_begin].item()] = True
+					yield ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask.clone(), ph_next_mask, input_ids, output_ids, body_mask, position
+
+					ph_body_mask[ph_body_idx[mi - measure_begin].item()] = True
 
 
 	def collateBatch (self, batch):
@@ -171,7 +176,7 @@ class PhasedParagraph (IterableDataset):
 			tensors = [ex[i] for ex in batch]
 			return torch.stack(tensors, axis=0).to(self.device)
 
-		ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask, input_ids, output_ids, body_mask, position = [extract(i) for i in range(9)]
+		ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask, ph_next_mask, input_ids, output_ids, body_mask, position = [extract(i) for i in range(10)]
 
 		return dict(
 			ph_id=ph_id,
@@ -179,6 +184,7 @@ class PhasedParagraph (IterableDataset):
 			ph_b_num=ph_b_num,
 			ph_summary=ph_summary,
 			ph_body_mask=ph_body_mask,
+			ph_next_mask=ph_next_mask,
 			input_ids=input_ids,
 			output_ids=output_ids,
 			body_mask=body_mask,
