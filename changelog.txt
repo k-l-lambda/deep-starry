@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.7.1
+
+	+	paraff/data/paragraph.py: added descriptors random drop.
+
+
 2023.6.30
 
 	+	paraff/data/paragraph.py created.

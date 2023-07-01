@@ -131,6 +131,7 @@ class PhasedParagraph (IterableDataset):
 
 				ph_id = self.paragraphs['id'][i]
 				ph_indecies = torch.arange(ph_id.shape[0])
+				ph_descriptors = ph_id > PHID_MEASURE
 				ph_f_num = self.paragraphs['f_num'][i]
 				ph_b_num = self.paragraphs['b_num'][i]
 				ph_summary = torch.zeros(self.n_seq_phase, self.d_summary)
@@ -138,7 +139,14 @@ class PhasedParagraph (IterableDataset):
 				ph_is_measure = ph_id == PHID_MEASURE
 				ph_summary[ph_is_measure] = self.measure.summaries[measure_begin:measure_end]
 				ph_body_idx = ph_indecies[ph_is_measure]
-				ph_body_mask[ph_indecies < ph_body_idx[0].item()] = True	# TODO: random drop decriptors
+				ph_body_mask[ph_indecies < ph_body_idx[0].item()] = True
+
+				# random drop decriptors
+				drop_p_pow = torch.randn(1) * self.descriptor_drop_sigma
+				drop_p = torch.pow(self.descriptor_drop, torch.exp(drop_p_pow))
+				#descriptors_mask = torch.rand_like(ph_id, dtype=torch.float32) < drop_p
+				#ph_body_mask[ph_descriptors & descriptors_mask] = False
+				n_descriptors = ph_descriptors.int().sum().item()
 
 				entris = self.measure.entries[measure_begin:measure_end]
 				pids = entris.flatten()
@@ -166,7 +174,11 @@ class PhasedParagraph (IterableDataset):
 					ph_next_mask = torch.zeros_like(ph_id).bool()
 					ph_next_mask[ph_body_idx[mi - measure_begin].item()] = True
 
-					yield ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask.clone(), ph_next_mask, input_ids, output_ids, body_mask, position
+					# random drop decriptors
+					ph_body_mask_m = ph_body_mask.clone()
+					ph_body_mask_m[ph_descriptors] = torch.rand(n_descriptors, dtype=torch.float32) >= drop_p
+
+					yield ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask_m, ph_next_mask, input_ids, output_ids, body_mask, position
 
 					ph_body_mask[ph_body_idx[mi - measure_begin].item()] = True
 
