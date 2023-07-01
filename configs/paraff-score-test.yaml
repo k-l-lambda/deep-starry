@@ -10,8 +10,40 @@ data:
   args:
     n_seq_word:             512
     n_seq_phase:            256
-    descriptor_drop:        0.2
+    descriptor_drop:        0.3
+    descriptor_drop_sigma:  1.
     encoder:
       weight:               ./training/paraff/20230627-paraff-vae-shared-0613-d256-l4-kld1e-6/model_59_loss_6.662e-02.pt
       device:               cpu
       batch_size:           4
+
+model:
+  type:                     PhaseGen
+  args:
+    d_model:                256
+    n_vocab:                14
+    pad_id:                 0
+    n_layers:               4
+    d_inner:                1024
+    n_head:                 8
+    d_k:                    32
+    d_v:                    32
+    dropout:                0.1
+    angle_cycle:            10000
+    random_base:            False
+    latent_l2_reg:          0
+    word_decoder_config:
+      n_vocab:              102
+      pad_id:               0
+      summary_id:           1
+      finale_id:            5
+      n_seq_max:            512
+      d_model:              256
+      d_inner:              1024
+      n_layers:             4
+      n_head:               8
+      d_k:                  32
+      d_v:                  32
+      dropout:              0.1
+      kld_weight:           1.e-6
+      mask_dropout:         0

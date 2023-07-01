@@ -178,7 +178,7 @@ class PhasedParagraph (IterableDataset):
 					ph_body_mask_m = ph_body_mask.clone()
 					ph_body_mask_m[ph_descriptors] = torch.rand(n_descriptors, dtype=torch.float32) >= drop_p
 
-					yield ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask_m, ph_next_mask, input_ids, output_ids, body_mask, position
+					yield ph_id, ph_f_num, ph_b_num, ph_summary.clone(), ph_body_mask_m, ph_next_mask, input_ids, output_ids, body_mask, position
 
 					ph_body_mask[ph_body_idx[mi - measure_begin].item()] = True
 

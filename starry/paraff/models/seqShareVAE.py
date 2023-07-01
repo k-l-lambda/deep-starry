@@ -111,14 +111,14 @@ class SeqShareVAE (nn.Module):
 		self.attention = AttentionStack(d_model=d_model, n_layers=n_layers, dropout=dropout, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v)
 
 
-	def getEncoder (self):
+	def getEncoder (self) -> SeqShareEncoder:
 		return SeqShareEncoder(d_model=self.d_model, word_emb=self.word_emb,
 			latent_prj_mu=self.latent_prj_mu, latent_prj_var=self.latent_prj_var,
 			position_enc=self.position_enc, layer_norm=self.layer_norm,
 			dropout=self.dropout, attention=self.attention, pad_id=self.pad_id, finale_id=self.finale_id)
 
 
-	def getDecoder (self):
+	def getDecoder (self) -> SeqShareDecoder:
 		return SeqShareDecoder(d_model=self.d_model, word_emb=self.word_emb, word_prj=self.word_prj, latent_emb=self.latent_emb,
 			position_enc=self.position_enc, layer_norm=self.layer_norm, dropout=self.dropout, mask_dropout=self.mask_dropout,
 			attention=self.attention, pad_id=self.pad_id)
