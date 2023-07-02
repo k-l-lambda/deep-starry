@@ -129,71 +129,71 @@ class PhasedParagraph (IterableDataset):
 			for key in self.paragraphs:
 				self.paragraphs[key] = self.paragraphs[key][disorder]
 
-			for i in range(self.paragraphs['id'].shape[0]):
-				measure_begin, measure_end = self.paragraphs['range'][i].tolist()
+		for i in range(self.paragraphs['id'].shape[0]):
+			measure_begin, measure_end = self.paragraphs['range'][i].tolist()
 
-				ph_id = self.paragraphs['id'][i]
-				ph_indecies = torch.arange(ph_id.shape[0])
-				ph_descriptors = ph_id > PHID_MEASURE
-				ph_f_num = self.paragraphs['f_num'][i]
-				ph_b_num = self.paragraphs['b_num'][i]
-				ph_summary = torch.zeros(self.n_seq_phase, self.d_summary)
-				ph_body_mask = torch.zeros_like(ph_id).bool()
-				ph_is_measure = ph_id == PHID_MEASURE
-				ph_summary[ph_is_measure] = self.measure.summaries[measure_begin:measure_end]
-				ph_body_idx = ph_indecies[ph_is_measure]
-				ph_body_mask[ph_indecies < ph_body_idx[0].item()] = True
+			ph_id = self.paragraphs['id'][i]
+			ph_indecies = torch.arange(ph_id.shape[0])
+			ph_descriptors = ph_id > PHID_MEASURE
+			ph_f_num = self.paragraphs['f_num'][i]
+			ph_b_num = self.paragraphs['b_num'][i]
+			ph_summary = torch.zeros(self.n_seq_phase, self.d_summary)
+			ph_body_mask = torch.zeros_like(ph_id).bool()
+			ph_is_measure = ph_id == PHID_MEASURE
+			ph_summary[ph_is_measure] = self.measure.summaries[measure_begin:measure_end]
+			ph_body_idx = ph_indecies[ph_is_measure]
+			ph_body_mask[ph_indecies < ph_body_idx[0].item()] = True
+
+			# random drop decriptors
+			drop_p_pow = torch.randn(1) * self.descriptor_drop_sigma
+			drop_p = torch.pow(self.descriptor_drop, torch.exp(drop_p_pow))
+			#descriptors_mask = torch.rand_like(ph_id, dtype=torch.float32) < drop_p
+			#ph_body_mask[ph_descriptors & descriptors_mask] = False
+			n_descriptors = ph_descriptors.int().sum().item()
+
+			entries = self.measure.entries[measure_begin:measure_end]
+			pids = entries.flatten()
+			pids = pids[pids != 0]
+			pids = F.pad(pids, (1, 0), 'constant', 0)
+			pids_arange = torch.arange(pids.shape[0], dtype=torch.int16)
+			measure_size = (entries != 0).int().sum(dim=-1)
+			measure_size[0] += 1
+
+			for mi in range(measure_begin, measure_end):
+				ids_begin = measure_size[:mi - measure_begin].sum()
+				ids_end = measure_size[:mi - measure_begin + 1].sum()
+				ids = pids[max(0, ids_end - self.n_seq_word):ids_end]
+
+				if self.with_summary:
+					ids = ids.clone()
+					ids[0] = self.summary_id
+
+				input_ids = torch.zeros(self.n_seq_word, dtype=torch.uint8)
+				output_ids = torch.zeros(self.n_seq_word, dtype=torch.uint8)
+				body_mask = torch.zeros(self.n_seq_word, dtype=torch.bool)
+				position = torch.zeros(self.n_seq_word, dtype=torch.int16)
+
+				input_ids[:ids.shape[0] - 1] = ids[:-1]
+				output_ids[:ids.shape[0] - 1] = ids[1:]
+
+				body_mask[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] >= ids_begin
+
+				position[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] - ids_begin
+
+				if self.with_summary:
+					position[0] = 0
+					body_mask[0] = True
+
+				ph_next_mask = torch.zeros_like(ph_id).bool()
+				ph_next_mask[ph_body_idx[mi - measure_begin].item()] = True
 
 				# random drop decriptors
-				drop_p_pow = torch.randn(1) * self.descriptor_drop_sigma
-				drop_p = torch.pow(self.descriptor_drop, torch.exp(drop_p_pow))
-				#descriptors_mask = torch.rand_like(ph_id, dtype=torch.float32) < drop_p
-				#ph_body_mask[ph_descriptors & descriptors_mask] = False
-				n_descriptors = ph_descriptors.int().sum().item()
+				ph_body_mask_m = ph_body_mask.clone()
+				ph_body_mask_m[ph_descriptors] = torch.rand(n_descriptors, dtype=torch.float32) >= drop_p
 
-				entries = self.measure.entries[measure_begin:measure_end]
-				pids = entries.flatten()
-				pids = pids[pids != 0]
-				pids = F.pad(pids, (1, 0), 'constant', 0)
-				pids_arange = torch.arange(pids.shape[0], dtype=torch.int16)
-				measure_size = (entries != 0).int().sum(dim=-1)
-				measure_size[0] += 1
+				yield ph_id, ph_f_num, ph_b_num, ph_summary.clone(), ph_body_mask_m, ph_next_mask, input_ids, output_ids, body_mask, position
 
-				for mi in range(measure_begin, measure_end):
-					ids_begin = measure_size[:mi - measure_begin].sum()
-					ids_end = measure_size[:mi - measure_begin + 1].sum()
-					ids = pids[max(0, ids_end - self.n_seq_word):ids_end]
-
-					if self.with_summary:
-						ids = ids.clone()
-						ids[0] = self.summary_id
-
-					input_ids = torch.zeros(self.n_seq_word, dtype=torch.uint8)
-					output_ids = torch.zeros(self.n_seq_word, dtype=torch.uint8)
-					body_mask = torch.zeros(self.n_seq_word, dtype=torch.bool)
-					position = torch.zeros(self.n_seq_word, dtype=torch.int16)
-
-					input_ids[:ids.shape[0] - 1] = ids[:-1]
-					output_ids[:ids.shape[0] - 1] = ids[1:]
-
-					body_mask[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] >= ids_begin
-
-					position[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] - ids_begin
-
-					if self.with_summary:
-						position[0] = 0
-						body_mask[0] = True
-
-					ph_next_mask = torch.zeros_like(ph_id).bool()
-					ph_next_mask[ph_body_idx[mi - measure_begin].item()] = True
-
-					# random drop decriptors
-					ph_body_mask_m = ph_body_mask.clone()
-					ph_body_mask_m[ph_descriptors] = torch.rand(n_descriptors, dtype=torch.float32) >= drop_p
-
-					yield ph_id, ph_f_num, ph_b_num, ph_summary.clone(), ph_body_mask_m, ph_next_mask, input_ids, output_ids, body_mask, position
-
-					ph_body_mask[ph_body_idx[mi - measure_begin].item()] = True
+				ph_body_mask[ph_body_idx[mi - measure_begin].item()] = True
 
 
 	def collateBatch (self, batch):

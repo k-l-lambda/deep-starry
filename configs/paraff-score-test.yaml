@@ -52,3 +52,26 @@ model:
     word_decoder_pretrain:
       weight:               training/paraff/20230627-paraff-vae-shared-0613-d256-l4-kld1e-6/model_236_loss_3.732e-02.chkpt
       freeze_layers:        3
+
+
+trainer:
+  env: ~
+  device:                   cuda
+  save_mode:                best
+  epoch:                    100
+  report_step_unit:         examples
+  moniter:
+    field:                  acc
+    mode:                   max
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               1
+      n_warmup_steps:       6400
+      d_model:              256

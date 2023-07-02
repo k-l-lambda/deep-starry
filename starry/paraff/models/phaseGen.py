@@ -43,6 +43,9 @@ class PhaseGen (nn.Module):
 
 
 class PhaseGenLoss (nn.Module):
+	need_states = True
+
+
 	def __init__ (self,
 		d_model=256, word_decoder_config={}, word_decoder_pretrain=None, random_base=False, latent_l2_reg=0., **kw_args):
 		super().__init__()
@@ -98,3 +101,13 @@ class PhaseGenLoss (nn.Module):
 			'acc': acc.item(),
 			'latent_l2': latent_l2,
 		}
+
+
+	def state_dict (self, destination=None, prefix='', keep_vars=False):
+		return {
+			'word_decoder': self.word_decoder.state_dict(),
+		}
+
+
+	def updateStates (self):
+		pass
