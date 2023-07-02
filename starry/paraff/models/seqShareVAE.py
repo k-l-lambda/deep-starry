@@ -1,11 +1,13 @@
 
 from typing import Optional
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 #import logging
 
 from ...transformer.models import PositionalEncoding, get_pad_mask, get_subsequent_mask
+from ...modules.positionEncoder import SinusoidEncoder
 from .sparseAE import AttentionStack
 
 
@@ -85,6 +87,45 @@ class SeqShareDecoder (nn.Module):
 		return x
 
 
+class SeqShareDecoderWithPosition (nn.Module):
+	def __init__(self, d_model, word_emb, word_prj, latent_emb, dropout, layer_norm, mask_dropout, attention, pad_id, angle_cycle=10000 / (2 * np.pi)):
+		super().__init__()
+
+		self.d_model = d_model
+
+		self.word_emb = word_emb
+		self.word_prj = word_prj
+		self.latent_emb = latent_emb
+		self.position_enc = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_model)
+		self.attention = attention
+		self.pad_id = pad_id
+
+		self.dropout = nn.Dropout(p=dropout)
+		self.mask_dropout = nn.Dropout(p=mask_dropout)
+		self.layer_norm = layer_norm
+
+
+	def forward (self, seq: torch.Tensor, pos: torch.Tensor, latent: torch.Tensor, mask: Optional[torch.Tensor] =None):
+		mask = get_pad_mask(seq, self.pad_id) if mask is None else mask.unsqueeze(-2)
+		mask[:, 1:] = self.mask_dropout(mask[:, 1:].float()).bool()
+		mask = mask & get_subsequent_mask(seq)
+
+		summary = self.latent_emb(latent)
+
+		x = seq.long()
+		x = self.word_emb(x)
+		x[:, 0] += summary	# add summary embedding on the first element
+		x *= self.d_model ** 0.5	# scale embedding
+
+		x += self.dropout(self.position_enc(pos))
+		x = self.layer_norm(x)
+		x = self.attention(x, mask)
+
+		x = self.word_prj(x)
+
+		return x
+
+
 class SeqShareVAE (nn.Module):
 	def __init__ (self, n_vocab, d_latent=256, pad_id=0, finale_id=5,
 		n_layers=6, d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64,
@@ -121,6 +162,12 @@ class SeqShareVAE (nn.Module):
 	def getDecoder (self) -> SeqShareDecoder:
 		return SeqShareDecoder(d_model=self.d_model, word_emb=self.word_emb, word_prj=self.word_prj, latent_emb=self.latent_emb,
 			position_enc=self.position_enc, layer_norm=self.layer_norm, dropout=self.dropout, mask_dropout=self.mask_dropout,
+			attention=self.attention, pad_id=self.pad_id)
+
+
+	def getDecoderWithPos (self) -> SeqShareDecoderWithPosition:
+		return SeqShareDecoderWithPosition(d_model=self.d_model, word_emb=self.word_emb, word_prj=self.word_prj, latent_emb=self.latent_emb,
+			layer_norm=self.layer_norm, dropout=self.dropout, mask_dropout=self.mask_dropout,
 			attention=self.attention, pad_id=self.pad_id)
 
 

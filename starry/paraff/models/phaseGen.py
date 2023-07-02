@@ -53,7 +53,7 @@ class PhaseGenLoss (nn.Module):
 
 		self.deducer = PhaseGen(d_model=d_model, **kw_args)
 
-		self.word_decoder = SeqShareVAE(d_latent=d_model, **word_decoder_config).getDecoder()
+		self.word_decoder = SeqShareVAE(d_latent=d_model, **word_decoder_config).getDecoderWithPos()
 
 
 	def forward(self, batch):
@@ -66,7 +66,7 @@ class PhaseGenLoss (nn.Module):
 
 		latent = self.deducer(ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask | ph_next_mask, ph_next_mask)
 		latent_delta = latent - ph_summary[ph_next_mask]
-		pred = self.word_decoder(batch['input_ids'], latent)
+		pred = self.word_decoder(batch['input_ids'], batch['position'].float(), latent)
 		pred_body = pred[body_mask]
 
 		latent_l2 = latent_delta.square().mean()

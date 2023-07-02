@@ -7,6 +7,8 @@ TODO:
 
 2023.7.2
 
+	+	phaseGen.py: use decoder with position.
+
 	+	paragraph.py: argument of with_summary added.
 
 
