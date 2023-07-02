@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.7.2
+
+	+	paragraph.py: argument of with_summary added.
+
+
 2023.7.1
 
 	+	paraff/models/phaseGen.py created.

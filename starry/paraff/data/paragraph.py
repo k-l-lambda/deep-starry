@@ -1,6 +1,7 @@
 
 import os
 import torch
+import torch.nn.functional as F
 from torch.utils.data import IterableDataset
 import yaml
 from tqdm import tqdm
@@ -67,7 +68,7 @@ class PhasedParagraph (IterableDataset):
 
 
 	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_phase, encoder,
-		descriptor_drop=0.1, descriptor_drop_sigma=0., **_):
+		descriptor_drop=0.1, descriptor_drop_sigma=0., with_summary=False, summary_id=1, **_):
 		super().__init__()
 
 		self.device = device
@@ -76,6 +77,8 @@ class PhasedParagraph (IterableDataset):
 		self.n_seq_phase = n_seq_phase
 		self.descriptor_drop = descriptor_drop
 		self.descriptor_drop_sigma = descriptor_drop_sigma
+		self.with_summary = with_summary
+		self.summary_id = summary_id
 
 		phases, cycle = parseFilterStr(split)
 
@@ -148,16 +151,22 @@ class PhasedParagraph (IterableDataset):
 				#ph_body_mask[ph_descriptors & descriptors_mask] = False
 				n_descriptors = ph_descriptors.int().sum().item()
 
-				entris = self.measure.entries[measure_begin:measure_end]
-				pids = entris.flatten()
+				entries = self.measure.entries[measure_begin:measure_end]
+				pids = entries.flatten()
 				pids = pids[pids != 0]
+				pids = F.pad(pids, (1, 0), 'constant', 0)
 				pids_arange = torch.arange(pids.shape[0], dtype=torch.int16)
-				measure_size = (entris != 0).int().sum(dim=-1)
+				measure_size = (entries != 0).int().sum(dim=-1)
+				measure_size[0] += 1
 
 				for mi in range(measure_begin, measure_end):
 					ids_begin = measure_size[:mi - measure_begin].sum()
 					ids_end = measure_size[:mi - measure_begin + 1].sum()
 					ids = pids[max(0, ids_end - self.n_seq_word):ids_end]
+
+					if self.with_summary:
+						ids = ids.clone()
+						ids[0] = self.summary_id
 
 					input_ids = torch.zeros(self.n_seq_word, dtype=torch.uint8)
 					output_ids = torch.zeros(self.n_seq_word, dtype=torch.uint8)
@@ -170,6 +179,10 @@ class PhasedParagraph (IterableDataset):
 					body_mask[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] >= ids_begin
 
 					position[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] - ids_begin
+
+					if self.with_summary:
+						position[0] = 0
+						body_mask[0] = True
 
 					ph_next_mask = torch.zeros_like(ph_id).bool()
 					ph_next_mask[ph_body_idx[mi - measure_begin].item()] = True
