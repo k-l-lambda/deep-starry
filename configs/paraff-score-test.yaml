@@ -14,9 +14,10 @@ data:
     descriptor_drop_sigma:  1.
     with_summary:           True
     encoder:
-      weight:               ./training/paraff/20230627-paraff-vae-shared-0613-d256-l4-kld1e-6/model_59_loss_6.662e-02.pt
-      device:               cpu
-      batch_size:           4
+      weight:               ./training/paraff/20230627-paraff-vae-shared-0613-d256-l4-kld1e-6/model_236_loss_3.732e-02.pt
+      device:               cuda
+      batch_size:           64
+
 
 model:
   type:                     PhaseGen
@@ -48,3 +49,4 @@ model:
       dropout:              0.1
       kld_weight:           1.e-6
       mask_dropout:         0
+    word_decoder_weight:    training/paraff/20230627-paraff-vae-shared-0613-d256-l4-kld1e-6/model_236_loss_3.732e-02.chkpt

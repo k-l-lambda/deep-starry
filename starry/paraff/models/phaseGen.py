@@ -44,7 +44,7 @@ class PhaseGen (nn.Module):
 
 class PhaseGenLoss (nn.Module):
 	def __init__ (self,
-		d_model=256, word_decoder_config={}, random_base=False, latent_l2_reg=0., **kw_args):
+		d_model=256, word_decoder_config={}, word_decoder_weight=None, random_base=False, latent_l2_reg=0., **kw_args):
 		super().__init__()
 
 		self.summary_id = word_decoder_config['summary_id']
@@ -53,7 +53,21 @@ class PhaseGenLoss (nn.Module):
 
 		self.deducer = PhaseGen(d_model=d_model, **kw_args)
 
-		self.word_decoder = SeqShareVAE(d_latent=d_model, **word_decoder_config).getDecoderWithPos()
+		for p in self.deducer.parameters():
+			if p.dim() > 1:
+				nn.init.xavier_uniform_(p, gain=kw_args['n_layers'] ** -0.5)
+
+		vae = SeqShareVAE(d_latent=d_model, **word_decoder_config)
+
+		if word_decoder_weight is not None:
+			checkpoint = torch.load(word_decoder_weight, map_location='cpu')
+			vae.load_state_dict(checkpoint['model'], strict=False)
+		else:
+			for p in vae.parameters():
+				if p.dim() > 1:
+					nn.init.xavier_uniform_(p, gain=word_decoder_config['n_layers'] ** -0.5)
+
+		self.word_decoder = vae.getDecoderWithPos()
 
 
 	def forward(self, batch):
