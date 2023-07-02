@@ -44,7 +44,7 @@ class PhaseGen (nn.Module):
 
 class PhaseGenLoss (nn.Module):
 	def __init__ (self,
-		d_model=256, word_decoder_config={}, word_decoder_weight=None, random_base=False, latent_l2_reg=0., **kw_args):
+		d_model=256, word_decoder_config={}, word_decoder_pretrain=None, random_base=False, latent_l2_reg=0., **kw_args):
 		super().__init__()
 
 		self.summary_id = word_decoder_config['summary_id']
@@ -59,9 +59,14 @@ class PhaseGenLoss (nn.Module):
 
 		vae = SeqShareVAE(d_latent=d_model, **word_decoder_config)
 
-		if word_decoder_weight is not None:
-			checkpoint = torch.load(word_decoder_weight, map_location='cpu')
+		if word_decoder_pretrain is not None:
+			checkpoint = torch.load(word_decoder_pretrain['weight'], map_location='cpu')
 			vae.load_state_dict(checkpoint['model'], strict=False)
+
+			freeze_layers = word_decoder_pretrain.get('freeze_layers', 0)
+			for l in range(freeze_layers):
+				for param in vae.attention.layer_stack[l].parameters():
+					param.requires_grad = False
 		else:
 			for p in vae.parameters():
 				if p.dim() > 1:
