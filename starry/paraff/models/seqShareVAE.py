@@ -101,13 +101,13 @@ class SeqShareDecoderWithPosition (nn.Module):
 		self.pad_id = pad_id
 
 		self.dropout = nn.Dropout(p=dropout)
-		self.mask_dropout = nn.Dropout(p=mask_dropout)
+		#self.mask_dropout = nn.Dropout(p=mask_dropout)
 		self.layer_norm = layer_norm
 
 
 	def forward (self, seq: torch.Tensor, pos: torch.Tensor, latent: torch.Tensor, mask: Optional[torch.Tensor] =None):
 		mask = get_pad_mask(seq, self.pad_id) if mask is None else mask.unsqueeze(-2)
-		mask[:, 1:] = self.mask_dropout(mask[:, 1:].float()).bool()
+		#mask[:, 1:] = self.mask_dropout(mask[:, 1:].float()).bool()
 		mask = mask & get_subsequent_mask(seq)
 
 		summary = self.latent_emb(latent)

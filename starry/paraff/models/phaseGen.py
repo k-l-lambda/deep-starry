@@ -25,7 +25,7 @@ class PhaseGen (nn.Module):
 		self.attention = AttentionStack(d_model=d_model, n_layers=n_layers, dropout=dropout, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v)
 
 
-	def forward(self, ids, f_pos, b_pos, summary, mask, next):	# -> (n, d_model * n_next)
+	def forward (self, ids, f_pos, b_pos, summary, mask, next):	# -> (n, d_model * n_next)
 		trg_mask = mask.unsqueeze(-2) & get_subsequent_mask(ids)
 
 		ids = ids.long()
@@ -40,6 +40,22 @@ class PhaseGen (nn.Module):
 		x = self.attention(x, mask=trg_mask)
 
 		return x[next].squeeze(1)
+
+
+class PhaseGenDecoder (nn.Module):
+	def __init__ (self, d_model=256, word_decoder_config={}, **_):
+		super().__init__()
+
+		vae = SeqShareVAE(d_latent=d_model, **word_decoder_config)
+		self.word_decoder = vae.getDecoderWithPos()
+
+
+	def load_state_dict (self, state_dict, strict=True):
+		return self.word_decoder.load_state_dict(state_dict['word_decoder'], strict)
+
+
+	def forward (self, input_ids, position, latent):
+		return self.word_decoder(input_ids, position.float(), latent)
 
 
 class PhaseGenLoss (nn.Module):
