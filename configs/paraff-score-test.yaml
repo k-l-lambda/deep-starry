@@ -42,7 +42,7 @@ model:
       n_seq_max:            512
       d_model:              256
       d_inner:              1024
-      n_layers:             4
+      n_layers:             6
       n_head:               8
       d_k:                  32
       d_v:                  32
@@ -51,7 +51,8 @@ model:
       mask_dropout:         0
     word_decoder_pretrain:
       weight:               training/paraff/20230627-paraff-vae-shared-0613-d256-l4-kld1e-6/model_236_loss_3.732e-02.chkpt
-      defreeze_layers:      1
+      defreeze_layers:      3
+      init_layers:          2
 
 
 trainer:
