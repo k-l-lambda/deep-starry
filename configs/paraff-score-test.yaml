@@ -51,7 +51,7 @@ model:
       mask_dropout:         0
     word_decoder_pretrain:
       weight:               training/paraff/20230627-paraff-vae-shared-0613-d256-l4-kld1e-6/model_236_loss_3.732e-02.chkpt
-      freeze_layers:        3
+      defreeze_layers:      1
 
 
 trainer:
