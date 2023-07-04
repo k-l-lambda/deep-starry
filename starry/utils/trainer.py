@@ -151,6 +151,8 @@ class Trainer:
 				'model': self.model.deducer.state_dict(),
 				'optim': self.optimizer._optimizer.state_dict(),
 			}
+			if hasattr(self.model, 'need_states'):
+				checkpoint['extra'] = self.model.state_dict()
 			torch.save(checkpoint, self.config.localPath('latest.chkpt'))
 
 			scalars = {

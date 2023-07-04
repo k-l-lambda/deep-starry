@@ -155,5 +155,10 @@ class PhaseGenLoss (nn.Module):
 		}
 
 
+	def load_state_dict (self, state_dict, **_):
+		if state_dict.get('word_decoder') is not None:
+			self.word_decoder.load_state_dict(state_dict['word_decoder'])
+
+
 	def updateStates (self):
 		pass
