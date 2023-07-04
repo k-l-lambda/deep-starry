@@ -84,7 +84,7 @@ class PhaseGenLoss (nn.Module):
 
 			defreeze_layers = word_decoder_pretrain.get('defreeze_layers', 0)
 			if defreeze_layers > 0:
-				for p in vae.parameters():
+				for param in vae.parameters():
 					param.requires_grad = False
 				for l in range(defreeze_layers):
 					for param in vae.attention.layer_stack[-l - 1].parameters():
