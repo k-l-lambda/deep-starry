@@ -39,7 +39,7 @@ class PhaseGen (nn.Module):
 
 		x = self.attention(x, mask=trg_mask)
 
-		return x[next].squeeze(1)
+		return x[next]
 
 
 class PhaseGenDecoder (nn.Module):
