@@ -90,7 +90,7 @@ class PhaseGenLoss (nn.Module):
 				for l in range(defreeze_layers):
 					for param in vae.attention.layer_stack[-l - 1].parameters():
 						param.requires_grad = True
-						if l < init_layers:
+						if l < init_layers and p.dim() > 1:
 							nn.init.xavier_uniform_(param, gain=word_decoder_config['n_layers'] ** -0.5)
 			else:
 				freeze_layers = word_decoder_pretrain.get('freeze_layers', 0)
