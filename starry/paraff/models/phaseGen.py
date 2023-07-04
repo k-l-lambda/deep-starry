@@ -124,10 +124,29 @@ class PhaseGenLoss (nn.Module):
 		pred_ids = pred_body.argmax(dim=-1)
 		acc = (pred_ids == target_body).float().mean()
 
-		return loss, {
+		metric = {
 			'acc': acc.item(),
-			'latent_l2': latent_l2,
+			'latent_l2': latent_l2.item(),
 		}
+
+		if not self.training:
+			zero_latent = torch.zeros_like(latent)
+
+			pred_zl = self.word_decoder(batch['input_ids'], batch['position'].float(), zero_latent)
+			pred_np = self.word_decoder(batch['input_ids'], batch['position'].float(), latent, mask=body_mask)
+			pred_zlnp = self.word_decoder(batch['input_ids'], batch['position'].float(), zero_latent, mask=body_mask)
+
+			error = 1 - acc
+			error_zero_latent = 1 - (pred_zl[body_mask].argmax(dim=-1) == target_body).float().mean()
+			error_no_primer = 1 - (pred_np[body_mask].argmax(dim=-1) == target_body).float().mean()
+			error_zero_latent_no_primer = 1 - (pred_zlnp[body_mask].argmax(dim=-1) == target_body).float().mean()
+
+			metric['error'] = error.item()
+			metric['error_zero_latent'] = error_zero_latent.item()
+			metric['error_no_primer'] = error_no_primer.item()
+			metric['error_zero_latent_no_primer'] = error_zero_latent_no_primer.item()
+
+		return loss, metric
 
 
 	def state_dict (self, destination=None, prefix='', keep_vars=False):
