@@ -118,7 +118,7 @@ class PhaseGenLoss (nn.Module):
 		latent = self.deducer(ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask | ph_next_mask, ph_next_mask)
 		latent_delta = latent - ph_summary[ph_next_mask]
 
-		word_mask = (body_mask | batch['input_ids'] == self.summary_id) if self.mask_score_primer else None
+		word_mask = (body_mask | (batch['input_ids'] == self.summary_id)) if self.mask_score_primer else None
 		pred = self.word_decoder(batch['input_ids'], batch['position'].float(), latent, mask=word_mask)
 		pred_body = pred[body_mask]
 
