@@ -182,7 +182,7 @@ class PhasedParagraph (IterableDataset):
 
 				if self.with_summary:
 					position[0] = 0
-					body_mask[0] = True
+					#body_mask[0] = True
 
 				ph_next_mask = torch.zeros_like(ph_id).bool()
 				ph_next_mask[ph_body_idx[mi - measure_begin].item()] = True
