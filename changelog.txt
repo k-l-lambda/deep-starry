@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.7.5
+
+	+	phaseGen.py: added argument of mask_score_primer.
+
+
 2023.7.3
 
 	*!	Full zeros dropout may result in Floating point exception (core dumped).

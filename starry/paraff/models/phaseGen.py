@@ -63,12 +63,14 @@ class PhaseGenLoss (nn.Module):
 
 
 	def __init__ (self,
-		d_model=256, word_decoder_config={}, word_decoder_pretrain=None, random_base=False, latent_l2_reg=0., **kw_args):
+		d_model=256, word_decoder_config={}, word_decoder_pretrain=None,
+		random_base=False, latent_l2_reg=0., mask_score_primer=False, **kw_args):
 		super().__init__()
 
 		self.summary_id = word_decoder_config['summary_id']
 		self.random_base = random_base
 		self.latent_l2_reg = latent_l2_reg
+		self.mask_score_primer = mask_score_primer
 
 		self.deducer = PhaseGen(d_model=d_model, **kw_args)
 
@@ -105,7 +107,7 @@ class PhaseGenLoss (nn.Module):
 		self.word_decoder = vae.getDecoderWithPos()
 
 
-	def forward(self, batch):
+	def forward (self, batch):
 		body_mask = batch['body_mask']
 		target = batch['output_ids'].long()
 		target_body = target[body_mask]
@@ -115,7 +117,9 @@ class PhaseGenLoss (nn.Module):
 
 		latent = self.deducer(ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask | ph_next_mask, ph_next_mask)
 		latent_delta = latent - ph_summary[ph_next_mask]
-		pred = self.word_decoder(batch['input_ids'], batch['position'].float(), latent)
+
+		word_mask = (body_mask | batch['input_ids'] == self.summary_id) if self.mask_score_primer else None
+		pred = self.word_decoder(batch['input_ids'], batch['position'].float(), latent, mask=word_mask)
 		pred_body = pred[body_mask]
 
 		latent_l2 = latent_delta.square().mean()

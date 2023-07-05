@@ -15,8 +15,8 @@ data:
     with_summary:           True
     encoder:
       weight:               ./training/paraff/20230627-paraff-vae-shared-0613-d256-l4-kld1e-6/model_236_loss_3.732e-02.pt
-      device:               cuda
-      batch_size:           64
+      device:               cpu
+      batch_size:           16
 
 
 model:
@@ -34,6 +34,7 @@ model:
     angle_cycle:            10000
     random_base:            False
     latent_l2_reg:          0
+    mask_score_primer:      False
     word_decoder_config:
       n_vocab:              102
       pad_id:               0
