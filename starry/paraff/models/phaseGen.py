@@ -84,9 +84,9 @@ class PhaseGenLoss (nn.Module):
 			checkpoint = torch.load(word_decoder_pretrain['weight'], map_location='cpu')
 			vae.load_state_dict(checkpoint['model'], strict=False)
 
-			defreeze_layers = word_decoder_pretrain.get('defreeze_layers', 0)
+			defreeze_layers = word_decoder_pretrain.get('defreeze_layers', -1)
 			init_layers = word_decoder_pretrain.get('init_layers', 0)
-			if defreeze_layers > 0:
+			if defreeze_layers >= 0:
 				for param in vae.parameters():
 					param.requires_grad = False
 				for l in range(defreeze_layers):
