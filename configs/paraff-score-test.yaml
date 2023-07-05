@@ -76,3 +76,46 @@ optim:
       lr_mul:               1
       n_warmup_steps:       6400
       d_model:              256
+
+
+onnx:
+  multiple:
+    phaseGen128:
+      opset: 14
+      inputs:
+      - name:     ids
+        dtype:    uint8
+        shape:    &sz128 [1, 128]
+      - name:     f_pos
+        dtype:    int16
+        shape:    *sz128
+      - name:     b_pos
+        dtype:    int16
+        shape:    *sz128
+      - name:     summary
+        dtype:    float32
+        shape:    [1, 128, 256]
+      - name:     mask
+        dtype:    bool
+        shape:    *sz128
+      - name:     next
+        dtype:    bool
+        shape:    *sz128
+      outputs:
+      - latent
+    decoder128:
+      model_postfix: Decoder
+      state_field: extra
+      opset: 14
+      inputs:
+      - name: input_ids
+        dtype: uint8
+        shape: *sz128
+      - name: position
+        dtype: int16
+        shape: *sz128
+      - name: latent
+        dtype: float32
+        shape: [1, 256]
+      outputs:
+      - logits

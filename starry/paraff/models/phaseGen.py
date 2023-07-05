@@ -15,7 +15,7 @@ class PhaseGen (nn.Module):
 	def __init__ (self,
 			n_vocab, pad_id=0, d_model=256, d_inner=1024,
 			n_layers=6, n_head=8, d_k=32, d_v=32,
-			dropout=0.1, angle_cycle=10000):
+			dropout=0.1, angle_cycle=10000, **_):
 		super().__init__()
 
 		self.d_model = d_model
