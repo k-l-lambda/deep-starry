@@ -3,6 +3,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import logging
 
 from ...transformer.models import get_subsequent_mask
 from ...modules.positionEncoder import SinusoidEncoder
@@ -117,6 +118,7 @@ class PhaseGenLoss (nn.Module):
 			if lora_decoder_pretrain is not None:
 				checkpoint = torch.load(lora_decoder_pretrain['weight'], map_location='cpu')
 				self.word_decoder.load_state_dict(checkpoint['model'], strict=False)
+				logging.info('lora decoder weight loaded: %s', lora_decoder_pretrain['weight'])
 
 			self.word_decoder.initialize()
 			self.word_decoder.freezeTrunk()

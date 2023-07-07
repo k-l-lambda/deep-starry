@@ -141,6 +141,9 @@ class SeqDecoderLora (SeqDecoderBase):
 		for p in self.parameters():
 			p.requires_grad = False
 
+		for p in self.latent_emb.parameters():
+			p.requires_grad = True
+
 		for layer in self.attention.layer_stack:
 			if hasattr(layer, 'freezeTrunk'):
 				layer.freezeTrunk()
