@@ -8,24 +8,8 @@ import torch.nn.functional as F
 #import logging
 
 from ...transformer.models import PositionalEncoding, get_pad_mask, get_subsequent_mask
-from ...transformer.layers import EncoderLayer
+from .modules import AttentionStack
 
-
-
-class AttentionStack (nn.Module):
-	def __init__ (self, n_layers=6, d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64, dropout=0.1):
-		super().__init__()
-
-		self.layer_stack = nn.ModuleList([
-			EncoderLayer(d_model=d_model, dropout=dropout, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v)
-			for _ in range(n_layers)])
-
-
-	def forward (self, x, mask):
-		for enc_layer in self.layer_stack:
-			x, enc_slf_attn = enc_layer(x, slf_attn_mask=mask)
-
-		return x
 
 
 class SaeEncoder (nn.Module):

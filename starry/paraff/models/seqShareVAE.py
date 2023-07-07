@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 from ...transformer.models import PositionalEncoding, get_pad_mask, get_subsequent_mask
 from ...modules.positionEncoder import SinusoidEncoder
-from .sparseAE import AttentionStack
+from .modules import AttentionStack
 
 
 
