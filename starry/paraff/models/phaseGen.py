@@ -76,7 +76,7 @@ class PhaseGenLoss (nn.Module):
 
 		for p in self.deducer.parameters():
 			if p.dim() > 1:
-				nn.init.xavier_uniform_(p, gain=kw_args['n_layers'] ** -0.5)
+				nn.init.xavier_uniform_(p, gain=(kw_args['n_layers'] * 2) ** -0.5)
 
 		vae = SeqShareVAE(d_latent=d_model, **word_decoder_config)
 
@@ -93,7 +93,7 @@ class PhaseGenLoss (nn.Module):
 					for param in vae.attention.layer_stack[-l - 1].parameters():
 						param.requires_grad = True
 						if l < init_layers and p.dim() > 1:
-							nn.init.xavier_uniform_(param, gain=word_decoder_config['n_layers'] ** -0.5)
+							nn.init.xavier_uniform_(param, gain=(word_decoder_config['n_layers'] * 2) ** -0.5)
 			else:
 				freeze_layers = word_decoder_pretrain.get('freeze_layers', 0)
 				for l in range(freeze_layers):
@@ -102,7 +102,7 @@ class PhaseGenLoss (nn.Module):
 		else:
 			for p in vae.parameters():
 				if p.dim() > 1:
-					nn.init.xavier_uniform_(p, gain=word_decoder_config['n_layers'] ** -0.5)
+					nn.init.xavier_uniform_(p, gain=(word_decoder_config['n_layers'] * 2) ** -0.5)
 
 		self.word_decoder = vae.getDecoderWithPos()
 
