@@ -8,6 +8,7 @@ from ...transformer.models import get_subsequent_mask
 from ...modules.positionEncoder import SinusoidEncoder
 from .sparseAE import AttentionStack
 from .seqShareVAE import SeqShareVAE
+from .seqDecoder import SeqDecoderLora
 
 
 
@@ -63,11 +64,12 @@ class PhaseGenLoss (nn.Module):
 
 
 	def __init__ (self,
-		d_model=256, word_decoder_config={}, word_decoder_pretrain=None,
+		d_model=256, summary_id=1, word_decoder_config=None, word_decoder_pretrain=None,
+		lora_decoder_config=None, lora_decoder_pretrain=None,
 		random_base=False, latent_l2_reg=0., mask_score_primer=False, **kw_args):
 		super().__init__()
 
-		self.summary_id = word_decoder_config['summary_id']
+		self.summary_id = summary_id
 		self.random_base = random_base
 		self.latent_l2_reg = latent_l2_reg
 		self.mask_score_primer = mask_score_primer
@@ -78,33 +80,46 @@ class PhaseGenLoss (nn.Module):
 			if p.dim() > 1:
 				nn.init.xavier_uniform_(p, gain=(kw_args['n_layers'] * 2) ** -0.5)
 
-		vae = SeqShareVAE(d_latent=d_model, **word_decoder_config)
+		if word_decoder_config is not None:
+			if 'summary_id' in word_decoder_config:
+				self.summary_id = word_decoder_config['summary_id']
 
-		if word_decoder_pretrain is not None:
-			checkpoint = torch.load(word_decoder_pretrain['weight'], map_location='cpu')
-			vae.load_state_dict(checkpoint['model'], strict=False)
+			vae = SeqShareVAE(d_latent=d_model, **word_decoder_config)
 
-			defreeze_layers = word_decoder_pretrain.get('defreeze_layers', -1)
-			init_layers = word_decoder_pretrain.get('init_layers', 0)
-			if defreeze_layers >= 0:
-				for param in vae.parameters():
-					param.requires_grad = False
-				for l in range(defreeze_layers):
-					for param in vae.attention.layer_stack[-l - 1].parameters():
-						param.requires_grad = True
-						if l < init_layers and p.dim() > 1:
-							nn.init.xavier_uniform_(param, gain=(word_decoder_config['n_layers'] * 2) ** -0.5)
-			else:
-				freeze_layers = word_decoder_pretrain.get('freeze_layers', 0)
-				for l in range(freeze_layers):
-					for param in vae.attention.layer_stack[l].parameters():
+			if word_decoder_pretrain is not None:
+				checkpoint = torch.load(word_decoder_pretrain['weight'], map_location='cpu')
+				vae.load_state_dict(checkpoint['model'], strict=False)
+
+				defreeze_layers = word_decoder_pretrain.get('defreeze_layers', -1)
+				init_layers = word_decoder_pretrain.get('init_layers', 0)
+				if defreeze_layers >= 0:
+					for param in vae.parameters():
 						param.requires_grad = False
-		else:
-			for p in vae.parameters():
-				if p.dim() > 1:
-					nn.init.xavier_uniform_(p, gain=(word_decoder_config['n_layers'] * 2) ** -0.5)
+					for l in range(defreeze_layers):
+						for param in vae.attention.layer_stack[-l - 1].parameters():
+							param.requires_grad = True
+							if l < init_layers and p.dim() > 1:
+								nn.init.xavier_uniform_(param, gain=(word_decoder_config['n_layers'] * 2) ** -0.5)
+				else:
+					freeze_layers = word_decoder_pretrain.get('freeze_layers', 0)
+					for l in range(freeze_layers):
+						for param in vae.attention.layer_stack[l].parameters():
+							param.requires_grad = False
+			else:
+				for p in vae.parameters():
+					if p.dim() > 1:
+						nn.init.xavier_uniform_(p, gain=(word_decoder_config['n_layers'] * 2) ** -0.5)
 
-		self.word_decoder = vae.getDecoderWithPos()
+			self.word_decoder = vae.getDecoderWithPos()
+		elif lora_decoder_config is not None:
+			self.word_decoder = SeqDecoderLora(**lora_decoder_config)
+
+			if lora_decoder_pretrain is not None:
+				checkpoint = torch.load(lora_decoder_pretrain['weight'], map_location='cpu')
+				self.word_decoder.load_state_dict(checkpoint['model'], strict=False)
+
+			self.word_decoder.initialize()
+			self.word_decoder.freezeTrunk()
 
 
 	def forward (self, batch):

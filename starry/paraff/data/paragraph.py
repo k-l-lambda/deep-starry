@@ -32,7 +32,10 @@ class MeasureLibrary:
 		with torch.no_grad():
 			for ei in tqdm(range(0, self.entries.shape[0], batch_size), 'Encoding measures'):
 				es = self.entries[ei:ei + batch_size].to(encoder_config['device'])
-				z = encoder(es, sigma).cpu()
+				if encoder_config.get('test'):
+					z = torch.randn(batch_size, 256)
+				else:
+					z = encoder(es, sigma).cpu()
 				codes.append(z)
 
 		self.summaries = torch.cat(codes, dim=0)
