@@ -13,10 +13,7 @@ data:
     descriptor_drop:        0.3
     descriptor_drop_sigma:  1.
     with_summary:           False
-    encoder:
-      weight:               ./training/paraff/20230627-paraff-vae-shared-0613-d256-l4-kld1e-6/model_780_loss_2.407e-02.pt
-      device:               cpu
-      batch_size:           16
+    encoder: ~
 
 
 model:
