@@ -4,3 +4,4 @@ from .seqVAE import SeqvaeEncoderMean, SeqvaeEncoderFinale, SeqvaeDecoderHead, S
 from .sparseAE import SparseAE, SparseAELoss
 from .seqShareVAE import SeqShareVAE, SeqShareVAELoss, SeqShareVAEJitEnc, SeqShareVAEJitDec
 from .phaseGen import PhaseGen, PhaseGenLoss, PhaseGenDecoder
+from .seqDecoder import *

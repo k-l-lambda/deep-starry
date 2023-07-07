@@ -40,6 +40,7 @@ def registerModels ():
 		pm.SparseAE, pm.SparseAELoss,
 		pm.SeqShareVAE, pm.SeqShareVAELoss, pm.SeqShareVAEJitEnc, pm.SeqShareVAEJitDec,
 		pm.PhaseGen, pm.PhaseGenLoss, pm.PhaseGenDecoder,
+		pm.SeqDecoderBase, pm.SeqDecoderBaseLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

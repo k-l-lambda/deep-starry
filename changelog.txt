@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.7.7
+
+	+	paraff/models/seqDecoder.py created.
+
+
 2023.7.5
 
 	+	phaseGen.py: added argument of mask_score_primer.
