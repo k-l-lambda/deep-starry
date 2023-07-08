@@ -12,7 +12,7 @@ data:
     n_seq_phase:            256
     descriptor_drop:        0.3
     descriptor_drop_sigma:  1.
-    with_summary:           False
+    with_summary:           True
     encoder: ~
 
 

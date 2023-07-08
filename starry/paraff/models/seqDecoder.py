@@ -14,11 +14,12 @@ from .modules import AttentionStack
 
 class SeqDecoderBase (nn.Module):
 	def __init__(self, n_vocab, pad_id=0,
-		n_layers=6, d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64,
+		n_layers=6, d_model=512, d_latent=256, d_inner=2048, n_head=8, d_k=64, d_v=64,
 		dropout=0.1, angle_cycle=10000 / (2 * np.pi)):
 		super().__init__()
 
 		self.d_model = d_model
+		self.d_latent = d_latent
 		self.pad_id = pad_id
 
 		self.word_emb = nn.Embedding(n_vocab, d_model, padding_idx=pad_id)
@@ -33,15 +34,13 @@ class SeqDecoderBase (nn.Module):
 		self.attention = AttentionStack(d_model=d_model, n_layers=n_layers, dropout=dropout, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v)
 
 
-	def forward (self, seq: torch.Tensor, pos: torch.Tensor, mask: Optional[torch.Tensor] =None):
+	def forward (self, seq: torch.Tensor, pos: torch.Tensor, latent: Optional[torch.Tensor] =None, mask: Optional[torch.Tensor] =None):
 		mask = get_pad_mask(seq, self.pad_id) if mask is None else mask.unsqueeze(-2)
 		mask = mask & get_subsequent_mask(seq)
 
-		#summary = self.latent_emb(latent)
-
 		x = seq.long()
 		x = self.word_emb(x)
-		#x[:, 0] += summary	# add summary embedding on the first element
+		x[:, 0] += latent	# add summary embedding on the first element
 		x *= self.d_model ** 0.5	# scale embedding
 
 		x += self.dropout(self.position_enc(pos))
@@ -69,7 +68,9 @@ class SeqDecoderBaseLoss (nn.Module):
 		target = batch['output_ids'].long()
 		target_body = target[body_mask]
 
-		pred = self.deducer(batch['input_ids'], batch['position'].float())
+		latent = torch.randn(batch['input_ids'].shape[0], self.deducer.d_latent, device=batch['input_ids'].device)
+
+		pred = self.deducer(batch['input_ids'], batch['position'].float(), latent)
 		pred_body = pred[body_mask]
 
 		loss = F.cross_entropy(pred_body, target_body)
@@ -86,7 +87,7 @@ class SeqDecoderBaseLoss (nn.Module):
 
 class SeqDecoderLora (SeqDecoderBase):
 	def __init__(self, lora_config, n_lora_layers=None, d_latent=256, d_model=256, **kw_args):
-		super().__init__(d_model=d_model, **kw_args)
+		super().__init__(d_model=d_model, d_latent=d_latent, **kw_args)
 
 		n_lora_layers = n_lora_layers or kw_args['n_layers']
 
