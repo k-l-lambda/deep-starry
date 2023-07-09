@@ -11,7 +11,7 @@ class LoraInjectedLinear(nn.Module):
 		assert r <= min(in_features, out_features), f'LoRA rank {r} must be less or equal than {min(in_features, out_features)}'
 
 		self.r = r
-		self.linear = nn.Linear(in_features, out_features, bias)
+		#self.linear = nn.Linear(in_features, out_features, bias)
 		self.lora_down = nn.Linear(in_features, r, bias=False)
 		self.dropout = nn.Dropout(dropout_p)
 		self.lora_up = nn.Linear(r, out_features, bias=False)
@@ -25,7 +25,7 @@ class LoraInjectedLinear(nn.Module):
 
 
 	def forward (self, input):
-		return self.linear(input) + self.dropout(self.lora_up(self.selector(self.lora_down(input)))) * self.alpha
+		return self.dropout(self.lora_up(self.selector(self.lora_down(input)))) * self.alpha
 
 
 	def realize_as_lora (self):
