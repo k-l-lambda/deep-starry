@@ -107,7 +107,7 @@ onnx:
       outputs:
       - latent
     decoder128:
-      model_postfix: Decoder
+      model_postfix: DecoderLora
       state_field: extra
       opset: 14
       inputs:

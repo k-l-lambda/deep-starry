@@ -60,6 +60,21 @@ class PhaseGenDecoder (nn.Module):
 		return self.word_decoder(input_ids, position.float(), latent)
 
 
+class PhaseGenDecoderLora (nn.Module):
+	def __init__ (self, d_model=256, lora_decoder_config={}, **_):
+		super().__init__()
+
+		self.word_decoder = SeqDecoderLora(**lora_decoder_config)
+
+
+	def load_state_dict (self, state_dict, strict=True):
+		return self.word_decoder.load_state_dict(state_dict['word_decoder'], strict)
+
+
+	def forward (self, input_ids, position, latent):
+		return self.word_decoder(input_ids, position.float(), latent)
+
+
 class PhaseGenLoss (nn.Module):
 	need_states = True
 
