@@ -38,7 +38,9 @@ def registerModels ():
 		pm.TokenGen, pm.TokenGenLoss,
 		pm.SeqvaeLoss, pm.SeqvaeEncoderJit,
 		pm.SparseAE, pm.SparseAELoss,
-		pm.SeqShareVAE, pm.SeqShareVAELoss, pm.SeqShareVAEJitEnc, pm.SeqShareVAEJitDec
+		pm.SeqShareVAE, pm.SeqShareVAELoss, pm.SeqShareVAEJitEnc, pm.SeqShareVAEJitDec,
+		pm.PhaseGen, pm.PhaseGenLoss, pm.PhaseGenDecoder, pm.PhaseGenDecoderLora,
+		pm.SeqDecoderBase, pm.SeqDecoderBaseLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

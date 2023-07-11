@@ -5,6 +5,42 @@ TODO:
 
 
 
+2023.7.7
+
+	+	paraff/models/seqDecoder.py created.
+
+
+2023.7.5
+
+	+	phaseGen.py: added argument of mask_score_primer.
+
+
+2023.7.3
+
+	*!	Full zeros dropout may result in Floating point exception (core dumped).
+
+	+	phaseGen.py: PhaseGenDecoder added.
+
+
+2023.7.2
+
+	+	phaseGen.py: use decoder with position.
+
+	+	paragraph.py: argument of with_summary added.
+
+
+2023.7.1
+
+	+	paraff/models/phaseGen.py created.
+
+	+	paraff/data/paragraph.py: added descriptors random drop.
+
+
+2023.6.30
+
+	+	paraff/data/paragraph.py created.
+
+
 2023.6.25
 
 	+	seqShareVAE.py: share layer_norm between encoder & decoder.

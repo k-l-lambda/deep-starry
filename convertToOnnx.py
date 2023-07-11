@@ -26,13 +26,15 @@ def runConfig (onnx_config, model_loader, outpath):
 	temp_path = outpath.replace('.onnx', '.temp.onnx')
 
 	model_postfix = onnx_config.get('model_postfix', '')
-	model = model_loader(model_postfix)
+	state_field = onnx_config.get('state_field', 'model')
+	model = model_loader(model_postfix, state_field)
 
-	torch.onnx.export(model, dummy_inputs, temp_path if truncate_long else outpath,
-		verbose=True,
-		input_names=input_names,
-		output_names=output_names,
-		opset_version=opset)
+	with torch.no_grad():
+		torch.onnx.export(model, dummy_inputs, temp_path if truncate_long else outpath,
+			verbose=True,
+			input_names=input_names,
+			output_names=output_names,
+			opset_version=opset)
 
 	if truncate_long:
 		convert_model_to_int32(temp_path, outpath)
@@ -59,15 +61,15 @@ def main ():
 	if config['best']:
 		name = os.path.splitext(config['best'])[0]
 
-	def loadModel_ (postfix):
+	def loadModel_ (postfix, state_field='model'):
 		model = loadModel(config['model'], postfix=postfix)
 
 		if config['best']:
 			checkpoint = torch.load(config.localPath(config['best']), map_location='cpu')
 			if hasattr(model, 'deducer'):
-				model.deducer.load_state_dict(checkpoint['model'], strict=False)
+				model.deducer.load_state_dict(checkpoint[state_field], strict=False)
 			else:
-				model.load_state_dict(checkpoint['model'])
+				model.load_state_dict(checkpoint[state_field])
 			logging.info(f'checkpoint loaded: {config["best"]}')
 
 		model.eval()

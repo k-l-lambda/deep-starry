@@ -38,7 +38,7 @@ def main ():
 		if hasattr(model, 'deducer'):
 			model.deducer.load_state_dict(checkpoint['model'], strict=False)
 		else:
-			model.load_state_dict(checkpoint['model'])
+			model.load_state_dict(checkpoint['model'], strict=False)
 		logging.info(f'checkpoint loaded: {config["best"]}')
 
 	scriptedm = torch.jit.script(model)

@@ -22,7 +22,7 @@ class LoraMultiHeadAttention (MultiHeadAttention):
 
 
 	def freezeTrunk (self):
-		for module in [self.w_qs, self.w_ks, self.w_vs, self.fc]:
+		for module in [self.w_qs, self.w_ks, self.w_vs, self.fc, self.layer_norm]:
 			for p in module.parameters():
 				p.requires_grad = False
 
