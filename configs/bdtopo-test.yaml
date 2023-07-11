@@ -80,6 +80,7 @@ optim:
 onnx:
   multiple:
     seq32:
+      model_postfix: Onnx
       inputs:
       - dtype:    int8
         name:     type
@@ -106,8 +107,9 @@ onnx:
         dtype:    int8
         shape:    [1]
       opset:      14
-      outputs:    ['successor', 'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']
+      outputs:    &out ['successor', 'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']
     seq64:
+      model_postfix: Onnx
       inputs:
       - dtype:    int8
         name:     type
@@ -134,8 +136,9 @@ onnx:
         dtype:    int8
         shape:    [1]
       opset:      14
-      outputs:    ['successor', 'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']
+      outputs:    *out
     seq128:
+      model_postfix: Onnx
       inputs:
       - dtype:    int8
         name:     type
@@ -162,4 +165,4 @@ onnx:
         dtype:    int8
         shape:    [1]
       opset:      14
-      outputs:    ['successor', 'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']
+      outputs:    *out
