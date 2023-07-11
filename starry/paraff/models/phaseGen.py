@@ -61,7 +61,7 @@ class PhaseGenDecoder (nn.Module):
 
 
 class PhaseGenDecoderLora (nn.Module):
-	def __init__ (self, d_model=256, lora_decoder_config={}, **_):
+	def __init__ (self, lora_decoder_config={}, **_):
 		super().__init__()
 
 		self.word_decoder = SeqDecoderLora(**lora_decoder_config)
