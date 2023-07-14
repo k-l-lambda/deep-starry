@@ -114,6 +114,7 @@ class ScorePageProcessor (Predictor):
 
 		try:
 			for i in range(0, len(images), BATCH_SIZE):
+				logging.info('Predicting page %d/%d...', i, len(images))
 				imgs = images[i:i + BATCH_SIZE]
 				imgs_arr = [np.array(image) for image in imgs]
 
