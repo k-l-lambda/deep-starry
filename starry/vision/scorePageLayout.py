@@ -207,13 +207,17 @@ class PageLayout:
 
 
 	def json (self):
-		image_code = encodeImageBase64(self.image)
+		image_code = self.getImageCode()
 
 		return {
 			'image': image_code,
 			'theta': self.theta,
 			'interval': self.interval,
 		}
+
+
+	def getImageCode (self):
+		return encodeImageBase64(self.image, ext='.webp')
 
 
 	def detect (self, image, ratio, output_folder=None):

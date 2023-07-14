@@ -66,7 +66,7 @@ class ScorePageProcessor (Predictor):
 		self.composer = transform.Composer(trans)
 
 
-	def predict (self, input_paths, output_folder=None, pdf=None):
+	def predict (self, input_paths=None, output_folder=None, pdf=None):
 		if pdf is not None:
 			yield from self.predictPdf(pdf, output_folder=output_folder)
 			return
@@ -160,17 +160,11 @@ class ScorePageProcessor (Predictor):
 					image = images[j]
 					page_info = { 'size': (image.shape[1], image.shape[0]) }
 
-					if layout.theta is None:
-						yield {
-							'theta': None,
-							'interval': None,
-							'detection': None,
-							'page_info': page_info,
-						}
-						continue
-
 					result = layout.detect(image, ratio, output_folder=output_folder)
 					result['page_info'] = page_info
+
+					if self.inspect:
+						result['image'] = layout.getImageCode()
 
 					yield result
 				except:
