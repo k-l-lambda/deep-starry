@@ -160,7 +160,7 @@ class ScorePageProcessor (Predictor):
 					image = images[j]
 					page_info = { 'size': (image.shape[1], image.shape[0]) }
 
-					result = layout.detect(image, ratio, output_folder=output_folder)
+					result = layout.detect(image, ratio, output_folder=output_folder, img_ext='.webp')
 					result['page_info'] = page_info
 
 					if self.inspect:

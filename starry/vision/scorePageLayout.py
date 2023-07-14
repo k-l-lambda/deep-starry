@@ -220,7 +220,7 @@ class PageLayout:
 		return encodeImageBase64(self.image, ext=ext)
 
 
-	def detect (self, image, ratio, output_folder=None):
+	def detect (self, image, ratio, output_folder=None, img_ext='.png'):
 		if self.theta is None:
 			return {
 				'theta': self.theta,
@@ -293,15 +293,15 @@ class PageLayout:
 				hash = None
 				if output_folder is not None:
 					#cv2.imwrite(f'./output/staff-{si}-{ssi}.png', staff_image)
-					bytes = arrayToImageFile(staff_image).getvalue()
+					bytes = arrayToImageFile(staff_image, ext=img_ext).getvalue()
 					hash = hashlib.md5(bytes).hexdigest()
 
-					with open(os.path.join(output_folder, hash + '.png'), 'wb') as f:
+					with open(os.path.join(output_folder, hash + img_ext), 'wb') as f:
 						f.write(bytes)
 					#logging.info('Staff image wrote: %s.png', hash)
 
 				area['staff_images'].append({
-					'hash': f'md5:{hash}' if hash else None,
+					'hash': f'md5:{hash}{img_ext}' if hash else None,
 					'position': {
 						'x': -area['staves']['phi1'] * UNIT_SIZE / interval,
 						'y': -STAFF_HEIGHT_UNITS * UNIT_SIZE / 2,
