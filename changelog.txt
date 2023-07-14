@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.7.14
+
+	+	scorePageLayout.py: fixed detectSystems for tiny area.
+
+
 2023.7.7
 
 	+	paraff/models/seqDecoder.py created.

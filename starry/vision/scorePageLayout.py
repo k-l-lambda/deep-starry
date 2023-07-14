@@ -55,14 +55,16 @@ def detectSystems (image):
 	marginY = SYSTEM_HEIGHT_ENLARGE * width
 	maginYMax = marginY * 8
 
-	def enlarge(args):
-		i, area = args
+	ctx = { 'lastMargin': 0 }
+
+	def enlarge (i, area, ctx):
 		top = area['y']
 		bottom = top + area['height']
 
 		if i > 0:
 			lastArea = areas[i - 1]
-			top = max(0, min(top - marginY, max(lastArea['y'] + lastArea['height'], top - maginYMax)))
+			ctx['lastMargin'] = max(ctx['lastMargin'], lastArea['y'] + lastArea['height'], top - maginYMax)
+			top = max(0, min(top - marginY, ctx['lastMargin']))
 		else:
 			top = min(top, max(marginY, top - maginYMax))
 
@@ -73,7 +75,7 @@ def detectSystems (image):
 			bottom = min(height, bottom + maginYMax)
 
 		return { 'top': top, 'bottom': bottom }
-	enlarges = list(map(enlarge, enumerate(areas)))
+	enlarges = [enlarge(i, area, ctx) for i, area in enumerate(areas)]
 
 	for i, area in enumerate(areas):
 		area['y'] = enlarges[i]['top']
