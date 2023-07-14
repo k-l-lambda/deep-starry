@@ -216,8 +216,8 @@ class PageLayout:
 		}
 
 
-	def getImageCode (self):
-		return encodeImageBase64(self.image, ext='.webp')
+	def getImageCode (self, ext='.png'):
+		return encodeImageBase64(self.image, ext=ext)
 
 
 	def detect (self, image, ratio, output_folder=None):

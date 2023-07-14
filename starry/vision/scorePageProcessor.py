@@ -164,7 +164,7 @@ class ScorePageProcessor (Predictor):
 					result['page_info'] = page_info
 
 					if self.inspect:
-						result['image'] = layout.getImageCode()
+						result['image'] = layout.getImageCode(ext='.webp')
 
 					yield result
 				except:
