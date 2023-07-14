@@ -9,6 +9,7 @@ import PIL.Image
 import cv2
 import hashlib
 import shutil
+import pdf2image
 
 from ..utils.predictor import Predictor
 from .scorePageLayout import PageLayout, RESIZE_WIDTH
@@ -17,6 +18,7 @@ from . import transform
 
 
 BATCH_SIZE = int(os.environ.get('SCORE_PAGE_PROCESSOR_BATCH_SIZE', '1'))
+PDF_DPI = int(os.environ.get('PDF_DPI', '150'))
 
 
 def loadImageWithHash (path):
@@ -64,7 +66,11 @@ class ScorePageProcessor (Predictor):
 		self.composer = transform.Composer(trans)
 
 
-	def predict (self, input_paths, output_folder=None):
+	def predict (self, input_paths, output_folder=None, pdf=None):
+		if pdf is not None:
+			yield from self.predictPdf(pdf, output_folder=output_folder)
+			return
+
 		if output_folder is not None:
 			os.makedirs(output_folder, exist_ok=True)
 
@@ -100,6 +106,37 @@ class ScorePageProcessor (Predictor):
 			yield None
 
 
+	def predictPdf (self, pdf, output_folder=None):
+		if output_folder is not None:
+			os.makedirs(output_folder, exist_ok=True)
+
+		images = pdf2image.convert_from_path(pdf, dpi=PDF_DPI)
+
+		try:
+			for i in range(0, len(images), BATCH_SIZE):
+				imgs = images[i:i + BATCH_SIZE]
+				imgs_arr = [np.array(image) for image in imgs]
+
+				for j, result in enumerate(self.predictImages(imgs_arr, output_folder=output_folder)):
+					if result['page_info'] is not None:
+						fp = io.BytesIO()
+						imgs[j].save(fp, PIL.Image.registered_extensions()['.webp'])
+						img_bytes = fp.getvalue()
+						hash = hashlib.md5(img_bytes).hexdigest()
+						filename = f'{hash}.webp'
+
+						with open(os.path.join(output_folder, filename), 'wb') as f:
+							f.write(img_bytes)
+
+						result['page_info']['url'] = f'md5:{filename}'
+
+					yield result
+
+		except:
+			logging.warn(sys.exc_info()[1])
+			yield None
+
+
 	def predictImages (self, images, output_folder=None):
 		# unify images' dimensions
 		ratio = max(map(lambda img: img.shape[0] / img.shape[1], images))
@@ -120,22 +157,20 @@ class ScorePageProcessor (Predictor):
 				try:
 					layout = PageLayout(heatmap)
 
+					image = images[j]
+					page_info = { 'size': (image.shape[1], image.shape[0]) }
+
 					if layout.theta is None:
 						yield {
 							'theta': None,
 							'interval': None,
 							'detection': None,
-							'page_info': None,
+							'page_info': page_info,
 						}
 						continue
 
-					image = images[j]
-					original_size = (image.shape[1], image.shape[0])
-
 					result = layout.detect(image, ratio, output_folder=output_folder)
-					result['page_info'] = {
-						'size': original_size,
-					}
+					result['page_info'] = page_info
 
 					yield result
 				except:

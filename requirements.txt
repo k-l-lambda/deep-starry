@@ -14,3 +14,4 @@ torch
 torchvision
 onnx>=1.8.1
 matplotlib
+pdf2image
