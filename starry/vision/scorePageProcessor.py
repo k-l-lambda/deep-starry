@@ -110,9 +110,9 @@ class ScorePageProcessor (Predictor):
 		if output_folder is not None:
 			os.makedirs(output_folder, exist_ok=True)
 
-		images = pdf2image.convert_from_path(pdf, dpi=PDF_DPI)
-
 		try:
+			images = pdf2image.convert_from_path(pdf, dpi=PDF_DPI)
+
 			for i in range(0, len(images), BATCH_SIZE):
 				logging.info('Predicting page %d/%d...', i, len(images))
 				imgs = images[i:i + BATCH_SIZE]
