@@ -10,6 +10,7 @@ import cv2
 import hashlib
 import shutil
 import pdf2image
+import gc
 
 from ..utils.predictor import Predictor
 from .scorePageLayout import PageLayout, RESIZE_WIDTH
@@ -119,6 +120,8 @@ class ScorePageProcessor (Predictor):
 				imgs_arr = [np.array(image) for image in imgs]
 
 				for j, result in enumerate(self.predictImages(imgs_arr, output_folder=output_folder)):
+					gc.collect()
+
 					if result['page_info'] is not None:
 						fp = io.BytesIO()
 						imgs[j].save(fp, PIL.Image.registered_extensions()['.webp'])
