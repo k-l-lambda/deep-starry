@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.7.20
+
+	+	semanticClusterPredictor.py: added option of preserved_labels.
+
+
 2023.7.14
 
 	+	scorePageLayout.py: predictPdf added.

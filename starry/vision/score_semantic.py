@@ -13,7 +13,7 @@ VERTICAL_UNITS = 24.
 
 
 class ScoreSemantic:
-	def __init__ (self, heatmaps, labels, confidence_table=None):
+	def __init__ (self, heatmaps, labels, confidence_table=None, preserved_labels=None):
 		self.data = dict({
 			'__prototype': 'SemanticGraph',
 			'points': [],
@@ -24,6 +24,9 @@ class ScoreSemantic:
 
 		self.marks = []
 		for i, semantic in enumerate(labels):
+			if (preserved_labels is not None) and (not (semantic in preserved_labels)):
+				continue
+
 			mean_confidence = 1
 			if confidence_table is not None:
 				item = confidence_table[i]
