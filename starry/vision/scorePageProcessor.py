@@ -20,6 +20,7 @@ from . import transform
 
 BATCH_SIZE = int(os.environ.get('SCORE_PAGE_PROCESSOR_BATCH_SIZE', '1'))
 PDF_DPI = int(os.environ.get('PDF_DPI', '150'))
+PDF_LIMIT_SIZE = int(os.environ.get('PDF_LIMIT_SIZE', '2400'))
 
 
 def loadImageWithHash (path):
@@ -49,6 +50,11 @@ def resizePageImage (img, size):
 		return result
 
 	return img[:h]
+
+
+def peekPDFSize (path):
+	images = pdf2image.convert_from_path(path, last_page=2, dpi=PDF_DPI)
+	return max(images[-1].size)
 
 
 class ScorePageProcessor (Predictor):
@@ -112,14 +118,16 @@ class ScorePageProcessor (Predictor):
 			os.makedirs(output_folder, exist_ok=True)
 
 		try:
-			images = pdf2image.convert_from_path(pdf, dpi=PDF_DPI)
+			size0 = peekPDFSize(pdf)
+			limit_size = PDF_LIMIT_SIZE if size0 > PDF_LIMIT_SIZE else None
+			images = pdf2image.convert_from_path(pdf, dpi=PDF_DPI, size=limit_size)
 
 			for i in range(0, len(images), BATCH_SIZE):
 				logging.info('Predicting page %d/%d...', i, len(images))
 				imgs = images[i:i + BATCH_SIZE]
 				imgs_arr = [np.array(image) for image in imgs]
 
-				for j, result in enumerate(self.predictImages(imgs_arr, output_folder=output_folder)):
+				for j, result in enumerate(self.predictImages(imgs_arr, output_folder=None)):
 					gc.collect()
 
 					if result['page_info'] is not None:
