@@ -1,0 +1,109 @@
+# clefs
+- ClefG
+- ClefF
+- ClefC
+
+# time signature
+- TimesigC44
+- TimesigC22
+- TimesigZero
+- TimesigOne
+- TimesigTwo
+- TimesigThree
+- TimesigFour
+- TimesigFive
+- TimesigSix
+- TimesigSeven
+- TimesigEight
+- TimesigNine
+
+# noteheads
+- NoteheadS0
+- NoteheadS1
+- NoteheadS2
+
+- vline_Stem
+
+# flags
+- Flag3
+
+# dots (duration)
+- Dot
+
+# rests
+- Rest0
+- Rest1
+- Rest2
+- Rest3
+- Rest4
+- Rest5
+- Rest6
+
+# accidentals
+- AccNatural
+- AccSharp
+- AccDoublesharp
+- AccFlat
+- AccFlatflat
+
+# octave shifts
+- OctaveShift8
+- OctaveShift0
+
+# beams
+- BeamLeft
+- BeamContinue
+- BeamRight
+
+# tremolos
+- TremoloLeft
+- TremoloRight
+- TremoloMiddle
+
+# additional annotation
+- KeyAcc
+- TempoNotehead
+- GraceNotehead
+- SignLined
+- SignInterval
+- StemTip
+- StemHead
+
+# slur
+- SlurBegin
+- SlurEnd
+
+# dynamics
+- f
+- p
+- m
+- 'n'
+- r
+- s
+- z
+
+- CrescendoBegin
+- CrescendoEnd
+- DecrescendoBegin
+- DecrescendoEnd
+
+# scripts
+- ScriptFermata
+- ScriptShortFermata
+- ScriptSforzato
+- ScriptStaccato
+- ScriptStaccatissimo
+- ScriptTurn
+- ScriptTrill
+- ScriptSegno
+- ScriptCoda
+- ScriptArpeggio
+- ScriptPrall
+- ScriptMordent
+- ScriptMarcato
+- ScriptTenuto
+- ScriptPortato
+
+# pedal
+- PedalStar
+- PedalPed
