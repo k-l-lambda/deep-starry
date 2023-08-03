@@ -3,6 +3,14 @@ import logging
 import matplotlib.pyplot as plt
 import math
 
+from .data.timewiseGraph import SEMANTIC_TABLE
+
+
+
+ID_STEM = SEMANTIC_TABLE.index('vline_Stem')
+ID_NHS0 = SEMANTIC_TABLE.index('NoteheadS0')
+ID_NHS1 = SEMANTIC_TABLE.index('NoteheadS1')
+ID_NHS2 = SEMANTIC_TABLE.index('NoteheadS2')
 
 
 class ParaffViewer:
@@ -75,5 +83,13 @@ class ParaffViewer:
 		x = batch['tg_x'][0][mask]
 		sy1 = batch['tg_sy1'][0][mask]
 		sy2 = batch['tg_sy2'][0][mask]
+		#confidence = batch['tg_confidence'][0][mask]
 
 		plt.plot(x, sy1, '.')
+
+		is_stem = id == ID_STEM
+		is_nh01 = (id == ID_NHS0) | (id == ID_NHS1)
+		is_nh2 = id == ID_NHS2
+		plt.vlines(x[is_stem], sy1[is_stem], sy2[is_stem])
+		plt.plot(x[is_nh01], sy1[is_nh01], 'o')
+		plt.plot(x[is_nh2], sy1[is_nh2], 'o')
