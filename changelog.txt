@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.8.3
+
+	+	paraff/data/paragraph.py: added option of with_graph.
+
+
 2023.8.2
 
 	+	preprocessTimewiseGraph.py created.

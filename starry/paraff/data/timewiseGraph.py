@@ -11,8 +11,11 @@ import dill as pickle
 
 SEMANTIC_TABLE = yaml.safe_load(open('./assets/timewiseSemantics.yaml', 'r'))
 
+TG_PAD = SEMANTIC_TABLE.index('_PAD')
+TG_EOS = SEMANTIC_TABLE.index('_EOS')
 
-def vectorizeMeasure (measure):
+
+def vectorizeMeasure (measure, n_seq_max):
 	left, right = measure['left'], measure['right']
 
 	points = [dict(
@@ -34,7 +37,8 @@ def vectorizeMeasure (measure):
 		'sy2': 0,
 		'confidence': 100,
 	})
-	points = sorted(points, key=lambda p: p['semantic'])
+	points = sorted(points, key=lambda p: p['semantic'])[:n_seq_max]	# clip points prior by semantic
+	points = sorted(points, key=lambda p: p['x'])
 
 	semantic = torch.tensor([p['semantic'] for p in points], dtype=torch.uint8)
 	staff = torch.tensor([p['staff'] for p in points], dtype=torch.uint8)
@@ -102,10 +106,10 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 			assert len(measures) == range1 - range0, 'measure number mismatch: %s, %d, [%d:%d]' % (paragraph['name'], len(measures), range0, range1)
 
 			for i, measure in enumerate(measures):
-				tensors = vectorizeMeasure(measure)
+				tensors = vectorizeMeasure(measure, n_seq_max=n_seq_max)
 				n_seqs.append(tensors[0].shape[0])
 				for it, t in enumerate(tensors):
-					lib_tensors[it][range0 + i][:t.shape[0]] = t[:n_seq_max]
+					lib_tensors[it][range0 + i][:t.shape[0]] = t
 
 			logging.info('%d measures wrote.', range1 - range0)
 

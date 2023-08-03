@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch.utils.data import IterableDataset
 import yaml
 from tqdm import tqdm
+import dill as pickle
 
 from ...utils.parsers import parseFilterStr, mergeArgs
 from .paraffFile import ParaffFile
@@ -15,13 +16,15 @@ PHID_MEASURE = 3
 
 
 class MeasureLibrary:
-	def __init__(self, file, n_seq, encoder_config):
+	def __init__(self, file, n_seq, encoder_config, semantic_file=None):
 		paraff = ParaffFile(file)
 		self.tokens = paraff.tokens
 
 		padding_zeros = [0] * (n_seq + 1 - paraff.sentence_align_size)
 		sentences = [s + padding_zeros for s in paraff.sentences]
 		self.entries = torch.tensor(sentences, dtype=torch.uint8)
+
+		file.close()
 
 		if encoder_config is not None:
 			encoder = torch.jit.load(encoder_config['weight']).to(encoder_config['device'])
@@ -42,6 +45,10 @@ class MeasureLibrary:
 			self.summaries = torch.cat(codes, dim=0)
 		else:
 			self.summaries = torch.zeros(self.entries.shape[0], 256)
+
+		if semantic_file:
+			self.semantic_tensors = pickle.load(semantic_file)
+			semantic_file.close()
 
 
 class PhasedParagraph (IterableDataset):
@@ -64,17 +71,22 @@ class PhasedParagraph (IterableDataset):
 
 
 	@classmethod
-	def loadMeasures (cls, paraff_path, n_seq, encoder_config):
+	def loadMeasures (cls, paraff_path, n_seq, encoder_config, with_graph=False):
 		if paraff_path in cls.measure_lib:
 			return cls.measure_lib[paraff_path]
 
-		cls.measure_lib[paraff_path] = MeasureLibrary(open(paraff_path, 'rb'), n_seq, encoder_config)
+		semantic_file = None
+		if with_graph:
+			semantic_path = paraff_path.replace('.paraff', '-semantic.pkl')
+			semantic_file = open(semantic_path, 'rb')
+
+		cls.measure_lib[paraff_path] = MeasureLibrary(open(paraff_path, 'rb'), n_seq, encoder_config, semantic_file=semantic_file)
 
 		return cls.measure_lib[paraff_path]
 
 
-	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_phase, encoder,
-		descriptor_drop=0.1, descriptor_drop_sigma=0., with_summary=False, summary_id=1, **_):
+	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_phase, encoder=None,
+		descriptor_drop=0.1, descriptor_drop_sigma=0., with_summary=False, summary_id=1, with_graph=False, **_):
 		super().__init__()
 
 		self.device = device
@@ -85,6 +97,7 @@ class PhasedParagraph (IterableDataset):
 		self.descriptor_drop_sigma = descriptor_drop_sigma
 		self.with_summary = with_summary
 		self.summary_id = summary_id
+		self.with_graph = with_graph
 
 		phases, cycle = parseFilterStr(split)
 
@@ -93,7 +106,7 @@ class PhasedParagraph (IterableDataset):
 		groups = [group for i, group in enumerate(index['groups']) if i % cycle in phases]
 		paragraphs = [paragraph for paragraph in index['paragraphs'] if paragraph['group'] in groups]
 
-		self.measure = self.loadMeasures(paraff_path, n_seq_word, encoder)
+		self.measure = self.loadMeasures(paraff_path, n_seq_word, encoder, with_graph=with_graph)
 
 		self.d_summary = self.measure.summaries.shape[-1]
 
@@ -197,7 +210,16 @@ class PhasedParagraph (IterableDataset):
 				ph_body_mask_m = ph_body_mask.clone()
 				ph_body_mask_m[ph_descriptors] = torch.rand(n_descriptors, dtype=torch.float32) >= drop_p
 
-				yield ph_id, ph_f_num, ph_b_num, ph_summary.clone(), ph_body_mask_m, ph_next_mask, input_ids, output_ids, body_mask, position
+				basic_fields = (
+					ph_id, ph_f_num, ph_b_num, ph_summary.clone(), ph_body_mask_m, ph_next_mask,
+					input_ids, output_ids, body_mask, position,
+				)
+
+				if not self.with_graph:
+					yield basic_fields
+				else:
+					tg_fields = [self.measure.semantic_tensors[k][mi] for k in ['semantic', 'staff', 'x', 'y', 'sy1', 'sy2', 'confidence']]
+					yield (*basic_fields, *tg_fields)
 
 				ph_body_mask[ph_body_idx[mi - measure_begin].item()] = True
 
@@ -209,7 +231,7 @@ class PhasedParagraph (IterableDataset):
 
 		ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask, ph_next_mask, input_ids, output_ids, body_mask, position = [extract(i) for i in range(10)]
 
-		return dict(
+		basic_dict = dict(
 			ph_id=ph_id,
 			ph_f_num=ph_f_num,
 			ph_b_num=ph_b_num,
@@ -221,3 +243,21 @@ class PhasedParagraph (IterableDataset):
 			body_mask=body_mask,
 			position=position,
 		)
+
+		if not self.with_graph:
+			return basic_dict
+		else:
+			tg_id, tg_staff, tg_x, tg_y, tg_sy1, tg_sy2, tg_confidence = [extract(i) for i in range(10, 17)]
+
+			return {
+				**basic_dict,
+				**dict(
+					tg_id=tg_id,
+					tg_staff=tg_staff,
+					tg_x=tg_x,
+					tg_y=tg_y,
+					tg_sy1=tg_sy1,
+					tg_sy2=tg_sy2,
+					tg_confidence=tg_confidence,
+				),
+			}
