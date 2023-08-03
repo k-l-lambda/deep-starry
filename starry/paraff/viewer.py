@@ -6,12 +6,24 @@ import math
 
 
 class ParaffViewer:
-	def __init__ (self, config, show_latent=False):
-		self.vocab = config['_vocab'].split(',')
+	def __init__ (self, config, show_latent=False, show_graph=False):
+		if config['_vocab'] is not None:
+			self.vocab = config['_vocab'].split(',')
 		self.show_latent = show_latent
+		self.show_graph = show_graph
 
 
-	def show (self, batch, inspection):
+	def show(self, data):
+		for i, batch in enumerate(data):
+			logging.info('batch: %d', i)
+
+			if self.show_graph:
+				self.showGraph(batch)
+
+			plt.show()
+
+
+	def showBatch (self, batch, inspection):
 		#logging.info('mask:', batch['body_mask'])
 		target_ids = inspection['target_flat']
 		truth = inspection['truth']
@@ -34,6 +46,9 @@ class ParaffViewer:
 		if self.show_latent:
 			self.showLatent(inspection['mu'], inspection['logvar'])
 
+		if self.show_graph:
+			self.showGraph(batch)
+
 		plt.show()
 
 
@@ -46,3 +61,19 @@ class ParaffViewer:
 		m0 = axes[0].pcolormesh(mu, cmap='RdBu', vmin=-1, vmax=1)
 		axes[1].pcolormesh(var, cmap='RdBu', vmin=-1.5, vmax=1.)
 		fig.colorbar(m0)
+
+
+	def showGraph (self, batch):
+		#plt.figure(2)
+
+		plt.gca().invert_yaxis()
+
+		id = batch['tg_id'][0]
+		mask = id != 0
+
+		id = id[mask]
+		x = batch['tg_x'][0][mask]
+		sy1 = batch['tg_sy1'][0][mask]
+		sy2 = batch['tg_sy2'][0][mask]
+
+		plt.plot(x, sy1, '.')

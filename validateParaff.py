@@ -38,7 +38,7 @@ class Validator (Predictor):
 			with torch.no_grad():
 				inspection = self.model.inspectRun(batch)
 
-			self.viewer.show(batch, inspection)
+			self.viewer.showBatch(batch, inspection)
 
 
 def main ():

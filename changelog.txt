@@ -7,6 +7,8 @@ TODO:
 
 2023.8.3
 
+	+	paraff/viewer.py: showGraph added.
+
 	+	paraff/data/paragraph.py: added option of with_graph.
 
 
