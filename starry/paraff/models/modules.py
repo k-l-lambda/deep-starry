@@ -5,6 +5,8 @@ import torch.nn.functional as F
 
 from ...transformer.layers import EncoderLayer
 from ...transformer.models import PositionalEncoding
+from ...modules.positionEncoder import SinusoidEncoder
+from ..data.timewiseGraph import SEMANTIC_MAX, STAFF_MAX
 
 
 
@@ -64,3 +66,24 @@ class AttentionStack (nn.Module):
 		return x
 
 
+class TimewiseGraphEncoder (nn.Module):
+	def __init__ (self, n_semantic=SEMANTIC_MAX, n_staff=STAFF_MAX, d_hid=128, angle_cycle=1000):
+		super().__init__()
+
+		self.n_semantic = n_semantic
+		self.n_staff = n_staff
+
+		self.position_enc = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_hid)
+
+		self.output_dim = self.n_semantic + self.n_staff + 1 + d_hid * 3
+
+
+	def forward (self, id, staff, x, y, sy1, sy2, confidence):
+		vec_id = F.one_hot(id.long(), num_classes=self.n_semantic)
+		vec_staff = F.one_hot(staff.long(), num_classes=self.n_staff)
+		vec_x = self.position_enc(x.float())
+		vec_y = self.position_enc(y.float())
+		vec_sy1 = self.position_enc(sy1.float())
+		vec_sy2 = self.position_enc(sy2.float())
+
+		return torch.cat([vec_id, vec_staff, confidence.unsqueeze(-1), vec_x, vec_y, vec_sy1 + vec_sy2], dim=-1)
