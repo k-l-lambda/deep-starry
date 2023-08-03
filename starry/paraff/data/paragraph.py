@@ -6,6 +6,7 @@ from torch.utils.data import IterableDataset
 import yaml
 from tqdm import tqdm
 import dill as pickle
+import numpy as np
 
 from ...utils.parsers import parseFilterStr, mergeArgs
 from .paraffFile import ParaffFile
@@ -86,7 +87,7 @@ class PhasedParagraph (IterableDataset):
 
 
 	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_phase, encoder=None,
-		descriptor_drop=0.1, descriptor_drop_sigma=0., with_summary=False, summary_id=1, with_graph=False, **_):
+		descriptor_drop=0.1, descriptor_drop_sigma=0., with_summary=False, summary_id=1, with_graph=False, graph_augmentor=None, **_):
 		super().__init__()
 
 		self.device = device
@@ -98,6 +99,7 @@ class PhasedParagraph (IterableDataset):
 		self.with_summary = with_summary
 		self.summary_id = summary_id
 		self.with_graph = with_graph
+		self.graph_augmentor = graph_augmentor
 
 		phases, cycle = parseFilterStr(split)
 
@@ -221,6 +223,7 @@ class PhasedParagraph (IterableDataset):
 					yield basic_fields
 				else:
 					tg_fields = [self.measure.semantic_tensors[k][mi] for k in ['semantic', 'staff', 'x', 'y', 'sy1', 'sy2', 'confidence']]
+					tg_fields = self.augmentGraphFields(*tg_fields)
 					yield (*basic_fields, *tg_fields)
 
 				ph_body_mask[ph_body_idx[mi - measure_begin].item()] = True
@@ -263,3 +266,37 @@ class PhasedParagraph (IterableDataset):
 					tg_confidence=tg_confidence,
 				),
 			}
+
+
+	def augmentGraphFields (self, *fields):
+		if self.graph_augmentor is None:
+			return fields
+
+		id, staff, x, y, sy1, sy2, confidence = fields
+
+		drop_p = self.graph_augmentor.get('drop_p', 0)
+
+		drop_mask = torch.rand_like(id, dtype=torch.float) < drop_p
+		id[drop_mask] = 0
+
+		x_factor_sigma = self.graph_augmentor.get('x_factor_sigma', 0)
+		x_factor = np.exp(np.random.randn() * x_factor_sigma)
+		x *= x_factor
+
+		drift_sigma = self.graph_augmentor.get('drift_sigma', 0)
+		x += torch.randn_like(x) * drift_sigma
+
+		y_drift = torch.randn_like(y) * drift_sigma
+		y += y_drift
+		sy1 += y_drift
+		sy2 += y_drift
+
+		# initialize confidence for null value
+		confidence = confidence.float()
+		null_confidence = confidence < 0
+		confidence[null_confidence] = torch.randn_like(confidence[null_confidence]) * 5.
+
+		confidence_sigma = self.graph_augmentor.get('confidence_sigma', 0)
+		confidence *= (torch.randn_like(confidence) * confidence_sigma).exp()
+
+		return id, staff, x, y, sy1, sy2, confidence

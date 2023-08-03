@@ -29,7 +29,7 @@ def vectorizeMeasure (measure, n_seq_max):
 		y=p['y'],
 		sy1=p['sy1'],
 		sy2=p['sy2'],
-		confidence=p['confidence'],
+		confidence=p.get('confidence', -1),
 		) for p in measure['points'] if p['semantic'] in SEMANTIC_TABLE and p['staff'] < STAFF_MAX]
 	# EOS
 	points.append({
