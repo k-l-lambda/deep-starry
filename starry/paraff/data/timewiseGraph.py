@@ -14,6 +14,8 @@ SEMANTIC_TABLE = yaml.safe_load(open('./assets/timewiseSemantics.yaml', 'r'))
 TG_PAD = SEMANTIC_TABLE.index('_PAD')
 TG_EOS = SEMANTIC_TABLE.index('_EOS')
 
+STAFF_MAX = 3
+
 
 def vectorizeMeasure (measure, n_seq_max):
 	left, right = measure['left'], measure['right']
@@ -26,7 +28,7 @@ def vectorizeMeasure (measure, n_seq_max):
 		sy1=p['sy1'],
 		sy2=p['sy2'],
 		confidence=p['confidence'],
-		) for p in measure['points'] if p['semantic'] in SEMANTIC_TABLE]
+		) for p in measure['points'] if p['semantic'] in SEMANTIC_TABLE and p['staff'] < STAFF_MAX]
 	# EOS
 	points.append({
 		'semantic': SEMANTIC_TABLE.index('_EOS'),

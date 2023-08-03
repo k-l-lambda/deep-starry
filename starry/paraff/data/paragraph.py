@@ -106,6 +106,8 @@ class PhasedParagraph (IterableDataset):
 		groups = [group for i, group in enumerate(index['groups']) if i % cycle in phases]
 		paragraphs = [paragraph for paragraph in index['paragraphs'] if paragraph['group'] in groups]
 
+		self.vocab = index['vocab']
+
 		self.measure = self.loadMeasures(paraff_path, n_seq_word, encoder, with_graph=with_graph)
 
 		self.d_summary = self.measure.summaries.shape[-1]

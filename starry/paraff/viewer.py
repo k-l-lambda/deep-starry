@@ -14,6 +14,9 @@ ID_NHS2 = SEMANTIC_TABLE.index('NoteheadS2')
 
 
 class ParaffViewer:
+	vocab = None
+
+
 	def __init__ (self, config, show_latent=False, show_graph=False):
 		if config['_vocab'] is not None:
 			self.vocab = config['_vocab'].split(',')
@@ -21,11 +24,19 @@ class ParaffViewer:
 		self.show_graph = show_graph
 
 
-	def show(self, data):
+	def show (self, data):
+		self.vocab = self.vocab or data.dataset.vocab.split(',')
+
 		for i, batch in enumerate(data):
 			logging.info('batch: %d', i)
 
 			if self.show_graph:
+				body_mask = batch['body_mask'][0]
+				ids = batch['output_ids'][0][body_mask]
+				sentence = ' '.join([self.vocab[id] for id in ids])
+				logging.info('sentence: %s', sentence)
+
+				#plt.get_current_fig_manager().full_screen_toggle()
 				self.showGraph(batch)
 
 			plt.show()
@@ -85,7 +96,7 @@ class ParaffViewer:
 		sy2 = batch['tg_sy2'][0][mask]
 		#confidence = batch['tg_confidence'][0][mask]
 
-		plt.plot(x, sy1, '.')
+		plt.plot(x, sy1, '+')
 
 		is_stem = id == ID_STEM
 		is_nh01 = (id == ID_NHS0) | (id == ID_NHS1)
