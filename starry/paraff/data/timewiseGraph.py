@@ -13,6 +13,8 @@ SEMANTIC_TABLE = yaml.safe_load(open('./assets/timewiseSemantics.yaml', 'r'))
 
 
 def vectorizeMeasure (measure):
+	left, right = measure['left'], measure['right']
+
 	points = [dict(
 		semantic=SEMANTIC_TABLE.index(p['semantic']),
 		staff=p['staff'],
@@ -22,11 +24,21 @@ def vectorizeMeasure (measure):
 		sy2=p['sy2'],
 		confidence=p['confidence'],
 		) for p in measure['points'] if p['semantic'] in SEMANTIC_TABLE]
+	# EOS
+	points.append({
+		'semantic': SEMANTIC_TABLE.index('_EOS'),
+		'staff': 0,
+		'x': right,
+		'y': 0,
+		'sy1': 0,
+		'sy2': 0,
+		'confidence': 100,
+	})
 	points = sorted(points, key=lambda p: p['semantic'])
 
 	semantic = torch.tensor([p['semantic'] for p in points], dtype=torch.uint8)
 	staff = torch.tensor([p['staff'] for p in points], dtype=torch.uint8)
-	x = torch.tensor([p['x'] for p in points], dtype=torch.float)
+	x = torch.tensor([p['x'] - left for p in points], dtype=torch.float)
 	y = torch.tensor([p['y'] for p in points], dtype=torch.float)
 	sy1 = torch.tensor([p['sy1'] for p in points], dtype=torch.float16)
 	sy2 = torch.tensor([p['sy2'] for p in points], dtype=torch.float16)
@@ -71,6 +83,7 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 		lib_tensors = [semantic, staff, x, y, sy1, sy2, confidence]
 
 		graph = None
+		n_seqs = []
 
 		for paragraph in meta['paragraphs']:
 			group = paragraph['group']
@@ -90,10 +103,15 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 
 			for i, measure in enumerate(measures):
 				tensors = vectorizeMeasure(measure)
+				n_seqs.append(tensors[0].shape[0])
 				for it, t in enumerate(tensors):
 					lib_tensors[it][range0 + i][:t.shape[0]] = t[:n_seq_max]
 
 			logging.info('%d measures wrote.', range1 - range0)
+
+		n_seqs = torch.tensor(n_seqs).float()
+		logging.info('max n_seq: %d', n_seqs.max())
+		logging.info('mean n_seq: %f', n_seqs.mean())
 
 		with open(target_path, 'wb') as taget_file:
 			pickle.dump(dict(semantic=semantic, staff=staff, x=x, y=y, sy1=sy1, sy2=sy2, confidence=confidence), taget_file)
