@@ -1,4 +1,5 @@
 
+import sys
 import os
 import yaml
 import json
@@ -41,6 +42,7 @@ def vectorizeMeasure (measure, n_seq_max):
 		'sy2': 0,
 		'confidence': 100,
 	})
+	n_seq = len(points)
 	points = sorted(points, key=lambda p: p['semantic'])[:n_seq_max]	# clip points prior by semantic
 	points = sorted(points, key=lambda p: p['x'])
 
@@ -52,7 +54,7 @@ def vectorizeMeasure (measure, n_seq_max):
 	sy2 = torch.tensor([p['sy2'] for p in points], dtype=torch.float16)
 	confidence = torch.tensor([p['confidence'] for p in points], dtype=torch.float16)
 
-	return semantic, staff, x, y, sy1, sy2, confidence
+	return n_seq, (semantic, staff, x, y, sy1, sy2, confidence)
 
 
 def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
@@ -78,11 +80,12 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 			else:
 				prefix = group
 
-			filename = next(file for file in files if file.startswith(prefix))
-			if filename is None:
-				logging.error('Cannot find semantic file for %', group)
-			else:
+			try:
+				filename = next(file for file in files if file.startswith(prefix) or re.sub(r'^\w+\.', '', file).startswith(prefix))
 				group_to_semantic[group] = os.path.join(json_dir, filename)
+			except StopIteration as e:
+				logging.error('Cannot find semantic file for %s', group)
+				raise e
 		#print('group_to_semantic:', group_to_semantic)
 
 		n_measure = meta['paragraphs'][-1]['sentenceRange'][1]
@@ -110,8 +113,8 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 			assert len(measures) == range1 - range0, 'measure number mismatch: %s, %d, [%d:%d]' % (paragraph['name'], len(measures), range0, range1)
 
 			for i, measure in enumerate(measures):
-				tensors = vectorizeMeasure(measure, n_seq_max=n_seq_max)
-				n_seqs.append(tensors[0].shape[0])
+				n_seq, tensors = vectorizeMeasure(measure, n_seq_max=n_seq_max)
+				n_seqs.append(n_seq)
 				for it, t in enumerate(tensors):
 					lib_tensors[it][range0 + i][:t.shape[0]] = t
 
