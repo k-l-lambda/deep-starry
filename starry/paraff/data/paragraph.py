@@ -10,6 +10,7 @@ import numpy as np
 
 from ...utils.parsers import parseFilterStr, mergeArgs
 from .paraffFile import ParaffFile
+from .timewiseGraph import TG_EOS
 
 
 
@@ -276,7 +277,7 @@ class PhasedParagraph (IterableDataset):
 
 		drop_p = self.graph_augmentor.get('drop_p', 0)
 
-		drop_mask = torch.rand_like(id, dtype=torch.float) < drop_p
+		drop_mask = (torch.rand_like(id, dtype=torch.float) < drop_p) & (id > TG_EOS)
 		id[drop_mask] = 0
 
 		x_factor_sigma = self.graph_augmentor.get('x_factor_sigma', 0)

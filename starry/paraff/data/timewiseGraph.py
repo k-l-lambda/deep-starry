@@ -34,7 +34,7 @@ def vectorizeMeasure (measure, n_seq_max):
 		) for p in measure['points'] if p['semantic'] in SEMANTIC_TABLE and p['staff'] < STAFF_MAX]
 	# EOS
 	points.append({
-		'semantic': SEMANTIC_TABLE.index('_EOS'),
+		'semantic': TG_EOS,
 		'staff': 0,
 		'x': right,
 		'y': 0,
