@@ -95,6 +95,7 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 
 		graph = None
 		n_seqs = []
+		data_intact = True
 
 		for paragraph in meta['paragraphs']:
 			group = paragraph['group']
@@ -110,7 +111,10 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 			if mrange_captures is not None:
 				mbegin, mend = int(mrange_captures[1]), int(mrange_captures[2])
 				measures = [m for m in graph['measures'] if m['measureIndex'] >= mbegin and m['measureIndex'] <= mend]
-			assert len(measures) == range1 - range0, 'measure number mismatch: %s, %d, [%d:%d]' % (paragraph['name'], len(measures), range0, range1)
+			#assert len(measures) == range1 - range0, 'measure number mismatch: %s, %d, [%d:%d]' % (paragraph['name'], len(measures), range0, range1)
+			if len(measures) != range1 - range0:
+				logging.warn('measure number mismatch: %s, %d, [%d:%d]', paragraph['name'], len(measures), range0, range1)
+				data_intact = False
 
 			for i, measure in enumerate(measures):
 				n_seq, tensors = vectorizeMeasure(measure, n_seq_max=n_seq_max)
@@ -124,7 +128,10 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 		logging.info('max n_seq: %d', n_seqs.max())
 		logging.info('mean n_seq: %f', n_seqs.mean())
 
-		with open(target_path, 'wb') as taget_file:
-			pickle.dump(dict(semantic=semantic, staff=staff, x=x, y=y, sy1=sy1, sy2=sy2, confidence=confidence), taget_file)
+		if data_intact:
+			with open(target_path, 'wb') as taget_file:
+				pickle.dump(dict(semantic=semantic, staff=staff, x=x, y=y, sy1=sy1, sy2=sy2, confidence=confidence), taget_file)
 
-		logging.info('Package saved: %s', target_path)
+			logging.info('Package saved: %s', target_path)
+		else:
+			logging.warn('Data is not intact, check errors.')
