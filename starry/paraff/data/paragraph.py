@@ -101,6 +101,7 @@ class PhasedParagraph (IterableDataset):
 		self.summary_id = summary_id
 		self.with_graph = with_graph
 		self.graph_augmentor = graph_augmentor
+		self.with_summary_encoder = encoder is not None
 
 		phases, cycle = parseFilterStr(split)
 
@@ -164,7 +165,8 @@ class PhasedParagraph (IterableDataset):
 			ph_summary = torch.zeros(self.n_seq_phase, self.d_summary)
 			ph_body_mask = torch.zeros_like(ph_id).bool()
 			ph_is_measure = ph_id == PHID_MEASURE
-			ph_summary[ph_is_measure] = self.measure.summaries[measure_begin:measure_end]
+			if self.with_summary_encoder:
+				ph_summary[ph_is_measure] = self.measure.summaries[measure_begin:measure_end]
 			ph_body_idx = ph_indecies[ph_is_measure]
 			ph_body_mask[ph_indecies < ph_body_idx[0].item()] = True
 
