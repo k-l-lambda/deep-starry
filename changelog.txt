@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.8.4
+
+	+	paraff/models/graphTransformer.py: model class of GraphParaffTransformer added.
+
+
 2023.8.3
 
 	+	parff/models/graphTransformer.py created.

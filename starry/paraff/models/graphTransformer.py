@@ -5,11 +5,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 #import logging
 
-from ...transformer.models import get_subsequent_mask
-from ..data.timewiseGraph import SEMANTIC_MAX, STAFF_MAX, TG_EOS
+from ...transformer.models import get_subsequent_mask, get_pad_mask, Decoder
+from ..data.timewiseGraph import SEMANTIC_MAX, STAFF_MAX, TG_EOS, TG_PAD
 from .modules import AttentionStack, TimewiseGraphEncoder
 from .seqShareVAE import SeqShareVAE
 
+
+
+ID_PAD = 0
 
 
 class GraphParaffEncoder (nn.Module):
@@ -24,10 +27,10 @@ class GraphParaffEncoder (nn.Module):
 		self.attention = AttentionStack(d_model=d_model, n_layers=n_layers, dropout=dropout, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v)
 
 
-	def forward (self, ids, staff, confidence, x, y, sy1, y2, mask):	# -> (n, d_model * n_next)
+	def forward (self, ids, staff, confidence, x, y, sy1, sy2, mask):	# -> (n, n_seq, d_model)
 		trg_mask = mask.unsqueeze(-2) & get_subsequent_mask(ids)
 
-		h = self.cat(ids, staff, confidence, x, y, sy1, y2)
+		h = self.cat(ids, staff, confidence, x, y, sy1, sy2)
 		h = self.embedding(h)
 		h = self.attention(h, mask=trg_mask)
 
@@ -81,7 +84,7 @@ class GraphParaffEncoderLoss (nn.Module):
 		target_body = target[body_mask]
 
 		tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2 = batch['tg_id'], batch['tg_staff'], batch['tg_confidence'], batch['tg_x'], batch['tg_y'], batch['tg_sy1'], batch['tg_sy2']
-		tg_mask = tg_id != 0
+		tg_mask = tg_id != TG_PAD
 		tg_eos = tg_id == TG_EOS
 
 		graph_code = self.deducer(tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, mask=tg_mask)
@@ -132,3 +135,86 @@ class GraphParaffEncoderLoss (nn.Module):
 
 	def updateStates (self):
 		pass
+
+
+
+class GraphParaffTransformer (nn.Module):
+	def __init__(self, d_model, encoder_config, decoder_config):
+		super().__init__()
+
+		self.encoder = GraphParaffEncoder(d_model=d_model, **encoder_config)
+		self.decoder = Decoder(d_model=d_model, d_word_vec=d_model, pad_idx=ID_PAD, **decoder_config)
+
+		self.word_prj = nn.Linear(d_model, decoder_config['n_trg_vocab'], bias=False)
+		self.word_prj.weight = self.decoder.trg_word_emb.weight
+
+		self.TG_PAD = TG_PAD
+		self.ID_PAD = ID_PAD
+
+
+	def forward (self, ids, staff, confidence, x, y, sy1, sy2, premier):	# -> (n, n_seq, n_vocab)
+		source_mask = ids != self.TG_PAD
+		target_mask = get_pad_mask(premier, self.ID_PAD) & get_subsequent_mask(premier)
+
+		graph_code = self.encoder(ids, staff, confidence, x, y, sy1, sy2, source_mask)
+		decoder_out, = self.decoder(premier.long(), target_mask, graph_code, source_mask.unsqueeze(-2))
+		result = self.word_prj(decoder_out)
+
+		return result
+
+
+class GraphParaffTransformerLoss (nn.Module):
+	def __init__(self, **kw_args):
+		super().__init__()
+
+		self.deducer = GraphParaffTransformer(**kw_args)
+
+		for p in self.deducer.encoder.parameters():
+			if p.dim() > 1:
+				nn.init.xavier_uniform_(p, gain=(kw_args['encoder_config']['n_layers'] * 2) ** -0.5)
+
+		for p in self.deducer.decoder.parameters():
+			if p.dim() > 1:
+				nn.init.xavier_uniform_(p, gain=(kw_args['decoder_config']['n_layers'] * 2) ** -0.5)
+
+
+	def forward (self, batch):
+		body_mask = batch['body_mask']
+		target = batch['output_ids'].long()
+		target_body = target[body_mask]
+
+		input_ids = batch['input_ids']
+		tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2 = batch['tg_id'], batch['tg_staff'], batch['tg_confidence'], batch['tg_x'], batch['tg_y'], batch['tg_sy1'], batch['tg_sy2']
+
+		pred = self.deducer(tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, input_ids)
+		pred_body = pred[body_mask]
+
+		loss = F.cross_entropy(pred_body, target_body)
+
+		pred_ids = pred_body.argmax(dim=-1)
+		acc = (pred_ids == target_body).float().mean()
+
+		metric = {
+			'acc': acc.item(),
+		}
+
+		if not self.training:
+			zero_tg_id = torch.zeros_like(tg_id)
+			np_input_ids = torch.zeros_like(input_ids)
+			np_input_ids[body_mask] = input_ids[body_mask]
+
+			pred_zl = self.deducer(zero_tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, input_ids)
+			pred_np = self.deducer(tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, np_input_ids)
+			pred_zlnp = self.deducer(zero_tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, np_input_ids)
+
+			error = 1 - acc
+			error_zero_latent = 1 - (pred_zl[body_mask].argmax(dim=-1) == target_body).float().mean()
+			error_no_primer = 1 - (pred_np[body_mask].argmax(dim=-1) == target_body).float().mean()
+			error_zero_latent_no_primer = 1 - (pred_zlnp[body_mask].argmax(dim=-1) == target_body).float().mean()
+
+			metric['error'] = error.item()
+			metric['error_zero_latent'] = error_zero_latent.item()
+			metric['error_no_primer'] = error_no_primer.item()
+			metric['error_zero_latent_no_primer'] = error_zero_latent_no_primer.item()
+
+		return loss, metric
