@@ -73,3 +73,94 @@ optim:
       lr_mul:               1
       n_warmup_steps:       6400
       d_model:              256
+
+
+onnx:
+  multiple:
+    seq32:
+      inputs:
+      - name: ids
+        dtype: uint8
+        shape: &sz1_32 [1, 32]
+      - name: staff
+        dtype: uint8
+        shape: *sz1_32
+      - name: confidence
+        dtype: float32
+        shape: *sz1_32
+      - name: x
+        dtype: float32
+        shape: *sz1_32
+      - name: y
+        dtype: float32
+        shape: *sz1_32
+      - name: sy1
+        dtype: float32
+        shape: *sz1_32
+      - name: sy2
+        dtype: float32
+        shape: *sz1_32
+      - name: premier
+        dtype: uint8
+        shape: *sz1_32
+      opset: 14
+      outputs:
+      - seq_out
+    seq128:
+      inputs:
+      - name: ids
+        dtype: uint8
+        shape: &sz1_128 [1, 128]
+      - name: staff
+        dtype: uint8
+        shape: *sz1_128
+      - name: confidence
+        dtype: float32
+        shape: *sz1_128
+      - name: x
+        dtype: float32
+        shape: *sz1_128
+      - name: y
+        dtype: float32
+        shape: *sz1_128
+      - name: sy1
+        dtype: float32
+        shape: *sz1_128
+      - name: sy2
+        dtype: float32
+        shape: *sz1_128
+      - name: premier
+        dtype: uint8
+        shape: *sz1_128
+      opset: 14
+      outputs:
+      - seq_out
+    seq512:
+      inputs:
+      - name: ids
+        dtype: uint8
+        shape: &sz1_512 [1, 512]
+      - name: staff
+        dtype: uint8
+        shape: *sz1_512
+      - name: confidence
+        dtype: float32
+        shape: *sz1_512
+      - name: x
+        dtype: float32
+        shape: *sz1_512
+      - name: y
+        dtype: float32
+        shape: *sz1_512
+      - name: sy1
+        dtype: float32
+        shape: *sz1_512
+      - name: sy2
+        dtype: float32
+        shape: *sz1_512
+      - name: premier
+        dtype: uint8
+        shape: *sz1_512
+      opset: 14
+      outputs:
+      - seq_out
