@@ -37,6 +37,39 @@ class GraphParaffEncoder (nn.Module):
 		return h
 
 
+class GraphParaffEncoderTail (nn.Module):
+	def __init__(self, word_decoder_config, word_decoder_pretrain, **kw_args):
+		super().__init__()
+
+		self.encoder = GraphParaffEncoder(**kw_args)
+
+		self.id_pad = TG_PAD
+		self.id_eos = TG_EOS
+
+
+	def forward (self, ids, staff, confidence, x, y, sy1, sy2):	# -> (n, d_model)
+		mask = ids == self.id_pad
+		h = self.encoder(ids, staff, confidence, x, y, sy1, sy2, mask)
+
+		return h[ids == self.id_eos]
+
+
+class GraphParaffEncoderDecoder (nn.Module):
+	def __init__(self, d_model=256, word_decoder_config=None, **_):
+		super().__init__()
+
+		vae = SeqShareVAE(d_latent=d_model, **word_decoder_config)
+		self.word_decoder = vae.getDecoderWithPos()
+
+
+	def load_state_dict (self, state_dict, strict=True):
+		return self.word_decoder.load_state_dict(state_dict['word_decoder'], strict)
+
+
+	def forward (self, input_ids, position, latent):
+		return self.word_decoder(input_ids, position.float(), latent)
+
+
 class GraphParaffEncoderLoss (nn.Module):
 	need_states = True
 

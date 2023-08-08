@@ -105,7 +105,7 @@ onnx:
         shape: *sz1_32
       opset: 14
       outputs:
-      - seq_out
+      - logits
     seq128:
       inputs:
       - name: ids
@@ -134,7 +134,7 @@ onnx:
         shape: *sz1_128
       opset: 14
       outputs:
-      - seq_out
+      - logits
     seq512:
       inputs:
       - name: ids
@@ -163,4 +163,4 @@ onnx:
         shape: *sz1_512
       opset: 14
       outputs:
-      - seq_out
+      - logits

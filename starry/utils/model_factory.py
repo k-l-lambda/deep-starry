@@ -41,7 +41,7 @@ def registerModels ():
 		pm.SeqShareVAE, pm.SeqShareVAELoss, pm.SeqShareVAEJitEnc, pm.SeqShareVAEJitDec,
 		pm.PhaseGen, pm.PhaseGenLoss, pm.PhaseGenDecoder, pm.PhaseGenDecoderLora,
 		pm.SeqDecoderBase, pm.SeqDecoderBaseLoss,
-		pm.GraphParaffEncoder, pm.GraphParaffEncoderLoss,
+		pm.GraphParaffEncoder, pm.GraphParaffEncoderLoss, pm.GraphParaffEncoderTail, pm.GraphParaffEncoderDecoder,
 		pm.GraphParaffTransformer, pm.GraphParaffTransformerLoss,
 	]
 

@@ -5,7 +5,12 @@ TODO:
 
 
 
-2023.8.4
+2023.8.8
+
+	+	paraff/models/graphTransformer.py: added Onnx model classes for GraphParaffEncoder.
+
+
+2023.8.7
 
 	+	paraff/models/graphTransformer.py: model class of GraphParaffTransformer added.
 
