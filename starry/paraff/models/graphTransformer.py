@@ -47,6 +47,10 @@ class GraphParaffEncoderTail (nn.Module):
 		self.id_eos = TG_EOS
 
 
+	def load_state_dict (self, state_dict, **_):
+		return self.encoder.load_state_dict(state_dict, **_)
+
+
 	def forward (self, ids, staff, confidence, x, y, sy1, sy2):	# -> (n, d_model)
 		mask = ids == self.id_pad
 		h = self.encoder(ids, staff, confidence, x, y, sy1, sy2, mask)
