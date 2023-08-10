@@ -62,7 +62,7 @@ class PClass2Int (nn.Module):
 		self.factors = factors[::-1]
 		pfactors = facprod(self.factors)
 
-		self.register_buffer('pfactors', torch.tensor(pfactors, dtype=torch.long), persistent=False)
+		self.register_buffer('pfactors', torch.tensor(pfactors, dtype=torch.float), persistent=False)
 
 		pos = 0
 		self.digit_pos = []
@@ -75,4 +75,4 @@ class PClass2Int (nn.Module):
 		digits = [F.pad(logits[..., pos:pos + f - 1], (1, 0), value=0).argmax(dim=-1) for f, pos in zip(self.factors, self.digit_pos)]
 		digits = torch.stack(digits, dim=-1)
 
-		return torch.inner(digits, self.pfactors)
+		return torch.inner(digits.float(), self.pfactors)
