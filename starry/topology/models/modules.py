@@ -7,8 +7,18 @@ import torch.nn.functional as F
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ..semantic_element import SemanticElementType, STAFF_MAX
-from ..event_element import FEATURE_DIM, STAFF_MAX as EV_STAFF_MAX, EventElementType, TARGET_DIMS_LEGACY, TARGET_DIMS, TIME8TH_MAX
+from ..event_element import (
+	FEATURE_DIM,
+	STAFF_MAX as EV_STAFF_MAX,
+	EventElementType,
+	TARGET_DIMS_LEGACY,
+	TARGET_DIMS, TARGET_DIM,
+	TIME8TH_MAX,
+	TARGET_DIMS_V3, TARGET_DIM_V3,
+	VTICK_BASE,
+)
 from ...modules.positionEncoder import SinusoidEncoderXYY, SinusoidEncoder
+from ...modules.classInt import PClass2Int
 
 
 
@@ -565,6 +575,9 @@ class RectifierParser (nn.Module):
 
 
 class RectifierParser2 (nn.Module):
+	VEC_CHANNELS = TARGET_DIM
+
+
 	def __init__(self):
 		super().__init__()
 
@@ -587,6 +600,39 @@ class RectifierParser2 (nn.Module):
 		#rec['stemDirection'] = rec['stemDirection']
 
 		rec['tick'] = rec['tick'].squeeze(-1)
+		rec['grace'] = self.sigmoid(rec['grace'].squeeze(-1))
+		rec['timeWarped'] = self.sigmoid(rec['timeWarped'].squeeze(-1))
+		rec['fullMeasure'] = self.sigmoid(rec['fullMeasure'].squeeze(-1))
+		rec['fake'] = self.sigmoid(rec['fake'].squeeze(-1))
+
+		return rec
+
+
+# use int tick
+class RectifierParser3 (nn.Module):
+	VEC_CHANNELS = TARGET_DIM_V3
+
+
+	def __init__(self):
+		super().__init__()
+
+		#self.softmax = nn.Softmax(dim=-1)
+		self.sigmoid = nn.Sigmoid()
+
+		self.target_dim_items = list(TARGET_DIMS_V3.items())
+
+		self.to_int = PClass2Int(VTICK_BASE)
+
+
+	def forward (self, vec):
+		rec = {}
+		d = 0
+		for k, dims in self.target_dim_items:
+			rec[k] = vec[:, :, d:d + dims]
+			d += dims
+
+		rec['tick'] = self.to_int(rec['vtick'])
+
 		rec['grace'] = self.sigmoid(rec['grace'].squeeze(-1))
 		rec['timeWarped'] = self.sigmoid(rec['timeWarped'].squeeze(-1))
 		rec['fullMeasure'] = self.sigmoid(rec['fullMeasure'].squeeze(-1))

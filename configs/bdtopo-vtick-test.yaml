@@ -25,7 +25,7 @@ data:
 model:
   type:                     BeadPicker
   args:
-    rectifier_version:      v2
+    rectifier_version:      v3
     usePivotX:              True
     with_time8th:           True
     n_layers:               2
@@ -52,7 +52,7 @@ model:
     - 1         # full measure
     - 1         # fake
     #                       (loss_suc, loss_tick_fixed, loss_tick, loss_division, loss_dots, loss_beam, loss_direction, loss_grace, loss_warped, loss_full, loss_fake)
-    loss_weights:           [10, 9.e-6, 1.e-6, 2, 2]
+    loss_weights:           [4,         20,             40,         4,            4]
     init_gain_n:            4     # 2 * n_layers
 
 

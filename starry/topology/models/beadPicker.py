@@ -3,17 +3,24 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-from ..event_element import TARGET_DIM, EventElementType
+from ..event_element import EventElementType, VTICK_BASE
 from ...utils.weightedValue import WeightedValue
-from .modules import EventOrderedEncoder, EventEncoderV4, CrossEntropy, RectifierParser2
+from .modules import EventOrderedEncoder, EventEncoderV4, CrossEntropy, RectifierParser2, RectifierParser3
 from .rectifyJointer import EncoderLayerStack, DEFAULT_ERROR_WEIGHTS
+from ...modules.classInt import Int2PClass
 
+
+
+RectifierParsers = {
+	'v2': RectifierParser2,
+	'v3': RectifierParser3,
+}
 
 
 class BeadPicker (nn.Module):
 	def __init__ (self, n_layers=1, angle_cycle=1000, d_position=512, feature_activation=None, zero_candidates=False,
 			with_time8th=False,
-			d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64, dropout=0.1, scale_emb=False, **_):
+			d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64, dropout=0.1, rectifier_version='v2', **_):
 		super().__init__()
 
 		self.with_time8th = with_time8th
@@ -26,8 +33,10 @@ class BeadPicker (nn.Module):
 
 		self.attention = EncoderLayerStack(n_layers, **encoder_args)
 
-		self.out = nn.Linear(d_model, 1 + TARGET_DIM)
-		self.rec_parser = RectifierParser2()
+		rectifier_class = RectifierParsers[rectifier_version]
+
+		self.out = nn.Linear(d_model, 1 + rectifier_class.VEC_CHANNELS)
+		self.rec_parser = rectifier_class()
 		self.sigmoid = nn.Sigmoid()
 
 		self.PAD = EventElementType.PAD
@@ -79,12 +88,16 @@ class BeadPickerLoss (nn.Module):
 		self.loss_weights = [*loss_weights] + [1] * 20
 		self.decisive_confidence = decisive_confidence
 		self.usePivotX = usePivotX
+		self.use_vtick = kw_args['rectifier_version'] == 'v3'
 
 		self.deducer = BeadPicker(**kw_args)
 
 		self.mse = nn.MSELoss()
 		self.ce = CrossEntropy()
 		self.bce = nn.BCELoss()
+		self.bce_logits = nn.BCEWithLogitsLoss()
+
+		self.tick2vec = Int2PClass(VTICK_BASE)
 
 		# initialize parameters
 		for p in self.parameters():
@@ -128,23 +141,32 @@ class BeadPickerLoss (nn.Module):
 		loss_suc = self.bce(pred_suc[is_entity], batch['successor'][is_entity])
 		err_suc = 1 - ((pred_suc[is_candidate] > self.decisive_confidence).float() == batch['successor'][is_candidate]).float().mean()
 
-		loss_tick = self.mse(rec['tick'], batch['tick'])
-		err_tick = torch.sqrt(loss_tick)
+		if not self.use_vtick:
+			loss_tick = self.mse(rec['tick'], batch['tick'])
+			err_tick = torch.sqrt(loss_tick.detach())
 
-		loss_tick_fixed = self.mse(rec['tick'][is_fixed], batch['tick'][is_fixed])
-		err_tick_fixed = torch.sqrt(loss_tick_fixed)
+			loss_tick_fixed = self.mse(rec['tick'][is_fixed], batch['tick'][is_fixed])
+			err_tick_fixed = torch.sqrt(loss_tick_fixed.detach())
+		else:
+			target_vtick = self.tick2vec(batch['tick'])
+			loss_tick = self.bce_logits(rec['vtick'], target_vtick)
+			err_tick = torch.sqrt(self.mse(rec['tick'], batch['tick']).detach())
+
+			loss_tick_fixed = self.bce_logits(rec['vtick'][is_fixed], target_vtick[is_fixed])
+			err_tick_fixed = torch.sqrt(self.mse(rec['tick'][is_fixed], batch['tick'][is_fixed]).detach())
 
 		n_seq = batch['tick'].shape[-1]
 		tick_src = rec['tick'].unsqueeze(-1).repeat(1, 1, n_seq)
 		tick_tar = rec['tick'].unsqueeze(-2).repeat(1, n_seq, 1)
 		pred_tick_diff = (tick_src - tick_tar)
 		loss_rel_tick = self.mse(pred_tick_diff.masked_select(batch['maskT']), batch['tickDiff'].masked_select(batch['maskT']))
-		err_rel_tick = torch.sqrt(loss_rel_tick)
+		err_rel_tick = torch.sqrt(loss_rel_tick.detach())
 
-		loss_tick += loss_rel_tick
+		if not self.use_vtick:
+			loss_tick += loss_rel_tick
 
 		eos = batch['type'] == EventElementType.EOS
-		err_duration = torch.sqrt(self.mse(rec['tick'][eos], batch['tick'][eos]))
+		err_duration = torch.sqrt(self.mse(rec['tick'][eos], batch['tick'][eos]).detach())
 
 		loss_division = self.ce(rec['division'], batch['division'], mask=is_event)
 		val_division = torch.argmax(rec['division'][is_ce], dim=-1) == batch['division'][is_ce]

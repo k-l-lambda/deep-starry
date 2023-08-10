@@ -2,6 +2,8 @@
 from enum import IntEnum
 from pickle import NONE
 
+from ..modules.classInt import pclassDims
+
 
 
 class EventElementType (IntEnum):
@@ -69,3 +71,21 @@ TARGET_DIM = sum(TARGET_DIMS.values())
 
 
 TIME8TH_MAX = 16
+
+
+VTICK_BASE = 1920 * 4
+VTICK_DIMS = pclassDims(VTICK_BASE)
+
+TARGET_DIMS_V3 = dict(
+	vtick=VTICK_DIMS,
+	division=9,
+	dots=3,
+	beam=4,
+	stemDirection=3,
+	grace=1,
+	timeWarped=1,
+	fullMeasure=1,
+	fake=1,
+)
+TARGET_FIELDS_V3 = list(TARGET_DIMS_V3.keys())
+TARGET_DIM_V3 = sum(TARGET_DIMS_V3.values())

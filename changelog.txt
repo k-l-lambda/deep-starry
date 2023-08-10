@@ -7,6 +7,8 @@ TODO:
 
 2023.8.10
 
+	+	beadPicker.py: vtick model options added.
+
 	+	modules/classInt.py created.
 
 

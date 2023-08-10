@@ -10,18 +10,22 @@ import numpy as np
 
 def factorify (n):
 	n = n // 1
-	sqrt_n = np.sqrt(n) // 1
 	factors = []
 
 	residue = n
 	while residue > 1:
-		for p in primesieve.primes(sqrt_n):
+		for p in primesieve.primes(n):
 			if residue % p == 0:
 				factors.append(p)
 				residue //= p
 				break
 
 	return factors
+
+
+def pclassDims (base):
+	factors = factorify(base)
+	return sum(factors) - len(factors)
 
 
 def facprod (factors):
@@ -44,10 +48,10 @@ class Int2PClass (nn.Module):
 
 
 	def forward (self, x):
-		digits = [x.floor_divide(p).remainder(f) for f, p in zip(self.factors, self.pfactors)]
+		digits = [x.long().floor_divide(p).remainder(f) for f, p in zip(self.factors, self.pfactors)]
 		one_hot = [F.one_hot(d, num_classes=f)[..., 1:] for d, f in zip(digits, self.factors)]
 
-		return torch.cat(one_hot, dim=-1)
+		return torch.cat(one_hot, dim=-1).float()
 
 
 class PClass2Int (nn.Module):
