@@ -81,7 +81,7 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 				prefix = group
 
 			try:
-				filename = next(file for file in files if file.startswith(prefix) or re.sub(r'^\w+\.', '', file).startswith(prefix))
+				filename = next(file for file in semantic_files if file.startswith(prefix) or re.sub(r'^\w+\.', '', file).startswith(prefix))
 				group_to_semantic[group] = os.path.join(json_dir, filename)
 			except StopIteration as e:
 				logging.error('Cannot find semantic file for %s', group)
