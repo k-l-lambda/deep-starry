@@ -181,13 +181,13 @@ class PhasedParagraph (IterableDataset):
 			pids = entries.flatten()
 			pids = pids[pids != 0]
 			pids = F.pad(pids, (1, 0), 'constant', 0)
-			pids_arange = torch.arange(pids.shape[0], dtype=torch.int16)
+			pids_arange = torch.arange(pids.shape[0], dtype=torch.int32)
 			measure_size = (entries != 0).int().sum(dim=-1)
 			measure_size[0] += 1
 
 			for mi in range(measure_begin, measure_end):
-				ids_begin = measure_size[:mi - measure_begin].sum()
-				ids_end = measure_size[:mi - measure_begin + 1].sum()
+				ids_begin = measure_size[:mi - measure_begin].sum().item()
+				ids_end = measure_size[:mi - measure_begin + 1].sum().item()
 				ids = pids[max(0, ids_end - self.n_seq_word):ids_end]
 
 				if self.with_summary:
