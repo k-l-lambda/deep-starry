@@ -92,6 +92,9 @@ onnx:
       model_postfix: Tail
       opset: 14
       inputs:
+      - name: prev_summary
+        dtype: float32
+        shape: [1, 128, 256]
       - name: ids
         dtype: uint8
         shape: &sz128 [1, 128]
@@ -119,6 +122,9 @@ onnx:
       model_postfix: Tail
       opset: 14
       inputs:
+      - name: prev_summary
+        dtype: float32
+        shape: [1, 512, 256]
       - name: ids
         dtype: uint8
         shape: &sz512 [1, 512]
@@ -142,35 +148,3 @@ onnx:
         shape: *sz512
       outputs:
       - latent
-    decoder128:
-      model_postfix: Decoder
-      state_field: extra
-      opset: 14
-      inputs:
-      - name: input_ids
-        dtype: uint8
-        shape: *sz128
-      - name: position
-        dtype: int16
-        shape: *sz128
-      - name: latent
-        dtype: float32
-        shape: [1, 256]
-      outputs:
-      - logits
-    decoder512:
-      model_postfix: Decoder
-      state_field: extra
-      opset: 14
-      inputs:
-      - name: input_ids
-        dtype: uint8
-        shape: *sz512
-      - name: position
-        dtype: int16
-        shape: *sz512
-      - name: latent
-        dtype: float32
-        shape: [1, 256]
-      outputs:
-      - logits
