@@ -5,4 +5,8 @@ from .sparseAE import SparseAE, SparseAELoss
 from .seqShareVAE import SeqShareVAE, SeqShareVAELoss, SeqShareVAEJitEnc, SeqShareVAEJitDec
 from .phaseGen import PhaseGen, PhaseGenLoss, PhaseGenDecoder, PhaseGenDecoderLora
 from .seqDecoder import *
-from .graphTransformer import GraphParaffEncoder, GraphParaffEncoderLoss, GraphParaffTranslator, GraphParaffTranslatorLoss, GraphParaffEncoderTail, GraphParaffEncoderDecoder
+from .graphTransformer import (
+	GraphParaffEncoder, GraphParaffEncoderLoss, GraphParaffEncoderTail, GraphParaffEncoderDecoder,
+	GraphParaffSummaryEncoder, GraphParaffSummaryEncoderLoss,
+	GraphParaffTranslator, GraphParaffTranslatorLoss,
+)

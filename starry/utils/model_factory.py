@@ -42,6 +42,7 @@ def registerModels ():
 		pm.PhaseGen, pm.PhaseGenLoss, pm.PhaseGenDecoder, pm.PhaseGenDecoderLora,
 		pm.SeqDecoderBase, pm.SeqDecoderBaseLoss,
 		pm.GraphParaffEncoder, pm.GraphParaffEncoderLoss, pm.GraphParaffEncoderTail, pm.GraphParaffEncoderDecoder,
+		pm.GraphParaffSummaryEncoder, pm.GraphParaffSummaryEncoderLoss,
 		pm.GraphParaffTranslator, pm.GraphParaffTranslatorLoss,
 	]
 

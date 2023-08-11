@@ -15,6 +15,7 @@ from .seqShareVAE import SeqShareVAE
 ID_PAD = 0
 
 
+# GraphParaffEncoder -------------------------------------------------------------------------------------------------------
 class GraphParaffEncoder (nn.Module):
 	def __init__(self, d_model=256, n_semantic=SEMANTIC_MAX, n_staff=STAFF_MAX, d_position=128, angle_cycle=1000,
 		d_inner=1024, n_layers=6, n_head=8, d_k=32, d_v=32, dropout=0.1):
@@ -174,7 +175,113 @@ class GraphParaffEncoderLoss (nn.Module):
 		pass
 
 
+# GraphParaffSummaryEncoder -------------------------------------------------------------------------------------------------------
+class GraphParaffSummaryEncoder (nn.Module):
+	def __init__(self, d_model=256, n_semantic=SEMANTIC_MAX, n_staff=STAFF_MAX, d_position=128, angle_cycle=1000,
+		d_inner=1024, n_layers=6, n_head=8, d_k=32, d_v=32, dropout=0.1):
+		super().__init__()
 
+		self.d_model = d_model
+
+		self.cat = TimewiseGraphEncoder(n_semantic=n_semantic, n_staff=n_staff, d_hid=d_position, angle_cycle=angle_cycle)
+		self.embedding = nn.Linear(self.cat.output_dim, d_model, bias=False)
+		self.attention = AttentionStack(d_model=d_model, n_layers=n_layers, dropout=dropout, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v)
+		self.summary_emb = nn.Linear(d_model, d_model, bias=False)
+
+
+	# prev_summary: (n, d_model)
+	# ids, staff, confidence, x, y, sy1, sy2, mask: (n, n_seq, d_model)
+	def forward (self, prev_summary, ids, staff, confidence, x, y, sy1, sy2, mask):	# -> (n, n_seq, d_model)
+		trg_mask = mask.unsqueeze(-2) & get_subsequent_mask(ids)
+
+		prev_emb = self.summary_emb(prev_summary).unsqueeze(-2)
+
+		h = self.cat(ids, staff, confidence, x, y, sy1, sy2)
+		h = self.embedding(h)
+		h += prev_emb
+		h = self.attention(h, mask=trg_mask)
+
+		return h
+
+
+class GraphParaffSummaryEncoderLoss (nn.Module):
+	def __init__(self, d_model=256, word_decoder_config=None, word_decoder_pretrain=None, **kw_args):
+		super().__init__()
+
+		assert d_model == word_decoder_config['d_model'], 'd_model mismatch: %d, %d' % (d_model, word_decoder_config['d_model'])
+
+		self.deducer = GraphParaffSummaryEncoder(d_model=d_model, **kw_args)
+
+		self.mse = nn.MSELoss()
+
+		for p in self.deducer.parameters():
+			if p.dim() > 1:
+				nn.init.xavier_uniform_(p, gain=(kw_args['n_layers'] * 2) ** -0.5)
+
+		if word_decoder_config is not None:
+			if 'summary_id' in word_decoder_config:
+				self.summary_id = word_decoder_config['summary_id']
+
+			vae = SeqShareVAE(d_latent=d_model, **word_decoder_config)
+
+			if word_decoder_pretrain is not None:
+				checkpoint = torch.load(word_decoder_pretrain['weight'], map_location='cpu')
+				vae.load_state_dict(checkpoint['model'], strict=False)
+
+				for param in vae.parameters():
+					param.requires_grad = False
+
+			self.word_decoder = vae.getDecoderWithPos()
+
+
+	def forward (self, batch):
+		body_mask = batch['body_mask']
+		word_mask = body_mask | (batch['input_ids'] == self.summary_id)
+		target = batch['output_ids'].long()
+		target_body = target[body_mask]
+
+		ph_summary, ph_next_mask = batch['ph_summary'], batch['ph_next_mask']
+		current_summary = ph_summary[ph_next_mask]
+
+		ph_prev_mask = F.pad(ph_next_mask.unsqueeze(0), (0, 1), 'circular').squeeze(0)[..., 1:]
+		ph_summary[..., :-1, :][ph_prev_mask[..., :-1]] = 0 # zero out prev summary at head (put to tail by circular padding)
+		prev_summary = ph_summary[ph_prev_mask]
+
+		tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2 = batch['tg_id'], batch['tg_staff'], batch['tg_confidence'], batch['tg_x'], batch['tg_y'], batch['tg_sy1'], batch['tg_sy2']
+		tg_mask = tg_id != TG_PAD
+		tg_eos = tg_id == TG_EOS
+
+		graph_code = self.deducer(prev_summary, tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, mask=tg_mask)
+		latent = graph_code[tg_eos]
+
+		pred = self.word_decoder(batch['input_ids'], batch['position'].float(), latent, mask=word_mask)
+		pred_body = pred[body_mask]
+
+		#loss = F.cross_entropy(pred_body, target_body)
+		loss = self.mse(latent, current_summary)
+
+		pred_ids = pred_body.argmax(dim=-1)
+		acc = (pred_ids == target_body).float().mean()
+
+		metric = {
+			'acc': acc.item(),
+		}
+
+		if not self.training:
+			zero_latent = torch.zeros_like(latent)
+
+			pred_zl = self.word_decoder(batch['input_ids'], batch['position'].float(), zero_latent)
+
+			error = 1 - acc
+			error_zero_latent = 1 - (pred_zl[body_mask].argmax(dim=-1) == target_body).float().mean()
+
+			metric['error'] = error.item()
+			metric['error_zero_latent'] = error_zero_latent.item()
+
+		return loss, metric
+
+
+# GraphParaffTranslator ----------------------------------------------------------------------------------------------------
 class GraphParaffTranslator (nn.Module):
 	def __init__(self, d_model, encoder_config, decoder_config):
 		super().__init__()
