@@ -10,8 +10,7 @@ data:
   args:
     n_seq_word:             512
     n_seq_phase:            384 # cannot less than the length of the longest paragraph
-    descriptor_drop:        0.3
-    descriptor_drop_sigma:  1.
+    descriptor_drop:        1
     with_summary:           True
     with_graph:             True
     graph_augmentor:
