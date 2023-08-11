@@ -23,7 +23,7 @@ data:
       weight:               ./training/paraff/20230627-paraff-vae-shared-0613-d256-l4-kld1e-6/model_236_loss_3.732e-02.pt
       device:               cpu
       batch_size:           16
-      test:                 True
+      #test:                 True
   args_variant:
     1:
       graph_augmentor:
