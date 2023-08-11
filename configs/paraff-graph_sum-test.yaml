@@ -93,7 +93,7 @@ onnx:
       inputs:
       - name: prev_summary
         dtype: float32
-        shape: [1, 128, 256]
+        shape: [1, 256]
       - name: ids
         dtype: uint8
         shape: &sz128 [1, 128]
@@ -123,7 +123,7 @@ onnx:
       inputs:
       - name: prev_summary
         dtype: float32
-        shape: [1, 512, 256]
+        shape: [1, 256]
       - name: ids
         dtype: uint8
         shape: &sz512 [1, 512]
