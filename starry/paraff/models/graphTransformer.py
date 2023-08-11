@@ -175,7 +175,7 @@ class GraphParaffEncoderLoss (nn.Module):
 
 
 
-class GraphParaffTransformer (nn.Module):
+class GraphParaffTranslator (nn.Module):
 	def __init__(self, d_model, encoder_config, decoder_config):
 		super().__init__()
 
@@ -200,11 +200,11 @@ class GraphParaffTransformer (nn.Module):
 		return result
 
 
-class GraphParaffTransformerLoss (nn.Module):
+class GraphParaffTranslatorLoss (nn.Module):
 	def __init__(self, **kw_args):
 		super().__init__()
 
-		self.deducer = GraphParaffTransformer(**kw_args)
+		self.deducer = GraphParaffTranslator(**kw_args)
 
 		for p in self.deducer.encoder.parameters():
 			if p.dim() > 1:

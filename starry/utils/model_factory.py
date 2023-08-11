@@ -42,7 +42,7 @@ def registerModels ():
 		pm.PhaseGen, pm.PhaseGenLoss, pm.PhaseGenDecoder, pm.PhaseGenDecoderLora,
 		pm.SeqDecoderBase, pm.SeqDecoderBaseLoss,
 		pm.GraphParaffEncoder, pm.GraphParaffEncoderLoss, pm.GraphParaffEncoderTail, pm.GraphParaffEncoderDecoder,
-		pm.GraphParaffTransformer, pm.GraphParaffTransformerLoss,
+		pm.GraphParaffTranslator, pm.GraphParaffTranslatorLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

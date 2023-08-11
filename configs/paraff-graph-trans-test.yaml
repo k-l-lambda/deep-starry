@@ -26,7 +26,7 @@ data:
 
 
 model:
-  type:                     GraphParaffTransformer
+  type:                     GraphParaffTranslator
   args:
     d_model:                256
     encoder_config:

@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.8.11
+
+	>	Renamed model class: GraphParaffTransformer -> GraphParaphraseTranslator.
+
+
 2023.8.8
 
 	+	paraff/models/graphTransformer.py: added Onnx model classes for GraphParaffEncoder.
