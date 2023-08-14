@@ -75,4 +75,5 @@ class PClass2Int (nn.Module):
 		digits = [F.pad(logits[..., pos:pos + f - 1], (1, 0), value=0).argmax(dim=-1) for f, pos in zip(self.factors, self.digit_pos)]
 		digits = torch.stack(digits, dim=-1)
 
-		return torch.inner(digits.float(), self.pfactors)
+		#return torch.inner(digits.float(), self.pfactors)
+		return torch.tensordot(digits.float(), self.pfactors, dims=([-1], [-1])) # wordaround onnx opset 14 limitation
