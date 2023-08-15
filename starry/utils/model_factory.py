@@ -43,7 +43,7 @@ def registerModels ():
 		pm.SeqDecoderBase, pm.SeqDecoderBaseLoss,
 		pm.GraphParaffEncoder, pm.GraphParaffEncoderLoss, pm.GraphParaffEncoderTail, pm.GraphParaffEncoderDecoder,
 		pm.GraphParaffSummaryEncoder, pm.GraphParaffSummaryEncoderLoss,
-		pm.GraphParaffTranslator, pm.GraphParaffTranslatorLoss,
+		pm.GraphParaffTranslator, pm.GraphParaffTranslatorLoss, pm.GraphParaffTranslatorOnnx,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

@@ -18,10 +18,11 @@ ID_PAD = 0
 # GraphParaffEncoder -------------------------------------------------------------------------------------------------------
 class GraphParaffEncoder (nn.Module):
 	def __init__(self, d_model=256, n_semantic=SEMANTIC_MAX, n_staff=STAFF_MAX, d_position=128, angle_cycle=1000,
-		d_inner=1024, n_layers=6, n_head=8, d_k=32, d_v=32, dropout=0.1):
+		d_inner=1024, n_layers=6, n_head=8, d_k=32, d_v=32, dropout=0.1, unidirectional=True):
 		super().__init__()
 
 		self.d_model = d_model
+		self.unidirectional = unidirectional
 
 		self.cat = TimewiseGraphEncoder(n_semantic=n_semantic, n_staff=n_staff, d_hid=d_position, angle_cycle=angle_cycle)
 		self.embedding = nn.Linear(self.cat.output_dim, d_model, bias=False)
@@ -29,7 +30,9 @@ class GraphParaffEncoder (nn.Module):
 
 
 	def forward (self, ids, staff, confidence, x, y, sy1, sy2, mask):	# -> (n, n_seq, d_model)
-		trg_mask = mask.unsqueeze(-2) & get_subsequent_mask(ids)
+		trg_mask = mask.unsqueeze(-2)
+		if self.unidirectional:
+			trg_mask = trg_mask & get_subsequent_mask(ids)
 
 		h = self.cat(ids, staff, confidence, x, y, sy1, sy2)
 		h = self.embedding(h)
@@ -312,6 +315,20 @@ class GraphParaffTranslator (nn.Module):
 		result = self.word_prj(decoder_out)
 
 		return result
+
+
+class GraphParaffTranslatorOnnx (GraphParaffTranslator):
+	def forward(self, ids, staff, confidence, x, y, sy1, sy2, premier, position):
+		n_point = (ids != self.TG_PAD).sum().item()
+		ids = ids[:, :n_point]
+		staff = staff[:, :n_point]
+		confidence = confidence[:, :n_point]
+		x = x[:, :n_point]
+		y = y[:, :n_point]
+		sy1 = sy1[:, :n_point]
+		sy2 = sy2[:, :n_point]
+
+		return super().forward(ids, staff, confidence, x, y, sy1, sy2, premier, position)
 
 
 class GraphParaffTranslatorLoss (nn.Module):

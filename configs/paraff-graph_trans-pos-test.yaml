@@ -31,6 +31,7 @@ model:
     d_model:                256
     with_pos:               True
     encoder_config:
+      unidirectional:       False
       n_semantic:           80
       n_staff:              3
       d_position:           128
@@ -79,6 +80,7 @@ optim:
 onnx:
   multiple:
     seq32:
+      model_postfix: Onnx
       inputs:
       - name:   ids
         dtype:  uint8
@@ -111,6 +113,7 @@ onnx:
       outputs:
       - logits
     seq128:
+      model_postfix: Onnx
       inputs:
       - name: ids
         dtype: uint8
@@ -143,6 +146,7 @@ onnx:
       outputs:
       - logits
     seq512:
+      model_postfix: Onnx
       inputs:
       - name: ids
         dtype: uint8

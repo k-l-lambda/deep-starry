@@ -7,6 +7,8 @@ TODO:
 
 2023.8.15
 
+	+	graphTransformer.py: added option of unidirectional.
+
 	+	graphTransformer.py: added model of GraphParaffTranslator with position.
 
 

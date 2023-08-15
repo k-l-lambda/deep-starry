@@ -19,7 +19,7 @@ def runConfig (onnx_config, model_loader, outpath):
 	output_names = onnx_config['outputs']
 
 	#shapes = [tuple(onnx_config['inputs'][name]) for name in input_names]
-	dummy_inputs = tuple(torch.zeros(*input['shape'], dtype=getattr(torch, input.get('dtype', 'float32'))) for input in onnx_config['inputs'])
+	dummy_inputs = tuple(torch.ones(*input['shape'], dtype=getattr(torch, input.get('dtype', 'float32'))) for input in onnx_config['inputs'])
 	opset = onnx_config['opset']
 
 	truncate_long = onnx_config.get('truncate_long')

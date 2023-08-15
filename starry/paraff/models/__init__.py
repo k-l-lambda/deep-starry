@@ -8,5 +8,5 @@ from .seqDecoder import *
 from .graphTransformer import (
 	GraphParaffEncoder, GraphParaffEncoderLoss, GraphParaffEncoderTail, GraphParaffEncoderDecoder,
 	GraphParaffSummaryEncoder, GraphParaffSummaryEncoderLoss,
-	GraphParaffTranslator, GraphParaffTranslatorLoss,
+	GraphParaffTranslator, GraphParaffTranslatorLoss, GraphParaffTranslatorOnnx,
 )
