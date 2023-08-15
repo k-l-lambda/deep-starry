@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.8.15
+
+	+	graphTransformer.py: added model of GraphParaffTranslator with position.
+
+
 2023.8.11
 
 	+	graphTransformer.py: added model class of GraphParaffSummaryEncoder.

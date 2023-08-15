@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ...transformer.layers import EncoderLayer
+from ...transformer.layers import EncoderLayer, DecoderLayer
 from ...transformer.models import PositionalEncoding
 from ...modules.positionEncoder import SinusoidEncoder
 from ..data.timewiseGraph import SEMANTIC_MAX, STAFF_MAX
@@ -66,6 +66,22 @@ class AttentionStack (nn.Module):
 		return x
 
 
+class InteractiveAttentionStack (nn.Module):
+	def __init__ (self, n_layers=6, d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64, dropout=0.1):
+		super().__init__()
+
+		self.layer_stack = nn.ModuleList([
+			DecoderLayer(d_model=d_model, dropout=dropout, d_inner=d_inner, n_head=n_head, d_k=d_k, d_v=d_v)
+			for _ in range(n_layers)])
+
+
+	def forward (self, x, mask, other, other_mask):
+		for layer in self.layer_stack:
+			x, dec_slf_attn, dec_enc_attn = layer(x, other, slf_attn_mask=mask, dec_enc_attn_mask=other_mask)
+
+		return x
+
+
 class TimewiseGraphEncoder (nn.Module):
 	def __init__ (self, n_semantic=SEMANTIC_MAX, n_staff=STAFF_MAX, d_hid=128, angle_cycle=1000):
 		super().__init__()
@@ -87,3 +103,30 @@ class TimewiseGraphEncoder (nn.Module):
 		vec_sy2 = self.position_enc(sy2.float())
 
 		return torch.cat([vec_id, vec_staff, confidence.unsqueeze(-1), vec_x, vec_y, vec_sy1 + vec_sy2], dim=-1)
+
+
+class DecoderWithPosition (nn.Module):
+	def __init__ (self, n_trg_vocab, d_model, d_word_vec, n_layers, n_head, d_k, d_v, d_inner,
+		pad_idx=0, dropout=0.1, scale_emb=True, angle_cycle=10000):
+		super().__init__()
+
+		self.trg_word_emb = nn.Embedding(n_trg_vocab, d_word_vec, padding_idx=pad_idx)
+		self.position_enc = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_model)
+		self.dropout = nn.Dropout(p=dropout)
+		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
+		self.attention = InteractiveAttentionStack(n_layers, d_model, d_inner, n_head, d_k, d_v, dropout)
+		self.d_model = d_model
+		self.scale_emb = scale_emb
+
+
+	def forward(self, trg_seq, position, trg_mask, source, src_mask):
+		x = self.trg_word_emb(trg_seq)
+
+		if self.scale_emb:
+			x *= self.d_model ** 0.5
+
+		x += self.position_enc(position)
+		x = self.dropout(x)
+		x = self.layer_norm(x)
+
+		return self.attention(x, trg_mask, source, src_mask)

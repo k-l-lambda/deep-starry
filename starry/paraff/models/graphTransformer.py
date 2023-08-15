@@ -1,5 +1,5 @@
 
-#from typing import Optional
+from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from ...transformer.models import get_subsequent_mask, get_pad_mask, Decoder
 from ..data.timewiseGraph import SEMANTIC_MAX, STAFF_MAX, TG_EOS, TG_PAD
-from .modules import AttentionStack, TimewiseGraphEncoder
+from .modules import AttentionStack, TimewiseGraphEncoder, DecoderWithPosition
 from .seqShareVAE import SeqShareVAE
 
 
@@ -283,11 +283,15 @@ class GraphParaffSummaryEncoderLoss (nn.Module):
 
 # GraphParaffTranslator ----------------------------------------------------------------------------------------------------
 class GraphParaffTranslator (nn.Module):
-	def __init__(self, d_model, encoder_config, decoder_config):
+	def __init__(self, d_model, encoder_config, decoder_config, with_pos=False):
 		super().__init__()
 
+		self.with_pos = with_pos
+
 		self.encoder = GraphParaffEncoder(d_model=d_model, **encoder_config)
-		self.decoder = Decoder(d_model=d_model, d_word_vec=d_model, pad_idx=ID_PAD, **decoder_config)
+
+		decoder_class = DecoderWithPosition if with_pos else Decoder
+		self.decoder = decoder_class(d_model=d_model, d_word_vec=d_model, pad_idx=ID_PAD, **decoder_config)
 
 		self.word_prj = nn.Linear(d_model, decoder_config['n_trg_vocab'], bias=False)
 		self.word_prj.weight = self.decoder.trg_word_emb.weight
@@ -296,12 +300,15 @@ class GraphParaffTranslator (nn.Module):
 		self.ID_PAD = ID_PAD
 
 
-	def forward (self, ids, staff, confidence, x, y, sy1, sy2, premier):	# -> (n, n_seq, n_vocab)
+	def forward (self, ids, staff, confidence, x, y, sy1, sy2, premier, position: Optional[torch.Tensor]=None):	# -> (n, n_seq, n_vocab)
 		source_mask = ids != self.TG_PAD
 		target_mask = get_pad_mask(premier, self.ID_PAD) & get_subsequent_mask(premier)
 
 		graph_code = self.encoder(ids, staff, confidence, x, y, sy1, sy2, source_mask)
-		decoder_out, = self.decoder(premier.long(), target_mask, graph_code, source_mask.unsqueeze(-2))
+		if self.with_pos:
+			decoder_out = self.decoder(premier.long(), position, target_mask, graph_code, source_mask.unsqueeze(-2))
+		else:
+			decoder_out, = self.decoder(premier.long(), target_mask, graph_code, source_mask.unsqueeze(-2))
 		result = self.word_prj(decoder_out)
 
 		return result
@@ -329,8 +336,9 @@ class GraphParaffTranslatorLoss (nn.Module):
 
 		input_ids = batch['input_ids']
 		tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2 = batch['tg_id'], batch['tg_staff'], batch['tg_confidence'], batch['tg_x'], batch['tg_y'], batch['tg_sy1'], batch['tg_sy2']
+		position = batch['position'].float()
 
-		pred = self.deducer(tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, input_ids)
+		pred = self.deducer(tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, input_ids, position=position)
 		pred_body = pred[body_mask]
 
 		loss = F.cross_entropy(pred_body, target_body)
@@ -347,9 +355,9 @@ class GraphParaffTranslatorLoss (nn.Module):
 			np_input_ids = torch.zeros_like(input_ids)
 			np_input_ids[body_mask] = input_ids[body_mask]
 
-			pred_zl = self.deducer(zero_tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, input_ids)
-			pred_np = self.deducer(tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, np_input_ids)
-			pred_zlnp = self.deducer(zero_tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, np_input_ids)
+			pred_zl = self.deducer(zero_tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, input_ids, position=position)
+			pred_np = self.deducer(tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, np_input_ids, position=position)
+			pred_zlnp = self.deducer(zero_tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, np_input_ids, position=position)
 
 			error = 1 - acc
 			error_zero_latent = 1 - (pred_zl[body_mask].argmax(dim=-1) == target_body).float().mean()
