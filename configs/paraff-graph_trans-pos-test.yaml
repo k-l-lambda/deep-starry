@@ -138,7 +138,7 @@ onnx:
         shape: *sz1_128
       - name: premier
         dtype: uint8
-        shape: [1, 512]
+        shape: *sz512
       - name:   position
         dtype:  float32
         shape:  *sz512
@@ -171,7 +171,7 @@ onnx:
         shape: *sz1_512
       - name: premier
         dtype: uint8
-        shape: [1, 512]
+        shape: *sz512
       - name:   position
         dtype:  float32
         shape:  *sz512
