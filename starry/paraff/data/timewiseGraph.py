@@ -1,5 +1,5 @@
 
-import sys
+#import sys
 import os
 import yaml
 import json
@@ -7,6 +7,7 @@ import re
 import logging
 import torch
 import dill as pickle
+from tqdm import tqdm
 
 
 
@@ -69,7 +70,7 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 			semantic_files += files
 
 		group_to_semantic = dict()
-		for group in meta['groups']:
+		for group in tqdm(meta['groups']):
 			#logging.info(group)
 
 			captures = re.match('^\d+\.', group)
@@ -80,12 +81,11 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 			else:
 				prefix = group
 
-			try:
-				filename = next(file for file in semantic_files if file.startswith(prefix) or re.sub(r'^\w+\.', '', file).startswith(prefix))
-				group_to_semantic[group] = os.path.join(json_dir, filename)
-			except StopIteration as e:
+			filename = next((file for file in semantic_files if file.startswith(prefix) or re.sub(r'^[a-z]+\.', '', file).startswith(prefix)), None)
+			if filename is None:
 				logging.error('Cannot find semantic file for %s', group)
-				raise e
+				raise 'file missed'
+			group_to_semantic[group] = os.path.join(json_dir, filename)
 		#print('group_to_semantic:', group_to_semantic)
 
 		n_measure = meta['paragraphs'][-1]['sentenceRange'][1]
@@ -100,7 +100,11 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 		for paragraph in meta['paragraphs']:
 			group = paragraph['group']
 			if graph is None or graph['group'] != group:
+				#print('open:', group_to_semantic[group])
 				graph = json.load(open(group_to_semantic[group], 'r'))
+				if group_to_semantic[group].endswith('.spartito.json'):
+					measures = [m['graph'] for m in graph['measures'] if 'graph' in m]
+					graph = dict(measures=measures)
 				graph['group'] = group
 				logging.info('Group loaded: %s', group)
 
@@ -114,6 +118,8 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 			#assert len(measures) == range1 - range0, 'measure number mismatch: %s, %d, [%d:%d]' % (paragraph['name'], len(measures), range0, range1)
 			if len(measures) != range1 - range0:
 				logging.warn('measure number mismatch: %s, %d, [%d:%d]', paragraph['name'], len(measures), range0, range1)
+				#print('mis:', [m['measureIndex'] for m in measures])
+				#exit()
 				data_intact = False
 
 			for i, measure in enumerate(measures):
