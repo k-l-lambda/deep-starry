@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.8.21
+
+	+	scorePageLayout.py: added non-null guarantee for reinforce layout.
+
+
 2023.8.10
 
 	+	beadPicker.py: vtick model options added.

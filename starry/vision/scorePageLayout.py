@@ -384,6 +384,10 @@ class PageLayout:
 
 			area['staves']['middleRhos'] = [findRho(br) for br in area['base_staves']['middleRhos']]
 
+		# if no valid areas, keep base
+		if not any(area['staves'] is not None for area in detection['areas']):
+			return base_layout
+
 		return {
 			'sourceSize': {
 				'width': original_size[0],
