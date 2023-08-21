@@ -35,7 +35,7 @@ onnx:
   multiple:
     seq32:
       inputs:
-      - dtype: int8
+      - dtype: uint8
         name: seq
         shape:
         - 1
@@ -45,7 +45,7 @@ onnx:
       - seq_out
     seq64:
       inputs:
-      - dtype: int8
+      - dtype: uint8
         name: seq
         shape:
         - 1
@@ -55,7 +55,7 @@ onnx:
       - seq_out
     seq128:
       inputs:
-      - dtype: int8
+      - dtype: uint8
         name: seq
         shape:
         - 1
@@ -65,7 +65,7 @@ onnx:
       - seq_out
     seq512:
       inputs:
-      - dtype: int8
+      - dtype: uint8
         name: seq
         shape:
         - 1

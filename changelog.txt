@@ -5,6 +5,140 @@ TODO:
 
 
 
+2023.8.21
+
+	+	scorePageLayout.py: added non-null guarantee for reinforce layout.
+
+
+2023.8.10
+
+	+	beadPicker.py: vtick model options added.
+
+	+	modules/classInt.py created.
+
+
+2023.8.3
+
+	+	paraff/data/paragraph.py: added option of with_graph.
+
+
+2023.8.2
+
+	+	preprocessTimewiseGraph.py created.
+
+
+2023.7.20
+
+	+	semanticClusterPredictor.py: added option of preserved_labels.
+
+
+2023.7.14
+
+	+	scorePageLayout.py: predictPdf added.
+
+	+	scorePageLayout.py: fixed detectSystems for tiny area.
+
+
+2023.7.7
+
+	+	paraff/models/seqDecoder.py created.
+
+
+2023.7.5
+
+	+	phaseGen.py: added argument of mask_score_primer.
+
+
+2023.7.3
+
+	*!	Full zeros dropout may result in Floating point exception (core dumped).
+
+	+	phaseGen.py: PhaseGenDecoder added.
+
+
+2023.7.2
+
+	+	phaseGen.py: use decoder with position.
+
+	+	paragraph.py: argument of with_summary added.
+
+
+2023.7.1
+
+	+	paraff/models/phaseGen.py created.
+
+	+	paraff/data/paragraph.py: added descriptors random drop.
+
+
+2023.6.30
+
+	+	paraff/data/paragraph.py created.
+
+
+2023.6.25
+
+	+	seqShareVAE.py: share layer_norm between encoder & decoder.
+
+
+2023.6.21
+
+	+	seqShareVAE.py: JIT model classes added.
+
+	+	convertToOnnx.py: added postfix option in config.
+
+
+2023.6.20
+
+	+	paraff/models/seqShareVAE.py created.
+
+
+2023.6.19
+
+	+	sparseAE.py: diversity_loss added.
+
+
+2023.6.16
+
+	+	sparseAE.py: save state buffer in loss model.
+
+	+	trainer.py: run validation epoch first.
+
+	+	sparseAE.py: hard latent mix added.
+
+
+2023.6.15
+
+	+	sparseAE.py: added option of sparse_pow.
+	+	sparseAE.py: sparse loss slope added.
+
+
+2023.6.14
+
+	+	sparseAE.py: refined sparse loss as log.
+
+	+	sparseAE.py: sparse loss added.
+
+	+	sparseAE.py: scale embedding added.
+
+
+2023.6.13
+
+	+	sparseAE.py: metric of acc_uncond added.
+
+	+	sparseAE.py: mask dropout added.
+
+	+	sparseAE.py: added parameter of latent_freeze.
+
+	+	paraff/models/sparseAE.py created.
+
+
+2023.6.9
+
+	+	paraff/data/sentence.py: mask out EOM token.
+
+	+	trainer.py: added trainer option of report_step_unit.
+
+
 2023.5.30
 
 	+	convertToJit.py: added arg of postfix.

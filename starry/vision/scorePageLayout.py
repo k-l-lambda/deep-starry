@@ -55,14 +55,16 @@ def detectSystems (image):
 	marginY = SYSTEM_HEIGHT_ENLARGE * width
 	maginYMax = marginY * 8
 
-	def enlarge(args):
-		i, area = args
+	ctx = { 'lastMargin': 0 }
+
+	def enlarge (i, area, ctx):
 		top = area['y']
 		bottom = top + area['height']
 
 		if i > 0:
 			lastArea = areas[i - 1]
-			top = max(0, min(top - marginY, max(lastArea['y'] + lastArea['height'], top - maginYMax)))
+			ctx['lastMargin'] = max(ctx['lastMargin'], lastArea['y'] + lastArea['height'], top - maginYMax)
+			top = max(0, min(top - marginY, ctx['lastMargin']))
 		else:
 			top = min(top, max(marginY, top - maginYMax))
 
@@ -73,7 +75,7 @@ def detectSystems (image):
 			bottom = min(height, bottom + maginYMax)
 
 		return { 'top': top, 'bottom': bottom }
-	enlarges = list(map(enlarge, enumerate(areas)))
+	enlarges = [enlarge(i, area, ctx) for i, area in enumerate(areas)]
 
 	for i, area in enumerate(areas):
 		area['y'] = enlarges[i]['top']
@@ -205,7 +207,7 @@ class PageLayout:
 
 
 	def json (self):
-		image_code = encodeImageBase64(self.image)
+		image_code = self.getImageCode()
 
 		return {
 			'image': image_code,
@@ -214,7 +216,11 @@ class PageLayout:
 		}
 
 
-	def detect (self, image, ratio, output_folder=None):
+	def getImageCode (self, ext='.png'):
+		return encodeImageBase64(self.image, ext=ext)
+
+
+	def detect (self, image, ratio, output_folder=None, img_ext='.png'):
 		if self.theta is None:
 			return {
 				'theta': self.theta,
@@ -287,15 +293,15 @@ class PageLayout:
 				hash = None
 				if output_folder is not None:
 					#cv2.imwrite(f'./output/staff-{si}-{ssi}.png', staff_image)
-					bytes = arrayToImageFile(staff_image).getvalue()
+					bytes = arrayToImageFile(staff_image, ext=img_ext).getvalue()
 					hash = hashlib.md5(bytes).hexdigest()
 
-					with open(os.path.join(output_folder, hash + '.png'), 'wb') as f:
+					with open(os.path.join(output_folder, hash + img_ext), 'wb') as f:
 						f.write(bytes)
 					#logging.info('Staff image wrote: %s.png', hash)
 
 				area['staff_images'].append({
-					'hash': f'md5:{hash}' if hash else None,
+					'hash': f'md5:{hash}{img_ext}' if hash else None,
 					'position': {
 						'x': -area['staves']['phi1'] * UNIT_SIZE / interval,
 						'y': -STAFF_HEIGHT_UNITS * UNIT_SIZE / 2,
@@ -377,6 +383,10 @@ class PageLayout:
 				return next((rho for rho in rhos if abs(rho - br) < canvas_interval * 1.5), br)
 
 			area['staves']['middleRhos'] = [findRho(br) for br in area['base_staves']['middleRhos']]
+
+		# if no valid areas, keep base
+		if not any(area['staves'] is not None for area in detection['areas']):
+			return base_layout
 
 		return {
 			'sourceSize': {

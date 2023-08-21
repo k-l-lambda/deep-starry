@@ -1,4 +1,5 @@
 
+import os
 import torch
 from tensorboardX import SummaryWriter
 import time
@@ -69,20 +70,21 @@ class Trainer:
 
 		self.optimizer = optim(config['optim'], self.model.parameters(), init_step=self.options.get('steps', 0))
 
-		weights = self.config['best'] or self.config['trainer.pretrained_weights']
+		latest_path = 'latest.chkpt' if os.path.exists(self.config.localPath('latest.chkpt')) else self.config['best']
+		weights = latest_path or self.config['trainer.pretrained_weights']
 		if weights:
 			self.loadCheckpoint(weights)
 
 		self.tb_writer = SummaryWriter(log_dir=config.dir)
 
 
-	def reportScalars (self, scalars, epoch_i):
+	def reportScalars (self, scalars, step):
 		for k, v in scalars.items():
 			if type(v) == dict:
 				for kk, vv in v.items():
-					self.tb_writer.add_scalar(f'{k}/{kk}', vv, epoch_i)
+					self.tb_writer.add_scalar(f'{k}/{kk}', vv, step)
 			else:
-				self.tb_writer.add_scalar(k, v, epoch_i)
+				self.tb_writer.add_scalar(k, v, step)
 
 
 	def train (self, training_data, validation_data):
@@ -90,65 +92,77 @@ class Trainer:
 			print('  - {header:12} loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
 				.format(header=f"({header})", loss=loss, metric=print_metric(metric), elapse=(time.time()-start_time)/60, lr=lr))
 
+		report_step = 0
+		checkpoint = None
 		for epoch_i in range(self.start_epoch, self.options['epoch']):
 			logging.info(f'[Epoch {epoch_i}]')
 
+			# validation
 			start = time.time()
-			train_loss, train_acc = self.train_epoch(training_data)
+			val_loss, val_metric = self.eval_epoch(validation_data)
+			lr = self.optimizer._optimizer.param_groups[0]['lr']
+			print_performances('Validation', val_loss, val_metric, start, lr)
+
+			if hasattr(self.model, 'need_states'):
+				self.model.updateStates()
+				if checkpoint is not None:
+					checkpoint['extra'] = self.model.state_dict()
+
+			moniter_value, new_record = self.moniter.update({
+				**val_metric,
+				'loss': val_loss,
+			})
+
+			if checkpoint is not None:
+				model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3e}.chkpt'
+				if self.options['save_mode'] == 'all':
+					torch.save(checkpoint, self.config.localPath(model_name))
+				elif self.options['save_mode'] == 'best':
+					if new_record or epoch_i == 0:
+						torch.save(checkpoint, self.config.localPath(model_name))
+						logging.info('	- [Info] The checkpoint file has been updated.')
+
+				if new_record or self.config['best'] is None:
+					self.config['best'] = model_name
+					self.config['trainer.moniter.best_value'] = self.moniter.best_value
+
+			# write tensorboard scalars
+			scalars = {
+				'val_loss': val_loss,
+			}
+			for k, v in val_metric.items():
+				scalars['val_' + k] = v
+			self.reportScalars(scalars, report_step)
+
+			self.options['steps'] = self.optimizer.n_steps
+			self.config.save()
+
+			# training
+			start = time.time()
+			train_loss, train_metric = self.train_epoch(training_data)
 			#train_ppl = math.exp(min(train_loss, 100))
 
 			# Current learning rate
 			lr = self.optimizer._optimizer.param_groups[0]['lr']
-			print_performances('Training', train_loss, train_acc, start, lr)
+			print_performances('Training', train_loss, train_metric, start, lr)
 
 			checkpoint = {
 				'epoch': epoch_i,
 				'model': self.model.deducer.state_dict(),
 				'optim': self.optimizer._optimizer.state_dict(),
 			}
+			if hasattr(self.model, 'need_states'):
+				checkpoint['extra'] = self.model.state_dict()
 			torch.save(checkpoint, self.config.localPath('latest.chkpt'))
 
-			start = time.time()
-			val_loss, val_acc = self.eval_epoch(validation_data)
-			print_performances('Validation', val_loss, val_acc, start, lr)
-
-			if hasattr(self.model, 'need_states'):
-				self.model.updateStates()
-				checkpoint['extra'] = self.model.state_dict()
-
-			moniter_value, new_record = self.moniter.update({
-				**val_acc,
-				'loss': val_loss,
-			})
-
-			model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3f}.chkpt'
-			if self.options['save_mode'] == 'all':
-				torch.save(checkpoint, self.config.localPath(model_name))
-			elif self.options['save_mode'] == 'best':
-				if new_record or epoch_i == 0:
-					torch.save(checkpoint, self.config.localPath(model_name))
-					logging.info('	- [Info] The checkpoint file has been updated.')
-
-			if new_record or self.config['best'] is None:
-				self.config['best'] = model_name
-				self.config['trainer.moniter.best_value'] = self.moniter.best_value
-
-			# write tensorboard scalars
-			#general = lambda v: {'_general': v}
 			scalars = {
 				'loss': train_loss,
-				'val_loss': val_loss,
 				'learning_rate': lr,
-				**train_acc,
+				**train_metric,
 			}
-			for k, v in val_acc.items():
-				scalars['val_' + k] = v
-
-			self.reportScalars(scalars, epoch_i)
-
-			self.options['steps'] = self.optimizer.n_steps
-
-			self.config.save()
+			report_step_unit = self.options.get('report_step_unit')
+			report_step = self.optimizer.n_steps * self.config['data.batch_size'] if report_step_unit == 'examples' else epoch_i
+			self.reportScalars(scalars, report_step)
 
 
 	def train_epoch (self, dataset):
@@ -209,7 +223,7 @@ class Trainer:
 		self.start_epoch = checkpoint['epoch'] + 1
 
 		if hasattr(self.model, 'need_states') and checkpoint.get('extra') is not None:
-			self.model.load_state_dict(checkpoint['extra'])
+			self.model.load_state_dict(checkpoint['extra'], strict=False)
 
 		if 'optim' in checkpoint:
 			self.optimizer._optimizer.load_state_dict(checkpoint['optim'])

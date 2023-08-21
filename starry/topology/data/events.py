@@ -93,7 +93,7 @@ def genElementFeature (elem, drop_source=False):
 		feature['tremoloCatcher'] = boolRandn(elem.get('tremoloCatcher', False), true_bias=0)
 
 	return torch.tensor([
-		*feature['divisions'], *feature['dots'], *feature['beams'], *feature['stemDirections'], feature['grace'], feature['tremoloCatcher'],
+		*feature['divisions'], *feature['dots'], *feature['beams'], *feature['stemDirections'], feature['grace'], feature.get('tremoloCatcher', 0),
 	], dtype=torch.float32)
 
 

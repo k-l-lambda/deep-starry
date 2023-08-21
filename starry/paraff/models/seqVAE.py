@@ -160,7 +160,7 @@ class SeqvaeDecoderHeadLora (SeqvaeDecoderHead):
 		n_layers=6, emb_prj_weight_sharing=True, scale_emb=True, **kw_args):
 		super().__init__(n_vocab, n_layers=n_layers, n_seq_max=n_seq_max, emb_prj_weight_sharing=emb_prj_weight_sharing, scale_emb=scale_emb, **kw_args)
 
-		lora_layers = [LoraEncoderLayer(r=4, alpha=1., bias=False, **kw_args) for i in range(n_lora_layers)]
+		lora_layers = [LoraEncoderLayer(r=r, alpha=alpha, bias=bias, **kw_args) for i in range(n_lora_layers)]
 		layers = [lora_layers[i] if i < n_lora_layers else layer for i, layer in enumerate(self.decoder.layer_stack)]
 		self.decoder.layer_stack = nn.ModuleList(layers)
 

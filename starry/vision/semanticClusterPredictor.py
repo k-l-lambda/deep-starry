@@ -20,6 +20,7 @@ class SemanticSubPredictor (Predictor):
 		self.loadModel(config)
 
 		self.labels = config['data.args.labels']
+		self.preserved_labels = config['predictor.preserved_labels']
 
 
 	def __call__ (self, feature, confidence_table):
@@ -28,7 +29,7 @@ class SemanticSubPredictor (Predictor):
 
 		ct = [{'semantic': label, 'mean_confidence': confidence_table[label]} for label in self.labels]
 
-		return ScoreSemantic(np.uint8(semantic * 255), self.labels, confidence_table=ct)
+		return ScoreSemantic(np.uint8(semantic * 255), self.labels, confidence_table=ct, preserved_labels=self.preserved_labels)
 
 
 class SemanticClusterPredictor (Predictor):

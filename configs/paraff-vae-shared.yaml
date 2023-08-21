@@ -1,0 +1,90 @@
+
+id:     paraff/{date}-{filename}
+
+
+data:
+  type:                     SentenceShift
+  root:                     20230612.paraff
+  splits:                   '*1..98/100:99/100'
+  batch_size:               2
+  args:
+    n_seq:                  360
+    descriptor_drop:        0.3
+    descriptor_drop_sigma:  0.5
+  args_variant:
+    1:
+      descriptor_drop:      0
+
+
+model:
+  type:                     SeqShareVAE
+  args:
+    n_vocab:                137
+    d_latent:               256
+    pad_id:                 0
+    summary_id:             1
+    finale_id:              5
+    n_seq_max:              512
+    d_model:                256
+    d_inner:                1024
+    n_layers:               8
+    n_head:                 8
+    d_k:                    32
+    d_v:                    32
+    dropout:                0.1
+    kld_weight:             0.001
+    mask_dropout:           0.3
+
+
+trainer:
+  env: ~
+  device:                   cuda
+  save_mode:                best
+  epoch:                    100
+  report_step_unit:         examples
+  moniter:
+    field:                  loss
+    mode:                   min
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               1
+      n_warmup_steps:       3200
+      d_model:              256
+
+
+onnx:
+  multiple:
+    enc128:
+      model_postfix: JitEnc
+      inputs:
+      - name: seq
+        dtype: int8
+        shape: [1, 128]
+      - name: sigma
+        dtype: float32
+        shape: [1]
+      opset: 14
+      outputs:
+      - latent
+    dec128:
+      model_postfix: JitDec
+      inputs:
+      - name: seq
+        dtype: int8
+        shape: [1, 128]
+      - name: latent
+        dtype: float32
+        shape: [1, 256]
+      - name: mask
+        dtype: bool
+        shape: [1, 128]
+      opset: 14
+      outputs:
+      - logit

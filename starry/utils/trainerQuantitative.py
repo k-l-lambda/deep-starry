@@ -262,7 +262,7 @@ class Trainer:
 					'loss': val_loss,
 				})
 
-				model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3f}.chkpt'
+				model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3e}.chkpt'
 				if self.options['save_mode'] == 'all':
 					if os.path.isfile(self.config.localPath('latest.chkpt')):
 						shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
@@ -323,7 +323,7 @@ class Trainer:
 		self.start_epoch = checkpoint['epoch'] + 1
 
 		if hasattr(self.model, 'need_states') and checkpoint.get('extra') is not None:
-			self.model.load_state_dict(checkpoint['extra'])
+			self.model.load_state_dict(checkpoint['extra'], strict=False)
 
 		if 'optim' in checkpoint and self.optimizer is not None:
 			self.optimizer._optimizer.load_state_dict(checkpoint['optim'])

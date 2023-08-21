@@ -160,7 +160,7 @@ class ScoreWidgetsLoss (nn.Module):
 		}
 
 
-	def load_state_dict (self, state_dict):
+	def load_state_dict (self, state_dict, **_):
 		if state_dict.get('channel_weights') is not None:
 			self.channel_weights = state_dict['channel_weights'].float()
 		if state_dict.get('channel_weights_target') is not None:
