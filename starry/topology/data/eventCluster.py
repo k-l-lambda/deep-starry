@@ -190,7 +190,7 @@ class EventCluster (IterableDataset):
 			# dropout events
 			if self.event_drop > 0:
 				is_event = (elem_type == EventElementType.CHORD) | (elem_type == EventElementType.REST)
-				event_rollout = torch.rand_like(elem_type, dtype=torch.float32) < self.event_drop
+				event_rollout = torch.rand_like(elem_type, dtype=torch.float32, device=elem_type.device) < self.event_drop
 				event_dropout = is_event & event_rollout & torch.logical_not(successor) #& torch.logical_not(beading_pos < 0)
 				elem_type[event_dropout] = EventElementType.PAD
 
