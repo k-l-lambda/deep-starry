@@ -169,7 +169,7 @@ class EventCluster (IterableDataset):
 
 			matrixH = tensors['matrixH'].reshape(n_seq - 1, n_seq - 1)
 
-			successor = torch.zeros(batch_size, n_seq).bool()
+			successor = torch.zeros(batch_size, n_seq).bool().to(self.device)
 			order_list = tensors['order'].tolist()
 			for i, tip in enumerate(beading_tip.tolist()):
 				ti = order_list.index(tip) if tip in order_list else 0
@@ -190,7 +190,7 @@ class EventCluster (IterableDataset):
 			# dropout events
 			if self.event_drop > 0:
 				is_event = (elem_type == EventElementType.CHORD) | (elem_type == EventElementType.REST)
-				event_rollout = torch.rand_like(elem_type, dtype=torch.float32, device=elem_type.device) < self.event_drop
+				event_rollout = torch.rand_like(elem_type, dtype=torch.float32, device=self.device) < self.event_drop
 				event_dropout = is_event & event_rollout & torch.logical_not(successor) #& torch.logical_not(beading_pos < 0)
 				elem_type[event_dropout] = EventElementType.PAD
 
@@ -205,7 +205,7 @@ class EventCluster (IterableDataset):
 				'tickDiff': tensors['tickDiff'].unsqueeze(0).repeat(batch_size, 1, 1),
 				'maskT': tensors['maskT'].unsqueeze(0).repeat(batch_size, 1, 1),
 				'beading_pos': beading_pos,
-				'successor': successor.float().to(self.device),
+				'successor': successor.float(),
 			}
 		else:
 			result = {
