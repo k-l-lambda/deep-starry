@@ -8,7 +8,7 @@ from torch.utils.data import IterableDataset
 import torch.nn.functional as F
 
 from ...utils.parsers import parseFilterStr, mergeArgs
-from ..event_element import TARGET_FIELDS
+from ..event_element import TARGET_FIELDS, EventElementType
 
 
 
@@ -45,7 +45,7 @@ class EventCluster (IterableDataset):
 
 
 	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None,
-		chaos_exp=-1, chaos_flip=False, batch_slice=None, use_cache=True, with_beading=False, time8th_drop=0):
+		chaos_exp=-1, chaos_flip=False, batch_slice=None, use_cache=True, with_beading=False, time8th_drop=0, event_drop=0):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -59,6 +59,7 @@ class EventCluster (IterableDataset):
 		self.batch_slice = batch_slice
 		self.with_beading = with_beading
 		self.time8th_drop = time8th_drop
+		self.event_drop = event_drop
 
 		self.entry_cache = {} if use_cache else None
 
@@ -185,6 +186,13 @@ class EventCluster (IterableDataset):
 			fixed_feature[:, 8] = (fixed_dots > 1).float()
 
 			feature[fixed_indices] = fixed_feature
+
+			# dropout events
+			if self.event_drop > 0:
+				is_event = (elem_type == EventElementType.CHORD) | (elem_type == EventElementType.REST)
+				event_rollout = torch.rand_like(elem_type, dtype=torch.float32) < self.event_drop
+				event_dropout = is_event & event_rollout & torch.logical_not(successor) #& torch.logical_not(beading_pos < 0)
+				elem_type[event_dropout] = EventElementType.PAD
 
 			result = {
 				'type': elem_type,

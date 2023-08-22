@@ -17,9 +17,11 @@ data:
       mu:                   5.4
       sigma:                2
     time8th_drop:           0.2
+    event_drop:             0.04
   args_variant:
     1:
       stability_base:       1000
+      event_drop:           0
 
 
 model:

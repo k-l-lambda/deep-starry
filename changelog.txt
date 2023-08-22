@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.8.22
+
+	+	eventCluster.py: option of event_drop added.
+
+
 2023.8.21
 
 	+	scorePageLayout.py: added non-null guarantee for reinforce layout.
