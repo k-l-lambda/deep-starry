@@ -15,6 +15,20 @@ TODO:
 	+	scorePageLayout.py: added non-null guarantee for reinforce layout.
 
 
+2023.8.15
+
+	+	graphTransformer.py: added option of unidirectional.
+
+	+	graphTransformer.py: added model of GraphParaffTranslator with position.
+
+
+2023.8.11
+
+	+	graphTransformer.py: added model class of GraphParaffSummaryEncoder.
+
+	>	Renamed model class: GraphParaffTransformer -> GraphParaphraseTranslator.
+
+
 2023.8.10
 
 	+	beadPicker.py: vtick model options added.
@@ -22,7 +36,21 @@ TODO:
 	+	modules/classInt.py created.
 
 
+2023.8.8
+
+	+	paraff/models/graphTransformer.py: added Onnx model classes for GraphParaffEncoder.
+
+
+2023.8.7
+
+	+	paraff/models/graphTransformer.py: model class of GraphParaffTransformer added.
+
+
 2023.8.3
+
+	+	parff/models/graphTransformer.py created.
+
+	+	paraff/viewer.py: showGraph added.
 
 	+	paraff/data/paragraph.py: added option of with_graph.
 

@@ -12,7 +12,7 @@ data:
     n_seq_phase:            384 # cannot less than the length of the longest paragraph
     descriptor_drop:        0.3
     descriptor_drop_sigma:  1.
-    with_summary:           True
+    with_summary:           False
     with_graph:             True
     graph_augmentor:
       drop_p:               0.02
@@ -26,38 +26,30 @@ data:
 
 
 model:
-  type:                     GraphParaffEncoder
+  type:                     GraphParaffTranslator
   args:
     d_model:                256
-    n_semantic:             80
-    n_staff:                3
-    d_position:             128
-    angle_cycle:            1000
-    n_layers:               4
-    d_inner:                1024
-    n_head:                 8
-    d_k:                    32
-    d_v:                    32
-    dropout:                0.1
-    word_decoder_config:
-      n_vocab:              102
-      pad_id:               0
-      summary_id:           1
-      finale_id:            5
-      n_seq_max:            512
-      d_model:              256
+    encoder_config:
+      n_semantic:           80
+      n_staff:              3
+      d_position:           128
+      angle_cycle:          1000
+      n_layers:             4
+      d_inner:              1024
+      n_head:               8
+      d_k:                  32
+      d_v:                  32
+      dropout:              0.1
+    decoder_config:
+      n_trg_vocab:          102
+      n_position:           512
       d_inner:              1024
       n_layers:             6
       n_head:               8
       d_k:                  32
       d_v:                  32
       dropout:              0.1
-      kld_weight:           1.e-6
-      mask_dropout:         0
-    word_decoder_pretrain:
-      weight:               training/paraff/20230627-paraff-vae-shared-0613-d256-l4-kld1e-6/model_236_loss_3.732e-02.chkpt
-      defreeze_layers:      4
-      init_layers:          2
+      scale_emb:            True
 
 
 trainer:
@@ -85,89 +77,90 @@ optim:
 
 onnx:
   multiple:
-    encoder128:
-      model_postfix: Tail
-      opset: 14
+    seq32:
       inputs:
       - name: ids
         dtype: uint8
-        shape: &sz128 [1, 128]
+        shape: &sz1_32 [1, 32]
       - name: staff
         dtype: uint8
-        shape: *sz128
+        shape: *sz1_32
       - name: confidence
         dtype: float32
-        shape: *sz128
+        shape: *sz1_32
       - name: x
         dtype: float32
-        shape: *sz128
+        shape: *sz1_32
       - name: y
         dtype: float32
-        shape: *sz128
+        shape: *sz1_32
       - name: sy1
         dtype: float32
-        shape: *sz128
+        shape: *sz1_32
       - name: sy2
         dtype: float32
-        shape: *sz128
-      outputs:
-      - latent
-    encoder512:
-      model_postfix: Tail
+        shape: *sz1_32
+      - name: premier
+        dtype: uint8
+        shape: *sz1_32
       opset: 14
-      inputs:
-      - name: ids
-        dtype: uint8
-        shape: &sz512 [1, 512]
-      - name: staff
-        dtype: uint8
-        shape: *sz512
-      - name: confidence
-        dtype: float32
-        shape: *sz512
-      - name: x
-        dtype: float32
-        shape: *sz512
-      - name: y
-        dtype: float32
-        shape: *sz512
-      - name: sy1
-        dtype: float32
-        shape: *sz512
-      - name: sy2
-        dtype: float32
-        shape: *sz512
-      outputs:
-      - latent
-    decoder128:
-      model_postfix: Decoder
-      state_field: extra
-      opset: 14
-      inputs:
-      - name: input_ids
-        dtype: uint8
-        shape: *sz128
-      - name: position
-        dtype: int16
-        shape: *sz128
-      - name: latent
-        dtype: float32
-        shape: [1, 256]
       outputs:
       - logits
-    decoder512:
-      model_postfix: Decoder
-      state_field: extra
-      opset: 14
+    seq128:
       inputs:
-      - name: input_ids
+      - name: ids
         dtype: uint8
-        shape: *sz512
-      - name: position
-        dtype: int16
-        shape: *sz512
-      - name: latent
+        shape: &sz1_128 [1, 128]
+      - name: staff
+        dtype: uint8
+        shape: *sz1_128
+      - name: confidence
         dtype: float32
-        shape: [1, 256]
+        shape: *sz1_128
+      - name: x
+        dtype: float32
+        shape: *sz1_128
+      - name: y
+        dtype: float32
+        shape: *sz1_128
+      - name: sy1
+        dtype: float32
+        shape: *sz1_128
+      - name: sy2
+        dtype: float32
+        shape: *sz1_128
+      - name: premier
+        dtype: uint8
+        shape: *sz1_128
+      opset: 14
+      outputs:
+      - logits
+    seq512:
+      inputs:
+      - name: ids
+        dtype: uint8
+        shape: &sz1_512 [1, 512]
+      - name: staff
+        dtype: uint8
+        shape: *sz1_512
+      - name: confidence
+        dtype: float32
+        shape: *sz1_512
+      - name: x
+        dtype: float32
+        shape: *sz1_512
+      - name: y
+        dtype: float32
+        shape: *sz1_512
+      - name: sy1
+        dtype: float32
+        shape: *sz1_512
+      - name: sy2
+        dtype: float32
+        shape: *sz1_512
+      - name: premier
+        dtype: uint8
+        shape: *sz1_512
+      opset: 14
       outputs:
       - logits

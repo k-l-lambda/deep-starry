@@ -6,9 +6,11 @@ from torch.utils.data import IterableDataset
 import yaml
 from tqdm import tqdm
 import dill as pickle
+import numpy as np
 
 from ...utils.parsers import parseFilterStr, mergeArgs
 from .paraffFile import ParaffFile
+from .timewiseGraph import TG_EOS
 
 
 
@@ -86,7 +88,7 @@ class PhasedParagraph (IterableDataset):
 
 
 	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_phase, encoder=None,
-		descriptor_drop=0.1, descriptor_drop_sigma=0., with_summary=False, summary_id=1, with_graph=False, **_):
+		descriptor_drop=0.1, descriptor_drop_sigma=0., with_summary=False, summary_id=1, with_graph=False, graph_augmentor=None, **_):
 		super().__init__()
 
 		self.device = device
@@ -98,6 +100,8 @@ class PhasedParagraph (IterableDataset):
 		self.with_summary = with_summary
 		self.summary_id = summary_id
 		self.with_graph = with_graph
+		self.graph_augmentor = graph_augmentor
+		self.with_summary_encoder = encoder is not None
 
 		phases, cycle = parseFilterStr(split)
 
@@ -105,6 +109,8 @@ class PhasedParagraph (IterableDataset):
 		paraff_path = os.path.join(os.path.dirname(root), index['paraff'])
 		groups = [group for i, group in enumerate(index['groups']) if i % cycle in phases]
 		paragraphs = [paragraph for paragraph in index['paragraphs'] if paragraph['group'] in groups]
+
+		self.vocab = index['vocab']
 
 		self.measure = self.loadMeasures(paraff_path, n_seq_word, encoder, with_graph=with_graph)
 
@@ -159,7 +165,8 @@ class PhasedParagraph (IterableDataset):
 			ph_summary = torch.zeros(self.n_seq_phase, self.d_summary)
 			ph_body_mask = torch.zeros_like(ph_id).bool()
 			ph_is_measure = ph_id == PHID_MEASURE
-			ph_summary[ph_is_measure] = self.measure.summaries[measure_begin:measure_end]
+			if self.with_summary_encoder:
+				ph_summary[ph_is_measure] = self.measure.summaries[measure_begin:measure_end]
 			ph_body_idx = ph_indecies[ph_is_measure]
 			ph_body_mask[ph_indecies < ph_body_idx[0].item()] = True
 
@@ -174,13 +181,13 @@ class PhasedParagraph (IterableDataset):
 			pids = entries.flatten()
 			pids = pids[pids != 0]
 			pids = F.pad(pids, (1, 0), 'constant', 0)
-			pids_arange = torch.arange(pids.shape[0], dtype=torch.int16)
+			pids_arange = torch.arange(pids.shape[0], dtype=torch.int32)
 			measure_size = (entries != 0).int().sum(dim=-1)
 			measure_size[0] += 1
 
 			for mi in range(measure_begin, measure_end):
-				ids_begin = measure_size[:mi - measure_begin].sum()
-				ids_end = measure_size[:mi - measure_begin + 1].sum()
+				ids_begin = measure_size[:mi - measure_begin].sum().item()
+				ids_end = measure_size[:mi - measure_begin + 1].sum().item()
 				ids = pids[max(0, ids_end - self.n_seq_word):ids_end]
 
 				if self.with_summary:
@@ -219,6 +226,7 @@ class PhasedParagraph (IterableDataset):
 					yield basic_fields
 				else:
 					tg_fields = [self.measure.semantic_tensors[k][mi] for k in ['semantic', 'staff', 'x', 'y', 'sy1', 'sy2', 'confidence']]
+					tg_fields = self.augmentGraphFields(*tg_fields)
 					yield (*basic_fields, *tg_fields)
 
 				ph_body_mask[ph_body_idx[mi - measure_begin].item()] = True
@@ -261,3 +269,37 @@ class PhasedParagraph (IterableDataset):
 					tg_confidence=tg_confidence,
 				),
 			}
+
+
+	def augmentGraphFields (self, *fields):
+		if self.graph_augmentor is None:
+			return fields
+
+		id, staff, x, y, sy1, sy2, confidence = fields
+
+		drop_p = self.graph_augmentor.get('drop_p', 0)
+
+		drop_mask = (torch.rand_like(id, dtype=torch.float) < drop_p) & (id > TG_EOS)
+		id[drop_mask] = 0
+
+		x_factor_sigma = self.graph_augmentor.get('x_factor_sigma', 0)
+		x_factor = np.exp(np.random.randn() * x_factor_sigma)
+		x *= x_factor
+
+		drift_sigma = self.graph_augmentor.get('drift_sigma', 0)
+		x += torch.randn_like(x) * drift_sigma
+
+		y_drift = torch.randn_like(y) * drift_sigma
+		y += y_drift
+		sy1 += y_drift
+		sy2 += y_drift
+
+		# initialize confidence for null value
+		confidence = confidence.float()
+		null_confidence = confidence < 0
+		confidence[null_confidence] = torch.randn_like(confidence[null_confidence]) * 5.
+
+		confidence_sigma = self.graph_augmentor.get('confidence_sigma', 0)
+		confidence *= (torch.randn_like(confidence) * confidence_sigma).exp()
+
+		return id, staff, x, y, sy1, sy2, confidence
