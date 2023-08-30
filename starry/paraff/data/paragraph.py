@@ -153,6 +153,9 @@ class PhasedParagraph (IterableDataset):
 
 			for key in self.paragraphs:
 				self.paragraphs[key] = self.paragraphs[key][disorder]
+		else:
+			torch.manual_seed(0)
+			np.random.seed(1)
 
 		for i in range(self.paragraphs['id'].shape[0]):
 			measure_begin, measure_end = self.paragraphs['range'][i].tolist()
@@ -225,7 +228,7 @@ class PhasedParagraph (IterableDataset):
 				if not self.with_graph:
 					yield basic_fields
 				else:
-					tg_fields = [self.measure.semantic_tensors[k][mi] for k in ['semantic', 'staff', 'x', 'y', 'sy1', 'sy2', 'confidence']]
+					tg_fields = [self.measure.semantic_tensors[k][mi].clone() for k in ['semantic', 'staff', 'x', 'y', 'sy1', 'sy2', 'confidence']]
 					tg_fields = self.augmentGraphFields(*tg_fields)
 					yield (*basic_fields, *tg_fields)
 
