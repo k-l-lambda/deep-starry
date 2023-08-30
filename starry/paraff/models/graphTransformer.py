@@ -346,6 +346,10 @@ class GraphParaffTranslatorLoss (nn.Module):
 				nn.init.xavier_uniform_(p, gain=(kw_args['decoder_config']['n_layers'] * 2) ** -0.5)
 
 
+	def training_parameters (self):
+		return list(self.deducer.parameters()) + list(self.deducer.buffers())
+
+
 	def forward (self, batch):
 		body_mask = batch['body_mask']
 		target = batch['output_ids'].long()
