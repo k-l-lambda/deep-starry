@@ -66,8 +66,10 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 		#print('target_path:', target_path)
 
 		semantic_files = []
+		logging.info('walking dir: %s', json_dir)
 		for root, dirs, files in os.walk(json_dir):
-			semantic_files += files
+			dir = os.path.relpath(root, json_dir)
+			semantic_files += [os.path.join(dir, file) for file in files]
 
 		group_to_semantic = dict()
 		for group in tqdm(meta['groups']):
@@ -81,7 +83,7 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 			else:
 				prefix = group
 
-			filename = next((file for file in semantic_files if file.startswith(prefix) or re.sub(r'^[a-z]+\.', '', file).startswith(prefix)), None)
+			filename = next((file for file in semantic_files if os.path.basename(file).startswith(prefix) or re.sub(r'^[a-z]+\.', '', os.path.basename(file)).startswith(prefix)), None)
 			if filename is None:
 				logging.error('Cannot find semantic file for %s', group)
 				raise 'file missed'
