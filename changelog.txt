@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.8.30
+
+	+	trainerQuantitative.py: added config option of report_step_unit.
+
+
 2023.8.22
 
 	+	eventCluster.py: option of event_drop added.
