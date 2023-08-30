@@ -288,8 +288,8 @@ class Trainer:
 
 						self.log('The checkpoint file has been updated.')
 
+				self.config.load()
 				if new_record or self.config['best'] is None:
-					self.config.load()
 					self.config['best'] = model_name
 					self.config['trainer.moniter.best_value'] = self.moniter.best_value
 					self.config.save()
