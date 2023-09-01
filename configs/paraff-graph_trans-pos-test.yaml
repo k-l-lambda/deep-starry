@@ -80,30 +80,30 @@ optim:
 
 onnx:
   multiple:
-    seq32:
+    seq64:
       model_postfix: Onnx
       inputs:
       - name:   ids
         dtype:  uint8
-        shape:  &sz1_32 [1, 32]
+        shape:  &sz1_64 [1, 64]
       - name:   staff
         dtype:  uint8
-        shape:  *sz1_32
+        shape:  *sz1_64
       - name:   confidence
         dtype:  float32
-        shape:  *sz1_32
+        shape:  *sz1_64
       - name:   x
         dtype:  float32
-        shape:  *sz1_32
+        shape:  *sz1_64
       - name:   y
         dtype:  float32
-        shape:  *sz1_32
+        shape:  *sz1_64
       - name:   sy1
         dtype:  float32
-        shape:  *sz1_32
+        shape:  *sz1_64
       - name:   sy2
         dtype:  float32
-        shape:  *sz1_32
+        shape:  *sz1_64
       - name:   premier
         dtype:  uint8
         shape:  &sz512 [1, 512]
