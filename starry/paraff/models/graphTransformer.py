@@ -318,7 +318,8 @@ class GraphParaffTranslator (nn.Module):
 
 
 class GraphParaffTranslatorOnnx (GraphParaffTranslator):
-	def forward(self, ids, staff, confidence, x, y, sy1, sy2, premier, position):
+	pass
+	'''def forward(self, ids, staff, confidence, x, y, sy1, sy2, premier, position):
 		n_point = (ids != self.TG_PAD).sum().item()
 		ids = ids[:, :n_point]
 		staff = staff[:, :n_point]
@@ -328,7 +329,7 @@ class GraphParaffTranslatorOnnx (GraphParaffTranslator):
 		sy1 = sy1[:, :n_point]
 		sy2 = sy2[:, :n_point]
 
-		return super().forward(ids, staff, confidence, x, y, sy1, sy2, premier, position)
+		return super().forward(ids, staff, confidence, x, y, sy1, sy2, premier, position)'''
 
 
 class GraphParaffTranslatorLoss (nn.Module):
