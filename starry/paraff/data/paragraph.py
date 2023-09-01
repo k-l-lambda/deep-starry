@@ -88,7 +88,8 @@ class PhasedParagraph (IterableDataset):
 
 
 	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_phase, encoder=None,
-		descriptor_drop=0.1, descriptor_drop_sigma=0., with_summary=False, summary_id=1, with_graph=False, graph_augmentor=None, **_):
+		descriptor_drop=0.1, descriptor_drop_sigma=0., with_summary=False, summary_id=1, with_graph=False,
+		seq_tail_padding=0, graph_augmentor=None, **_):
 		super().__init__()
 
 		self.device = device
@@ -100,6 +101,7 @@ class PhasedParagraph (IterableDataset):
 		self.with_summary = with_summary
 		self.summary_id = summary_id
 		self.with_graph = with_graph
+		self.seq_tail_padding = seq_tail_padding
 		self.graph_augmentor = graph_augmentor
 		self.with_summary_encoder = encoder is not None
 
@@ -191,7 +193,10 @@ class PhasedParagraph (IterableDataset):
 			for mi in range(measure_begin, measure_end):
 				ids_begin = measure_size[:mi - measure_begin].sum().item()
 				ids_end = measure_size[:mi - measure_begin + 1].sum().item()
-				ids = pids[max(0, ids_end - self.n_seq_word):ids_end]
+
+				tail_padding = np.random.randint(self.seq_tail_padding) + 1 if self.seq_tail_padding > 0 else 0
+				ids_front = max(0, ids_end - (self.n_seq_word - tail_padding))
+				ids = pids[ids_front:ids_end]
 
 				if self.with_summary:
 					ids = ids.clone()
@@ -205,9 +210,9 @@ class PhasedParagraph (IterableDataset):
 				input_ids[:ids.shape[0] - 1] = ids[:-1]
 				output_ids[:ids.shape[0] - 1] = ids[1:]
 
-				body_mask[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] >= ids_begin
+				body_mask[:ids.shape[0] - 1] = pids_arange[ids_front:ids_end - 1] >= ids_begin
 
-				position[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] - ids_begin
+				position[:ids.shape[0] - 1] = pids_arange[ids_front:ids_end - 1] - ids_begin
 
 				if self.with_summary:
 					position[0] = 0

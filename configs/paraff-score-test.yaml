@@ -9,6 +9,7 @@ data:
   batch_size:               2
   args:
     n_seq_word:             512
+    seq_tail_padding:       16
     n_seq_phase:            256
     descriptor_drop:        0.3
     descriptor_drop_sigma:  1.
@@ -17,6 +18,7 @@ data:
       weight:               ./training/paraff/20230627-paraff-vae-shared-0613-d256-l4-kld1e-6/model_236_loss_3.732e-02.pt
       device:               cpu
       batch_size:           16
+      test:                 True
 
 
 model:
