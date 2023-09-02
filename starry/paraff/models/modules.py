@@ -102,7 +102,7 @@ class TimewiseGraphEncoder (nn.Module):
 		vec_sy1 = self.position_enc(sy1.float())
 		vec_sy2 = self.position_enc(sy2.float())
 
-		return torch.cat([vec_id, vec_staff, confidence.unsqueeze(-1), vec_x, vec_y, vec_sy1 + vec_sy2], dim=-1)
+		return torch.cat([vec_id.float(), vec_staff.float(), confidence.unsqueeze(-1), vec_x, vec_y, vec_sy1 + vec_sy2], dim=-1)
 
 
 class DecoderWithPosition (nn.Module):
