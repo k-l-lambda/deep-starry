@@ -6,7 +6,7 @@ import torch.nn.functional as F
 #import logging
 
 from ...transformer.models import get_subsequent_mask, get_pad_mask, Decoder
-from ..data.timewiseGraph import SEMANTIC_MAX, STAFF_MAX, TG_EOS, TG_PAD
+from ..graphSemantics import SEMANTIC_MAX, STAFF_MAX, TG_EOS, TG_PAD
 from ..vocab import ID_PAD, ID_VB, ID_EOM
 from .modules import AttentionStack, TimewiseGraphEncoder, DecoderWithPosition
 from .seqShareVAE import SeqShareVAE
@@ -331,10 +331,16 @@ class GraphParaffTranslatorOnnx (GraphParaffTranslator):
 
 
 class GraphParaffTranslatorLoss (nn.Module):
-	def __init__(self, **kw_args):
+	def __init__(self, word_weights=None, vocab=[], **kw_args):
 		super().__init__()
 
 		self.deducer = GraphParaffTranslator(**kw_args)
+
+		if word_weights is not None:
+			n_vocab = kw_args['decoder_config']['n_trg_vocab']
+			ww = torch.tensor([word_weights[word] if word in word_weights else 1 for word in vocab[:n_vocab]], dtype=torch.float)
+			assert len(ww) == kw_args['decoder_config']['n_trg_vocab'], f'invalid word weights shape {len(ww)} vs decoder_config.n_trg_vocab({n_vocab})'
+			self.register_buffer('word_weights', ww, persistent=False)
 
 		for p in self.deducer.encoder.parameters():
 			if p.dim() > 1:
@@ -361,7 +367,8 @@ class GraphParaffTranslatorLoss (nn.Module):
 		pred = self.deducer(tg_id, tg_staff, tg_confidence, tg_x, tg_y, tg_sy1, tg_sy2, input_ids, position=position)
 		pred_body = pred[body_mask]
 
-		loss = F.cross_entropy(pred_body, target_body)
+		ce_weight = self.word_weights if hasattr(self, 'word_weights') else None
+		loss = F.cross_entropy(pred_body, target_body, weight=ce_weight)
 
 		pred_ids = pred_body.argmax(dim=-1)
 		acc = (pred_ids == target_body).float().mean()

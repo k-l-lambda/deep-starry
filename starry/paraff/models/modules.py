@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ...transformer.models import PositionalEncoding
 from ...modules.positionEncoder import SinusoidEncoder
-from ..data.timewiseGraph import SEMANTIC_MAX, STAFF_MAX
+from ..graphSemantics import SEMANTIC_MAX, STAFF_MAX
 
 
 

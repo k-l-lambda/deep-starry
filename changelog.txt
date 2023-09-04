@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.9.4
+
+	+	graphTransformer.py: option of word_weights added.
+
+
 2023.9.1
 
 	+	paraff/data/paragraph.py: added option of seq_tail_padding.
