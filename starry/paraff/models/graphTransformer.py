@@ -7,12 +7,10 @@ import torch.nn.functional as F
 
 from ...transformer.models import get_subsequent_mask, get_pad_mask, Decoder
 from ..data.timewiseGraph import SEMANTIC_MAX, STAFF_MAX, TG_EOS, TG_PAD
+from ..vocab import ID_PAD, ID_VB, ID_EOM
 from .modules import AttentionStack, TimewiseGraphEncoder, DecoderWithPosition
 from .seqShareVAE import SeqShareVAE
 
-
-
-ID_PAD = 0
 
 
 # GraphParaffEncoder -------------------------------------------------------------------------------------------------------
@@ -373,6 +371,10 @@ class GraphParaffTranslatorLoss (nn.Module):
 		}
 
 		if not self.training:
+			boundary_mask = (target_body == ID_VB) | (target_body == ID_EOM)
+			acc_boundary = (pred_ids[boundary_mask] == target_body[boundary_mask]).float().mean()
+			metric['acc_boundary'] = acc_boundary.item()
+
 			zero_tg_id = torch.zeros_like(tg_id)
 			np_input_ids = torch.zeros_like(input_ids)
 			np_input_ids[body_mask] = input_ids[body_mask]
