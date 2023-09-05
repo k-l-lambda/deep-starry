@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 from ...transformer.layers import EncoderLayer, DecoderLayer
 from ...transformer.models import PositionalEncoding
-from ...modules.positionEncoder import SinusoidEncoder, SinusoidEncoderPlus
+from ...modules.positionEncoder import SinusoidEncoder, PositionEncoderDict
 from ..graphSemantics import SEMANTIC_MAX, STAFF_MAX
 
 
@@ -107,11 +107,13 @@ class TimewiseGraphEncoder (nn.Module):
 
 class DecoderWithPosition (nn.Module):
 	def __init__ (self, n_trg_vocab, d_model, d_word_vec, n_layers, n_head, d_k, d_v, d_inner,
-		pad_idx=0, dropout=0.1, scale_emb=True, angle_cycle=10000):
+		pad_idx=0, dropout=0.1, scale_emb=True, angle_cycle=10000, pos_encoder='sinusoid'):
 		super().__init__()
 
+		posenc_class = PositionEncoderDict[pos_encoder]
+
 		self.trg_word_emb = nn.Embedding(n_trg_vocab, d_word_vec, padding_idx=pad_idx)
-		self.position_enc = SinusoidEncoderPlus(angle_cycle=angle_cycle, d_hid=d_model)
+		self.position_enc = posenc_class(angle_cycle=angle_cycle, d_hid=d_model)
 		self.dropout = nn.Dropout(p=dropout)
 		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 		self.attention = InteractiveAttentionStack(n_layers, d_model, d_inner, n_head, d_k, d_v, dropout)

@@ -75,3 +75,6 @@ class RotaryEncoder (nn.Module):
 		x1, x2 = x[..., 0::2], x[..., 1::2]
 
 		return torch.stack([x1 * cos - x2 * sin, x2 * cos + x1 * sin], dim=-1).flatten(-2, -1)
+
+
+PositionEncoderDict = dict(sinusoid=SinusoidEncoderPlus, rotary=RotaryEncoder)
