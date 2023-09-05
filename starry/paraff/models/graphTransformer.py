@@ -284,7 +284,7 @@ class GraphParaffSummaryEncoderLoss (nn.Module):
 
 # GraphParaffTranslator ----------------------------------------------------------------------------------------------------
 class GraphParaffTranslator (nn.Module):
-	def __init__(self, d_model, encoder_config, decoder_config, with_pos=False):
+	def __init__(self, d_model, encoder_config, decoder_config, with_pos=False, **_):
 		super().__init__()
 
 		self.with_pos = with_pos
