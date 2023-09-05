@@ -43,3 +43,12 @@ class SinusoidEncoderXYY (nn.Module):
 		y2 = self.encoder(y2)
 
 		return torch.cat((x, y1 + y2), dim=2)
+
+
+class SinusoidEncoderPlus (SinusoidEncoder):
+	# pos:	(batch, seq)
+	# x: 	(batch, seq, d_hid)
+	def forward (self, pos, x): # -> (batch, seq, d_hid)
+		p = super().forward(pos)
+
+		return x + p

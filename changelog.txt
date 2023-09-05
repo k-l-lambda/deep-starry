@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.9.5
+
+	+	positionEncoder.py: module class of SinusoidEncoderPlus added.
+
+
 2023.9.4
 
 	+	graphTransformer.py: option of word_weights added.
