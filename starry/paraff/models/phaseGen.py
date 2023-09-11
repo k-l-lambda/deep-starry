@@ -143,6 +143,10 @@ class PhaseGenLoss (nn.Module):
 		return list(self.deducer.parameters()) + list(self.deducer.buffers())
 
 
+	def validation_parameters (self):
+		return []
+
+
 	def forward (self, batch):
 		body_mask = batch['body_mask']
 		body_summary_mask = body_mask | (batch['input_ids'] == self.summary_id)
