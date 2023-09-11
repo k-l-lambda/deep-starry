@@ -87,6 +87,39 @@ class PhasedParagraph (IterableDataset):
 		return cls.measure_lib[paraff_path]
 
 
+	@staticmethod
+	def traverseParagraph (paragraphs, max_len):
+		segments = []
+
+		step_size = max_len - max_len // 4
+
+		for pg in paragraphs:
+			pg_size = len(pg['phaseTypes'])
+			if pg_size <= max_len:
+				segments.append(pg)
+			else:
+				n_desc = len(pg['descriptors'])
+				sl, sr = pg['sentenceRange']
+
+				for i in range(0, pg_size, step_size - n_desc):
+					si = min(i, pg_size - max_len)
+					n_sentence = max_len - n_desc - pg['phaseTypes'][si:].index(PHID_MEASURE)
+					segment = dict(
+						name=f'{pg["name"]}_{si}',
+						group=pg['group'],
+						descriptors=pg['descriptors'],
+						phaseTypes=pg['phaseTypes'][si:si + max_len - n_desc],
+						phaseNumbers=pg['phaseNumbers'][si:si + max_len - n_desc],
+						sentenceRange=[sl, sl + n_sentence],
+					)
+
+					segments.append(segment)
+					sl += n_sentence
+		#print('segments:', '\n'.join([p['name'] for p in segments]))
+
+		return segments
+
+
 	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_phase, encoder=None,
 		descriptor_drop=0.1, descriptor_drop_sigma=0., with_summary=False, summary_id=1, with_graph=False,
 		seq_tail_padding=0, graph_augmentor=None, **_):
@@ -111,6 +144,7 @@ class PhasedParagraph (IterableDataset):
 		paraff_path = os.path.join(os.path.dirname(root), index['paraff'])
 		groups = [group for i, group in enumerate(index['groups']) if i % cycle in phases]
 		paragraphs = [paragraph for paragraph in index['paragraphs'] if paragraph['group'] in groups]
+		paragraphs = PhasedParagraph.traverseParagraph(paragraphs, n_seq_phase)	# limit paragraph length less than n_seq_phase
 
 		self.vocab = index['vocab']
 

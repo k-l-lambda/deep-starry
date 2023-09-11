@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.9.11
+
+	+	paragraph.py: limit paragraph length less than n_seq_phase.
+
+
 2023.9.5
 
 	+	positionEncoder.py: module class of RotaryEncoder added.
