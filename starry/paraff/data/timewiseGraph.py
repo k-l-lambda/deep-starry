@@ -9,7 +9,7 @@ import torch
 import dill as pickle
 from tqdm import tqdm
 
-from ..graphSemantics import TG_EOS, STAFF_MAX
+from ..graphSemantics import TG_EOS, STAFF_MAX, SEMANTIC_TABLE
 
 
 
