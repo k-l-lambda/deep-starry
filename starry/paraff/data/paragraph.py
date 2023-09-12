@@ -319,7 +319,9 @@ class PhasedParagraph (IterableDataset):
 
 		id, staff, x, y, sy1, sy2, confidence = fields
 
-		drop_p = self.graph_augmentor.get('drop_p', 0)
+		drop_base = self.graph_augmentor.get('drop_p', 0)
+		drop_sigma = self.graph_augmentor.get('drop_sigma', 0)
+		drop_p = drop_base ** np.exp(np.random.randn() * drop_sigma)
 
 		drop_mask = (torch.rand_like(id, dtype=torch.float) < drop_p) & (id > TG_EOS)
 		id[drop_mask] = 0

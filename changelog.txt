@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.9.12
+
+	+	paragraph.py: added option of graph_augmentor.drop_sigma.
+
+
 2023.9.11
 
 	+	paragraph.py: limit paragraph length less than n_seq_phase.
