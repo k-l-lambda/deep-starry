@@ -95,12 +95,12 @@ class PhasedParagraph (IterableDataset):
 
 		for pg in paragraphs:
 			pg_size = len(pg['phaseTypes'])
-			if pg_size <= max_len:
+			n_desc = len(pg['descriptors'])
+			sl, sr = pg['sentenceRange']
+
+			if n_desc + pg_size <= max_len:
 				segments.append(pg)
 			else:
-				n_desc = len(pg['descriptors'])
-				sl, sr = pg['sentenceRange']
-
 				for i in range(0, pg_size, step_size - n_desc):
 					si = min(i, pg_size - max_len)
 					n_sentence = pg['phaseTypes'][si:si + max_len - n_desc].count(PHID_MEASURE)
