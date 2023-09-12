@@ -103,7 +103,7 @@ class PhasedParagraph (IterableDataset):
 
 				for i in range(0, pg_size, step_size - n_desc):
 					si = min(i, pg_size - max_len)
-					n_sentence = max_len - n_desc - pg['phaseTypes'][si:].index(PHID_MEASURE)
+					n_sentence = pg['phaseTypes'][si:si + max_len - n_desc].count(PHID_MEASURE)
 					segment = dict(
 						name=f'{pg["name"]}_{si}',
 						group=pg['group'],
