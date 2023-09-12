@@ -140,7 +140,7 @@ class PhaseGenLoss (nn.Module):
 
 
 	def training_parameters (self):
-		return list(self.deducer.parameters()) + list(self.deducer.buffers())
+		return list(self.deducer.parameters()) + list(self.deducer.buffers()) + list(self.word_decoder.parameters()) + list(self.word_decoder.buffers())
 
 
 	def validation_parameters (self):
