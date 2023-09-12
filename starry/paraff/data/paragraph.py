@@ -101,8 +101,11 @@ class PhasedParagraph (IterableDataset):
 			if n_desc + pg_size <= max_len:
 				segments.append(pg)
 			else:
+				last_si = 0
 				for i in range(0, pg_size, step_size - n_desc):
-					si = min(i, pg_size - max_len)
+					si = min(i, pg_size - max_len + n_desc)
+					assert si >= 0, f'invalid si: si={si}, i={i}, pg_size={pg_size}, max_len={max_len}, n_desc={n_desc}'
+					sl += pg['phaseTypes'][last_si:si].count(PHID_MEASURE)
 					n_sentence = pg['phaseTypes'][si:si + max_len - n_desc].count(PHID_MEASURE)
 					segment = dict(
 						name=f'{pg["name"]}_{si}',
@@ -114,7 +117,7 @@ class PhasedParagraph (IterableDataset):
 					)
 
 					segments.append(segment)
-					sl += n_sentence
+					last_si = si
 		#print('segments:', '\n'.join([p['name'] for p in segments]))
 
 		return segments
