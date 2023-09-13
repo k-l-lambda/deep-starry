@@ -1,0 +1,174 @@
+
+id:     score-topology/{date}-{filename}
+
+
+data:
+  type:                     EventCluster
+  root:                     evtopo-20230913.zip
+  splits:                   '*1..8/10:9/10'
+  batch_size:               1
+  args:
+    #batch_slice:            2
+    with_beading:           True
+    stability_base:         100
+    chaos_flip:             True
+    position_drift:         0.03
+    stem_amplitude:
+      mu:                   5.4
+      sigma:                2
+    time8th_drop:           0.2
+    event_drop:             0.001
+  args_variant:
+    1:
+      stability_base:       1000
+      event_drop:           0
+
+
+model:
+  type:                     BeadPicker
+  args:
+    rectifier_version:      v3
+    usePivotX:              True
+    with_time8th:           True
+    n_layers:               16
+    d_position:             256
+    angle_cycle:            1000
+    feature_activation:     tanh
+    zero_candidates:        True
+    d_model:                128
+    d_inner:                512
+    n_head:                 8
+    d_k:                    16
+    d_v:                    16
+    dropout:                0.1
+    scale_emb:              False
+    error_weights:
+    - 10        # suc
+    - 1.e-3     # tick
+    - 3         # division
+    - 3         # dots
+    - 1         # beam
+    - 1         # stemDirection
+    - 3         # grace
+    - 3         # warped
+    - 1         # full measure
+    - 1         # fake
+    #                       (loss_suc, loss_tick_fixed, loss_tick, loss_division, loss_dots, loss_beam, loss_direction, loss_grace, loss_warped, loss_full, loss_fake)
+    loss_weights:           [4,         20,             40,         4,            4]
+    init_gain_n:            32     # 2 * n_layers
+    freeze:
+      train_layer_n:        1
+      train_out:            True
+
+
+trainer:
+  env: ~
+  device:                   cpu
+  save_mode:                best
+  epoch:                    2
+  moniter:
+    field:                  general_error
+    mode:                   min
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               0.1
+      n_warmup_steps:       4000
+      d_model:              512
+
+
+onnx:
+  multiple:
+    seq32:
+      model_postfix: Onnx
+      inputs:
+      - dtype:    int8
+        name:     type
+        shape:    [1, 32]
+      - dtype:    int8
+        name:     staff
+        shape:    [1, 32]
+      - dtype:    float
+        name:     feature
+        shape:    [1, 32, 15]
+      - dtype:    float
+        name:     x
+        shape:    [1, 32]
+      - dtype:    float
+        name:     y1
+        shape:    [1, 32]
+      - dtype:    float
+        name:     y2
+        shape:    [1, 32]
+      - dtype:    int16
+        name:     beading_pos
+        shape:    [1, 32]
+      - name:     time8th
+        dtype:    int8
+        shape:    [1]
+      opset:      14
+      outputs:    &out ['successor', 'tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']
+    seq64:
+      model_postfix: Onnx
+      inputs:
+      - dtype:    int8
+        name:     type
+        shape:    [1, 64]
+      - dtype:    int8
+        name:     staff
+        shape:    [1, 64]
+      - dtype:    float
+        name:     feature
+        shape:    [1, 64, 15]
+      - dtype:    float
+        name:     x
+        shape:    [1, 64]
+      - dtype:    float
+        name:     y1
+        shape:    [1, 64]
+      - dtype:    float
+        name:     y2
+        shape:    [1, 64]
+      - dtype:    int16
+        name:     beading_pos
+        shape:    [1, 64]
+      - name:     time8th
+        dtype:    int8
+        shape:    [1]
+      opset:      14
+      outputs:    *out
+    seq128:
+      model_postfix: Onnx
+      inputs:
+      - dtype:    int8
+        name:     type
+        shape:    [1, 128]
+      - dtype:    int8
+        name:     staff
+        shape:    [1, 128]
+      - dtype:    float
+        name:     feature
+        shape:    [1, 128, 15]
+      - dtype:    float
+        name:     x
+        shape:    [1, 128]
+      - dtype:    float
+        name:     y1
+        shape:    [1, 128]
+      - dtype:    float
+        name:     y2
+        shape:    [1, 128]
+      - dtype:    int16
+        name:     beading_pos
+        shape:    [1, 128]
+      - name:     time8th
+        dtype:    int8
+        shape:    [1]
+      opset:      14
+      outputs:    *out

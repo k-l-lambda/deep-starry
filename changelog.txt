@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.9.13
+
+	+	beadPicker.py: added option of freeze.
+
+
 2023.9.12
 
 	+	paragraph.py: added option of graph_augmentor.drop_sigma.

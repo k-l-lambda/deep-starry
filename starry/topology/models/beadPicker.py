@@ -81,7 +81,7 @@ class BeadPickerOnnx (BeadPicker):
 
 class BeadPickerLoss (nn.Module):
 	def __init__ (self, decisive_confidence=0.5, error_weights=DEFAULT_ERROR_WEIGHTS, loss_weights=[10, 1e-6],
-		usePivotX=False, init_gain_n=2, **kw_args):
+		usePivotX=False, init_gain_n=2, freeze=None, **kw_args):
 		super().__init__()
 
 		self.error_weights = error_weights
@@ -99,10 +99,27 @@ class BeadPickerLoss (nn.Module):
 
 		self.tick2vec = Int2PClass(VTICK_BASE)
 
-		# initialize parameters
-		for p in self.parameters():
-			if p.dim() > 1:
-				nn.init.xavier_uniform_(p, gain=init_gain_n ** -0.5)
+		if freeze is not None:
+			for param in self.deducer.parameters():
+				param.requires_grad = False
+
+			layer_n = freeze.get('train_layer_n', 0)
+			train_out = freeze.get('train_out', True)
+
+			if layer_n > 0:
+				layers = self.deducer.attention.layer_stack[-layer_n:]
+				for layer in layers:
+					for param in layer.parameters():
+						param.requires_grad = True
+
+			if train_out:
+				for param in self.deducer.out.parameters():
+					param.requires_grad = True
+		else:
+			# initialize parameters
+			for p in self.parameters():
+				if p.dim() > 1:
+					nn.init.xavier_uniform_(p, gain=init_gain_n ** -0.5)
 
 
 	def training_parameters (self):
