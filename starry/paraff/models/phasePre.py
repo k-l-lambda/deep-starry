@@ -80,11 +80,11 @@ class PhasePre (nn.Module):
 		words[:, -n_word:] += self.pos_encoder(id_pos.float())
 
 		x = torch.cat([phases, words], dim=-1)
-		x *= self.d_model ** 0.5	# scale embedding
 		x = self.dropout(x)
 		x = self.layer_norm(x)
 		x = self.attention(x, mask=mask)
 		x = self.word_prj(x)
+		x *= self.d_model ** -0.5	# scale embedding
 
 		return x[:, -n_word:]
 
