@@ -96,6 +96,10 @@ class PhasePreLoss (nn.Module):
 		self.deducer = PhasePre(**kw_args)
 
 
+	def training_parameters (self):
+		return list(self.deducer.parameters()) + list(self.deducer.buffers())
+
+
 	def forward (self, batch):
 		body_mask = batch['body_mask']
 		target = batch['output_ids'].long()
