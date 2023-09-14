@@ -7,6 +7,8 @@ TODO:
 
 2023.9.14
 
+	+	paraff/models/phasePre.py created.
+
 	>	seqShareVAE.py: fixed dropout in SeqShareDecoderWithPosition.
 
 
