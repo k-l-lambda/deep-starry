@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.9.14
+
+	>	seqShareVAE.py: fixed dropout in SeqShareDecoderWithPosition.
+
+
 2023.9.12
 
 	+	paragraph.py: added option of graph_augmentor.drop_sigma.
