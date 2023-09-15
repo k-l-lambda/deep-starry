@@ -130,10 +130,11 @@ class PhasePreLoss (nn.Module):
 
 		if not self.training:
 			zero_mask = torch.zeros_like(ph_body_mask)
+			zero_num = torch.zeros_like(ph_f_num)
 
-			pred_zl = self.deducer(ph_id, ph_f_num, ph_b_num, ph_summary, zero_mask, ph_next_mask, id, id_pos)
+			pred_zl = self.deducer(ph_id, zero_num, zero_num, ph_summary, zero_mask, ph_next_mask, id, id_pos)
 			pred_np = self.deducer(ph_id, ph_f_num, ph_b_num, ph_summary, ph_body_mask, ph_next_mask, id, id_pos, body_mask)
-			pred_zlnp = self.deducer(ph_id, ph_f_num, ph_b_num, ph_summary, zero_mask, ph_next_mask, id, id_pos, body_mask)
+			pred_zlnp = self.deducer(ph_id, zero_num, zero_num, ph_summary, zero_mask, ph_next_mask, id, id_pos, body_mask)
 
 			error = 1 - acc
 			error_zero_latent = 1 - (pred_zl[body_mask].argmax(dim=-1) == target_body).float().mean()
