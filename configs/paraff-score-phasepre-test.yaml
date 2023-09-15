@@ -63,4 +63,31 @@ optim:
 
 
 onnx:
-  ~
+  opset: 14
+  inputs:
+  - name:     phid
+    dtype:    uint8
+    shape:    &sz192 [1, 192]
+  - name:     f_pos
+    dtype:    int16
+    shape:    *sz192
+  - name:     b_pos
+    dtype:    int16
+    shape:    *sz192
+  - name:     summary
+    dtype:    float32
+    shape:    [1, 192, 256]
+  - name:     ph_mask
+    dtype:    bool
+    shape:    *sz192
+  - name:     next
+    dtype:    bool
+    shape:    *sz192
+  - name:     id
+    dtype:    uint8
+    shape:    &sz448 [1, 448]
+  - name:     id_pos
+    dtype:    int16
+    shape:    *sz448
+  outputs:
+  - logits

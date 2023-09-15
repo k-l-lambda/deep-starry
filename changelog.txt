@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.9.15
+
+	+	phasePre.py: fixed onnx conversion issues.
+
+
 2023.9.14
 
 	+	paraff/models/phasePre.py created.

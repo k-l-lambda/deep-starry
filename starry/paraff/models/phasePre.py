@@ -12,6 +12,10 @@ from ..vocab import ID_MSUM
 
 
 
+def logical_not (x):
+	return (1 - x.int()).bool()
+
+
 class PhasePre (nn.Module):
 	def __init__ (self,
 			n_type, n_vocab, pad_id=0, sum_id=ID_MSUM, d_phase=128, d_token=128, d_summary=256,
@@ -62,14 +66,14 @@ class PhasePre (nn.Module):
 		phid = F.pad(phid, (0, n_word), value=0)
 
 		next_f, next_b = f_pos[next], b_pos[next]
-		next_f, next_b = next_f.view(n_batch, -1).repeat(1, n_word), next_b.view(n_batch, -1).repeat(1, n_word)
+		next_f, next_b = next_f.view(n_batch, -1)[:, :1].repeat(1, n_word), next_b.view(n_batch, -1)[:, :1].repeat(1, n_word)
 
 		f_pos = torch.cat([f_pos, next_f], dim=-1)
 		b_pos = torch.cat([b_pos, next_b], dim=-1)
 		f_pos_code = self.pos_encoder_half(f_pos.float())
 		b_pos_code = self.pos_encoder_half(b_pos.float())
 		phase_position = torch.cat([f_pos_code, b_pos_code], dim=-1)
-		phase_position[:, :n_phase][torch.logical_not(ph_mask | next)] = 0
+		phase_position[:, :n_phase][logical_not(ph_mask | next)] = 0
 
 		phases = self.ph_emb(phid.long())
 		phases += phase_position
