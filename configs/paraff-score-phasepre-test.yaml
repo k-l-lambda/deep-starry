@@ -24,11 +24,10 @@ data:
 model:
   type:                     PhasePre
   args:
-    d_model:                256
     n_type:                 14
     n_vocab:                102
-    d_phase:                128
-    d_token:                128
+    d_phase:                64
+    d_token:                192
     d_summary:              256
     n_layers:               4
     d_inner:                1024

@@ -33,7 +33,7 @@ class PhasePre (nn.Module):
 		self.ph_emb = nn.Embedding(n_type, d_phase, padding_idx=pad_id)
 		self.summary_emb = nn.Linear(d_summary, d_phase, bias=False)
 		self.pos_encoder_half = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_phase // 2)
-		self.pos_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_phase)
+		self.pos_encoder = SinusoidEncoder(angle_cycle=angle_cycle, d_hid=d_token)
 
 		self.word_emb = nn.Embedding(n_vocab, d_token, padding_idx=pad_id)
 		self.word_prj = nn.Linear(self.d_model, n_vocab, bias=False)
