@@ -14,3 +14,4 @@ matplotlib
 primesieve==2.2.0
 librosa<0.10.0
 scipy
+transformers>=4.32.0
