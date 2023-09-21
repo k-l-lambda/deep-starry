@@ -114,13 +114,18 @@ class Trainer:
 		return t.cpu().item()
 
 
-	def reportScalars (self, scalars, epoch_i):
+	def reportScalars (self, scalars, step):
 		for k, v in scalars.items():
 			if type(v) == dict:
 				for kk, vv in v.items():
-					self.tb_writer.add_scalar(f'{k}/{kk}', vv, epoch_i)
+					self.tb_writer.add_scalar(f'{k}/{kk}', vv, step)
 			else:
-				self.tb_writer.add_scalar(k, v, epoch_i)
+				self.tb_writer.add_scalar(k, v, step)
+
+
+	@property
+	def exampleN (self):
+		return self.config['trainer.steps'] * self.config['data.batch_size']
 
 
 	def train (self, data):
@@ -203,7 +208,9 @@ class Trainer:
 				'learning_rate': lr,
 				**metrics,
 			}
-			self.reportScalars(scalars, epoch_i)
+			report_step_unit = self.options.get('report_step_unit')
+			report_step = self.exampleN if report_step_unit == 'examples' else epoch_i
+			self.reportScalars(scalars, report_step)
 
 
 	def validate (self, data):
@@ -281,8 +288,8 @@ class Trainer:
 
 						self.log('The checkpoint file has been updated.')
 
+				self.config.load()
 				if new_record or self.config['best'] is None:
-					self.config.load()
 					self.config['best'] = model_name
 					self.config['trainer.moniter.best_value'] = self.moniter.best_value
 					self.config.save()
@@ -299,7 +306,9 @@ class Trainer:
 					'val_loss': val_loss,
 					**metrics,
 				}
-				self.reportScalars(scalars, epoch_i)
+				report_step_unit = self.options.get('report_step_unit')
+				report_step = self.exampleN if report_step_unit == 'examples' else epoch_i
+				self.reportScalars(scalars, report_step)
 
 
 	def infiniteTraverse (self, dataset):

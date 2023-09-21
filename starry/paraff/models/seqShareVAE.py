@@ -117,7 +117,8 @@ class SeqShareDecoderWithPosition (nn.Module):
 		x[:, 0] += summary	# add summary embedding on the first element
 		x *= self.d_model ** 0.5	# scale embedding
 
-		x += self.dropout(self.position_enc(pos))
+		x += self.position_enc(pos)
+		x = self.dropout(x)
 		x = self.layer_norm(x)
 		x = self.attention(x, mask)
 

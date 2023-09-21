@@ -139,6 +139,14 @@ class PhaseGenLoss (nn.Module):
 			self.word_decoder.freezeTrunk()
 
 
+	def training_parameters (self):
+		return list(self.deducer.parameters()) + list(self.deducer.buffers()) + list(self.word_decoder.parameters()) + list(self.word_decoder.buffers())
+
+
+	def validation_parameters (self):
+		return []
+
+
 	def forward (self, batch):
 		body_mask = batch['body_mask']
 		body_summary_mask = body_mask | (batch['input_ids'] == self.summary_id)

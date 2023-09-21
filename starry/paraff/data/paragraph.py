@@ -6,9 +6,11 @@ from torch.utils.data import IterableDataset
 import yaml
 from tqdm import tqdm
 import dill as pickle
+import numpy as np
 
 from ...utils.parsers import parseFilterStr, mergeArgs
 from .paraffFile import ParaffFile
+from .timewiseGraph import TG_EOS
 
 
 
@@ -85,8 +87,45 @@ class PhasedParagraph (IterableDataset):
 		return cls.measure_lib[paraff_path]
 
 
+	@staticmethod
+	def traverseParagraph (paragraphs, max_len):
+		segments = []
+
+		step_size = max_len - max_len // 4
+
+		for pg in paragraphs:
+			pg_size = len(pg['phaseTypes'])
+			n_desc = len(pg['descriptors'])
+			sl, sr = pg['sentenceRange']
+
+			if n_desc + pg_size <= max_len:
+				segments.append(pg)
+			else:
+				last_si = 0
+				for i in range(0, pg_size, step_size - n_desc):
+					si = min(i, pg_size - max_len + n_desc)
+					assert si >= 0, f'invalid si: si={si}, i={i}, pg_size={pg_size}, max_len={max_len}, n_desc={n_desc}'
+					sl += pg['phaseTypes'][last_si:si].count(PHID_MEASURE)
+					n_sentence = pg['phaseTypes'][si:si + max_len - n_desc].count(PHID_MEASURE)
+					segment = dict(
+						name=f'{pg["name"]}_{si}',
+						group=pg['group'],
+						descriptors=pg['descriptors'],
+						phaseTypes=pg['phaseTypes'][si:si + max_len - n_desc],
+						phaseNumbers=pg['phaseNumbers'][si:si + max_len - n_desc],
+						sentenceRange=[sl, sl + n_sentence],
+					)
+
+					segments.append(segment)
+					last_si = si
+		#print('segments:', '\n'.join([p['name'] for p in segments]))
+
+		return segments
+
+
 	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_phase, encoder=None,
-		descriptor_drop=0.1, descriptor_drop_sigma=0., with_summary=False, summary_id=1, with_graph=False, **_):
+		descriptor_drop=0.1, descriptor_drop_sigma=0., with_summary=False, summary_id=1, with_graph=False,
+		seq_tail_padding=0, graph_augmentor=None, **_):
 		super().__init__()
 
 		self.device = device
@@ -98,6 +137,9 @@ class PhasedParagraph (IterableDataset):
 		self.with_summary = with_summary
 		self.summary_id = summary_id
 		self.with_graph = with_graph
+		self.seq_tail_padding = seq_tail_padding
+		self.graph_augmentor = graph_augmentor
+		self.with_summary_encoder = encoder is not None
 
 		phases, cycle = parseFilterStr(split)
 
@@ -105,6 +147,9 @@ class PhasedParagraph (IterableDataset):
 		paraff_path = os.path.join(os.path.dirname(root), index['paraff'])
 		groups = [group for i, group in enumerate(index['groups']) if i % cycle in phases]
 		paragraphs = [paragraph for paragraph in index['paragraphs'] if paragraph['group'] in groups]
+		paragraphs = PhasedParagraph.traverseParagraph(paragraphs, n_seq_phase)	# limit paragraph length less than n_seq_phase
+
+		self.vocab = index['vocab']
 
 		self.measure = self.loadMeasures(paraff_path, n_seq_word, encoder, with_graph=with_graph)
 
@@ -147,6 +192,9 @@ class PhasedParagraph (IterableDataset):
 
 			for key in self.paragraphs:
 				self.paragraphs[key] = self.paragraphs[key][disorder]
+		else:
+			torch.manual_seed(0)
+			np.random.seed(1)
 
 		for i in range(self.paragraphs['id'].shape[0]):
 			measure_begin, measure_end = self.paragraphs['range'][i].tolist()
@@ -159,7 +207,8 @@ class PhasedParagraph (IterableDataset):
 			ph_summary = torch.zeros(self.n_seq_phase, self.d_summary)
 			ph_body_mask = torch.zeros_like(ph_id).bool()
 			ph_is_measure = ph_id == PHID_MEASURE
-			ph_summary[ph_is_measure] = self.measure.summaries[measure_begin:measure_end]
+			if self.with_summary_encoder:
+				ph_summary[ph_is_measure] = self.measure.summaries[measure_begin:measure_end]
 			ph_body_idx = ph_indecies[ph_is_measure]
 			ph_body_mask[ph_indecies < ph_body_idx[0].item()] = True
 
@@ -174,14 +223,17 @@ class PhasedParagraph (IterableDataset):
 			pids = entries.flatten()
 			pids = pids[pids != 0]
 			pids = F.pad(pids, (1, 0), 'constant', 0)
-			pids_arange = torch.arange(pids.shape[0], dtype=torch.int16)
+			pids_arange = torch.arange(pids.shape[0], dtype=torch.int32)
 			measure_size = (entries != 0).int().sum(dim=-1)
 			measure_size[0] += 1
 
 			for mi in range(measure_begin, measure_end):
-				ids_begin = measure_size[:mi - measure_begin].sum()
-				ids_end = measure_size[:mi - measure_begin + 1].sum()
-				ids = pids[max(0, ids_end - self.n_seq_word):ids_end]
+				ids_begin = measure_size[:mi - measure_begin].sum().item()
+				ids_end = measure_size[:mi - measure_begin + 1].sum().item()
+
+				tail_padding = np.random.randint(self.seq_tail_padding) + 1 if self.seq_tail_padding > 0 else 0
+				ids_front = max(0, ids_end - (self.n_seq_word - tail_padding))
+				ids = pids[ids_front:ids_end]
 
 				if self.with_summary:
 					ids = ids.clone()
@@ -195,9 +247,9 @@ class PhasedParagraph (IterableDataset):
 				input_ids[:ids.shape[0] - 1] = ids[:-1]
 				output_ids[:ids.shape[0] - 1] = ids[1:]
 
-				body_mask[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] >= ids_begin
+				body_mask[:ids.shape[0] - 1] = pids_arange[ids_front:ids_end - 1] >= ids_begin
 
-				position[:ids.shape[0] - 1] = pids_arange[max(0, ids_end - self.n_seq_word):ids_end - 1] - ids_begin
+				position[:ids.shape[0] - 1] = pids_arange[ids_front:ids_end - 1] - ids_begin
 
 				if self.with_summary:
 					position[0] = 0
@@ -218,7 +270,8 @@ class PhasedParagraph (IterableDataset):
 				if not self.with_graph:
 					yield basic_fields
 				else:
-					tg_fields = [self.measure.semantic_tensors[k][mi] for k in ['semantic', 'staff', 'x', 'y', 'sy1', 'sy2', 'confidence']]
+					tg_fields = [self.measure.semantic_tensors[k][mi].clone() for k in ['semantic', 'staff', 'x', 'y', 'sy1', 'sy2', 'confidence']]
+					tg_fields = self.augmentGraphFields(*tg_fields)
 					yield (*basic_fields, *tg_fields)
 
 				ph_body_mask[ph_body_idx[mi - measure_begin].item()] = True
@@ -261,3 +314,39 @@ class PhasedParagraph (IterableDataset):
 					tg_confidence=tg_confidence,
 				),
 			}
+
+
+	def augmentGraphFields (self, *fields):
+		if self.graph_augmentor is None:
+			return fields
+
+		id, staff, x, y, sy1, sy2, confidence = fields
+
+		drop_base = self.graph_augmentor.get('drop_p', 0)
+		drop_sigma = self.graph_augmentor.get('drop_sigma', 0)
+		drop_p = drop_base ** np.exp(np.random.randn() * drop_sigma)
+
+		drop_mask = (torch.rand_like(id, dtype=torch.float) < drop_p) & (id > TG_EOS)
+		id[drop_mask] = 0
+
+		x_factor_sigma = self.graph_augmentor.get('x_factor_sigma', 0)
+		x_factor = np.exp(np.random.randn() * x_factor_sigma)
+		x *= x_factor
+
+		drift_sigma = self.graph_augmentor.get('drift_sigma', 0)
+		x += torch.randn_like(x) * drift_sigma
+
+		y_drift = torch.randn_like(y) * drift_sigma
+		y += y_drift
+		sy1 += y_drift
+		sy2 += y_drift
+
+		# initialize confidence for null value
+		confidence = confidence.float()
+		null_confidence = confidence < 0
+		confidence[null_confidence] = torch.randn_like(confidence[null_confidence]) * 5.
+
+		confidence_sigma = self.graph_augmentor.get('confidence_sigma', 0)
+		confidence *= (torch.randn_like(confidence) * confidence_sigma).exp()
+
+		return id, staff, x, y, sy1, sy2, confidence

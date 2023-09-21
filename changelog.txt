@@ -5,9 +5,79 @@ TODO:
 
 
 
+2023.9.15
+
+	+	phasePre.py: fixed onnx conversion issues.
+
+
+2023.9.14
+
+	+	paraff/models/phasePre.py created.
+
+	>	seqShareVAE.py: fixed dropout in SeqShareDecoderWithPosition.
+
+
+2023.9.13
+
+	+	beadPicker.py: added option of freeze.
+
+
+2023.9.12
+
+	+	paragraph.py: added option of graph_augmentor.drop_sigma.
+
+
+2023.9.11
+
+	+	paragraph.py: limit paragraph length less than n_seq_phase.
+
+
+2023.9.5
+
+	+	positionEncoder.py: module class of RotaryEncoder added.
+
+	+	positionEncoder.py: module class of SinusoidEncoderPlus added.
+
+
+2023.9.4
+
+	+	graphTransformer.py: option of word_weights added.
+
+
+2023.9.1
+
+	+	paraff/data/paragraph.py: added option of seq_tail_padding.
+
+
+2023.8.30
+
+	>	paragraph.py: fixed semantic_tensors augment overwrite bug.
+
+	+	trainerQuantitative.py: added config option of report_step_unit.
+
+
+2023.8.22
+
+	+	eventCluster.py: option of event_drop added.
+
+
 2023.8.21
 
 	+	scorePageLayout.py: added non-null guarantee for reinforce layout.
+
+
+2023.8.15
+
+	+	graphTransformer.py: added option of unidirectional.
+
+	+	graphTransformer.py: added model of GraphParaffTranslator with position.
+
+
+2023.8.11
+
+	+	graphTransformer.py: added model class of GraphParaffSummaryEncoder.
+
+	>	Renamed model class: GraphParaffTransformer -> GraphParaphraseTranslator.
 
 
 2023.8.10
@@ -17,7 +87,21 @@ TODO:
 	+	modules/classInt.py created.
 
 
+2023.8.8
+
+	+	paraff/models/graphTransformer.py: added Onnx model classes for GraphParaffEncoder.
+
+
+2023.8.7
+
+	+	paraff/models/graphTransformer.py: model class of GraphParaffTransformer added.
+
+
 2023.8.3
+
+	+	parff/models/graphTransformer.py created.
+
+	+	paraff/viewer.py: showGraph added.
 
 	+	paraff/data/paragraph.py: added option of with_graph.
 

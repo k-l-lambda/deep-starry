@@ -1,0 +1,198 @@
+
+id:     paraff/{date}-{filename}
+
+
+data:
+  type:                     PhasedParagraph
+  root:                     20230804-paragraph.yaml
+  splits:                   '*1..8/10:9/10'
+  batch_size:               2
+  args:
+    n_seq_word:             512
+    seq_tail_padding:       16
+    n_seq_phase:            384 # cannot less than the length of the longest paragraph
+    descriptor_drop:        0.3
+    descriptor_drop_sigma:  1.
+    with_summary:           False
+    with_graph:             True
+    graph_augmentor:
+      drop_p:               0.08
+      drop_sigma:           0.6
+      x_factor_sigma:       0.04
+      drift_sigma:          0.02
+      confidence_sigma:     0.2
+  args_variant:
+    1:
+      graph_augmentor:
+        drop_p:             0
+        x_factor_sigma:     0
+        drift_sigma:        0
+        confidence_sigma:   0
+
+
+_vocab: &vocab [PAD,MSUM,BOS,EOS,BOM,EOM,VB,S1,S2,S3,Cg,Cf,Cc,K0,K1,K2,K3,K4,K5,K6,K_1,K_2,K_3,K_4,K_5,K_6,TN1,TN2,TN3,TN4,TN5,TN6,TN7,TN8,TN9,TN10,TN11,TN12,TD2,TD4,TD8,TD16,a,b,c,d,e,f,g,As,Af,Ass,Aff,Osup,Osub,O0,Ova,Ovb,D1,D2,D4,D8,D16,D32,D64,D128,D256,Dot,Bl,Br,Mu,Md,Rest,RSpace,W2,W3,W4,W5,W6,W7,W8,W9,W10,W12,W16,W24,W32,Wx,W,G,TM8,TM16,TM32,TM64,TM128,TM256,TC8,TC16,TC32,TC64,TC128,TC256]
+
+
+model:
+  type:                     GraphParaffTranslator
+  args:
+    d_model:                256
+    with_pos:               True
+    encoder_config:
+      unidirectional:       False
+      n_semantic:           80
+      n_staff:              3
+      d_position:           128
+      angle_cycle:          1000
+      n_layers:             4
+      d_inner:              1024
+      n_head:               8
+      d_k:                  32
+      d_v:                  32
+      dropout:              0.1
+    decoder_config:
+      n_trg_vocab:          102
+      angle_cycle:          10000
+      d_inner:              1024
+      n_layers:             6
+      n_head:               8
+      d_k:                  32
+      d_v:                  32
+      dropout:              0.1
+      scale_emb:            True
+      pos_encoder:          rotary
+    vocab:                  *vocab
+    word_weights:
+      VB:                   10
+      EOM:                  10
+      S1:                   2
+      S2:                   2
+      S3:                   2
+      Osup:                 2
+      Osub:                 2
+
+
+trainer:
+  env: ~
+  device:                   cuda
+  save_mode:                best
+  epoch:                    100
+  report_step_unit:         examples
+  moniter:
+    field:                  acc
+    mode:                   max
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               1
+      n_warmup_steps:       6400
+      d_model:              256
+
+
+onnx:
+  multiple:
+    seq64:
+      model_postfix: Onnx
+      inputs:
+      - name:   ids
+        dtype:  uint8
+        shape:  &sz1_64 [1, 64]
+      - name:   staff
+        dtype:  uint8
+        shape:  *sz1_64
+      - name:   confidence
+        dtype:  float32
+        shape:  *sz1_64
+      - name:   x
+        dtype:  float32
+        shape:  *sz1_64
+      - name:   y
+        dtype:  float32
+        shape:  *sz1_64
+      - name:   sy1
+        dtype:  float32
+        shape:  *sz1_64
+      - name:   sy2
+        dtype:  float32
+        shape:  *sz1_64
+      - name:   premier
+        dtype:  uint8
+        shape:  &sz512 [1, 512]
+      - name:   position
+        dtype:  float32
+        shape:  *sz512
+      opset: 14
+      outputs:
+      - logits
+    seq128:
+      model_postfix: Onnx
+      inputs:
+      - name: ids
+        dtype: uint8
+        shape: &sz1_128 [1, 128]
+      - name: staff
+        dtype: uint8
+        shape: *sz1_128
+      - name: confidence
+        dtype: float32
+        shape: *sz1_128
+      - name: x
+        dtype: float32
+        shape: *sz1_128
+      - name: y
+        dtype: float32
+        shape: *sz1_128
+      - name: sy1
+        dtype: float32
+        shape: *sz1_128
+      - name: sy2
+        dtype: float32
+        shape: *sz1_128
+      - name: premier
+        dtype: uint8
+        shape: *sz512
+      - name:   position
+        dtype:  float32
+        shape:  *sz512
+      opset: 14
+      outputs:
+      - logits
+    seq512:
+      model_postfix: Onnx
+      inputs:
+      - name: ids
+        dtype: uint8
+        shape: &sz1_512 [1, 512]
+      - name: staff
+        dtype: uint8
+        shape: *sz1_512
+      - name: confidence
+        dtype: float32
+        shape: *sz1_512
+      - name: x
+        dtype: float32
+        shape: *sz1_512
+      - name: y
+        dtype: float32
+        shape: *sz1_512
+      - name: sy1
+        dtype: float32
+        shape: *sz1_512
+      - name: sy2
+        dtype: float32
+        shape: *sz1_512
+      - name: premier
+        dtype: uint8
+        shape: *sz512
+      - name:   position
+        dtype:  float32
+        shape:  *sz512
+      opset: 14
+      outputs:
+      - logits
