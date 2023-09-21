@@ -10,41 +10,9 @@ model_dict = None
 def registerModels ():
 	global model_dict
 
-	from ..topology.models import jointers as tj
-	from ..topology.models import rectifyJointer as tr
-	from ..topology.models import rectifyJointer2 as tr2
-	from ..topology.models import beadPicker as tb
-	from ..vision import models as vm
-	from ..paraff import models as pm
+	#from ..vision import models as vm
 
 	classes = [
-		tj.TransformJointer, tj.TransformJointerLoss,
-		tj.TransformJointerH, tj.TransformJointerHLoss,
-		tj.TransformJointerHV, tj.TransformJointerHVLoss,
-		tj.TransformJointerH_ED, tj.TransformJointerH_EDLoss,
-		tj.TransformJointerHV_EDD, tj.TransformJointerHV_EDDLoss,
-		tj.TransformSieveJointerH, tj.TransformSieveJointerHLoss,
-		tj.TransformSieveJointerHV, tj.TransformSieveJointerHVLoss,
-		tr.RectifySieveJointer, tr.RectifySieveJointerLoss,
-		tr2.RectifySieveJointer2, tr2.RectifySieveJointer2Loss,
-		tb.BeadPicker, tb.BeadPickerLoss, tb.BeadPickerOnnx,
-		vm.ScoreWidgets, vm.ScoreWidgetsInspection, vm.ScoreWidgetsLoss,
-		vm.ScoreWidgetsMask, vm.ScoreWidgetsMaskLoss,
-		vm.ScoreRegression, vm.ScoreRegressionLoss,
-		vm.ScoreResidue, vm.ScoreResidueInspection,
-		vm.ScoreResidueU, vm.ScoreResidueUInspection, vm.ScoreResidueULoss,
-		vm.ScoreSemanticValue, vm.ScoreSemanticValueLoss,
-		vm.GlyphRecognizer, vm.GlyphRecognizerLoss,
-		pm.TokenGen, pm.TokenGenLoss,
-		pm.SeqvaeLoss, pm.SeqvaeEncoderJit,
-		pm.SparseAE, pm.SparseAELoss,
-		pm.SeqShareVAE, pm.SeqShareVAELoss, pm.SeqShareVAEJitEnc, pm.SeqShareVAEJitDec,
-		pm.PhaseGen, pm.PhaseGenLoss, pm.PhaseGenDecoder, pm.PhaseGenDecoderLora,
-		pm.PhasePre, pm.PhasePreLoss,
-		pm.SeqDecoderBase, pm.SeqDecoderBaseLoss,
-		pm.GraphParaffEncoder, pm.GraphParaffEncoderLoss, pm.GraphParaffEncoderTail, pm.GraphParaffEncoderDecoder,
-		pm.GraphParaffSummaryEncoder, pm.GraphParaffSummaryEncoderLoss,
-		pm.GraphParaffTranslator, pm.GraphParaffTranslatorLoss, pm.GraphParaffTranslatorOnnx,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

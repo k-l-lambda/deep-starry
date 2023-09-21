@@ -1,8 +1,0 @@
-
-ID_PAD = 0
-ID_MSUM = 1
-ID_BOS = 2
-ID_EOS = 3
-ID_BOM = 4
-ID_EOM = 5
-ID_VB = 6
