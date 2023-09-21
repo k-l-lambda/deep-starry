@@ -6,13 +6,11 @@ dill>=0.3.4
 perlin-noise>=1.7
 tqdm>=4.61.1
 pyyaml>=5.4.1
-msgpack==1.0.3
-zmq>=0.0.0
-opencv-python>=4.5.1.48
 numpy
 torch
-torchvision
+torchaudio
 onnx>=1.8.1
 matplotlib
-pdf2image
 primesieve==2.2.0
+librosa<0.10.0
+scipy
