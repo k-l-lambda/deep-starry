@@ -99,6 +99,10 @@ class PhasePreLoss (nn.Module):
 
 		self.deducer = PhasePre(**kw_args)
 
+		for p in self.deducer.parameters():
+			if p.dim() > 1:
+				nn.init.xavier_uniform_(p, gain=(kw_args['n_layers'] * 2) ** -0.5)
+
 
 	def training_parameters (self):
 		return list(self.deducer.parameters()) + list(self.deducer.buffers())
