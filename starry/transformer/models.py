@@ -1,6 +1,7 @@
 
 ''' Define the Transformer model '''
 
+from typing import Tuple, List, Union
 import torch
 import torch.nn as nn
 import numpy as np
@@ -9,15 +10,15 @@ from .layers import EncoderLayer, DecoderLayer
 
 
 
-def get_pad_mask(seq, pad_idx):	# (n, 1, seq)
+def get_pad_mask(seq: torch.Tensor, pad_idx: int):	# (n, 1, seq)
 	return (seq != pad_idx).unsqueeze(-2)
 
 
-def get_subsequent_mask(seq):	# (1, seq, seq)
+def get_subsequent_mask(seq: torch.Tensor):	# (1, seq, seq)
 	''' For masking out the subsequent info. '''
 	sz_b, len_s = seq.size()
 	subsequent_mask = (1 - torch.triu(
-		torch.ones((1, len_s, len_s), device=seq.device), diagonal=1)).bool()
+		torch.ones((1, len_s, len_s), device=seq.device), diagonal=1)).to(torch.bool)
 	return subsequent_mask
 
 
@@ -27,7 +28,7 @@ class PositionalEncoding(nn.Module):
 		super(PositionalEncoding, self).__init__()
 
 		# Not a parameter
-		self.register_buffer('pos_table', self._get_sinusoid_encoding_table(n_position, d_hid))
+		self.register_buffer('pos_table', self._get_sinusoid_encoding_table(n_position, d_hid), persistent=False)
 
 	def _get_sinusoid_encoding_table(self, n_position, d_hid):
 		''' Sinusoid position encoding table '''
@@ -40,7 +41,7 @@ class PositionalEncoding(nn.Module):
 		sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2])  # dim 2i
 		sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2])  # dim 2i+1
 
-		return torch.FloatTensor(sinusoid_table).unsqueeze(0)
+		return torch.FloatTensor(sinusoid_table).unsqueeze(0)	# (1, n_position, d_hid)
 
 	def forward(self, x):
 		return x + self.pos_table[:, :x.size(1)].clone().detach()
@@ -65,7 +66,7 @@ class Encoder(nn.Module):
 		self.scale_emb = scale_emb
 		self.d_model = d_model
 
-	def forward(self, src_seq, src_mask, return_attns=False):
+	def forward(self, src_seq, src_mask, return_attns:bool=False) -> Tuple[torch.Tensor, List[torch.Tensor]]:
 
 		enc_slf_attn_list = []
 
@@ -82,7 +83,7 @@ class Encoder(nn.Module):
 
 		if return_attns:
 			return enc_output, enc_slf_attn_list
-		return enc_output,
+		return enc_output, []
 
 
 class Decoder(nn.Module):

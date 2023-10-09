@@ -9,12 +9,16 @@ import logging
 import shutil
 import time
 import math
+from datetime import timedelta
 
 from .optim import optim
 from .model_factory import loadModel
 from .trainer import Moniter, print_metric, stat_average
 from .dataset_factory import loadDataset
 
+
+
+INTERRUPTION_MARKER = '__SHUT'
 
 
 class Trainer:
@@ -32,7 +36,7 @@ class Trainer:
 			])
 
 		init_method = f'file:///{init_file}' if os.name == 'nt' else f'file://{init_file}'
-		torch.distributed.init_process_group(backend=backend, init_method=init_method, rank=rank, world_size=Trainer.PROC_COUNT)
+		torch.distributed.init_process_group(backend=backend, init_method=init_method, rank=rank, world_size=Trainer.PROC_COUNT, timeout=timedelta(seconds=7200))
 
 		gpus = config['trainer.gpus'] or Trainer.PROC_COUNT
 		device = torch.device(config['trainer.device'], rank % gpus)
@@ -79,6 +83,10 @@ class Trainer:
 
 		self.tb_writer = SummaryWriter(log_dir=config.localPath(self.role))
 
+		# remove interruption marker
+		if os.path.exists(config.localPath(INTERRUPTION_MARKER)):
+			os.rename(config.localPath(INTERRUPTION_MARKER), config.localPath(INTERRUPTION_MARKER + '-'))
+
 
 	def log (self, message, *args):
 		logging.info(f'[{self.role}]	' + message, *args)
@@ -106,13 +114,18 @@ class Trainer:
 		return t.cpu().item()
 
 
-	def reportScalars (self, scalars, epoch_i):
+	def reportScalars (self, scalars, step):
 		for k, v in scalars.items():
 			if type(v) == dict:
 				for kk, vv in v.items():
-					self.tb_writer.add_scalar(f'{k}/{kk}', vv, epoch_i)
+					self.tb_writer.add_scalar(f'{k}/{kk}', vv, step)
 			else:
-				self.tb_writer.add_scalar(k, v, epoch_i)
+				self.tb_writer.add_scalar(k, v, step)
+
+
+	@property
+	def exampleN (self):
+		return self.config['trainer.steps'] * self.config['data.batch_size']
 
 
 	def train (self, data):
@@ -132,6 +145,10 @@ class Trainer:
 		self.log('*	Training.')
 
 		for epoch_i in range(self.start_epoch, self.options['epochs']):
+			if os.path.exists(self.config.localPath(INTERRUPTION_MARKER)):
+				logging.warn('Trainer interrupted by marker!')
+				break
+
 			self.log(f'[Epoch {epoch_i}]')
 
 			start = time.time()
@@ -191,7 +208,9 @@ class Trainer:
 				'learning_rate': lr,
 				**metrics,
 			}
-			self.reportScalars(scalars, epoch_i)
+			report_step_unit = self.options.get('report_step_unit')
+			report_step = self.exampleN if report_step_unit == 'examples' else epoch_i
+			self.reportScalars(scalars, report_step)
 
 
 	def validate (self, data):
@@ -212,6 +231,10 @@ class Trainer:
 		with torch.no_grad():
 			self.model.eval().requires_grad_(False)
 			for epoch_i in range(self.start_epoch, self.options['epochs']):
+				if os.path.exists(self.config.localPath(INTERRUPTION_MARKER)):
+					logging.warn('Trainer interrupted by marker!')
+					break
+
 				self.log('Waiting for training parameters...')
 				self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 				self.log('Model training parameters synchronized.')
@@ -246,7 +269,7 @@ class Trainer:
 					'loss': val_loss,
 				})
 
-				model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3f}.chkpt'
+				model_name = f'model_{epoch_i:02}_{self.moniter.field}_{moniter_value:.3e}.chkpt'
 				if self.options['save_mode'] == 'all':
 					if os.path.isfile(self.config.localPath('latest.chkpt')):
 						shutil.move(self.config.localPath('latest.chkpt'), self.config.localPath(model_name))
@@ -265,8 +288,8 @@ class Trainer:
 
 						self.log('The checkpoint file has been updated.')
 
+				self.config.load()
 				if new_record or self.config['best'] is None:
-					self.config.load()
 					self.config['best'] = model_name
 					self.config['trainer.moniter.best_value'] = self.moniter.best_value
 					self.config.save()
@@ -283,7 +306,9 @@ class Trainer:
 					'val_loss': val_loss,
 					**metrics,
 				}
-				self.reportScalars(scalars, epoch_i)
+				report_step_unit = self.options.get('report_step_unit')
+				report_step = self.exampleN if report_step_unit == 'examples' else epoch_i
+				self.reportScalars(scalars, report_step)
 
 
 	def infiniteTraverse (self, dataset):
@@ -307,7 +332,7 @@ class Trainer:
 		self.start_epoch = checkpoint['epoch'] + 1
 
 		if hasattr(self.model, 'need_states') and checkpoint.get('extra') is not None:
-			self.model.load_state_dict(checkpoint['extra'])
+			self.model.load_state_dict(checkpoint['extra'], strict=False)
 
 		if 'optim' in checkpoint and self.optimizer is not None:
 			self.optimizer._optimizer.load_state_dict(checkpoint['optim'])

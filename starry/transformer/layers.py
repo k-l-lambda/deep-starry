@@ -1,9 +1,9 @@
 
 ''' Define the Layers '''
 
+from typing import Optional
 import torch
 import torch.nn as nn
-from typing import Optional
 
 from .sub_layers import MultiHeadAttention, PositionwiseFeedForward
 
@@ -17,7 +17,7 @@ class EncoderLayer(nn.Module):
 		self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
 		self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
 
-	def forward(self, enc_input, slf_attn_mask: Optional[torch.Tensor]=None):
+	def forward(self, enc_input, slf_attn_mask: Optional[torch.Tensor] =None):
 		enc_output, enc_slf_attn = self.slf_attn(
 			enc_input, enc_input, enc_input, mask=slf_attn_mask)
 		enc_output = self.pos_ffn(enc_output)
@@ -35,7 +35,7 @@ class DecoderLayer(nn.Module):
 
 	def forward(
 			self, dec_input, enc_output,
-			slf_attn_mask: Optional[torch.Tensor]=None, dec_enc_attn_mask: Optional[torch.Tensor]=None):
+			slf_attn_mask: Optional[torch.Tensor] =None, dec_enc_attn_mask: Optional[torch.Tensor] =None):
 
 		dec_output, dec_slf_attn = self.slf_attn(dec_input, dec_input, dec_input, mask=slf_attn_mask)
 		dec_output, dec_enc_attn = self.enc_attn(dec_output, enc_output, enc_output, mask=dec_enc_attn_mask)
