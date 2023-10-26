@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.10.26
+
+	+	paraff/data/scoreMeasurewise.py created.
+
+
 2023.10.7
 
 	+	eventCluster.py: added option of grace_amplitude.
