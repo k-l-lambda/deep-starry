@@ -132,3 +132,27 @@ class DecoderWithPosition (nn.Module):
 		x = self.layer_norm(x)
 
 		return self.attention(x, trg_mask, source, src_mask)
+
+
+class MidiEventEncoder (nn.Module):
+	def __init__ (self, d_model=128, n_type=4, n_pitch=91, pos_encoder='sinusoid', angle_cycle=100e+3):
+		super().__init__()
+
+		self.n_type = n_type
+		self.n_pitch = n_pitch
+
+		posenc_class = PositionEncoderDict[pos_encoder]
+		self.time_encoder = posenc_class(angle_cycle=angle_cycle, d_hid=d_model)
+		self.embed = nn.Linear(n_type + n_pitch + 1, d_model)
+
+
+	def forward (self, t, p, s, time):	# (n, seq, d_model)
+		vec_type = F.one_hot(t.long(), num_classes=self.n_type).float()	# (n, seq, n_type)
+		vec_pitch = F.one_hot(p.long(), num_classes=self.n_pitch).float()	# (n, seq, n_type)
+
+		x = torch.cat([vec_type, vec_pitch, s.unsqueeze(-1)], dim=-1)	# (n, seq, n_type + n_pitch + 1)
+		x = self.embed(x)
+
+		x = self.time_encoder(time, x)
+
+		return x

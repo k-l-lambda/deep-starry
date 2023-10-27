@@ -7,6 +7,8 @@ TODO:
 
 2023.10.27
 
+	+	paraff/models/midiTranslator.py created.
+
 	+	scoreMeasurewise.py: midi fields added.
 
 
