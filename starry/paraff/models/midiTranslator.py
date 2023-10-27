@@ -16,7 +16,7 @@ class MEBiEncoder (nn.Module):
 		super().__init__()
 
 		self.event_enc = MidiEventEncoder(d_model, n_type, n_pitch, pos_encoder=pos_encoder, angle_cycle=angle_cycle)
-		self.attention = AttentionStack(n_layer, n_head, d_k, d_v, d_model, d_inner, dropout)
+		self.attention = AttentionStack(n_layer, d_model=d_model, n_head=n_head, d_k=d_k, d_v=d_v, d_inner=d_inner, dropout=dropout)
 		self.dropout = nn.Dropout(p=dropout)
 		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 
@@ -38,8 +38,7 @@ class MidiParaffTranslator (nn.Module):
 
 		self.encoder = MEBiEncoder(d_model=d_model, **encoder_config)
 
-		decoder_class = DecoderWithPosition if with_pos else Decoder
-		self.decoder = decoder_class(d_model=d_model, d_word_vec=d_model, pad_idx=ID_PAD, **decoder_config)
+		self.decoder = DecoderWithPosition(d_model=d_model, d_word_vec=d_model, pad_idx=ID_PAD, **decoder_config)
 
 		self.word_prj = nn.Linear(d_model, decoder_config['n_trg_vocab'], bias=False)
 		self.word_prj.weight = self.decoder.trg_word_emb.weight
@@ -75,7 +74,7 @@ class MidiParaffTranslatorLoss (nn.Module):
 
 		for p in self.deducer.encoder.parameters():
 			if p.dim() > 1:
-				nn.init.xavier_uniform_(p, gain=(kw_args['encoder_config']['n_layers'] * 2) ** -0.5)
+				nn.init.xavier_uniform_(p, gain=(kw_args['encoder_config']['n_layer'] * 2) ** -0.5)
 
 		for p in self.deducer.decoder.parameters():
 			if p.dim() > 1:
