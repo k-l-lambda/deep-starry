@@ -11,9 +11,9 @@ import numpy as np
 from fs import open_fs
 
 from ...utils.parsers import parseFilterStr, mergeArgs
-from .paraffFile import ParaffFile
 from ...melody.measurewiseMIDI import NOTE_MIN, NOTE_MAX
 from ...melody.data.measurewise import normalFactor
+from .paragraph import MeasureLibrary
 
 
 
@@ -36,17 +36,24 @@ class ScoreMeasurewise (IterableDataset):
 		)
 
 
+	@classmethod
+	def loadMeasures (cls, paraff_path, n_seq, encoder_config=None):
+		if paraff_path in cls.measure_lib:
+			return cls.measure_lib[paraff_path]
+
+		cls.measure_lib[paraff_path] = MeasureLibrary(open(paraff_path, 'rb'), n_seq, encoder_config)
+
+		return cls.measure_lib[paraff_path]
+
+
 	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_midi,
-		descriptor_drop=0.1, descriptor_drop_sigma=0., seq_tail_padding=0,
-		strength_sigma=0.1, strength_pow_sigma=0.6, key_shift_sigma=5, **_):
+		seq_tail_padding=0, strength_sigma=0.1, strength_pow_sigma=0.6, key_shift_sigma=5, **_):
 		super().__init__()
 
 		self.device = device
 		self.shuffle = shuffle
 		self.n_seq_word = n_seq_word
 		self.n_seq_midi = n_seq_midi
-		self.descriptor_drop = descriptor_drop
-		self.descriptor_drop_sigma = descriptor_drop_sigma
 		self.seq_tail_padding = seq_tail_padding
 		self.strength_sigma = strength_sigma
 		self.strength_pow_sigma = strength_pow_sigma
@@ -56,7 +63,6 @@ class ScoreMeasurewise (IterableDataset):
 
 		#print('reading index')
 		index = yaml.safe_load(open(root, 'r'))
-		paraff_path = os.path.join(os.path.dirname(root), index['paraff'])
 		measurewise_path = os.path.join(os.path.dirname(root), index['paraff'].replace('.paraff', '-measurewise.zip'))
 		#print('opening measurewise')
 		measurewise = open_fs(f'zip://{measurewise_path}')
@@ -65,6 +71,9 @@ class ScoreMeasurewise (IterableDataset):
 		#print('groups:', len(groups))
 		self.paragraphs = [paragraph for paragraph in index['paragraphs'] if paragraph['group'] in groups and measurewise.isfile(f'{paragraph["name"]}.measurewise.json.pkl')]
 		self.n_measure = sum(paragraph['sentenceRange'][1] - paragraph['sentenceRange'][0] for paragraph in self.paragraphs)
+
+		paraff_path = os.path.join(os.path.dirname(root), index['paraff'])
+		self.measure = self.loadMeasures(paraff_path, n_seq_word, None)
 
 		# load measurewise
 		for paragraph in tqdm(self.paragraphs, desc="Loading measurewise"):
@@ -84,8 +93,28 @@ class ScoreMeasurewise (IterableDataset):
 			np.random.seed(1)
 
 		for paragraph in self.paragraphs:
+			mi_begin, mi_end = paragraph['sentenceRange']
+			entries = self.measure.entries[mi_begin:mi_end]
+
+			measure_size = (entries != 0).int().sum(dim=-1)
+
 			midi = paragraph['midi']
 			for mi in range(len(midi)):
+				pid = entries[:mi + 1].flatten()
+				pid = pid[pid != 0]
+
+				body_mask = torch.zeros_like(pid).bool()
+				body_mask[-measure_size[mi]:] = True
+
+				if self.seq_tail_padding > 0:
+					tail_padding = np.random.randint(self.seq_tail_padding) + 1
+					pid = F.pad(pid, (self.n_seq_word, tail_padding), value=0)
+					body_mask = F.pad(body_mask, (self.n_seq_word, tail_padding), value=False)
+
+				input_id = pid[-self.n_seq_word - 1:-1]
+				output_id = pid[-self.n_seq_word:]
+				body_mask = body_mask[-self.n_seq_word:]
+
 				events = midi.slice(mi, mi + 8, pre=1, n_seq=self.n_seq_midi, aug_time_index=np.random.randint(0x1000000))[:self.n_seq_midi]
 				n_event = len(events)
 				if n_event == 0:
@@ -120,7 +149,7 @@ class ScoreMeasurewise (IterableDataset):
 					strength *= (torch.randn_like(strength) * self.strength_sigma).exp()
 					strength = strength.pow(normalFactor(self.strength_pow_sigma))
 
-				yield type_, pitch, strength, time, measure
+				yield input_id, output_id, body_mask, type_, pitch, strength, time, measure
 
 
 	def collateBatch (self, batch):
@@ -129,9 +158,12 @@ class ScoreMeasurewise (IterableDataset):
 
 			return torch.stack(tensors, axis=0).to(self.device)
 
-		type_, pitch, strength, time, measure = extract(0), extract(1), extract(2), extract(3), extract(4)
+		input_id, output_id, body_mask, type_, pitch, strength, time, measure = (extract(i) for i in range(8))
 
 		return dict(
+			input_id=input_id,
+			output_id=output_id,
+			body_mask=body_mask,
 			type=type_,
 			pitch=pitch,
 			strength=strength,
