@@ -7,7 +7,7 @@ data:
   splits:                     '*1..8/10:9/10'
   batch_size:                 2
   args:
-    n_seq_word:               512
+    n_seq_word:               256
     n_seq_midi:               64
     seq_tail_padding:         16
     descriptor_drop:          0.3

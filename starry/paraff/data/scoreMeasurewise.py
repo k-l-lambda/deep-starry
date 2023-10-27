@@ -104,8 +104,9 @@ class ScoreMeasurewise (IterableDataset):
 				pid = pid[pid != 0]
 
 				body_mask = torch.zeros_like(pid).bool()
-				body_mask[-measure_size[mi]:] = True
+				body_mask[-measure_size[mi] + 1:] = True
 
+				tail_padding = 0
 				if self.seq_tail_padding > 0:
 					tail_padding = np.random.randint(self.seq_tail_padding) + 1
 					pid = F.pad(pid, (self.n_seq_word, tail_padding), value=0)
@@ -114,6 +115,8 @@ class ScoreMeasurewise (IterableDataset):
 				input_id = pid[-self.n_seq_word - 1:-1]
 				output_id = pid[-self.n_seq_word:]
 				body_mask = body_mask[-self.n_seq_word:]
+
+				position = torch.arange(self.n_seq_word, dtype=torch.int16) - self.n_seq_word + measure_size[mi] + tail_padding - 1
 
 				events = midi.slice(mi, mi + 8, pre=1, n_seq=self.n_seq_midi, aug_time_index=np.random.randint(0x1000000))[:self.n_seq_midi]
 				n_event = len(events)
@@ -149,7 +152,7 @@ class ScoreMeasurewise (IterableDataset):
 					strength *= (torch.randn_like(strength) * self.strength_sigma).exp()
 					strength = strength.pow(normalFactor(self.strength_pow_sigma))
 
-				yield input_id, output_id, body_mask, type_, pitch, strength, time, measure
+				yield input_id, output_id, body_mask, position, type_, pitch, strength, time, measure
 
 
 	def collateBatch (self, batch):
@@ -158,12 +161,13 @@ class ScoreMeasurewise (IterableDataset):
 
 			return torch.stack(tensors, axis=0).to(self.device)
 
-		input_id, output_id, body_mask, type_, pitch, strength, time, measure = (extract(i) for i in range(8))
+		input_id, output_id, body_mask, position, type_, pitch, strength, time, measure = (extract(i) for i in range(9))
 
 		return dict(
 			input_id=input_id,
 			output_id=output_id,
 			body_mask=body_mask,
+			position=position,
 			type=type_,
 			pitch=pitch,
 			strength=strength,
