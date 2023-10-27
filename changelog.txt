@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.10.27
+
+	+	scoreMeasurewise.py: midi fields added.
+
+
 2023.10.26
 
 	+	paraff/data/scoreMeasurewise.py created.
