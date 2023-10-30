@@ -20,6 +20,7 @@ def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('config', type=str)
 	parser.add_argument('-s', '--splits', type=str, default='*0/1')
+	parser.add_argument('-dv', '--device', type=str, default='cpu')
 
 	args = parser.parse_args()
 
@@ -27,7 +28,7 @@ def main ():
 	if args.splits is not None:
 		config['data.splits'] = args.splits
 
-	data, = loadDataset(config, data_dir=DATA_DIR)
+	data, = loadDataset(config, data_dir=DATA_DIR, device=args.device)
 
 	for batch in tqdm(data, desc='Traversing dataset'):
 		pass
