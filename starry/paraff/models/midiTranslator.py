@@ -5,13 +5,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 #import logging
 
-from ...transformer.models import get_subsequent_mask, get_pad_mask, Decoder
+from ...transformer.models import get_subsequent_mask, get_pad_mask
 from ..vocab import ID_PAD, ID_VB, ID_EOM
-from .modules import AttentionStack, DecoderWithPosition, MidiEventEncoder
+from .modules import AttentionStack, DecoderWithPosition, MidiEventEncoder, InteractiveAttentionStack
 
 
 
-class MEBiEncoder (nn.Module):
+'''class MEBiEncoder (nn.Module):
 	def __init__(self, n_layer, n_type=4, n_pitch=91, pos_encoder='sinusoid', angle_cycle=100e+3, d_model=128, d_inner=512, n_head=8, d_k=16, d_v=16, dropout=0.1) -> None:
 		super().__init__()
 
@@ -27,41 +27,54 @@ class MEBiEncoder (nn.Module):
 		x = self.layer_norm(x)
 		x = self.attention(x, mask)
 
-		return x
+		return x'''
 
 
 class MidiParaffTranslator (nn.Module):
-	def __init__(self, d_model, encoder_config, decoder_config, with_pos=False, **_):
+	def __init__(self, d_model, encoder_config, decoder_config, n_midi_dec_layer=2, d_midi_dec=1, n_head=8, d_k=32, d_v=32, d_inner=1024, dropout=0.1, with_pos=False, **_):
 		super().__init__()
 
 		self.with_pos = with_pos
 
-		self.encoder = MEBiEncoder(d_model=d_model, **encoder_config)
+		#self.encoder = MEBiEncoder(d_model=d_model, **encoder_config)
+		self.midi_enc = MidiEventEncoder(d_model, encoder_config['n_type'], encoder_config['n_pitch'], pos_encoder=encoder_config['pos_encoder'], angle_cycle=encoder_config['angle_cycle'])
+		self.att_midi_enc = AttentionStack(encoder_config['n_layer'], d_model=d_model, n_head=n_head, d_k=d_k, d_v=d_v, d_inner=d_inner, dropout=dropout)
+		self.dropout = nn.Dropout(p=dropout)
+		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 
-		self.decoder = DecoderWithPosition(d_model=d_model, d_word_vec=d_model, pad_idx=ID_PAD, **decoder_config)
+		self.paraff_decoder = DecoderWithPosition(d_model=d_model, d_word_vec=d_model, pad_idx=ID_PAD, n_head=n_head, d_k=d_k, d_v=d_v, d_inner=d_inner, dropout=dropout, **decoder_config)
 
 		self.word_prj = nn.Linear(d_model, decoder_config['n_trg_vocab'], bias=False)
-		self.word_prj.weight = self.decoder.trg_word_emb.weight
+		self.word_prj.weight = self.paraff_decoder.trg_word_emb.weight
+
+		self.att_midi_dec = InteractiveAttentionStack(n_midi_dec_layer, d_model, d_inner, n_head, d_k, d_v, dropout)
+		self.midi_prj = nn.Linear(d_model, d_midi_dec, bias=False)
 
 		self.ID_PAD = ID_PAD
 
 
 	def forward (self, t, p, s, time, premier, position):	# -> (n, n_seq, n_vocab)
-		# bidirectional mask
-		source_mask = (t != 0).unsqueeze(-2)
-		target_mask = get_pad_mask(premier, self.ID_PAD) & get_subsequent_mask(premier)
+		source_mask = (t != 0).unsqueeze(-2)	# bidirectional mask
+		paraff_mask = get_pad_mask(premier, self.ID_PAD)
+		target_mask = paraff_mask & get_subsequent_mask(premier)
 
-		# TODO: output midi event mask
+		midi_emb = self.midi_enc(t, p, s, time)
+		midi_emb = self.dropout(midi_emb)
+		midi_emb = self.layer_norm(midi_emb)
 
-		midi_emb = self.encoder(t, p, s, time, source_mask)
-		decoder_out = self.decoder(premier.long(), position, target_mask, midi_emb, source_mask)
-		result = self.word_prj(decoder_out)
+		x = self.att_midi_enc(midi_emb, source_mask)
 
-		return result
+		x = self.paraff_decoder(premier.long(), position, target_mask, x, source_mask)
+		paraff_out = self.word_prj(x)
+
+		x = self.att_midi_dec(midi_emb, source_mask, x, paraff_mask)
+		midi_out = self.midi_prj(x)
+
+		return paraff_out, midi_out
 
 
 class MidiParaffTranslatorLoss (nn.Module):
-	def __init__(self, word_weights=None, vocab=[], **kw_args):
+	def __init__(self, word_weights=None, midi_weight=1, vocab=[], **kw_args):
 		super().__init__()
 
 		self.deducer = MidiParaffTranslator(**kw_args)
@@ -72,13 +85,19 @@ class MidiParaffTranslatorLoss (nn.Module):
 			assert len(ww) == kw_args['decoder_config']['n_trg_vocab'], f'invalid word weights shape {len(ww)} vs decoder_config.n_trg_vocab({n_vocab})'
 			self.register_buffer('word_weights', ww, persistent=False)
 
-		for p in self.deducer.encoder.parameters():
+		self.midi_weight = midi_weight
+
+		for p in self.deducer.att_midi_enc.parameters():
 			if p.dim() > 1:
 				nn.init.xavier_uniform_(p, gain=(kw_args['encoder_config']['n_layer'] * 2) ** -0.5)
 
-		for p in self.deducer.decoder.parameters():
+		for p in self.deducer.paraff_decoder.parameters():
 			if p.dim() > 1:
 				nn.init.xavier_uniform_(p, gain=(kw_args['decoder_config']['n_layers'] * 2) ** -0.5)
+
+		for p in self.deducer.att_midi_dec.parameters():
+			if p.dim() > 1:
+				nn.init.xavier_uniform_(p, gain=(kw_args['n_midi_dec_layer'] * 2) ** -0.5)
 
 
 	def training_parameters (self):
@@ -94,17 +113,30 @@ class MidiParaffTranslatorLoss (nn.Module):
 		t, p, s, time = batch['type'], batch['pitch'], batch['strength'], batch['time']
 		position = batch['position'].float()
 
-		pred = self.deducer(t, p, s, time, input_id, position=position)
-		pred_body = pred[body_mask]
+		pred_id, pred_midi = self.deducer(t, p, s, time, input_id, position=position)
+		pred_body = pred_id[body_mask]
+
+		midi_body = t != 0
+		target_midi = batch['measure'] == 0
+		target_midi = target_midi[midi_body]
+		pred_midi = pred_midi.squeeze(-1)[midi_body]
+
+		midi_loss = F.binary_cross_entropy_with_logits(pred_midi, target_midi.float())
+		midi_error = ((pred_midi >= 0) == target_midi).float().mean()
 
 		ce_weight = self.word_weights if hasattr(self, 'word_weights') else None
-		loss = F.cross_entropy(pred_body, target_body, weight=ce_weight)
+		paraff_loss = F.cross_entropy(pred_body, target_body, weight=ce_weight)
+
+		loss = paraff_loss + self.midi_weight * midi_loss
 
 		pred_ids = pred_body.argmax(dim=-1)
 		acc = (pred_ids == target_body).float().mean()
 
 		metric = {
 			'acc': acc.item(),
+			'paraff_loss': paraff_loss.item(),
+			'midi_loss': midi_loss.item(),
+			'midi_error': midi_error.item(),
 		}
 
 		if not self.training:
@@ -116,9 +148,9 @@ class MidiParaffTranslatorLoss (nn.Module):
 			np_input_id = torch.zeros_like(input_id)
 			np_input_id[body_mask] = input_id[body_mask]
 
-			pred_zl = self.deducer(zero_t, p, s, time, input_id, position=position)
-			pred_np = self.deducer(t, p, s, time, np_input_id, position=position)
-			pred_zlnp = self.deducer(zero_t, p, s, time, np_input_id, position=position)
+			pred_zl, _ = self.deducer(zero_t, p, s, time, input_id, position=position)
+			pred_np, _ = self.deducer(t, p, s, time, np_input_id, position=position)
+			pred_zlnp, _ = self.deducer(zero_t, p, s, time, np_input_id, position=position)
 
 			error = 1 - acc
 			error_zero_latent = 1 - (pred_zl[body_mask].argmax(dim=-1) == target_body).float().mean()
