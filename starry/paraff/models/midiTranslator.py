@@ -122,7 +122,7 @@ class MidiParaffTranslatorLoss (nn.Module):
 		pred_midi = pred_midi.squeeze(-1)[midi_body]
 
 		midi_loss = F.binary_cross_entropy_with_logits(pred_midi, target_midi.float())
-		midi_error = ((pred_midi >= 0) == target_midi).float().mean()
+		midi_error = 1 - ((pred_midi >= 0) == target_midi).float().mean()
 
 		ce_weight = self.word_weights if hasattr(self, 'word_weights') else None
 		paraff_loss = F.cross_entropy(pred_body, target_body, weight=ce_weight)
