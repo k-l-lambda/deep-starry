@@ -1,0 +1,17 @@
+
+id:               paraff/{date}-{filename}
+
+data:
+  type:                       ScoreMeasurewise
+  root:                       20231026-test/20231027-paragraph.yaml
+  splits:                     '*1..8/10:9/10'
+  batch_size:                 2
+  args:
+    n_seq_word:               256
+    n_seq_midi:               64
+    seq_tail_padding:         16
+    descriptor_drop:          0.3
+    descriptor_drop_sigma:    1.
+    strength_sigma:           0.1
+    strength_pow_sigma:       0.6
+    key_shift_sigma:          5

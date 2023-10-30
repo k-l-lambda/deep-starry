@@ -12,7 +12,7 @@ def registerTypes ():
 
 	from ..vision.data import RenderScore, ScoreMask, ScoreGauge, ScorePage, ScorePageRaw, ScoreFault, Stamp
 	from ..topology.data import EventCluster
-	from ..paraff.data import SentenceShift, PhasedParagraph
+	from ..paraff.data import SentenceShift, PhasedParagraph, ScoreMeasurewise
 
 	classes = [
 		RenderScore,
@@ -25,6 +25,7 @@ def registerTypes ():
 		EventCluster,
 		SentenceShift,
 		PhasedParagraph,
+		ScoreMeasurewise,
 	]
 
 	type_dict = dict([(c.__name__, c) for c in classes])

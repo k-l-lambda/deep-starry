@@ -5,6 +5,23 @@ TODO:
 
 
 
+2023.10.27
+
+	+	paraff/models/midiTranslator.py created.
+
+	+	scoreMeasurewise.py: midi fields added.
+
+
+2023.10.26
+
+	+	paraff/data/scoreMeasurewise.py created.
+
+
+2023.10.7
+
+	+	eventCluster.py: added option of grace_amplitude.
+
+
 2023.9.15
 
 	+	phasePre.py: fixed onnx conversion issues.
@@ -15,6 +32,11 @@ TODO:
 	+	paraff/models/phasePre.py created.
 
 	>	seqShareVAE.py: fixed dropout in SeqShareDecoderWithPosition.
+
+
+2023.9.13
+
+	+	beadPicker.py: added option of freeze.
 
 
 2023.9.12

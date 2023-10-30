@@ -236,6 +236,7 @@ def exampleToTensorsAugment (cluster, n_augment):
 def validateTensors (tensors):
 	for key in ['division', 'dots', 'beam', 'stemDirection']:
 		if tensors[key].max().item() >= TARGET_DIMS[key]:
+			#print('key:', key, tensors[key].max().item())
 			return False
 
 	if tensors['order'].max().item() <= 0:
@@ -284,11 +285,14 @@ def preprocessDataset (source_dir, target_path, n_augment=64, index0=False):
 				cluster_set = json.load(file)
 
 				for cluster in cluster_set['clusters']:
+					if len(cluster['elements']) <= 3:	# skip simple clusters
+						continue
+
 					target_filename = f'{id}-{ci}.pkl'
 
 					tensors = exampleToTensorsAugment(cluster, n_augment)
 					if not validateTensors(tensors):
-						logging.info('invalid cluster:, %s', target_filename)
+						logging.info('invalid cluster:, %s, [%d]', target_filename, cluster['index'])
 						continue
 					target.writestr(target_filename, pickle.dumps(tensors))
 
