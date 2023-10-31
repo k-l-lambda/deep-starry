@@ -72,7 +72,7 @@ class ParaffMidiViewer:
 
 
 	def showParaff (self, batch, inspection):
-		is_entity = batch['output_id'][0] != 0
+		is_entity = (batch['output_id'][0] != 0) & (batch['position'][0] > -12)
 		target_id = batch['output_id'][0][is_entity]
 		pred_id = inspection['pred_id'][0][is_entity]
 		truth = inspection['truth'][0][is_entity]
