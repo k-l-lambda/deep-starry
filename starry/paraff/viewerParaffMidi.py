@@ -14,7 +14,7 @@ TYPE2SHAPE = {
 }
 
 MEASURE2COLOR = {
-	-1: 'g',
+	-1: 'y',
 	0: 'r',
 	1: 'c',
 }

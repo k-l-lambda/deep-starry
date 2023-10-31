@@ -41,6 +41,7 @@ model:
     n_midi_dec_layer:       2
     d_midi_dec:             1
     midi_weight:            1
+    mask_measure:           ~
 
 
 trainer:

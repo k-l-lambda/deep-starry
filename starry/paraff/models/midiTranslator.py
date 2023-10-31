@@ -53,7 +53,7 @@ class MidiParaffTranslator (nn.Module):
 		self.ID_PAD = ID_PAD
 
 
-	def forward (self, t, p, s, time, premier, position):	# -> (n, n_seq, n_vocab)
+	def forward (self, t, p, s, time, premier, position, midi_mask=None):	# -> (n, n_seq, n_vocab)
 		source_mask = (t != 0).unsqueeze(-2)	# bidirectional mask
 		paraff_mask = get_pad_mask(premier, self.ID_PAD)
 		target_mask = paraff_mask & get_subsequent_mask(premier)
@@ -64,7 +64,7 @@ class MidiParaffTranslator (nn.Module):
 
 		x = self.att_midi_enc(midi_emb, source_mask)
 
-		x = self.paraff_decoder(premier.long(), position, target_mask, x, source_mask)
+		x = self.paraff_decoder(premier.long(), position, target_mask, x, source_mask if midi_mask is None else midi_mask.unsqueeze(-2))
 		paraff_out = self.word_prj(x)
 
 		x = self.att_midi_dec(midi_emb, source_mask, x, paraff_mask)
@@ -74,7 +74,7 @@ class MidiParaffTranslator (nn.Module):
 
 
 class MidiParaffTranslatorLoss (nn.Module):
-	def __init__(self, word_weights=None, midi_weight=1, vocab=[], **kw_args):
+	def __init__(self, word_weights=None, midi_weight=1, mask_measure=None, vocab=[], **kw_args):
 		super().__init__()
 
 		self.deducer = MidiParaffTranslator(**kw_args)
@@ -86,6 +86,7 @@ class MidiParaffTranslatorLoss (nn.Module):
 			self.register_buffer('word_weights', ww, persistent=False)
 
 		self.midi_weight = midi_weight
+		self.mask_measure = mask_measure
 
 		for p in self.deducer.att_midi_enc.parameters():
 			if p.dim() > 1:
@@ -113,7 +114,11 @@ class MidiParaffTranslatorLoss (nn.Module):
 		t, p, s, time = batch['type'], batch['pitch'], batch['strength'], batch['time']
 		position = batch['position'].float()
 
-		pred_id, pred_midi = self.deducer(t, p, s, time, input_id, position=position)
+		midi_mask = None
+		if self.mask_measure is not None:
+			midi_mask = batch['measure'] == self.mask_measure
+
+		pred_id, pred_midi = self.deducer(t, p, s, time, input_id, position=position, midi_mask=midi_mask)
 		pred_body = pred_id[body_mask]
 
 		midi_body = t != 0
@@ -148,9 +153,9 @@ class MidiParaffTranslatorLoss (nn.Module):
 			np_input_id = torch.zeros_like(input_id)
 			np_input_id[body_mask] = input_id[body_mask]
 
-			pred_zl, _ = self.deducer(zero_t, p, s, time, input_id, position=position)
-			pred_np, _ = self.deducer(t, p, s, time, np_input_id, position=position)
-			pred_zlnp, _ = self.deducer(zero_t, p, s, time, np_input_id, position=position)
+			pred_zl, _ = self.deducer(zero_t, p, s, time, input_id, position=position, midi_mask=midi_mask)
+			pred_np, _ = self.deducer(t, p, s, time, np_input_id, position=position, midi_mask=midi_mask)
+			pred_zlnp, _ = self.deducer(zero_t, p, s, time, np_input_id, position=position, midi_mask=midi_mask)
 
 			error = 1 - acc
 			error_zero_latent = 1 - (pred_zl[body_mask].argmax(dim=-1) == target_body).float().mean()
