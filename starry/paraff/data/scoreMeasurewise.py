@@ -47,7 +47,8 @@ class ScoreMeasurewise (IterableDataset):
 
 
 	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_midi,
-		seq_tail_padding=0, strength_sigma=0.1, strength_pow_sigma=0.6, key_shift_sigma=5, **_):
+		seq_tail_padding=0, strength_sigma=0.1, strength_pow_sigma=0.6, key_shift_sigma=5,
+		premier_drop=0, premier_head_drop=0, premier_drop_sigma=0, **_):
 		super().__init__()
 
 		self.device = device
@@ -58,6 +59,9 @@ class ScoreMeasurewise (IterableDataset):
 		self.strength_sigma = strength_sigma
 		self.strength_pow_sigma = strength_pow_sigma
 		self.key_shift_sigma = key_shift_sigma
+		self.premier_drop = premier_drop
+		self.premier_head_drop = premier_head_drop
+		self.premier_drop_sigma = premier_drop_sigma
 
 		phases, cycle = parseFilterStr(split)
 
@@ -115,6 +119,16 @@ class ScoreMeasurewise (IterableDataset):
 				input_id = pid[-self.n_seq_word - 1:-1]
 				output_id = pid[-self.n_seq_word:]
 				body_mask = body_mask[-self.n_seq_word:]
+
+				if self.premier_drop > 0 or self.premier_head_drop > 0:
+					premier_drop_p = self.premier_drop * np.exp(np.random.randn() * self.premier_drop_sigma)
+					premier_head_drop_p = self.premier_head_drop * np.exp(np.random.randn())
+					premier_mask = torch.logical_not(body_mask)
+					premier_head_mask = premier_mask & (input_id < 42)
+
+					input_id = input_id.clone()
+					input_id[premier_mask & (torch.rand_like(input_id, dtype=torch.float32) < premier_drop_p)] = 0
+					input_id[premier_head_mask & (torch.rand_like(input_id, dtype=torch.float32) < premier_head_drop_p)] = 0
 
 				position = torch.arange(self.n_seq_word, dtype=torch.int16) - self.n_seq_word + measure_size[mi] + tail_padding - 1
 

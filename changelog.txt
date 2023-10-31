@@ -7,6 +7,8 @@ TODO:
 
 2023.10.31
 
+	+	scoreMeasurewise.py: added option of premier_drop.
+
 	+	validateParaffMidi.py created.
 
 	+	midiTranslator.py: added option of mask_measure.

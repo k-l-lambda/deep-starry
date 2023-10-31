@@ -10,8 +10,14 @@ data:
     n_seq_word:               256
     n_seq_midi:               64
     seq_tail_padding:         16
-    descriptor_drop:          0.3
-    descriptor_drop_sigma:    1.
+    premier_drop:             0.2
+    premier_head_drop:        0.5
+    premier_drop_sigma:       0.6
     strength_sigma:           0.1
     strength_pow_sigma:       0.6
     key_shift_sigma:          5
+  args_variant:
+    1:
+      premier_drop:             0
+      premier_head_drop:        0
+      premier_drop_sigma:       0
