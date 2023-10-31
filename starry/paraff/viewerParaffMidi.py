@@ -32,7 +32,7 @@ class ParaffMidiViewer:
 			self.showExample(batch)
 
 
-	def showExample (self, batch, pred=None):
+	def showExample (self, batch, inspection=None):
 		plt.get_current_fig_manager().full_screen_toggle()
 
 		time, type_, pitch, measure = batch['time'][0], batch['type'][0], batch['pitch'][0], batch['measure'][0]
@@ -50,9 +50,13 @@ class ParaffMidiViewer:
 		print('paraff body:', ' '.join((tokens_body)))
 
 		for t, y, p, m in zip(time, type_, pitch, measure):
-			plt.plot(t, p, TYPE2SHAPE.get(y.item(), 'o'), color=MEASURE2COLOR.get(m.item(), 'k'))
-		#plt.plot(time, pitch, 'o')
-		#plt.plot(time, measure, '-')
+			plt.plot(t, p, TYPE2SHAPE.get(y.item(), 'o'), color=MEASURE2COLOR.get(m.item(), 'k'), markerfacecolor='none', markersize=16)
+
+		if inspection is not None:
+			pred_midi = inspection['pred_midi'][0][is_entity]
+
+			for t, y, p, m, pm in zip(time, type_, pitch, measure, pred_midi):
+				plt.plot(t, p, TYPE2SHAPE.get(y.item(), 'o'), color=MEASURE2COLOR.get(m.item(), 'k'), alpha=pm.item(), markersize=16)
 
 		midi = encodeMeasurewise(batch, 0)
 		with open('./test/viewerParaffMidi-midi.json', 'w') as f:

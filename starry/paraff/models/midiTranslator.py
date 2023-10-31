@@ -168,3 +168,24 @@ class MidiParaffTranslatorLoss (nn.Module):
 			metric['error_zero_latent_no_primer'] = error_zero_latent_no_primer.item()
 
 		return loss, metric
+
+
+	def inspectRun (self, batch):
+		#body_mask = batch['body_mask']
+		#target = batch['output_id'].long()
+
+		input_id = batch['input_id']
+		t, p, s, time = batch['type'], batch['pitch'], batch['strength'], batch['time']
+		position = batch['position'].float()
+
+		midi_mask = None
+		if self.mask_measure is not None:
+			midi_mask = batch['measure'] == self.mask_measure
+
+		pred_id, pred_midi = self.deducer(t, p, s, time, input_id, position=position, midi_mask=midi_mask)
+		pred_midi = torch.sigmoid(pred_midi.squeeze(-1))
+
+		return dict(
+			pred_id=pred_id,
+			pred_midi=pred_midi,
+		)
