@@ -2,6 +2,7 @@
 import logging
 import matplotlib.pyplot as plt
 import json
+import math
 
 from ..melody.midiEncoder import encodeMeasurewise
 
@@ -33,6 +34,7 @@ class ParaffMidiViewer:
 
 
 	def showExample (self, batch, inspection=None):
+		plt.figure(0)
 		plt.get_current_fig_manager().full_screen_toggle()
 
 		time, type_, pitch, measure = batch['time'][0], batch['type'][0], batch['pitch'][0], batch['measure'][0]
@@ -62,4 +64,29 @@ class ParaffMidiViewer:
 		with open('./test/viewerParaffMidi-midi.json', 'w') as f:
 			json.dump(midi, f)
 
+		if inspection is not None:
+			plt.figure(1)
+			self.showParaff(batch, inspection)
+
 		plt.show()
+
+
+	def showParaff (self, batch, inspection):
+		is_entity = batch['output_id'][0] != 0
+		target_id = batch['output_id'][0][is_entity]
+		pred_id = inspection['pred_id'][0][is_entity]
+		truth = inspection['truth'][0][is_entity]
+
+		def format_coord (x, y):
+			x, y = math.floor(x), math.floor(y)
+			token = self.vocab[y] if y < len(self.vocab) else f'[{y}]'
+			pred = pred_id[x][y]
+			return f'(seq_i, token, pred) = {x},\t{token:>8},\t{pred:8.4f}'
+		plt.gca().format_coord = format_coord
+
+		plt.pcolormesh(pred_id.transpose(0, 1).numpy(), cmap='RdBu', vmin=-25, vmax=30)
+		plt.xlabel('seq')
+		plt.ylabel('vocab id')
+		plt.xticks([i for i, _ in enumerate(target_id)], [self.vocab[id] + ('' if truth[i] else ' *') for i, id in enumerate(target_id)], rotation=-60)
+		plt.yticks([i for i, _ in enumerate(self.vocab)], [token for token in self.vocab])
+		plt.colorbar()

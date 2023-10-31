@@ -172,7 +172,8 @@ class MidiParaffTranslatorLoss (nn.Module):
 
 	def inspectRun (self, batch):
 		#body_mask = batch['body_mask']
-		#target = batch['output_id'].long()
+		target = batch['output_id'].long()
+		#target_body = target[body_mask]
 
 		input_id = batch['input_id']
 		t, p, s, time = batch['type'], batch['pitch'], batch['strength'], batch['time']
@@ -185,7 +186,10 @@ class MidiParaffTranslatorLoss (nn.Module):
 		pred_id, pred_midi = self.deducer(t, p, s, time, input_id, position=position, midi_mask=midi_mask)
 		pred_midi = torch.sigmoid(pred_midi.squeeze(-1))
 
+		truth = pred_id.argmax(dim=-1) == target
+
 		return dict(
 			pred_id=pred_id,
 			pred_midi=pred_midi,
+			truth=truth,
 		)
