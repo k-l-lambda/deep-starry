@@ -89,7 +89,7 @@ class MidiParaffTranslatorConsumer (MidiParaffTranslator):
 		x = self.att_midi_dec(midi_emb, source_mask, x, paraff_mask)
 		midi_out = self.midi_prj(x)
 
-		return midi_out
+		return torch.sigmoid(midi_out.squeeze(-1))
 
 
 class MidiParaffTranslatorLoss (nn.Module):
