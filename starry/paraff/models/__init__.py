@@ -11,4 +11,4 @@ from .graphTransformer import (
 	GraphParaffSummaryEncoder, GraphParaffSummaryEncoderLoss,
 	GraphParaffTranslator, GraphParaffTranslatorLoss, GraphParaffTranslatorOnnx,
 )
-from .midiTranslator import MidiParaffTranslator, MidiParaffTranslatorLoss
+from .midiTranslator import MidiParaffTranslator, MidiParaffTranslatorLoss, MidiParaffTranslatorDecoder, MidiParaffTranslatorConsumer

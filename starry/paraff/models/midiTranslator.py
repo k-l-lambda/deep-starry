@@ -11,25 +11,6 @@ from .modules import AttentionStack, DecoderWithPosition, MidiEventEncoder, Inte
 
 
 
-'''class MEBiEncoder (nn.Module):
-	def __init__(self, n_layer, n_type=4, n_pitch=91, pos_encoder='sinusoid', angle_cycle=100e+3, d_model=128, d_inner=512, n_head=8, d_k=16, d_v=16, dropout=0.1) -> None:
-		super().__init__()
-
-		self.event_enc = MidiEventEncoder(d_model, n_type, n_pitch, pos_encoder=pos_encoder, angle_cycle=angle_cycle)
-		self.attention = AttentionStack(n_layer, d_model=d_model, n_head=n_head, d_k=d_k, d_v=d_v, d_inner=d_inner, dropout=dropout)
-		self.dropout = nn.Dropout(p=dropout)
-		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
-
-
-	def forward (self, t, p, s, time, mask):
-		x = self.event_enc(t, p, s, time)
-		x = self.dropout(x)
-		x = self.layer_norm(x)
-		x = self.attention(x, mask)
-
-		return x'''
-
-
 class MidiParaffTranslator (nn.Module):
 	def __init__(self, d_model, encoder_config, decoder_config, n_midi_dec_layer=2, d_midi_dec=1, n_head=8, d_k=32, d_v=32, d_inner=1024, dropout=0.1, with_pos=False, **_):
 		super().__init__()
@@ -53,7 +34,7 @@ class MidiParaffTranslator (nn.Module):
 		self.ID_PAD = ID_PAD
 
 
-	def forward (self, t, p, s, time, premier, position, midi_mask=None):	# -> (n, n_seq, n_vocab)
+	def forward (self, t, p, s, time, premier, position, midi_mask=None):	# -> (n, n_seq, n_vocab), (n, n_seq, d_midi_dec)
 		source_mask = (t != 0).unsqueeze(-2)	# bidirectional mask
 		paraff_mask = get_pad_mask(premier, self.ID_PAD)
 		target_mask = paraff_mask & get_subsequent_mask(premier)
@@ -71,6 +52,44 @@ class MidiParaffTranslator (nn.Module):
 		midi_out = self.midi_prj(x)
 
 		return paraff_out, midi_out
+
+
+class MidiParaffTranslatorDecoder (MidiParaffTranslator):
+	def forward (self, t, p, s, time, premier, position):	# -> (n, n_seq, n_vocab)
+		source_mask = (t != 0).unsqueeze(-2)	# bidirectional mask
+		paraff_mask = get_pad_mask(premier, self.ID_PAD)
+		target_mask = paraff_mask & get_subsequent_mask(premier)
+
+		midi_emb = self.midi_enc(t, p, s, time)
+		midi_emb = self.dropout(midi_emb)
+		midi_emb = self.layer_norm(midi_emb)
+
+		x = self.att_midi_enc(midi_emb, source_mask)
+
+		x = self.paraff_decoder(premier.long(), position, target_mask, x, source_mask)
+		paraff_out = self.word_prj(x)
+
+		return paraff_out
+
+
+class MidiParaffTranslatorConsumer (MidiParaffTranslator):
+	def forward (self, t, p, s, time, premier, position):	# -> (n, n_seq, n_vocab)
+		source_mask = (t != 0).unsqueeze(-2)	# bidirectional mask
+		paraff_mask = get_pad_mask(premier, self.ID_PAD)
+		target_mask = paraff_mask & get_subsequent_mask(premier)
+
+		midi_emb = self.midi_enc(t, p, s, time)
+		midi_emb = self.dropout(midi_emb)
+		midi_emb = self.layer_norm(midi_emb)
+
+		x = self.att_midi_enc(midi_emb, source_mask)
+
+		x = self.paraff_decoder(premier.long(), position, target_mask, x, source_mask)
+
+		x = self.att_midi_dec(midi_emb, source_mask, x, paraff_mask)
+		midi_out = self.midi_prj(x)
+
+		return midi_out
 
 
 class MidiParaffTranslatorLoss (nn.Module):

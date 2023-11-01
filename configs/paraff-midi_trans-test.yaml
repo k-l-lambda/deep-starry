@@ -67,4 +67,56 @@ optim:
       d_model:              256
 
 
+onnx:
+  multiple:
+    decoder:
+      model_postfix: Decoder
+      inputs:
+      - name: type
+        dtype: uint8
+        shape: &sz64 [1, 64]
+      - name: pitch
+        dtype: uint8
+        shape: *sz64
+      - name: strength
+        dtype: float32
+        shape: *sz64
+      - name: time
+        dtype: float32
+        shape: *sz64
+      - name: premier
+        dtype: uint8
+        shape: &sz512 [1, 512]
+      - name:   position
+        dtype:  float32
+        shape:  *sz512
+      opset: 14
+      outputs:
+      - logits
+    consumer:
+      model_postfix: Consumer
+      inputs:
+      - name: type
+        dtype: uint8
+        shape: *sz64
+      - name: pitch
+        dtype: uint8
+        shape: *sz64
+      - name: strength
+        dtype: float32
+        shape: *sz64
+      - name: time
+        dtype: float32
+        shape: *sz64
+      - name: premier
+        dtype: uint8
+        shape: *sz512
+      - name:   position
+        dtype:  float32
+        shape:  *sz512
+      opset: 14
+      outputs:
+      - consumption
+
+
 _vocab: &vocab [PAD,MSUM,BOS,EOS,BOM,EOM,VB,S1,S2,S3,Cg,Cf,Cc,K0,K1,K2,K3,K4,K5,K6,K_1,K_2,K_3,K_4,K_5,K_6,TN1,TN2,TN3,TN4,TN5,TN6,TN7,TN8,TN9,TN10,TN11,TN12,TD2,TD4,TD8,TD16,a,b,c,d,e,f,g,As,Af,Ass,Aff,Osup,Osub,O0,Ova,Ovb,D1,D2,D4,D8,D16,D32,D64,D128,D256,Dot,Bl,Br,Mu,Md,Rest,RSpace,W2,W3,W4,W5,W6,W7,W8,W9,W10,W12,W16,W24,W32,Wx,W,G,TM8,TM16,TM32,TM64,TM128,TM256,TC8,TC16,TC32,TC64,TC128,TC256,EslurL,EslurR,Etie,Earp,Etr,Efer,Esf,Est,Estm,Eac,Emor,Epr,Eturn,Epor,Eten,Emar,Ecre,Edim,Ecds,EDf,EDp,EDm,EDr,EDs,EDz]

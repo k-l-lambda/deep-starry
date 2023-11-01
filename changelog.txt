@@ -7,6 +7,11 @@ TODO:
 
 2023.10.31
 
+	+	midiTranslator.py: onnx model classes added.
+
+
+2023.10.31
+
 	+	scoreMeasurewise.py: added option of premier_drop.
 
 	+	validateParaffMidi.py created.
