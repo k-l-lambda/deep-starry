@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from ...transformer.models import get_subsequent_mask, get_pad_mask
 from ..vocab import ID_PAD, ID_VB, ID_EOM
-from .modules import AttentionStack, DecoderWithPosition, MidiEventEncoder, InteractiveAttentionStack
+from .modules import AttentionStack, DecoderWithPosition, MidiEventEncoderV2, InteractiveAttentionStack
 
 
 
@@ -18,7 +18,7 @@ class MidiParaffTranslator (nn.Module):
 		self.with_pos = with_pos
 
 		#self.encoder = MEBiEncoder(d_model=d_model, **encoder_config)
-		self.midi_enc = MidiEventEncoder(d_model, encoder_config['n_type'], encoder_config['n_pitch'], pos_encoder=encoder_config['pos_encoder'], angle_cycle=encoder_config['angle_cycle'])
+		self.midi_enc = MidiEventEncoderV2(d_model, encoder_config['n_type'], encoder_config['n_pitch'], pos_encoder=encoder_config['pos_encoder'], angle_cycle=encoder_config['angle_cycle'])
 		self.att_midi_enc = AttentionStack(encoder_config['n_layer'], d_model=d_model, n_head=n_head, d_k=d_k, d_v=d_v, d_inner=d_inner, dropout=dropout)
 		self.dropout = nn.Dropout(p=dropout)
 		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
@@ -34,12 +34,12 @@ class MidiParaffTranslator (nn.Module):
 		self.ID_PAD = ID_PAD
 
 
-	def forward (self, t, p, s, time, premier, position, midi_mask=None):	# -> (n, n_seq, n_vocab), (n, n_seq, d_midi_dec)
+	def forward (self, t, p, s, time, consumption, premier, position, midi_mask=None):	# -> (n, n_seq, n_vocab), (n, n_seq, d_midi_dec)
 		source_mask = (t != 0).unsqueeze(-2)	# bidirectional mask
 		paraff_mask = get_pad_mask(premier, self.ID_PAD)
 		target_mask = paraff_mask & get_subsequent_mask(premier)
 
-		midi_emb = self.midi_enc(t, p, s, time)
+		midi_emb = self.midi_enc(t, p, s, time, consumption)
 		midi_emb = self.dropout(midi_emb)
 		midi_emb = self.layer_norm(midi_emb)
 
@@ -130,14 +130,14 @@ class MidiParaffTranslatorLoss (nn.Module):
 		target_body = target[body_mask]
 
 		input_id = batch['input_id']
-		t, p, s, time = batch['type'], batch['pitch'], batch['strength'], batch['time']
+		t, p, s, time, consumption = batch['type'], batch['pitch'], batch['strength'], batch['time'], batch['consumption']
 		position = batch['position'].float()
 
 		midi_mask = None
 		if self.mask_measure is not None:
 			midi_mask = batch['measure'] == self.mask_measure
 
-		pred_id, pred_midi = self.deducer(t, p, s, time, input_id, position=position, midi_mask=midi_mask)
+		pred_id, pred_midi = self.deducer(t, p, s, time, consumption, input_id, position=position, midi_mask=midi_mask)
 		pred_body = pred_id[body_mask]
 
 		midi_body = t != 0
@@ -172,9 +172,9 @@ class MidiParaffTranslatorLoss (nn.Module):
 			np_input_id = torch.zeros_like(input_id)
 			np_input_id[body_mask] = input_id[body_mask]
 
-			pred_zl, _ = self.deducer(zero_t, p, s, time, input_id, position=position, midi_mask=midi_mask)
-			pred_np, _ = self.deducer(t, p, s, time, np_input_id, position=position, midi_mask=midi_mask)
-			pred_zlnp, _ = self.deducer(zero_t, p, s, time, np_input_id, position=position, midi_mask=midi_mask)
+			pred_zl, _ = self.deducer(zero_t, p, s, time, consumption, input_id, position=position, midi_mask=midi_mask)
+			pred_np, _ = self.deducer(t, p, s, time, consumption, np_input_id, position=position, midi_mask=midi_mask)
+			pred_zlnp, _ = self.deducer(zero_t, p, s, time, consumption, np_input_id, position=position, midi_mask=midi_mask)
 
 			error = 1 - acc
 			error_zero_latent = 1 - (pred_zl[body_mask].argmax(dim=-1) == target_body).float().mean()
@@ -202,7 +202,7 @@ class MidiParaffTranslatorLoss (nn.Module):
 		if self.mask_measure is not None:
 			midi_mask = batch['measure'] == self.mask_measure
 
-		pred_id, pred_midi = self.deducer(t, p, s, time, input_id, position=position, midi_mask=midi_mask)
+		pred_id, pred_midi = self.deducer(t, p, s, time, consumption, input_id, position=position, midi_mask=midi_mask)
 		pred_midi = torch.sigmoid(pred_midi.squeeze(-1))
 
 		truth = pred_id.argmax(dim=-1) == target
