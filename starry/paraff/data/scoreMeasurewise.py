@@ -48,7 +48,7 @@ class ScoreMeasurewise (IterableDataset):
 
 	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_midi,
 		seq_tail_padding=0, strength_sigma=0.1, strength_pow_sigma=0.6, key_shift_sigma=5,
-		premier_drop=0, premier_head_drop=0, premier_drop_sigma=0, **_):
+		premier_drop=0, premier_head_drop=0, premier_drop_sigma=0, consumption_augment=None, **_):
 		super().__init__()
 
 		self.device = device
@@ -62,6 +62,7 @@ class ScoreMeasurewise (IterableDataset):
 		self.premier_drop = premier_drop
 		self.premier_head_drop = premier_head_drop
 		self.premier_drop_sigma = premier_drop_sigma
+		self.consumption_augment = consumption_augment
 
 		phases, cycle = parseFilterStr(split)
 
@@ -158,17 +159,17 @@ class ScoreMeasurewise (IterableDataset):
 				consumption[is_positive] *= -1
 
 				t1 = time[is_positive][0]
-				consumption += -(time - t1) * 0.04e-3
-				consumption += torch.randn_like(consumption) * (((time - t1) / 1.6e+3).square() * -1).exp()
+				consumption += -(time - t1) * self.consumption_augment.get('slope', 0.04e-3)
+				consumption += torch.randn_like(consumption) * (((time - t1) / self.consumption_augment.get('sigma', 0.6e-3)).square() * -1).exp()
 
-				consumption = torch.sigmoid(consumption * 4)
+				consumption = torch.sigmoid(consumption * self.consumption_augment.get('frozen', 4.))
 
 				if self.key_shift_sigma > 0:
 					key_shift = int(np.random.randn() * self.key_shift_sigma)
 					pitch[is_note] += key_shift
 					pitch[is_note] = pitch[is_note].clip(min=NOTE_MIN, max=NOTE_MAX)
 
-				t0 = time[0].item() + np.random.randn() * 0.4e+3
+				t0 = time[0].item() + (np.random.randn() * 0.2e+3 if self.shuffle else 0)
 				time[:n_event] -= t0
 
 				if self.strength_sigma > 0 or self.strength_pow_sigma > 0:

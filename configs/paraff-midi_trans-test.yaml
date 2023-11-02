@@ -15,7 +15,15 @@ data:
     strength_sigma:           0.1
     strength_pow_sigma:       0.6
     key_shift_sigma:          5
-
+    consumption_augment:
+      slope:                  0.04e-3
+      sigma:                  800
+      frozen:                 4
+  args_variant:
+    1:
+      consumption_augment:
+        sigma:                100
+        frozen:               8
 
 model:
   type:                     MidiParaffTranslator

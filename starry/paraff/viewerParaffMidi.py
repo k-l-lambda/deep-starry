@@ -37,10 +37,10 @@ class ParaffMidiViewer:
 		plt.figure(0)
 		plt.get_current_fig_manager().full_screen_toggle()
 
-		time, type_, pitch, measure = batch['time'][0], batch['type'][0], batch['pitch'][0], batch['measure'][0]
+		time, type_, pitch, measure, consumption = batch['time'][0], batch['type'][0], batch['pitch'][0], batch['measure'][0], batch['consumption'][0]
 		is_entity = type_ != 0
 
-		time, type_, pitch, measure = time[is_entity], type_[is_entity], pitch[is_entity], measure[is_entity]
+		time, type_, pitch, measure, consumption = time[is_entity], type_[is_entity], pitch[is_entity], measure[is_entity], consumption[is_entity]
 
 		output_id, body_mask = batch['output_id'], batch['body_mask']
 		output_id, body_mask = output_id[0], body_mask[0]
@@ -53,6 +53,8 @@ class ParaffMidiViewer:
 
 		for t, y, p, m in zip(time, type_, pitch, measure):
 			plt.plot(t, p, TYPE2SHAPE.get(y.item(), 'o'), color=MEASURE2COLOR.get(m.item(), 'k'), markerfacecolor='none', markersize=16)
+
+		plt.plot(time, consumption * 80, '-')
 
 		if inspection is not None:
 			pred_midi = inspection['pred_midi'][0][is_entity]
