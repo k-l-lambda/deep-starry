@@ -154,19 +154,28 @@ class ScoreMeasurewise (IterableDataset):
 				is_note = (pitch >= NOTE_MIN) & (pitch <= NOTE_MAX)
 				is_positive = measure >= 0
 
+				consumption = torch.ones_like(time)
+				consumption[is_positive] *= -1
+
+				t1 = time[is_positive][0]
+				consumption += -(time - t1) * 0.04e-3
+				consumption += torch.randn_like(consumption) * (((time - t1) / 1.6e+3).square() * -1).exp()
+
+				consumption = torch.sigmoid(consumption * 4)
+
 				if self.key_shift_sigma > 0:
 					key_shift = int(np.random.randn() * self.key_shift_sigma)
 					pitch[is_note] += key_shift
 					pitch[is_note] = pitch[is_note].clip(min=NOTE_MIN, max=NOTE_MAX)
 
-				t0 = time[is_positive][0] - (normalFactor() * 0.4e+3 if self.shuffle else 0)
+				t0 = time[0].item() + np.random.randn() * 0.4e+3
 				time[:n_event] -= t0
 
 				if self.strength_sigma > 0 or self.strength_pow_sigma > 0:
 					strength *= (torch.randn_like(strength) * self.strength_sigma).exp()
 					strength = strength.pow(normalFactor(self.strength_pow_sigma))
 
-				yield input_id, output_id, body_mask, position, type_, pitch, strength, time, measure
+				yield input_id, output_id, body_mask, position, type_, pitch, strength, time, measure, consumption
 
 
 	def collateBatch (self, batch):
@@ -175,7 +184,7 @@ class ScoreMeasurewise (IterableDataset):
 
 			return torch.stack(tensors, axis=0).to(self.device)
 
-		input_id, output_id, body_mask, position, type_, pitch, strength, time, measure = (extract(i) for i in range(9))
+		input_id, output_id, body_mask, position, type_, pitch, strength, time, measure, consumption = (extract(i) for i in range(10))
 
 		return dict(
 			input_id=input_id,
@@ -187,4 +196,5 @@ class ScoreMeasurewise (IterableDataset):
 			strength=strength,
 			time=time,
 			measure=measure,
+			consumption=consumption,
 		)

@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.11.2
+
+	+	scoreMeasurewise.py: added field of consumption.
+
+
 2023.10.31
 
 	+	midiTranslator.py: onnx model classes added.
