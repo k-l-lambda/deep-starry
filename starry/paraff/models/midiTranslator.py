@@ -177,13 +177,29 @@ class MidiParaffTranslatorLoss (nn.Module):
 			err_key = (pred_ids[mask_key] != target_body[mask_key]).float().mean()
 			metric['err_key'] = wv(err_key.item(), mask_key.sum().item())
 
+			mask_staff = (target_body >= self.token2id['S1']) & (target_body <= self.token2id['S3'])
+			err_staff = (pred_ids[mask_staff] != target_body[mask_staff]).float().mean()
+			metric['err_staff'] = wv(err_staff.item(), mask_staff.sum().item())
+
+			mask_clef = (target_body >= self.token2id['Cg']) & (target_body <= self.token2id['Cc'])
+			err_clef = (pred_ids[mask_clef] != target_body[mask_clef]).float().mean()
+			metric['err_clef'] = wv(err_clef.item(), mask_clef.sum().item())
+
 			mask_time = (target_body >= self.token2id['TN1']) & (target_body <= self.token2id['TD16'])
 			err_time = (pred_ids[mask_time] != target_body[mask_time]).float().mean()
 			metric['err_time'] = wv(err_time.item(), mask_time.sum().item())
 
-			mask_pitch = (target_body >= self.token2id['a']) & (target_body <= self.token2id['Aff'])
+			mask_pitch = (target_body >= self.token2id['a']) & (target_body <= self.token2id['Osub'])
 			err_pitch = (pred_ids[mask_pitch] != target_body[mask_pitch]).float().mean()
 			metric['err_pitch'] = wv(err_pitch.item(), mask_pitch.sum().item())
+
+			mask_timewarp = (target_body >= self.token2id['W2']) & (target_body <= self.token2id['W'])
+			err_timewarp = (pred_ids[mask_timewarp] != target_body[mask_timewarp]).float().mean()
+			metric['err_timewarp'] = wv(err_timewarp.item(), mask_timewarp.sum().item())
+
+			mask_expressive = (target_body >= self.token2id['EslurL']) & (target_body <= self.token2id['EDz'])
+			err_expressive = (pred_ids[mask_expressive] != target_body[mask_expressive]).float().mean()
+			metric['err_expressive'] = wv(err_expressive.item(), mask_expressive.sum().item())
 
 			zero_t = torch.zeros_like(t)
 			np_input_id = torch.zeros_like(input_id)
@@ -216,8 +232,12 @@ class MidiParaffTranslatorLoss (nn.Module):
 		vocab_error = dict(
 			boundary	= metrics['err_boundary'].value,
 			key			= metrics['err_key'].value,
+			staff		= metrics['err_staff'].value,
+			clef		= metrics['err_clef'].value,
 			time		= metrics['err_time'].value,
 			pitch		= metrics['err_pitch'].value,
+			timewarp	= metrics['err_timewarp'].value,
+			expressive	= metrics['err_expressive'].value,
 		)
 
 		return dict(
