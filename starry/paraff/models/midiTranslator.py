@@ -103,7 +103,7 @@ class MidiParaffTranslatorLoss (nn.Module):
 
 		if word_weights is not None:
 			n_vocab = kw_args['decoder_config']['n_trg_vocab']
-			ww = torch.tensor([word_weights[word] if word in word_weights else 1 for word in vocab[:n_vocab]], dtype=torch.float)
+			ww = torch.tensor([word_weights.get(word, 1) for word in vocab[:n_vocab]], dtype=torch.float)
 			assert len(ww) == kw_args['decoder_config']['n_trg_vocab'], f'invalid word weights shape {len(ww)} vs decoder_config.n_trg_vocab({n_vocab})'
 			self.register_buffer('word_weights', ww, persistent=False)
 
