@@ -39,9 +39,10 @@ model:
     d_v:                    32
     dropout:                0.1
     encoder_config:
+      midi_enc_version:     V3
       n_layer:              4
       n_type:               4
-      n_pitch:              91
+      n_pitch:              21
       pos_encoder:          sinusoid
       angle_cycle:          100000
     decoder_config:

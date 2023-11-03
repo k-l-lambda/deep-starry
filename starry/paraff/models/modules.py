@@ -7,6 +7,7 @@ from ...transformer.layers import EncoderLayer, DecoderLayer
 from ...transformer.models import PositionalEncoding
 from ...modules.positionEncoder import SinusoidEncoder, PositionEncoderDict
 from ..graphSemantics import SEMANTIC_MAX, STAFF_MAX
+from ...melody.measurewiseMIDI import N_OCTAVE, PITCH_OCTAVE_SIZE
 
 
 
@@ -148,7 +149,7 @@ class MidiEventEncoder (nn.Module):
 
 	def forward (self, t, p, s, time):	# (n, seq, d_model)
 		vec_type = F.one_hot(t.long(), num_classes=self.n_type).float()	# (n, seq, n_type)
-		vec_pitch = F.one_hot(p.long(), num_classes=self.n_pitch).float()	# (n, seq, n_type)
+		vec_pitch = F.one_hot(p.long(), num_classes=self.n_pitch).float()	# (n, seq, n_pitch)
 
 		x = torch.cat([vec_type, vec_pitch, s.unsqueeze(-1)], dim=-1)	# (n, seq, n_type + n_pitch + 1)
 		x = self.embed(x)
@@ -173,7 +174,54 @@ class MidiEventEncoderV2 (nn.Module):
 
 	def forward (self, t, p, s, time, consumption):	# -> (n, seq, d_model)
 		vec_type = F.one_hot(t.long(), num_classes=self.n_type).float()	# (n, seq, n_type)
-		vec_pitch = F.one_hot(p.long(), num_classes=self.n_pitch).float()	# (n, seq, n_type)
+		vec_pitch = F.one_hot(p.long(), num_classes=self.n_pitch).float()	# (n, seq, n_pitch)
+
+		x = torch.cat([vec_type, vec_pitch, s.unsqueeze(-1), consumption.unsqueeze(-1)], dim=-1)	# (n, seq, n_type + n_pitch + 2)
+		x = self.embed(x)
+
+		x = self.time_encoder(time, x)
+
+		return x
+
+
+class Pitch2Octave (nn.Module):
+	def __init__ (self, n_octave=N_OCTAVE, octave_size=PITCH_OCTAVE_SIZE, pitch_bias=8):
+		super().__init__()
+
+		self.n_octave = n_octave
+		self.octave_size = octave_size
+		self.pitch_bias = pitch_bias
+
+
+	def forward (self, pitch):
+		pitch += self.pitch_bias
+		octave = torch.div(pitch, self.octave_size).long().clip(max=self.n_octave - 1, min=0)
+		step = torch.remainder(pitch, self.octave_size).long()
+
+		vec_octave = F.one_hot(octave, num_classes=self.n_octave).float()	# (..., n_octave)
+		vec_step = F.one_hot(step, num_classes=self.octave_size).float()		# (..., octave_size)
+
+		return torch.cat([vec_octave, vec_step], dim=-1)		# (..., n_octave + pitch_octave_size)
+
+
+# pitch: octave + step
+class MidiEventEncoderV3 (nn.Module):
+	def __init__ (self, d_model=128, n_type=4, n_pitch=N_OCTAVE + PITCH_OCTAVE_SIZE, pitch_bias=8, pos_encoder='sinusoid', angle_cycle=100e+3):
+		super().__init__()
+
+		self.n_type = n_type
+		self.n_pitch = n_pitch
+
+		self.p2o = Pitch2Octave(n_octave=N_OCTAVE, octave_size=n_pitch - N_OCTAVE, pitch_bias=pitch_bias)
+
+		posenc_class = PositionEncoderDict[pos_encoder]
+		self.time_encoder = posenc_class(angle_cycle=angle_cycle, d_hid=d_model)
+		self.embed = nn.Linear(n_type + n_pitch + 2, d_model)
+
+
+	def forward (self, t, p, s, time, consumption):	# -> (n, seq, d_model)
+		vec_type = F.one_hot(t.long(), num_classes=self.n_type).float()	# (n, seq, n_type)
+		vec_pitch = self.p2o(p)	# (n, seq, n_pitch)
 
 		x = torch.cat([vec_type, vec_pitch, s.unsqueeze(-1), consumption.unsqueeze(-1)], dim=-1)	# (n, seq, n_type + n_pitch + 2)
 		x = self.embed(x)

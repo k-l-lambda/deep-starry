@@ -7,6 +7,8 @@ TODO:
 
 2023.11.3
 
+	+	paraff/models/modules.py: added module class of MidiEventEncoderV3.
+
 	+	midiTranslator.py: added metric of vocab_error.
 
 

@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from ...transformer.models import get_subsequent_mask, get_pad_mask
 from ..vocab import ID_PAD, ID_VB, ID_EOM
-from .modules import AttentionStack, DecoderWithPosition, MidiEventEncoderV2, InteractiveAttentionStack
+from .modules import AttentionStack, DecoderWithPosition, MidiEventEncoderV2, MidiEventEncoderV3, InteractiveAttentionStack
 from ...utils.weightedValue import WeightedValue
 
 
@@ -18,8 +18,10 @@ class MidiParaffTranslator (nn.Module):
 
 		self.with_pos = with_pos
 
-		#self.encoder = MEBiEncoder(d_model=d_model, **encoder_config)
-		self.midi_enc = MidiEventEncoderV2(d_model, encoder_config['n_type'], encoder_config['n_pitch'], pos_encoder=encoder_config['pos_encoder'], angle_cycle=encoder_config['angle_cycle'])
+		midi_enc_version = encoder_config.get('midi_enc_version', 'V2')
+		MidiEncoderClass = globals()[f'MidiEventEncoder{midi_enc_version}']
+
+		self.midi_enc = MidiEncoderClass(d_model, encoder_config['n_type'], encoder_config['n_pitch'], pos_encoder=encoder_config['pos_encoder'], angle_cycle=encoder_config['angle_cycle'])
 		self.att_midi_enc = AttentionStack(encoder_config['n_layer'], d_model=d_model, n_head=n_head, d_k=d_k, d_v=d_v, d_inner=d_inner, dropout=dropout)
 		self.dropout = nn.Dropout(p=dropout)
 		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
