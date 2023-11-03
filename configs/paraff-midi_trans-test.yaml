@@ -92,6 +92,9 @@ onnx:
       - name: time
         dtype: float32
         shape: *sz64
+      - name: consumption
+        dtype: float32
+        shape: *sz64
       - name: premier
         dtype: uint8
         shape: &sz512 [1, 512]
@@ -114,6 +117,9 @@ onnx:
         dtype: float32
         shape: *sz64
       - name: time
+        dtype: float32
+        shape: *sz64
+      - name: consumption
         dtype: float32
         shape: *sz64
       - name: premier

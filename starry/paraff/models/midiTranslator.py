@@ -55,12 +55,12 @@ class MidiParaffTranslator (nn.Module):
 
 
 class MidiParaffTranslatorDecoder (MidiParaffTranslator):
-	def forward (self, t, p, s, time, premier, position):	# -> (n, n_seq, n_vocab)
+	def forward (self, t, p, s, time, consumption, premier, position):	# -> (n, n_seq, n_vocab)
 		source_mask = (t != 0).unsqueeze(-2)	# bidirectional mask
 		paraff_mask = get_pad_mask(premier, self.ID_PAD)
 		target_mask = paraff_mask & get_subsequent_mask(premier)
 
-		midi_emb = self.midi_enc(t, p, s, time)
+		midi_emb = self.midi_enc(t, p, s, time, consumption)
 		midi_emb = self.dropout(midi_emb)
 		midi_emb = self.layer_norm(midi_emb)
 
@@ -73,12 +73,12 @@ class MidiParaffTranslatorDecoder (MidiParaffTranslator):
 
 
 class MidiParaffTranslatorConsumer (MidiParaffTranslator):
-	def forward (self, t, p, s, time, premier, position):	# -> (n, n_seq, n_vocab)
+	def forward (self, t, p, s, time, consumption, premier, position):	# -> (n, n_seq, n_vocab)
 		source_mask = (t != 0).unsqueeze(-2)	# bidirectional mask
 		paraff_mask = get_pad_mask(premier, self.ID_PAD)
 		target_mask = paraff_mask & get_subsequent_mask(premier)
 
-		midi_emb = self.midi_enc(t, p, s, time)
+		midi_emb = self.midi_enc(t, p, s, time, consumption)
 		midi_emb = self.dropout(midi_emb)
 		midi_emb = self.layer_norm(midi_emb)
 
