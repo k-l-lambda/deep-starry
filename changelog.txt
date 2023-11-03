@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.11.3
+
+	+	midiTranslator.py: added metric of vocab_error.
+
+
 2023.11.2
 
 	+	scoreMeasurewise.py: added field of consumption.

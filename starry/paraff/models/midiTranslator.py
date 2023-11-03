@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from ...transformer.models import get_subsequent_mask, get_pad_mask
 from ..vocab import ID_PAD, ID_VB, ID_EOM
 from .modules import AttentionStack, DecoderWithPosition, MidiEventEncoderV2, InteractiveAttentionStack
+from ...utils.weightedValue import WeightedValue
 
 
 
@@ -98,6 +99,8 @@ class MidiParaffTranslatorLoss (nn.Module):
 
 		self.deducer = MidiParaffTranslator(**kw_args)
 
+		self.token2id = dict([(k, i) for i, k in enumerate(vocab)])
+
 		if word_weights is not None:
 			n_vocab = kw_args['decoder_config']['n_trg_vocab']
 			ww = torch.tensor([word_weights[word] if word in word_weights else 1 for word in vocab[:n_vocab]], dtype=torch.float)
@@ -164,9 +167,23 @@ class MidiParaffTranslatorLoss (nn.Module):
 		}
 
 		if not self.training:
-			boundary_mask = (target_body == ID_VB) | (target_body == ID_EOM)
-			acc_boundary = (pred_ids[boundary_mask] == target_body[boundary_mask]).float().mean()
-			metric['acc_boundary'] = acc_boundary.item()
+			wv = WeightedValue.from_value
+
+			mask_boundary = (target_body == ID_VB) | (target_body == ID_EOM)
+			err_boundary = (pred_ids[mask_boundary] != target_body[mask_boundary]).float().mean()
+			metric['err_boundary'] = wv(err_boundary.item(), mask_boundary.sum().item())
+
+			mask_key = (target_body >= self.token2id['K0']) & (target_body <= self.token2id['K_6'])
+			err_key = (pred_ids[mask_key] != target_body[mask_key]).float().mean()
+			metric['err_key'] = wv(err_key.item(), mask_key.sum().item())
+
+			mask_time = (target_body >= self.token2id['TN1']) & (target_body <= self.token2id['TD16'])
+			err_time = (pred_ids[mask_time] != target_body[mask_time]).float().mean()
+			metric['err_time'] = wv(err_time.item(), mask_time.sum().item())
+
+			mask_pitch = (target_body >= self.token2id['a']) & (target_body <= self.token2id['Aff'])
+			err_pitch = (pred_ids[mask_pitch] != target_body[mask_pitch]).float().mean()
+			metric['err_pitch'] = wv(err_pitch.item(), mask_pitch.sum().item())
 
 			zero_t = torch.zeros_like(t)
 			np_input_id = torch.zeros_like(input_id)
@@ -187,6 +204,23 @@ class MidiParaffTranslatorLoss (nn.Module):
 			metric['error_zero_latent_no_primer'] = error_zero_latent_no_primer.item()
 
 		return loss, metric
+
+
+	def stat (self, metrics, n_batch):
+		vocab_error = dict(
+			boundary	= metrics['err_boundary'].value,
+			key			= metrics['err_key'].value,
+			time		= metrics['err_time'].value,
+			pitch		= metrics['err_pitch'].value,
+		)
+
+		plain_items = dict([(key, metrics[key] / n_batch) for key in ['acc', 'paraff_loss','midi_loss','midi_error',
+			'error', 'error_zero_latent', 'error_no_primer', 'error_zero_latent_no_primer']])
+
+		return dict(
+			plain_items,
+			vocab_error=vocab_error,
+		)
 
 
 	def inspectRun (self, batch):
