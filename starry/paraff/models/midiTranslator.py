@@ -195,7 +195,7 @@ class MidiParaffTranslatorLoss (nn.Module):
 		#target_body = target[body_mask]
 
 		input_id = batch['input_id']
-		t, p, s, time = batch['type'], batch['pitch'], batch['strength'], batch['time']
+		t, p, s, time, consumption = batch['type'], batch['pitch'], batch['strength'], batch['time'], batch['consumption']
 		position = batch['position'].float()
 
 		midi_mask = None
