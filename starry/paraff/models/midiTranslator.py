@@ -195,6 +195,10 @@ class MidiParaffTranslatorLoss (nn.Module):
 			err_pitch = (pred_ids[mask_pitch] != target_body[mask_pitch]).float().mean()
 			metric['err_pitch'] = wv(err_pitch.item(), mask_pitch.sum().item())
 
+			mask_duration = (target_body >= self.token2id['D1']) & (target_body <= self.token2id['Dot'])
+			err_duration = (pred_ids[mask_duration] != target_body[mask_duration]).float().mean()
+			metric['err_duration'] = wv(err_duration.item(), mask_duration.sum().item())
+
 			mask_timewarp = (target_body >= self.token2id['W2']) & (target_body <= self.token2id['W'])
 			err_timewarp = (pred_ids[mask_timewarp] != target_body[mask_timewarp]).float().mean()
 			metric['err_timewarp'] = wv(err_timewarp.item(), mask_timewarp.sum().item())
@@ -238,6 +242,7 @@ class MidiParaffTranslatorLoss (nn.Module):
 			clef		= metrics['err_clef'].value,
 			time		= metrics['err_time'].value,
 			pitch		= metrics['err_pitch'].value,
+			duration	= metrics['err_duration'].value,
 			timewarp	= metrics['err_timewarp'].value,
 			expressive	= metrics['err_expressive'].value,
 		)
