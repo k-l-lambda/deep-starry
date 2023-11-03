@@ -207,15 +207,18 @@ class MidiParaffTranslatorLoss (nn.Module):
 
 
 	def stat (self, metrics, n_batch):
+		plain_items = dict([(key, metrics[key] / n_batch) for key in ['acc', 'paraff_loss','midi_loss','midi_error',
+			'error', 'error_zero_latent', 'error_no_primer', 'error_zero_latent_no_primer'] if key in metrics])
+		
+		if not 'err_boundary' in metrics:
+			return plain_items
+
 		vocab_error = dict(
 			boundary	= metrics['err_boundary'].value,
 			key			= metrics['err_key'].value,
 			time		= metrics['err_time'].value,
 			pitch		= metrics['err_pitch'].value,
 		)
-
-		plain_items = dict([(key, metrics[key] / n_batch) for key in ['acc', 'paraff_loss','midi_loss','midi_error',
-			'error', 'error_zero_latent', 'error_no_primer', 'error_zero_latent_no_primer']])
 
 		return dict(
 			plain_items,

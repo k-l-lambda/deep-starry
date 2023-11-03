@@ -89,7 +89,10 @@ trainer:
   env: ~
   device:                   cuda
   save_mode:                best
-  epoch:                    100
+  epoch_duration:           1
+  epoch_size:               36000
+  epochs:                   1600
+  epoch:                    1600
   report_step_unit:         examples
   moniter:
     field:                  acc
