@@ -194,9 +194,9 @@ class Pitch2Octave (nn.Module):
 
 
 	def forward (self, pitch):
-		pitch += self.pitch_bias
-		octave = torch.div(pitch, self.octave_size).long().clip(max=self.n_octave - 1, min=0)
-		step = torch.remainder(pitch, self.octave_size).long()
+		pb = pitch + self.pitch_bias
+		octave = torch.div(pb, self.octave_size).long().clip(max=self.n_octave - 1, min=0)
+		step = torch.remainder(pb, self.octave_size).long()
 
 		vec_octave = F.one_hot(octave, num_classes=self.n_octave).float()	# (..., n_octave)
 		vec_step = F.one_hot(step, num_classes=self.octave_size).float()		# (..., octave_size)
