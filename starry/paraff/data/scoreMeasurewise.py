@@ -167,7 +167,8 @@ class ScoreMeasurewise (IterableDataset):
 				if self.key_shift_sigma > 0:
 					key_shift = int(np.random.randn() * self.key_shift_sigma)
 					pitch[is_note] += key_shift
-					pitch[is_note] = pitch[is_note].clip(min=NOTE_MIN, max=NOTE_MAX)
+					pitch[is_note] = pitch[is_note]
+				pitch[is_note] = pitch[is_note].clip(min=NOTE_MIN, max=NOTE_MAX)
 
 				t0 = time[0].item() + (np.random.randn() * 0.2e+3 if self.shuffle else 0)
 				time[:n_event] -= t0
