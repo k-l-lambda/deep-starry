@@ -194,7 +194,7 @@ class Pitch2Octave (nn.Module):
 
 
 	def forward (self, pitch):
-		pb = pitch + self.pitch_bias
+		pb = (pitch + float(self.pitch_bias)).long()	# workaround onnx missing Add node for int64
 		octave = torch.div(pb, self.octave_size).long().clip(max=self.n_octave - 1, min=0)
 		step = torch.remainder(pb, self.octave_size).long()
 
