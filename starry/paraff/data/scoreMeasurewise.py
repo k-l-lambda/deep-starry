@@ -143,7 +143,9 @@ class ScoreMeasurewise (IterableDataset):
 					input_id[premier_mask & (torch.rand_like(input_id, dtype=torch.float32) < premier_drop_p)] = 0
 					input_id[premier_head_mask & (torch.rand_like(input_id, dtype=torch.float32) < premier_head_drop_p)] = 0
 
-				position = torch.arange(self.n_seq_word, dtype=torch.int16) - self.n_seq_word + measure_size[mi] + tail_padding - 1
+				position = torch.arange(self.n_seq_word, dtype=torch.int16)
+				if not self.head_measure_only:
+					position += - self.n_seq_word + measure_size[mi] + tail_padding - 1
 
 				events = midi.slice(mi, mi + 8, pre=1, n_seq=self.n_seq_midi, aug_time_index=np.random.randint(0x1000000))[:self.n_seq_midi]
 				n_event = len(events)
@@ -171,10 +173,11 @@ class ScoreMeasurewise (IterableDataset):
 				consumption[is_positive] *= -1
 
 				t1 = time[is_positive][0]
-				consumption += -(time - t1) * self.consumption_augment.get('slope', 0.04e-3)
-				consumption += torch.randn_like(consumption) * (((time - t1) / self.consumption_augment.get('sigma', 0.6e-3)).square() * -1).exp()
+				if self.consumption_augment:
+					consumption += -(time - t1) * self.consumption_augment.get('slope', 0.04e-3)
+					consumption += torch.randn_like(consumption) * (((time - t1) / self.consumption_augment.get('sigma', 0.6e-3)).square() * -1).exp()
 
-				consumption = torch.sigmoid(consumption * self.consumption_augment.get('frozen', 4.))
+					consumption = torch.sigmoid(consumption * self.consumption_augment.get('frozen', 4.))
 
 				if self.key_shift_sigma > 0:
 					key_shift = int(np.random.randn() * self.key_shift_sigma)

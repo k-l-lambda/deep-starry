@@ -16,15 +16,7 @@ data:
     strength_sigma:           0.1
     strength_pow_sigma:       0.6
     key_shift_sigma:          0
-    consumption_augment:
-      slope:                  0.04e-3
-      sigma:                  800
-      frozen:                 4
-  args_variant:
-    1:
-      consumption_augment:
-        sigma:                100
-        frozen:               8
+    consumption_augment:      ~
 
 
 _vocab: &vocab [PAD,MSUM,BOS,EOS,BOM,EOM,VB,S1,S2,S3,Cg,Cf,Cc,K0,K1,K2,K3,K4,K5,K6,K_1,K_2,K_3,K_4,K_5,K_6,TN1,TN2,TN3,TN4,TN5,TN6,TN7,TN8,TN9,TN10,TN11,TN12,TD2,TD4,TD8,TD16,a,b,c,d,e,f,g,As,Af,Ass,Aff,Osup,Osub,O0,Ova,Ovb,D1,D2,D4,D8,D16,D32,D64,D128,D256,Dot,Bl,Br,Mu,Md,Rest,RSpace,W2,W3,W4,W5,W6,W7,W8,W9,W10,W12,W16,W24,W32,Wx,W,G,TM8,TM16,TM32,TM64,TM128,TM256,TC8,TC16,TC32,TC64,TC128,TC256,EslurL,EslurR,Etie,Earp,Etr,Efer,Esf,Est,Estm,Eac,Emor,Epr,Eturn,Epor,Eten,Emar,Ecre,Edim,Ecds,EDf,EDp,EDm,EDr,EDs,EDz]
@@ -52,35 +44,20 @@ model:
       angle_cycle:          10000
       scale_emb:            True
       pos_encoder:          sinusoid
-    n_midi_dec_layer:       2
+    n_midi_dec_layer:       0
     d_midi_dec:             1
-    midi_weight:            1
+    midi_weight:            0
     mask_measure:           ~
     vocab:                  *vocab
     word_weights:
-      VB:                   2
-      EOM:                  2
-      K0:                   2
-      K1:                   2
-      K2:                   2
-      K3:                   2
-      K4:                   2
-      K5:                   2
-      K6:                   2
-      K_1:                  2
-      K_2:                  2
-      K_3:                  2
-      K_4:                  2
-      K_5:                  2
-      K_6:                  2
-      TN2:                  2
-      TN3:                  2
-      TN4:                  2
-      TN6:                  2
-      S1:                   2
-      S2:                   2
-      Cg:                   2
-      Cf:                   2
+      D1:                   2
+      D2:                   2
+      D4:                   2
+      D8:                   2
+      D16:                  2
+      D32:                  2
+      D64:                  2
+      Dot:                  2
 
 
 trainer:
