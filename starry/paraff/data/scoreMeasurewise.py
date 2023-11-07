@@ -107,10 +107,7 @@ class ScoreMeasurewise (IterableDataset):
 
 			midi = paragraph['midi']
 			for mi in range(len(midi)):
-				if self.head_measure_only and mi > 0:
-					break
-
-				pid = entries[:mi + 1].flatten()
+				pid = entries[mi] if self.head_measure_only else entries[:mi + 1].flatten()
 				pid = pid[pid != 0]
 
 				body_mask = torch.zeros_like(pid).bool()
@@ -147,10 +144,14 @@ class ScoreMeasurewise (IterableDataset):
 				if not self.head_measure_only:
 					position += - self.n_seq_word + measure_size[mi] + tail_padding - 1
 
-				events = midi.slice(mi, mi + 8, pre=1, n_seq=self.n_seq_midi, aug_time_index=np.random.randint(0x1000000))[:self.n_seq_midi]
+				n_pre = 0 if self.head_measure_only else 1
+				events = midi.slice(mi, mi + 8, pre=n_pre, n_seq=self.n_seq_midi, aug_time_index=np.random.randint(0x1000000))[:self.n_seq_midi]
 				n_event = len(events)
 				if n_event == 0:
 					continue
+
+				if self.head_measure_only and mi > 0 and n_event < self.n_seq_midi // 2:
+					break
 
 				padding = [0] * (self.n_seq_midi - len(events))
 
