@@ -93,52 +93,25 @@ onnx:
       inputs:
       - name: type
         dtype: uint8
-        shape: &sz64 [1, 64]
+        shape: &sz512 [1, 512]
       - name: pitch
         dtype: uint8
-        shape: *sz64
+        shape: *sz512
       - name: strength
         dtype: float32
-        shape: *sz64
+        shape: *sz512
       - name: time
         dtype: float32
-        shape: *sz64
+        shape: *sz512
       - name: consumption
         dtype: float32
-        shape: *sz64
+        shape: *sz512
       - name: premier
         dtype: uint8
-        shape: &sz512 [1, 512]
+        shape: &sz32 [1, 32]
       - name:   position
         dtype:  float32
-        shape:  *sz512
+        shape:  *sz32
       opset: 14
       outputs:
       - logits
-    consumer:
-      model_postfix: Consumer
-      inputs:
-      - name: type
-        dtype: uint8
-        shape: *sz64
-      - name: pitch
-        dtype: uint8
-        shape: *sz64
-      - name: strength
-        dtype: float32
-        shape: *sz64
-      - name: time
-        dtype: float32
-        shape: *sz64
-      - name: consumption
-        dtype: float32
-        shape: *sz64
-      - name: premier
-        dtype: uint8
-        shape: *sz512
-      - name:   position
-        dtype:  float32
-        shape:  *sz512
-      opset: 14
-      outputs:
-      - out_consumption
