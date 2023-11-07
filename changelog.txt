@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.11.7
+
+	+	scoreMeasurewise.py: added option of head_measure_only.
+
+
 2023.11.3
 
 	+	paraff/models/modules.py: added module class of MidiEventEncoderV3.

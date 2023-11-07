@@ -48,7 +48,8 @@ class ScoreMeasurewise (IterableDataset):
 
 	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_midi,
 		seq_tail_padding=0, strength_sigma=0.1, strength_pow_sigma=0.6, key_shift_sigma=5,
-		premier_drop=0, premier_head_drop=0, premier_drop_sigma=0, consumption_augment=None, **_):
+		premier_drop=0, premier_head_drop=0, premier_drop_sigma=0, consumption_augment=None,
+		head_measure_only=False, **_):
 		super().__init__()
 
 		self.device = device
@@ -63,6 +64,7 @@ class ScoreMeasurewise (IterableDataset):
 		self.premier_head_drop = premier_head_drop
 		self.premier_drop_sigma = premier_drop_sigma
 		self.consumption_augment = consumption_augment
+		self.head_measure_only = head_measure_only
 
 		phases, cycle = parseFilterStr(split)
 
@@ -105,6 +107,9 @@ class ScoreMeasurewise (IterableDataset):
 
 			midi = paragraph['midi']
 			for mi in range(len(midi)):
+				if self.head_measure_only and mi > 0:
+					break
+
 				pid = entries[:mi + 1].flatten()
 				pid = pid[pid != 0]
 
@@ -116,6 +121,13 @@ class ScoreMeasurewise (IterableDataset):
 					tail_padding = np.random.randint(self.seq_tail_padding) + 1
 					pid = F.pad(pid, (self.n_seq_word, tail_padding), value=0)
 					body_mask = F.pad(body_mask, (self.n_seq_word, tail_padding), value=False)
+				else:
+					pid = F.pad(pid, (0, self.n_seq_word), value=0)
+					body_mask = F.pad(body_mask, (0, self.n_seq_word), value=False)
+
+				if self.head_measure_only:
+					pid = pid[:self.n_seq_word + 1]
+					body_mask = body_mask[:self.n_seq_word + 1]
 
 				input_id = pid[-self.n_seq_word - 1:-1]
 				output_id = pid[-self.n_seq_word:]

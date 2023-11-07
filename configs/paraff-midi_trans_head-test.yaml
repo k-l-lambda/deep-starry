@@ -1,0 +1,167 @@
+
+id:               paraff/{date}-{filename}
+
+data:
+  type:                       ScoreMeasurewise
+  root:                       20231026-test/20231027-paragraph.yaml
+  splits:                     '*1..8/10:9/10'
+  batch_size:                 2
+  args:
+    head_measure_only:        True
+    n_seq_word:               32
+    n_seq_midi:               512
+    seq_tail_padding:         0
+    descriptor_drop:          0.3
+    descriptor_drop_sigma:    1.
+    strength_sigma:           0.1
+    strength_pow_sigma:       0.6
+    key_shift_sigma:          0
+    consumption_augment:
+      slope:                  0.04e-3
+      sigma:                  800
+      frozen:                 4
+  args_variant:
+    1:
+      consumption_augment:
+        sigma:                100
+        frozen:               8
+
+
+_vocab: &vocab [PAD,MSUM,BOS,EOS,BOM,EOM,VB,S1,S2,S3,Cg,Cf,Cc,K0,K1,K2,K3,K4,K5,K6,K_1,K_2,K_3,K_4,K_5,K_6,TN1,TN2,TN3,TN4,TN5,TN6,TN7,TN8,TN9,TN10,TN11,TN12,TD2,TD4,TD8,TD16,a,b,c,d,e,f,g,As,Af,Ass,Aff,Osup,Osub,O0,Ova,Ovb,D1,D2,D4,D8,D16,D32,D64,D128,D256,Dot,Bl,Br,Mu,Md,Rest,RSpace,W2,W3,W4,W5,W6,W7,W8,W9,W10,W12,W16,W24,W32,Wx,W,G,TM8,TM16,TM32,TM64,TM128,TM256,TC8,TC16,TC32,TC64,TC128,TC256,EslurL,EslurR,Etie,Earp,Etr,Efer,Esf,Est,Estm,Eac,Emor,Epr,Eturn,Epor,Eten,Emar,Ecre,Edim,Ecds,EDf,EDp,EDm,EDr,EDs,EDz]
+
+
+model:
+  type:                     MidiParaffTranslator
+  args:
+    d_model:                256
+    d_inner:                1024
+    n_head:                 8
+    d_k:                    32
+    d_v:                    32
+    dropout:                0.1
+    encoder_config:
+      midi_enc_version:     V3
+      n_layer:              4
+      n_type:               4
+      n_pitch:              21
+      pos_encoder:          sinusoid
+      angle_cycle:          100000
+    decoder_config:
+      n_layers:             6
+      n_trg_vocab:          127
+      angle_cycle:          10000
+      scale_emb:            True
+      pos_encoder:          sinusoid
+    n_midi_dec_layer:       2
+    d_midi_dec:             1
+    midi_weight:            1
+    mask_measure:           ~
+    vocab:                  *vocab
+    word_weights:
+      VB:                   2
+      EOM:                  2
+      K0:                   2
+      K1:                   2
+      K2:                   2
+      K3:                   2
+      K4:                   2
+      K5:                   2
+      K6:                   2
+      K_1:                  2
+      K_2:                  2
+      K_3:                  2
+      K_4:                  2
+      K_5:                  2
+      K_6:                  2
+      TN2:                  2
+      TN3:                  2
+      TN4:                  2
+      TN6:                  2
+      S1:                   2
+      S2:                   2
+      Cg:                   2
+      Cf:                   2
+
+
+trainer:
+  env: ~
+  device:                   cuda
+  save_mode:                best
+  epoch_duration:           1
+  epoch_size:               36000
+  epochs:                   1600
+  epoch:                    1600
+  report_step_unit:         examples
+  moniter:
+    field:                  acc
+    mode:                   max
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               1
+      n_warmup_steps:       6400
+      d_model:              256
+
+
+onnx:
+  multiple:
+    decoder:
+      model_postfix: Decoder
+      inputs:
+      - name: type
+        dtype: uint8
+        shape: &sz64 [1, 64]
+      - name: pitch
+        dtype: uint8
+        shape: *sz64
+      - name: strength
+        dtype: float32
+        shape: *sz64
+      - name: time
+        dtype: float32
+        shape: *sz64
+      - name: consumption
+        dtype: float32
+        shape: *sz64
+      - name: premier
+        dtype: uint8
+        shape: &sz512 [1, 512]
+      - name:   position
+        dtype:  float32
+        shape:  *sz512
+      opset: 14
+      outputs:
+      - logits
+    consumer:
+      model_postfix: Consumer
+      inputs:
+      - name: type
+        dtype: uint8
+        shape: *sz64
+      - name: pitch
+        dtype: uint8
+        shape: *sz64
+      - name: strength
+        dtype: float32
+        shape: *sz64
+      - name: time
+        dtype: float32
+        shape: *sz64
+      - name: consumption
+        dtype: float32
+        shape: *sz64
+      - name: premier
+        dtype: uint8
+        shape: *sz512
+      - name:   position
+        dtype:  float32
+        shape:  *sz512
+      opset: 14
+      outputs:
+      - out_consumption
