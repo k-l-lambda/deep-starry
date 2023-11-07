@@ -46,7 +46,7 @@ class ScoreMeasurewise (IterableDataset):
 		return cls.measure_lib[paraff_path]
 
 
-	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_midi,
+	def __init__ (self, root, split, device, shuffle, n_seq_word, n_seq_midi, measure_range=8,
 		seq_tail_padding=0, strength_sigma=0.1, strength_pow_sigma=0.6, key_shift_sigma=5,
 		premier_drop=0, premier_head_drop=0, premier_drop_sigma=0, consumption_augment=None,
 		head_measure_only=False, **_):
@@ -65,6 +65,7 @@ class ScoreMeasurewise (IterableDataset):
 		self.premier_drop_sigma = premier_drop_sigma
 		self.consumption_augment = consumption_augment
 		self.head_measure_only = head_measure_only
+		self.measure_range = measure_range
 
 		phases, cycle = parseFilterStr(split)
 
@@ -77,7 +78,7 @@ class ScoreMeasurewise (IterableDataset):
 		groups = [group for i, group in enumerate(index['groups']) if i % cycle in phases]
 		#print('groups:', len(groups))
 		self.paragraphs = [paragraph for paragraph in index['paragraphs'] if paragraph['group'] in groups and measurewise.isfile(f'{paragraph["name"]}.measurewise.json.pkl')]
-		self.n_measure = len(self.paragraphs) if self.head_measure_only else sum(paragraph['sentenceRange'][1] - paragraph['sentenceRange'][0] for paragraph in self.paragraphs)
+		self.n_measure = sum(paragraph['sentenceRange'][1] - paragraph['sentenceRange'][0] for paragraph in self.paragraphs)
 
 		paraff_path = os.path.join(os.path.dirname(root), index['paraff'])
 		self.measure = self.loadMeasures(paraff_path, n_seq_word, None)
@@ -145,7 +146,7 @@ class ScoreMeasurewise (IterableDataset):
 					position += - self.n_seq_word + measure_size[mi] + tail_padding - 1
 
 				n_pre = 0 if self.head_measure_only else 1
-				events = midi.slice(mi, mi + 8, pre=n_pre, n_seq=self.n_seq_midi, aug_time_index=np.random.randint(0x1000000))[:self.n_seq_midi]
+				events = midi.slice(mi, mi + self.measure_range, pre=n_pre, n_seq=self.n_seq_midi, aug_time_index=np.random.randint(0x1000000))[:self.n_seq_midi]
 				n_event = len(events)
 				if n_event == 0:
 					continue

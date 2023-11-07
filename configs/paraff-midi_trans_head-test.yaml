@@ -8,6 +8,7 @@ data:
   batch_size:                 2
   args:
     head_measure_only:        True
+    measure_range:            16
     n_seq_word:               32
     n_seq_midi:               512
     seq_tail_padding:         0
@@ -58,6 +59,23 @@ model:
       D32:                  2
       D64:                  2
       Dot:                  2
+      K0:                   2
+      K1:                   2
+      K2:                   2
+      K3:                   2
+      K4:                   2
+      K5:                   2
+      K6:                   2
+      K_1:                  2
+      K_2:                  2
+      K_3:                  2
+      K_4:                  2
+      K_5:                  2
+      K_6:                  2
+      TN2:                  2
+      TN3:                  2
+      TN4:                  2
+      TN6:                  2
 
 
 trainer:
@@ -88,7 +106,7 @@ optim:
 
 onnx:
   multiple:
-    decoder:
+    head:
       model_postfix: Decoder
       inputs:
       - name: type
