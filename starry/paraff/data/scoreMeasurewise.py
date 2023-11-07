@@ -77,7 +77,7 @@ class ScoreMeasurewise (IterableDataset):
 		groups = [group for i, group in enumerate(index['groups']) if i % cycle in phases]
 		#print('groups:', len(groups))
 		self.paragraphs = [paragraph for paragraph in index['paragraphs'] if paragraph['group'] in groups and measurewise.isfile(f'{paragraph["name"]}.measurewise.json.pkl')]
-		self.n_measure = sum(paragraph['sentenceRange'][1] - paragraph['sentenceRange'][0] for paragraph in self.paragraphs)
+		self.n_measure = len(self.paragraphs) if self.head_measure_only else sum(paragraph['sentenceRange'][1] - paragraph['sentenceRange'][0] for paragraph in self.paragraphs)
 
 		paraff_path = os.path.join(os.path.dirname(root), index['paraff'])
 		self.measure = self.loadMeasures(paraff_path, n_seq_word, None)
