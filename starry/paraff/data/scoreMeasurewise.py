@@ -151,7 +151,7 @@ class ScoreMeasurewise (IterableDataset):
 				if n_event == 0:
 					continue
 
-				if self.head_measure_only and mi > 0 and n_event < self.n_seq_midi // 2:
+				if self.head_measure_only and mi > 0 and n_event < self.n_seq_midi // 4:
 					break
 
 				padding = [0] * (self.n_seq_midi - len(events))
