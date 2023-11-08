@@ -19,7 +19,8 @@ class ParaffViewer:
 
 	def __init__ (self, config, show_latent=False, show_graph=False):
 		if config['_vocab'] is not None:
-			self.vocab = config['_vocab'].split(',')
+			if type(self.vocab) == 'str':
+				self.vocab = config['_vocab'].split(',')
 		self.show_latent = show_latent
 		self.show_graph = show_graph
 
