@@ -163,4 +163,5 @@ onnx:
         shape:  *sz512
       opset: 14
       outputs:
+      - logits
       - out_consumption
