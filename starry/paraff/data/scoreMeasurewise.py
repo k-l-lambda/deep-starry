@@ -14,6 +14,7 @@ from ...utils.parsers import parseFilterStr, mergeArgs
 from ...melody.measurewiseMIDI import NOTE_MIN, NOTE_MAX
 from ...melody.data.measurewise import normalFactor
 from .paragraph import MeasureLibrary
+from ..vocab import ID_W
 
 
 
@@ -151,8 +152,13 @@ class ScoreMeasurewise (IterableDataset):
 				if n_event == 0:
 					continue
 
-				if self.head_measure_only and mi > 0 and n_event < self.n_seq_midi // 4:
-					break
+				if self.head_measure_only and mi > 0:
+					if n_event < self.n_seq_midi // 4:
+						break
+
+					# exclude most examples with timewarp words
+					if (ID_W in output_id) and np.random.rand() > 0.04:
+						continue
 
 				padding = [0] * (self.n_seq_midi - len(events))
 
