@@ -16,11 +16,16 @@ data:
     stem_amplitude:
       mu:                   5.4
       sigma:                2
+    grace_amplitude:
+      mean:                 0.1
+      sigma:                1
     time8th_drop:           0.2
     event_drop:             0.04
   args_variant:
     1:
       stability_base:       1000
+      stem_amplitude:       ~
+      grace_amplitude:      ~
       event_drop:           0
 
 

@@ -44,7 +44,7 @@ class EventCluster (IterableDataset):
 		return cls.loadPackage(url, args, splits, device, args_variant=args_variant)
 
 
-	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None,
+	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None, grace_amplitude=None,
 		chaos_exp=-1, chaos_flip=False, batch_slice=None, use_cache=True, with_beading=False, time8th_drop=0, event_drop=0):
 		self.package = package
 		self.entries = entries
@@ -56,6 +56,7 @@ class EventCluster (IterableDataset):
 		self.chaos_flip = chaos_flip
 		self.position_drift = position_drift
 		self.stem_amplitude = stem_amplitude
+		self.grace_amplitude = grace_amplitude
 		self.batch_slice = batch_slice
 		self.with_beading = with_beading
 		self.time8th_drop = time8th_drop
@@ -136,6 +137,11 @@ class EventCluster (IterableDataset):
 		if self.stem_amplitude:
 			power = torch.randn((batch_size, 1, 1), device=self.device) * self.stem_amplitude['sigma'] + self.stem_amplitude['mu']
 			feature[:, :, 12:14] *= torch.exp(power)
+
+		if self.grace_amplitude:
+			error_threshold = self.grace_amplitude['mean'] * np.exp(np.random.randn() * self.grace_amplitude['sigma'])
+			grace_error = torch.rand(*feature[:, :, 14].shape, device=self.device) < error_threshold
+			feature[:, :, 14][grace_error] = torch.randn_like(feature[:, :, 14][grace_error]).exp()
 
 		# augment for position
 		x = tensors['x'][:batch_size]
