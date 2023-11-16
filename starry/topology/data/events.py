@@ -298,10 +298,15 @@ def preprocessDataset (source_dir, target_path, n_augment=64, index0=False):
 
 					length = sum(map(lambda t: t.nelement(), tensors.values())) * 4
 
+					weight = 1
+					if 'annotation' in cluster:
+						weight = 100 if cluster['annotation'].get('patched') else 4
+
 					example_infos.append({
 						'filename': target_filename,
 						'group': id,
 						'length': length,	# in bytes
+						'weight': weight,
 					})
 
 					ci += 1

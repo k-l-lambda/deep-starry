@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.11.16
+
+	+	topology/data/events.py: added example weight for annotated clusters.
+
+
 2023.11.7
 
 	+	scoreMeasurewise.py: added option of head_measure_only.
