@@ -265,10 +265,14 @@ def preprocessDataset (source_dir, target_path, n_augment=64, index0=False):
 
 	file_list = [name for name in source.listdir('/') if source.isfile(name)]
 
+	# append files in sub direcotries
+	subdirs = [name for name in source.listdir('/') if source.isdir(name)]
+	for dir in subdirs:
+		file_list += [f'{dir}/{name}' for name in source.listdir(dir) if source.isfile(f'{dir}/{name}')]
+
 	identifier = lambda name: SCORE_ID.match(name).group(1)
 
-	#id_map = dict(map(lambda name: (name, identifier(name)), file_list))
-	id_map = {name: identifier(name) for name in file_list}
+	id_map = {name: identifier(name.split('/').pop()) for name in file_list}
 	ids = list(set(id_map.values()))
 	ids.sort()
 
