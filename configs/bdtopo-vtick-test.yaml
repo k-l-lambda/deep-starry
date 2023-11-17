@@ -24,6 +24,7 @@ data:
     event_drop:             0.04
   args_variant:
     1:
+      sampling_by_weights:  False
       stability_base:       1000
       stem_amplitude:       ~
       grace_amplitude:      ~
