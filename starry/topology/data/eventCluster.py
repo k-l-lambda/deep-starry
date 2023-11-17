@@ -45,7 +45,7 @@ class EventCluster (IterableDataset):
 
 
 	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None, grace_amplitude=None,
-		chaos_exp=-1, chaos_flip=False, batch_slice=None, use_cache=True, with_beading=False, time8th_drop=0, event_drop=0):
+		chaos_exp=-1, chaos_flip=False, batch_slice=None, use_cache=True, with_beading=False, time8th_drop=0, event_drop=0, sampling_by_weights=False):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -61,6 +61,7 @@ class EventCluster (IterableDataset):
 		self.with_beading = with_beading
 		self.time8th_drop = time8th_drop
 		self.event_drop = event_drop
+		self.sampling_by_weights = sampling_by_weights
 
 		self.entry_cache = {} if use_cache else None
 
@@ -93,8 +94,18 @@ class EventCluster (IterableDataset):
 			torch.manual_seed(0)
 			np.random.seed(len(self.entries))
 
-		for entry in self.entries:
-			yield self.readEntry(entry['filename'])
+		if self.sampling_by_weights:
+			entry_weights = torch.tensor([entry['weight'] for entry in self.entries], dtype=torch.float32)
+			indices = torch.multinomial(entry_weights, len(self.entries), replacement=True).tolist()
+
+			for index in indices:
+				entry = self.entries[index]
+				#print('entry:', entry['weight'], entry['filename'])
+
+				yield self.readEntry(entry['filename'])
+		else:
+			for entry in self.entries:
+				yield self.readEntry(entry['filename'])
 
 
 	def collateBatch (self, batch):

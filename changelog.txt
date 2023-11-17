@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.11.17
+
+	+	topology/data/eventCluster.py: option of sampling_by_weights added.
+
+
 2023.11.16
 
 	+	topology/data/events.py: append files in sub direcotries.
