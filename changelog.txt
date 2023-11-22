@@ -5,6 +5,11 @@ TODO:
 
 
 
+2023.11.22
+
+	+	topology/data/events.py: load pkl files for append mode.
+
+
 2023.11.17
 
 	+	topology/data/eventCluster.py: option of sampling_by_weights added.

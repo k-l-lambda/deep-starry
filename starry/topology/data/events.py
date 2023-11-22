@@ -254,14 +254,17 @@ def preprocessDataset (source_dir, target_path, n_augment=64, index0=False):
 	if appendMode:
 		logging.info('Appending to archive %s', target_path)
 		archive = open_fs(f'zip://{target_path}')
-		with archive.open('index0.yaml') as index_file:
-			archive_info = yaml.safe_load(index_file)
-			logging.info('Appending to exist archive: %d examples, %s groups.', len(archive_info['examples']), len(archive_info['groups']))
+		if archive.isfile('index0.yaml'):
+			with archive.open('index0.yaml') as index_file:
+				archive_info = yaml.safe_load(index_file)
+				logging.info('Appending to exist archive: %d examples, %s groups.', len(archive_info['examples']), len(archive_info['groups']))
 		archive.close()
 		#delete_from_zip_file(target_path, pattern='index.yaml')
 
 	source = open_fs(source_dir)
 	target = ZipFile(target_path, 'a' if appendMode else 'w', compression=ZIP_STORED)
+
+	target_filelist = target.namelist()
 
 	file_list = [name for name in source.listdir('/') if source.isfile(name)]
 
@@ -293,12 +296,14 @@ def preprocessDataset (source_dir, target_path, n_augment=64, index0=False):
 						continue
 
 					target_filename = f'{id}-{ci}.pkl'
-
-					tensors = exampleToTensorsAugment(cluster, n_augment)
-					if not validateTensors(tensors):
-						logging.info('invalid cluster:, %s, [%d]', target_filename, cluster['index'])
-						continue
-					target.writestr(target_filename, pickle.dumps(tensors))
+					if target_filename in target_filelist:
+						tensors = pickle.loads(target.read(target_filename))
+					else:
+						tensors = exampleToTensorsAugment(cluster, n_augment)
+						if not validateTensors(tensors):
+							logging.info('invalid cluster:, %s, [%d]', target_filename, cluster['index'])
+							continue
+						target.writestr(target_filename, pickle.dumps(tensors))
 
 					length = sum(map(lambda t: t.nelement(), tensors.values())) * 4
 
