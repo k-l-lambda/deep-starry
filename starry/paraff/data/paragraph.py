@@ -24,7 +24,7 @@ class MeasureLibrary:
 
 		padding_zeros = [0] * (n_seq + 1 - paraff.sentence_align_size)
 		sentences = [s + padding_zeros for s in paraff.sentences]
-		self.entries = torch.tensor(sentences, dtype=torch.uint8)
+		self.entries = torch.tensor(sentences, dtype=torch.uint8)[:, :n_seq]
 
 		file.close()
 
