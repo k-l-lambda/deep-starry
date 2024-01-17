@@ -44,15 +44,19 @@ class MidiseqEmbed (IterableDataset):
 		paraff_path = root + '.paraff'
 		midiseq_path = root + '.midiseq.pkl'
 
-		self.measure = self.loadMeasures(paraff_path, n_seq_paraff, paraff_encoder)
-
 		self.midiseq = pickle.load(open(midiseq_path, 'rb'))
+
+		phases, cycle = parseFilterStr(split)
+		scoreIndices = list(map(int, self.midiseq['scoreIndices']))
+		startidx, endidx = scoreIndices[:-1], scoreIndices[1:]
+		self.spans = [span for i, span in enumerate(zip(startidx, endidx)) if i % cycle in phases]
+
+		self.measure = self.loadMeasures(paraff_path, n_seq_paraff, paraff_encoder)
 
 
 	def __len__ (self):
-		# TODO:
-		return self.measure.entries.shape[0]
-	
+		return sum([span[1] - span[0] for span in self.spans])
+
 
 	def __iter__ (self):
 		pass
