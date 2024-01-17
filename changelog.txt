@@ -5,6 +5,11 @@ TODO:
 
 
 
+2024.1.17
+
+	+	paraff/data/midiseqEmbed.py created.
+
+
 2023.11.7
 
 	+	scoreMeasurewise.py: added option of head_measure_only.
