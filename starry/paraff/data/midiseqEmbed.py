@@ -1,6 +1,7 @@
 
 import os
 import dill as pickle
+import numpy as np
 import torch
 from torch.utils.data import IterableDataset
 
@@ -41,6 +42,9 @@ class MidiseqEmbed (IterableDataset):
 	def __init__ (self, root, split, device, shuffle, n_seq_paraff=256, paraff_encoder=None, **_):
 		super().__init__()
 
+		self.device = device
+		self.shuffle = shuffle
+
 		paraff_path = root + '.paraff'
 		midiseq_path = root + '.midiseq.pkl'
 
@@ -59,8 +63,37 @@ class MidiseqEmbed (IterableDataset):
 
 
 	def __iter__ (self):
-		pass
+		if self.shuffle:
+			np.random.shuffle(self.spans)
+		else:
+			torch.manual_seed(0)
+			np.random.seed(1)
+
+		for span in self.spans:
+			sidx, eidx = span
+			for idx in range(sidx, eidx):
+				summary = self.measure.entries[idx]
+				seq = list(map(int, self.midiseq['seqs'][idx]))
+
+				yield summary, seq
 
 
 	def collateBatch (self, batch):
-		pass
+		def extract (i, padding=False, dtype=None):
+			tensors = [ex[i] for ex in batch]
+			if padding:
+				n_seq = max([len(t) for t in tensors])
+				tensor = torch.zeros(len(batch), n_seq, dtype=dtype)
+				for i, t in enumerate(tensors):
+					tensor[i, :len(t)] = torch.tensor(t, dtype=dtype)
+
+				return tensor.to(self.device)
+
+			return torch.stack(tensors, axis=0).to(self.device)
+
+		summary, seq = extract(0), extract(1, padding=True, dtype=torch.long)
+
+		return dict(
+			summary=summary,
+			seq=seq,
+		)
