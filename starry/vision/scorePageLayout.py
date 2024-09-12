@@ -288,6 +288,8 @@ class PageLayout:
 			for ssi, rho in enumerate(area['staves']['middleRhos']):
 				map_x = np.tile(np.arange(staff_size[0], dtype=np.float32), (staff_size[1], 1)) / unit_scaling
 				map_y = (np.tile(np.arange(staff_size[1], dtype=np.float32), (staff_size[0], 1)).T - staff_size[1] / 2) / unit_scaling + rho
+				map_x, map_y = map_x.astype(np.float32), map_y.astype(np.float32) # map_y sometimes is float64
+
 				staff_image = cv2.remap(system_image, map_x, map_y, cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
 
 				hash = None
@@ -408,7 +410,7 @@ class PageLayout:
 
 		avg_theta = sum(map(lambda line: line[0][1], lines)) / len(lines)
 
-		return avg_theta - np.pi / 2
+		return float(avg_theta - np.pi / 2)
 
 
 	@staticmethod

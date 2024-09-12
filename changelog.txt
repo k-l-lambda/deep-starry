@@ -5,6 +5,11 @@ TODO:
 
 
 
+2024.9.12
+
+	>	scorePageLayout.py: fixed 2 numpy type errors.
+
+
 2023.11.22
 
 	+	topology/data/events.py: load pkl files for append mode.
