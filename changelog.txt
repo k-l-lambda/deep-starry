@@ -5,6 +5,11 @@ TODO:
 
 
 
+2024.11.6
+
+	+	utils/trainer.py: added support of epoch size.
+
+
 2024.1.17
 
 	+	paraff/data/midiseqEmbed.py created.

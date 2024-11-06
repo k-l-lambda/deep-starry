@@ -27,6 +27,20 @@ def stat_average (data, n_batch):
 	return dict([(k, v / n_batch) for k, v in data.items()])
 
 
+def infiniteTraverse (dataset):
+	while True:
+		for batch in dataset:
+			yield batch
+
+def finiteTraverse (iter, n_iteration):
+	i = 0
+	while i < n_iteration:
+		batch = next(iter)
+		i += 1
+
+		yield batch
+
+
 class Moniter:
 	def __init__ (self, field='loss', mode='min', best_value=None):
 		self.field = field
@@ -138,8 +152,15 @@ class Trainer:
 			self.config.save()
 
 			# training
+			epoch_data = training_data
+			n_steps = len(training_data) // self.config['data.batch_size']
+			if 'epoch_size' in self.options:
+				data_it = infiniteTraverse(training_data)
+				n_steps = self.options['epoch_size'] // self.config['data.batch_size']
+				epoch_data = finiteTraverse(data_it, n_steps)
+
 			start = time.time()
-			train_loss, train_metric = self.train_epoch(training_data)
+			train_loss, train_metric = self.train_epoch(epoch_data, n_steps=n_steps)
 			#train_ppl = math.exp(min(train_loss, 100))
 
 			# Current learning rate
@@ -165,12 +186,12 @@ class Trainer:
 			self.reportScalars(scalars, report_step)
 
 
-	def train_epoch (self, dataset):
+	def train_epoch (self, dataset, n_steps=None):
 		self.model.train()
 		total_loss, n_batch = 0, 0
 		metric_data = {}
 
-		for batch in tqdm(dataset, mininterval=2, desc='  - (Training)   ', leave=False):
+		for batch in tqdm(dataset, total=n_steps, mininterval=2, desc='  - (Training)   ', leave=False):
 			# forward
 			self.optimizer.zero_grad()
 			loss, metric = self.model(batch)

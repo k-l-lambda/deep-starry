@@ -13,7 +13,7 @@ from datetime import timedelta
 
 from .optim import optim
 from .model_factory import loadModel
-from .trainer import Moniter, print_metric, stat_average
+from .trainer import Moniter, print_metric, stat_average, infiniteTraverse, finiteTraverse
 from .dataset_factory import loadDataset
 
 
@@ -138,7 +138,7 @@ class Trainer:
 			#self.model.requires_grad_(False)
 			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 
-		data_it = self.infiniteTraverse(data)
+		data_it = infiniteTraverse(data)
 
 		need_states = hasattr(self.model, 'need_states')
 
@@ -156,9 +156,10 @@ class Trainer:
 			self.model.train()
 			total_loss, n_batch = 0, 0
 			metric_data = {}
+			n_steps = self.options['epoch_size'] // self.config['data.batch_size']
 
-			for batch in tqdm(self.finiteTraverse(data_it, self.options['epoch_size']), mininterval=1, leave=False,
-				total=self.options['epoch_size'] // self.config['data.batch_size'], desc='  - (Training)   ', position=self.rank):
+			for batch in tqdm(finiteTraverse(data_it, n_steps), mininterval=1, leave=False,
+				total=n_steps, desc='  - (Training)   ', position=self.rank):
 				# forward
 				self.optimizer.zero_grad()
 				loss, metric = self.model(batch)
@@ -309,21 +310,6 @@ class Trainer:
 				report_step_unit = self.options.get('report_step_unit')
 				report_step = self.exampleN if report_step_unit == 'examples' else epoch_i
 				self.reportScalars(scalars, report_step)
-
-
-	def infiniteTraverse (self, dataset):
-		while True:
-			for batch in dataset:
-				yield batch
-
-
-	def finiteTraverse (self, iter, count):
-		i = 0
-		while i < count:
-			batch = next(iter)
-			i += self.config['data.batch_size']
-
-			yield batch
 
 
 	def loadCheckpoint (self, filename):
