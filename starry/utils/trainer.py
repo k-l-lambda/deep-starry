@@ -106,7 +106,7 @@ class Trainer:
 			print('  - {header:12} loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
 				.format(header=f"({header})", loss=loss, metric=print_metric(metric), elapse=(time.time()-start_time)/60, lr=lr))
 
-		report_step = 0
+		report_step = self.options.get('steps', 0) * self.config['data.batch_size'] if report_step_unit == 'examples' else self.start_epoch
 		checkpoint = None
 		for epoch_i in range(self.start_epoch, self.options['epoch']):
 			logging.info(f'[Epoch {epoch_i}]')

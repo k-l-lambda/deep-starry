@@ -5,6 +5,11 @@ TODO:
 
 
 
+2024.11.8
+
+	>	utils/trainer.py: fixed initial report_step.
+
+
 2024.11.6
 
 	+	utils/trainer.py: added support of epoch size.
