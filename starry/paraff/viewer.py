@@ -19,7 +19,7 @@ class ParaffViewer:
 
 	def __init__ (self, config, show_latent=False, show_graph=False):
 		if config['_vocab'] is not None:
-			if type(self.vocab) == 'str':
+			if type(config['_vocab']) == str:
 				self.vocab = config['_vocab'].split(',')
 		self.show_latent = show_latent
 		self.show_graph = show_graph
@@ -31,6 +31,7 @@ class ParaffViewer:
 		for i, batch in enumerate(data):
 			logging.info('batch: %d', i)
 
+			#print(f'{batch=}')
 			if self.show_graph:
 				body_mask = batch['body_mask'][0]
 				ids = batch['output_ids'][0][body_mask]
