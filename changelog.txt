@@ -7,6 +7,8 @@ TODO:
 
 2024.11.13
 
+	>	utils/trainer.py: fixed data iterator for finiteTraverse.
+
 	+	paraff/models/seqShareVAELlama.py created.
 
 

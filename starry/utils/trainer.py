@@ -106,8 +106,16 @@ class Trainer:
 			print('  - {header:12} loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
 				.format(header=f"({header})", loss=loss, metric=print_metric(metric), elapse=(time.time()-start_time)/60, lr=lr))
 
+		report_step_unit = self.options.get('report_step_unit')
 		report_step = self.options.get('steps', 0) * self.config['data.batch_size'] if report_step_unit == 'examples' else self.start_epoch
 		checkpoint = None
+
+		epoch_data = training_data
+		n_steps = len(training_data)
+		if 'epoch_size' in self.options:
+			data_it = infiniteTraverse(training_data)
+			n_steps = self.options['epoch_size'] // self.config['data.batch_size']
+
 		for epoch_i in range(self.start_epoch, self.options['epoch']):
 			logging.info(f'[Epoch {epoch_i}]')
 
@@ -152,11 +160,7 @@ class Trainer:
 			self.config.save()
 
 			# training
-			epoch_data = training_data
-			n_steps = len(training_data) // self.config['data.batch_size']
 			if 'epoch_size' in self.options:
-				data_it = infiniteTraverse(training_data)
-				n_steps = self.options['epoch_size'] // self.config['data.batch_size']
 				epoch_data = finiteTraverse(data_it, n_steps)
 
 			start = time.time()
@@ -181,7 +185,6 @@ class Trainer:
 				'learning_rate': lr,
 				**train_metric,
 			}
-			report_step_unit = self.options.get('report_step_unit')
 			report_step = self.optimizer.n_steps * self.config['data.batch_size'] if report_step_unit == 'examples' else epoch_i
 			self.reportScalars(scalars, report_step)
 
