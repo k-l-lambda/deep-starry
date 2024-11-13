@@ -39,6 +39,7 @@ def registerModels ():
 		pm.SeqvaeLoss, pm.SeqvaeEncoderJit,
 		pm.SparseAE, pm.SparseAELoss,
 		pm.SeqShareVAE, pm.SeqShareVAELoss, pm.SeqShareVAEJitEnc, pm.SeqShareVAEJitDec,
+		pm.SeqShareVAELlama, pm.SeqShareVAELlamaLoss,
 		pm.PhaseGen, pm.PhaseGenLoss, pm.PhaseGenDecoder, pm.PhaseGenDecoderLora,
 		pm.PhasePre, pm.PhasePreLoss,
 		pm.SeqDecoderBase, pm.SeqDecoderBaseLoss,

@@ -5,6 +5,11 @@ TODO:
 
 
 
+2024.11.13
+
+	+	paraff/models/seqShareVAELlama.py created.
+
+
 2024.11.8
 
 	>	utils/trainer.py: fixed initial report_step.
