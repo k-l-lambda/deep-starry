@@ -21,20 +21,17 @@ data:
 
 
 model:
-  type:                     SeqShareVAE
+  type:                     SeqShareVAELlama
   args:
     n_vocab:                153
     d_latent:               256
     pad_id:                 0
     summary_id:             1
     finale_id:              5
-    n_seq_max:              512
     d_model:                256
     d_inner:                1024
     n_layers:               4
     n_head:                 8
-    d_k:                    32
-    d_v:                    32
     dropout:                0.1
     kld_weight:             1.e-6
     mask_dropout:           0.3
@@ -63,34 +60,3 @@ optim:
       lr_mul:               1
       n_warmup_steps:       6400
       d_model:              256
-
-
-onnx:
-  multiple:
-    enc128:
-      model_postfix: JitEnc
-      inputs:
-      - name: seq
-        dtype: int8
-        shape: [1, 128]
-      - name: sigma
-        dtype: float32
-        shape: [1]
-      opset: 14
-      outputs:
-      - latent
-    dec128:
-      model_postfix: JitDec
-      inputs:
-      - name: seq
-        dtype: int8
-        shape: [1, 128]
-      - name: latent
-        dtype: float32
-        shape: [1, 256]
-      - name: mask
-        dtype: bool
-        shape: [1, 128]
-      opset: 14
-      outputs:
-      - logit

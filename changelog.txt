@@ -5,9 +5,31 @@ TODO:
 
 
 
+2024.11.13
+
+	>	utils/trainer.py: fixed data iterator for finiteTraverse.
+
+	+	paraff/models/seqShareVAELlama.py created.
+
+
+2024.11.8
+
+	>	utils/trainer.py: fixed initial report_step.
+
+
+2024.11.6
+
+	+	utils/trainer.py: added support of epoch size.
+
+
 2024.9.12
 
 	>	scorePageLayout.py: fixed 2 numpy type errors.
+
+
+2024.1.17
+
+	+	paraff/data/midiseqEmbed.py created.
 
 
 2023.11.22

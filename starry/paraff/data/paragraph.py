@@ -24,7 +24,7 @@ class MeasureLibrary:
 
 		padding_zeros = [0] * (n_seq + 1 - paraff.sentence_align_size)
 		sentences = [s + padding_zeros for s in paraff.sentences]
-		self.entries = torch.tensor(sentences, dtype=torch.uint8)
+		self.entries = torch.tensor(sentences, dtype=torch.uint8)[:, :n_seq]
 
 		file.close()
 
@@ -42,6 +42,8 @@ class MeasureLibrary:
 						z = torch.randn(batch_size, 256)
 					else:
 						z = encoder(es, sigma).cpu()
+						if es.shape[0] < batch_size:
+							z = F.pad(z, (0, 0, 0, batch_size - es.shape[0]), 'constant', value=0)
 					codes.append(z)
 
 			self.summaries = torch.cat(codes, dim=0)

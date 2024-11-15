@@ -1,0 +1,15 @@
+
+id:     paraff/{date}-{filename}
+
+
+data:
+  type:                     MidiseqEmbed
+  root:                     writer-20231004
+  splits:                   '0/1'
+  batch_size:               2
+  args:
+    n_seq_paraff:           256
+    paraff_encoder:
+      batch_size:           4
+      device:               cpu
+      weight:               ./training/paraff/20231023-paraff-vae-shared-1005-d256-l4/model_803_loss_2.880e-02.pt
