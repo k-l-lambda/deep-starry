@@ -1,9 +1,12 @@
 
 import yaml
+import os
 
 
 
-SEMANTIC_TABLE = yaml.safe_load(open('./assets/timewiseSemantics.yaml', 'r'))
+PROJECT_DIR = os.path.join(os.path.dirname(__file__), '../..')
+
+SEMANTIC_TABLE = yaml.safe_load(open(os.path.join(PROJECT_DIR, './assets/timewiseSemantics.yaml'), 'r'))
 
 SEMANTIC_MAX = len(SEMANTIC_TABLE)
 
