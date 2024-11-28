@@ -5,6 +5,12 @@ TODO:
 
 
 
+2024.11.28
+
+	+	paraff/preprocessMidiseq.py created.
+	+	paraff/midiseq.py created.
+
+
 2024.11.13
 
 	>	utils/trainer.py: fixed data iterator for finiteTraverse.

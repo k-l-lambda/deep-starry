@@ -46,7 +46,7 @@ class MidiseqEmbed (IterableDataset):
 		self.shuffle = shuffle
 
 		paraff_path = root + '.paraff'
-		midiseq_path = root + '.midiseq.pkl'
+		midiseq_path = root + '.pkl'
 
 		self.midiseq = pickle.load(open(midiseq_path, 'rb'))
 
