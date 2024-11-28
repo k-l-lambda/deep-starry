@@ -9,6 +9,13 @@ from starry.paraff.midiseq import packMidiseqYaml, summaryMeasures
 
 
 
+'''
+File name rules:
+	base.midiseq.yaml	-> base.midiseq.pkl
+	base-midiseq.paraff	-> base-midiseq-measures.pt
+'''
+
+
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
 
@@ -28,7 +35,7 @@ def main ():
 
 	encoder_config = config['data.args.paraff_encoder']
 	n_seq = config['data.args.n_seq_paraff']
-	summaryMeasures(source_base + '.midiseq.paraff', n_seq, encoder_config)
+	summaryMeasures(source_base + '-midiseq.paraff', n_seq, encoder_config)
 
 
 	logging.info('Done.')
