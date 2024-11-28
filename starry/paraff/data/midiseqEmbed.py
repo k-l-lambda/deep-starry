@@ -43,7 +43,7 @@ class MidiseqEmbed (IterableDataset):
 		return cls.measure_lib[paraff_path]
 
 
-	def __init__ (self, root, split, device, shuffle, n_seq_paraff=256, **_):
+	def __init__ (self, root, split, device, shuffle, n_seq_paraff=256, blend_p=0, blend_length_sigma=0.2, **_):
 		super().__init__()
 
 		self.device = device
@@ -60,6 +60,9 @@ class MidiseqEmbed (IterableDataset):
 		self.spans = [span for i, span in enumerate(zip(startidx, endidx)) if i % cycle in phases]
 
 		self.measure = self.loadMeasures(paraff_path, n_seq_paraff, root, self.device)
+
+		self.blend_p = blend_p
+		self.blend_length_sigma = blend_length_sigma
 
 
 	def __len__ (self):
@@ -79,7 +82,31 @@ class MidiseqEmbed (IterableDataset):
 				summary = self.measure.summaries[idx]
 				seq = self.midiseq['seqs'][idx]
 
-				yield summary, seq
+				if idx < eidx - 1 and self.blend_p > 0 and np.random.rand() < self.blend_p:
+					next_summary = self.measure.summaries[idx + 1]
+					next_seq = self.midiseq['seqs'][idx + 1]
+
+					k = np.random.rand()
+					k1 = min(1, k * np.exp(np.random.randn() * self.blend_length_sigma))
+					k2 = min(1, (1 - k) * np.exp(np.random.randn() * self.blend_length_sigma))
+					print(f'{k1=}, {k2=}')
+
+					seq1, seq2 = np.array(seq), np.array(next_seq)
+					seq1, seq2 = seq1[seq1 != 0], seq2[seq2 != 0]
+
+					n_seq1 = max(1, int(len(seq1) * k1))
+					n_seq2 = max(1, int(len(seq2) * k2))
+					print(f'{n_seq1=}, {n_seq2=}')
+
+					seq_cat = np.concatenate([seq1[-n_seq1:], seq2[:n_seq2]])
+					blend_seq = np.zeros_like(seq)
+					blend_seq[:len(seq_cat)] = seq_cat[:len(blend_seq)]
+
+					blend_summary = summary * k1 + next_summary * k2
+
+					yield blend_summary, blend_seq.tolist()
+				else:
+					yield summary, seq
 
 
 	def collateBatch (self, batch):

@@ -14,3 +14,7 @@ data:
       batch_size:           4
       device:               cpu
       weight:               ./training/paraff/20231023-paraff-vae-shared-1005-d256-l4/model_803_loss_2.880e-02.pt
+
+    # neighbor measure blending
+    blend_p:                0.4
+    blend_length_sigma:     0.2

@@ -7,6 +7,8 @@ TODO:
 
 2024.11.28
 
+	+	paraff/data/midiseqEmbed.py: measure blending added.
+
 	+	paraff/data/midiseqEmbed.py: load measure summaries from .pt file.
 
 	+	paraff/preprocessMidiseq.py created.
