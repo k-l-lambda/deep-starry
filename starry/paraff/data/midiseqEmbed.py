@@ -30,24 +30,27 @@ class MidiseqEmbed (IterableDataset):
 
 
 	@classmethod
-	def loadMeasures (cls, paraff_path, n_seq, encoder_config=None):
+	def loadMeasures (cls, paraff_path, n_seq, root, device):
 		if paraff_path in cls.measure_lib:
 			return cls.measure_lib[paraff_path]
 
+		summaries_path = root + '-midiseq-measures.pt'
+		summaries = torch.load(summaries_path, map_location=device)
+
 		with open(paraff_path, 'rb') as paraff_file:
-			cls.measure_lib[paraff_path] = MeasureLibrary(paraff_file, n_seq, encoder_config=encoder_config)
+			cls.measure_lib[paraff_path] = MeasureLibrary(paraff_file, n_seq, summaries)
 
 		return cls.measure_lib[paraff_path]
 
 
-	def __init__ (self, root, split, device, shuffle, n_seq_paraff=256, paraff_encoder=None, **_):
+	def __init__ (self, root, split, device, shuffle, n_seq_paraff=256, **_):
 		super().__init__()
 
 		self.device = device
 		self.shuffle = shuffle
 
-		paraff_path = root + '.paraff'
-		midiseq_path = root + '.pkl'
+		paraff_path = root + '-midiseq.paraff'
+		midiseq_path = root + '.midiseq.pkl'
 
 		self.midiseq = pickle.load(open(midiseq_path, 'rb'))
 
@@ -56,7 +59,7 @@ class MidiseqEmbed (IterableDataset):
 		startidx, endidx = scoreIndices[:-1], scoreIndices[1:]
 		self.spans = [span for i, span in enumerate(zip(startidx, endidx)) if i % cycle in phases]
 
-		self.measure = self.loadMeasures(paraff_path, n_seq_paraff, paraff_encoder)
+		self.measure = self.loadMeasures(paraff_path, n_seq_paraff, root, self.device)
 
 
 	def __len__ (self):
@@ -73,8 +76,8 @@ class MidiseqEmbed (IterableDataset):
 		for span in self.spans:
 			sidx, eidx = span
 			for idx in range(sidx, eidx):
-				summary = self.measure.entries[idx]
-				seq = list(map(int, self.midiseq['seqs'][idx]))
+				summary = self.measure.summaries[idx]
+				seq = self.midiseq['seqs'][idx]
 
 				yield summary, seq
 

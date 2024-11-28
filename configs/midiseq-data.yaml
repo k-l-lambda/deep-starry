@@ -9,6 +9,7 @@ data:
   batch_size:               2
   args:
     n_seq_paraff:           256
+    # for preprocess only
     paraff_encoder:
       batch_size:           4
       device:               cpu
