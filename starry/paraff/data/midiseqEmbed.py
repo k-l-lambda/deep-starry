@@ -34,7 +34,8 @@ class MidiseqEmbed (IterableDataset):
 		if paraff_path in cls.measure_lib:
 			return cls.measure_lib[paraff_path]
 
-		cls.measure_lib[paraff_path] = MeasureLibrary(open(paraff_path, 'rb'), n_seq, encoder_config)
+		with open(paraff_path, 'rb') as paraff_file:
+			cls.measure_lib[paraff_path] = MeasureLibrary(paraff_file, n_seq, encoder_config=encoder_config)
 
 		return cls.measure_lib[paraff_path]
 
