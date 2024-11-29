@@ -96,7 +96,7 @@ class MidiseqEmbed (IterableDataset):
 			sidx, eidx = span
 			for idx in range(sidx, eidx):
 				summary = self.measure.summaries[idx]
-				seq = self.midiseq['seqs'][idx]
+				seq = self.midiseq['seqs'][idx][:self.n_seq_max - 3]
 
 				if idx < eidx - 1 and self.blend_p > 0 and np.random.rand() < self.blend_p:
 					next_summary = self.measure.summaries[idx + 1]
