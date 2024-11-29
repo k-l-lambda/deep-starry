@@ -7,7 +7,22 @@ from torch.utils.data import IterableDataset
 
 from ...utils.parsers import parseFilterStr, mergeArgs
 from .paragraph import MeasureLibrary
+from ..midiseq import T2I
 
+
+
+MSUM = T2I['MSUM']
+BOS = T2I['BOS']
+EOS = T2I['EOS']
+
+
+def wrapSentence (seq):
+	# in causal mask, EOS shouldn't see MSUM
+	wseq = [MSUM, BOS] + seq + [EOS]
+
+	decoding_mask = [1] * (len(wseq) - 1) + [0]
+
+	return wseq, decoding_mask
 
 
 class MidiseqEmbed (IterableDataset):
@@ -30,7 +45,7 @@ class MidiseqEmbed (IterableDataset):
 
 
 	@classmethod
-	def loadMeasures (cls, paraff_path, n_seq, root, device):
+	def loadMeasures (cls, paraff_path, root, device):
 		if paraff_path in cls.measure_lib:
 			return cls.measure_lib[paraff_path]
 
@@ -38,16 +53,17 @@ class MidiseqEmbed (IterableDataset):
 		summaries = torch.load(summaries_path, map_location=device)
 
 		with open(paraff_path, 'rb') as paraff_file:
-			cls.measure_lib[paraff_path] = MeasureLibrary(paraff_file, n_seq, summaries)
+			cls.measure_lib[paraff_path] = MeasureLibrary(paraff_file, summaries=summaries)
 
 		return cls.measure_lib[paraff_path]
 
 
-	def __init__ (self, root, split, device, shuffle, n_seq_paraff=256, blend_p=0, blend_length_sigma=0.2, **_):
+	def __init__ (self, root, split, device, shuffle, blend_p=0, blend_length_sigma=0.2, **_):
 		super().__init__()
 
 		self.device = device
 		self.shuffle = shuffle
+		#self.n_seq = n_seq
 
 		paraff_path = root + '-midiseq.paraff'
 		midiseq_path = root + '.midiseq.pkl'
@@ -59,7 +75,7 @@ class MidiseqEmbed (IterableDataset):
 		startidx, endidx = scoreIndices[:-1], scoreIndices[1:]
 		self.spans = [span for i, span in enumerate(zip(startidx, endidx)) if i % cycle in phases]
 
-		self.measure = self.loadMeasures(paraff_path, n_seq_paraff, root, self.device)
+		self.measure = self.loadMeasures(paraff_path, root, self.device)
 
 		self.blend_p = blend_p
 		self.blend_length_sigma = blend_length_sigma
@@ -89,24 +105,20 @@ class MidiseqEmbed (IterableDataset):
 					k = np.random.rand()
 					k1 = min(1, k * np.exp(np.random.randn() * self.blend_length_sigma))
 					k2 = min(1, (1 - k) * np.exp(np.random.randn() * self.blend_length_sigma))
-					print(f'{k1=}, {k2=}')
+					#print(f'{k1=}, {k2=}')
 
-					seq1, seq2 = np.array(seq), np.array(next_seq)
-					seq1, seq2 = seq1[seq1 != 0], seq2[seq2 != 0]
-
+					seq1, seq2 = seq, next_seq
 					n_seq1 = max(1, int(len(seq1) * k1))
 					n_seq2 = max(1, int(len(seq2) * k2))
-					print(f'{n_seq1=}, {n_seq2=}')
+					#print(f'{n_seq1=}, {n_seq2=}')
 
-					seq_cat = np.concatenate([seq1[-n_seq1:], seq2[:n_seq2]])
-					blend_seq = np.zeros_like(seq)
-					blend_seq[:len(seq_cat)] = seq_cat[:len(blend_seq)]
+					blend_seq = seq1[-n_seq1:] + seq2[:n_seq2]
 
 					blend_summary = summary * k1 + next_summary * k2
 
-					yield blend_summary, blend_seq.tolist()
+					yield blend_summary, *wrapSentence(blend_seq)
 				else:
-					yield summary, seq
+					yield summary, *wrapSentence(seq)
 
 
 	def collateBatch (self, batch):
@@ -122,9 +134,10 @@ class MidiseqEmbed (IterableDataset):
 
 			return torch.stack(tensors, axis=0).to(self.device)
 
-		summary, seq = extract(0), extract(1, padding=True, dtype=torch.long)
+		summary, seq, decoding_mask = extract(0), extract(1, padding=True, dtype=torch.long), extract(2, padding=True, dtype=torch.bool)
 
 		return dict(
 			summary=summary,
 			seq=seq,
+			decoding_mask=decoding_mask,
 		)

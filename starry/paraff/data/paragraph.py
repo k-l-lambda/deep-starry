@@ -18,13 +18,14 @@ PHID_MEASURE = 3
 
 
 class MeasureLibrary:
-	def __init__(self, file, n_seq, summaries=None, encoder_config=None, semantic_tensors=None):
+	def __init__(self, file, n_seq=0, summaries=None, encoder_config=None, semantic_tensors=None):
 		paraff = ParaffFile(file)
 		self.tokens = paraff.tokens
 
-		padding_zeros = [0] * (n_seq + 1 - paraff.sentence_align_size)
-		sentences = [s + padding_zeros for s in paraff.sentences]
-		self.entries = torch.tensor(sentences, dtype=torch.uint8)[:, :n_seq]
+		if n_seq > 0:
+			padding_zeros = [0] * (n_seq + 1 - paraff.sentence_align_size)
+			sentences = [s + padding_zeros for s in paraff.sentences]
+			self.entries = torch.tensor(sentences, dtype=torch.uint8)[:, :n_seq]
 
 		self.summaries = summaries
 		if encoder_config is not None:
