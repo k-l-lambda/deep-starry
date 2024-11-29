@@ -5,6 +5,11 @@ TODO:
 
 
 
+2024.11.29
+
+	+	paraff/model/seqShareSE.py created.
+
+
 2024.11.28
 
 	+	paraff/data/midiseqEmbed.py: measure blending added.
