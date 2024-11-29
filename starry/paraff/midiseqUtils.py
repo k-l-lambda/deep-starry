@@ -10,6 +10,7 @@ from starry.paraff.data.paragraph import MeasureLibrary
 from .midiseq import T2I
 
 
+
 def packMidiseqYaml (source_path, target_path=None):
 	source_base = os.path.splitext(source_path)[0]
 	target_path = target_path or (source_base + '.pkl')
@@ -41,6 +42,7 @@ def packMidiseqYaml (source_path, target_path=None):
 	logging.info('Writing pickle file: %s', target_path)
 	pickle.dump(package, open(target_path, 'wb'))
 
+	logging.info('number of scores: %d', len(scoreIndices) - 1)
 	logging.info('max sentence length: %d', n_seq_max)
 	logging.info('average sentence length: %d', n_id / len(seqs))
 

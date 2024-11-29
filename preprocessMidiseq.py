@@ -10,7 +10,7 @@ from starry.paraff.midiseqUtils import packMidiseqYaml, summaryMeasures
 
 
 '''
-File name rules:
+File naming rules:
 	base.midiseq.yaml	-> base.midiseq.pkl
 	base-midiseq.paraff	-> base-midiseq-measures.pt
 '''
