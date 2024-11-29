@@ -1,5 +1,6 @@
 
 TODO:
+	viewer for midiseq
 	ScoreSemanticValue: unified validation set
 	construct score topology data by semantic predictor
 

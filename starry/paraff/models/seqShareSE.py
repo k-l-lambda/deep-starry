@@ -157,4 +157,12 @@ class SeqShareSELoss (nn.Module):
 			'acc': acc.item(),
 		}
 
+		if not self.training:
+			pred2 = self.decoder(x1, pos, z, mask=decoding_mask1)
+			pred2_flat = pred2[:, 1:][decoding_mask]
+			pred2_ids = torch.argmax(pred2_flat, dim=-1)
+			acc2 = (pred2_ids == target_flat).float().mean()
+
+			metric['acc2'] = acc2.item()
+
 		return loss, metric
