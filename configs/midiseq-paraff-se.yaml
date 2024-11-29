@@ -26,7 +26,7 @@ model:
     d_k:                    32
     d_v:                    32
     dropout:                0.1
-    decode_weight:          1.
+    decode_weight:          0.06
     mask_dropout:           0
 
 
@@ -49,6 +49,6 @@ optim:
   scheduler:
     type:                   InvSqrt
     args:
-      lr_mul:               1
+      lr_mul:               10
       n_warmup_steps:       6400
       d_model:              256

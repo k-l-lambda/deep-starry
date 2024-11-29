@@ -17,7 +17,9 @@ def packMidiseqYaml (source_path, target_path=None):
 	midiseq = yaml.safe_load(open(source_path, 'r'))
 
 	seqs = []
-	scoreIndices = [0]
+
+	scoreIdx = 0
+	scoreIndices = [scoreIdx]
 
 	n_seq_max = 0
 	n_id = 0
@@ -31,7 +33,8 @@ def packMidiseqYaml (source_path, target_path=None):
 		n_id += sum(lens)
 
 		seqs += ids
-		scoreIndices.append(len(ids))
+		scoreIdx += len(ids)
+		scoreIndices.append(scoreIdx)
 
 	package = dict(seqs=seqs, scoreIndices=scoreIndices)
 
