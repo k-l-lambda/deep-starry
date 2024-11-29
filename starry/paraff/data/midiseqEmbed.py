@@ -58,12 +58,12 @@ class MidiseqEmbed (IterableDataset):
 		return cls.measure_lib[paraff_path]
 
 
-	def __init__ (self, root, split, device, shuffle, blend_p=0, blend_length_sigma=0.2, **_):
+	def __init__ (self, root, split, device, shuffle, blend_p=0, blend_length_sigma=0.2, n_seq_max=512, **_):
 		super().__init__()
 
 		self.device = device
 		self.shuffle = shuffle
-		#self.n_seq = n_seq
+		self.n_seq_max = n_seq_max
 
 		paraff_path = root + '-midiseq.paraff'
 		midiseq_path = root + '.midiseq.pkl'
@@ -108,8 +108,8 @@ class MidiseqEmbed (IterableDataset):
 					#print(f'{k1=}, {k2=}')
 
 					seq1, seq2 = seq, next_seq
-					n_seq1 = max(1, int(len(seq1) * k1))
-					n_seq2 = max(1, int(len(seq2) * k2))
+					n_seq1 = min(max(1, int(len(seq1) * k1)), self.n_seq_max - 4)
+					n_seq2 = min(max(1, int(len(seq2) * k2)), self.n_seq_max - 3 - n_seq1)
 					#print(f'{n_seq1=}, {n_seq2=}')
 
 					blend_seq = seq1[-n_seq1:] + seq2[:n_seq2]
