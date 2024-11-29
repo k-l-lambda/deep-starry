@@ -113,6 +113,7 @@ class MidiseqEmbed (IterableDataset):
 					#print(f'{n_seq1=}, {n_seq2=}')
 
 					blend_seq = seq1[-n_seq1:] + seq2[:n_seq2]
+					assert len(blend_seq) <= self.n_seq_max, f'blend_seq out of n_seq_max: {len(blend_seq)}'
 
 					blend_summary = summary * k1 + next_summary * k2
 
