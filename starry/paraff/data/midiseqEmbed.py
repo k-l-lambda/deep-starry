@@ -50,7 +50,7 @@ class MidiseqEmbed (IterableDataset):
 			return cls.measure_lib[paraff_path]
 
 		summaries_path = root + '-midiseq-measures.pt'
-		summaries = torch.load(summaries_path, map_location=device)
+		summaries = torch.load(summaries_path, map_location=device, weights_only=True)
 
 		with open(paraff_path, 'rb') as paraff_file:
 			cls.measure_lib[paraff_path] = MeasureLibrary(paraff_file, summaries=summaries)

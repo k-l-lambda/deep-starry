@@ -31,6 +31,8 @@ def main ():
 	config = Configuration.createOrLoad(args.config)
 
 	source_base = os.path.join(DATA_DIR, config['data.root'])
+	logging.info('Preprocessing data: %s', source_base)
+
 	packMidiseqYaml(source_base + '.midiseq.yaml')
 
 	encoder_config = config['data.args.paraff_encoder']
