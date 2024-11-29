@@ -5,7 +5,7 @@ import argparse
 import logging
 
 from starry.utils.config import Configuration
-from starry.paraff.midiseq import packMidiseqYaml, summaryMeasures
+from starry.paraff.midiseqUtils import packMidiseqYaml, summaryMeasures
 
 
 

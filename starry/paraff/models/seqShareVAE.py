@@ -12,6 +12,9 @@ from .modules import AttentionStack
 
 
 
+# `Share` means encoder & decoder share the common backbone
+
+
 class SeqShareEncoder (nn.Module):
 	def __init__(self, d_model, word_emb, latent_prj_mu, latent_prj_var, position_enc, dropout, layer_norm, attention, pad_id, finale_id):
 		super().__init__()
