@@ -36,11 +36,11 @@ trainer:
   device:                   cuda
   save_mode:                best
   epoch:                    2
-  epoch_size:               64
+  epoch_size:               64  # 65536
   report_step_unit:         examples
   moniter:
-    field:                  loss
-    mode:                   min
+    field:                  cos_angle
+    mode:                   max
 
 optim:
   type:                     Adam
@@ -50,6 +50,6 @@ optim:
   scheduler:
     type:                   InvSqrt
     args:
-      lr_mul:               10
+      lr_mul:               1.
       n_warmup_steps:       6400
       d_model:              256
