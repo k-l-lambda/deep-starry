@@ -62,8 +62,9 @@ class SeqShareSE (nn.Module):
 		super().__init__()
 
 		self.d_model = d_model
-		self.dropout = dropout
+		self.p_dropout = dropout
 		self.mask_dropout = mask_dropout
+		self.pad_id = PAD
 
 		self.word_emb = nn.Embedding(n_vocab, d_model, padding_idx=PAD)
 		self.word_prj = nn.Linear(d_model, n_vocab, bias=False)
@@ -81,13 +82,38 @@ class SeqShareSE (nn.Module):
 	def getEncoder (self) -> SeqShareSEncoder:
 		return SeqShareSEncoder(d_model=self.d_model, word_emb=self.word_emb,
 			latent_prj=self.latent_prj, position_enc=self.position_enc, layer_norm=self.layer_norm,
-			dropout=self.dropout, attention=self.attention, pad_id=PAD, finale_id=EOS)
+			dropout=self.p_dropout, attention=self.attention, pad_id=self.pad_id)
 
 
 	def getDecoder (self) -> SeqShareSDecoder:
 		return SeqShareSDecoder(d_model=self.d_model, word_emb=self.word_emb, word_prj=self.word_prj, latent_emb=self.latent_emb,
-			layer_norm=self.layer_norm, dropout=self.dropout, mask_dropout=self.mask_dropout,
-			attention=self.attention, pad_id=PAD)
+			layer_norm=self.layer_norm, dropout=self.p_dropout, mask_dropout=self.mask_dropout,
+			attention=self.attention, pad_id=self.pad_id)
+
+
+class SeqShareSEJitEnc (SeqShareSE):
+	def __init__ (self, **kw_args):
+		super().__init__(**kw_args)
+
+		self.finale_id = EOS
+
+
+	@torch.inference_mode()
+	def forward (self, seq: torch.Tensor):
+		mask = get_pad_mask(seq, self.pad_id)
+		mask = mask & get_subsequent_mask(seq)
+
+		x = seq.long()
+		x = self.word_emb(x)
+		x *= self.d_model ** 0.5	# scale embedding
+		x = self.position_enc(x)
+		x = self.layer_norm(x)
+		x = self.attention(x, mask)
+
+		finale = x[seq == self.finale_id]	# (n, d_model)
+		latent = self.latent_prj(finale)
+
+		return latent
 
 
 class SeqShareSELoss (nn.Module):

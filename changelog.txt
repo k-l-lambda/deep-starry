@@ -6,6 +6,11 @@ TODO:
 
 
 
+2024.12.3
+
+	+	paraff/model/seqShareSE: model class of SeqShareSEJitEnc added.
+
+
 2024.11.29
 
 	+	paraff/model/seqShareSE.py created.
