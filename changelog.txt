@@ -6,6 +6,11 @@ TODO:
 
 
 
+2024.12.12
+
+	+	paraff/data/midiseqEmbed.py: added option of drop_pedal_p.
+
+
 2024.12.3
 
 	+	paraff/model/seqShareSE: model class of SeqShareSEJitEnc added.

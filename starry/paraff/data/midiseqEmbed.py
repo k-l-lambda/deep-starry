@@ -7,7 +7,7 @@ from torch.utils.data import IterableDataset
 
 from ...utils.parsers import parseFilterStr, mergeArgs
 from .paragraph import MeasureLibrary
-from ..midiseq import T2I
+from ..midiseq import T2I, ID_PEDAL0
 
 
 
@@ -58,7 +58,7 @@ class MidiseqEmbed (IterableDataset):
 		return cls.measure_lib[paraff_path]
 
 
-	def __init__ (self, root, split, device, shuffle, blend_p=0, blend_length_sigma=0.2, n_seq_max=512, **_):
+	def __init__ (self, root, split, device, shuffle, blend_p=0, blend_length_sigma=0.2, n_seq_max=512, drop_pedal_p=0, **_):
 		super().__init__()
 
 		self.device = device
@@ -80,6 +80,8 @@ class MidiseqEmbed (IterableDataset):
 		self.blend_p = blend_p
 		self.blend_length_sigma = blend_length_sigma
 
+		self.drop_pedal_p = drop_pedal_p
+
 
 	def __len__ (self):
 		return sum([span[1] - span[0] for span in self.spans])
@@ -95,12 +97,21 @@ class MidiseqEmbed (IterableDataset):
 		for span in self.spans:
 			sidx, eidx = span
 			for idx in range(sidx, eidx):
+				drop_pedal = np.random.rand() < self.drop_pedal_p
+
 				summary = self.measure.summaries[idx]
 				seq = self.midiseq['seqs'][idx][:self.n_seq_max - 3]
+
+				if drop_pedal:
+					seq = [id for id in seq if id < ID_PEDAL0]
+				print(f'{drop_pedal=}')
 
 				if idx < eidx - 1 and self.blend_p > 0 and np.random.rand() < self.blend_p:
 					next_summary = self.measure.summaries[idx + 1]
 					next_seq = self.midiseq['seqs'][idx + 1]
+
+					if drop_pedal:
+						next_seq = [id for id in next_seq if id < ID_PEDAL0]
 
 					k = np.random.rand()
 					k1 = min(1, k * np.exp(np.random.randn() * self.blend_length_sigma))
