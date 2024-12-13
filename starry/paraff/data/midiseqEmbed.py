@@ -104,7 +104,6 @@ class MidiseqEmbed (IterableDataset):
 
 				if drop_pedal:
 					seq = [id for id in seq if id < ID_PEDAL0]
-				print(f'{drop_pedal=}')
 
 				if idx < eidx - 1 and self.blend_p > 0 and np.random.rand() < self.blend_p:
 					next_summary = self.measure.summaries[idx + 1]
