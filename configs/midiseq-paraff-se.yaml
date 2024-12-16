@@ -29,6 +29,7 @@ model:
     dropout:                0.1
     decode_weight:          0.06
     mask_dropout:           0
+    enc_loss:               cos
 
 
 trainer:

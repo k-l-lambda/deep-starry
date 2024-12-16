@@ -6,6 +6,11 @@ TODO:
 
 
 
+2024.12.16
+
+	+	paraff/models/seqShareSE.py: added kld & jsd loss option.
+
+
 2024.12.12
 
 	+	paraff/data/midiseqEmbed.py: added option of drop_pedal_p.

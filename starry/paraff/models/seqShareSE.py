@@ -1,6 +1,5 @@
 
 from typing import Optional
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -117,11 +116,12 @@ class SeqShareSEJitEnc (SeqShareSE):
 
 
 class SeqShareSELoss (nn.Module):
-	def __init__ (self, n_layers, decode_weight=1., **kw_args):
+	def __init__ (self, n_layers, decode_weight=1., enc_loss='cos', **kw_args):
 		super().__init__()
 
 		self.n_layers = n_layers
 		self.decode_weight = decode_weight
+		self.enc_loss = enc_loss
 		self.summary_id = MSUM
 
 		self.deducer = SeqShareSE(n_layers=n_layers, **kw_args)
@@ -165,7 +165,13 @@ class SeqShareSELoss (nn.Module):
 		target_flat = x[encoding_mask]
 
 		cos_angle = (z * summary).sum(dim=-1) / (z.norm(dim=-1) * summary.norm(dim=-1))
-		encode_loss = -((cos_angle + 1.) / 2.).log().mean()
+		if self.enc_loss == 'cos':
+			encode_loss = -((cos_angle + 1.) / 2.).log().mean()
+		elif self.enc_loss == 'kld':
+			encode_loss = F.kl_div(F.log_softmax(z, dim=-1), F.softmax(summary, dim=-1), reduction='sum')
+		elif self.enc_loss == 'jsd':
+			m = (z + summary) / 2.
+			encode_loss = F.kl_div(F.log_softmax(z, dim=-1), F.softmax(m, dim=-1), reduction='sum') + F.kl_div(F.log_softmax(summary, dim=-1), F.softmax(m, dim=-1), reduction='sum')
 
 		decode_loss = F.cross_entropy(pred_flat, target_flat)
 
