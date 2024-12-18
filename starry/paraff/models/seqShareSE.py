@@ -97,7 +97,7 @@ class SeqShareSEJitEnc (SeqShareSE):
 		self.finale_id = EOS
 
 
-	@torch.inference_mode()
+	#@torch.inference_mode()
 	def forward (self, seq: torch.Tensor):
 		mask = get_pad_mask(seq, self.pad_id)
 		mask = mask & get_subsequent_mask(seq)
