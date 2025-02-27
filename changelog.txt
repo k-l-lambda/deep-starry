@@ -6,6 +6,11 @@ TODO:
 
 
 
+2025.2.27
+
+	+	tools/makeIndexForParaffVL.py created.
+
+
 2024.12.16
 
 	+	paraff/models/seqShareSE.py: added kld & jsd loss option.

@@ -17,3 +17,4 @@ matplotlib
 pdf2image
 primesieve==2.2.0
 transformers
+typer
