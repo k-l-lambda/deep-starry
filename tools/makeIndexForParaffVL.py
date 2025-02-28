@@ -17,6 +17,7 @@ def main(paraff_path: Annotated[str, typer.Argument()], images_dir: Annotated[st
 		lib[normalized_name] = score
 
 	rows = []
+	index = 0
 
 	for root, dirs, files in os.walk(images_dir):
 		for file in files:
@@ -31,12 +32,13 @@ def main(paraff_path: Annotated[str, typer.Argument()], images_dir: Annotated[st
 			sentence = ' '.join(words)
 
 			#print(name, mm, sentence)
-			rows.append([file, sentence])
+			rows.append([str(index), file, sentence])
+			index += 1
 
 	# dump rows as a csv file
 	output_path = paraff_path.replace('.yaml', '-vl.csv')
 	with open(output_path, 'w') as f:
-		f.write('image,sentence\n')
+		f.write('index,image,sentence\n')
 		for row in rows:
 			f.write(','.join(row) + '\n')
 
