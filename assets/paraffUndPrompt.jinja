@@ -9,4 +9,17 @@
 {% set len3 = tos | length %}
 {% set len4 = paraves | length %}
 
+{% macro random_int(s) %}
+  {% set a = 1664525 %}
+  {% set c = 1013904223 %}
+  {% set m = 2**31 %}
+  {% set result = (a * s + c) % m %}
+  {{ result }}
+{% endmacro %}
+
+{% set i1 = random_int(seed) | int %}
+{% set i2 = random_int(i1) | int %}
+{% set i3 = random_int(i2) | int %}
+{% set i4 = random_int(i3) | int %}
+
 {{ sees[i1 % len1] }} {{ imgs[i2 % len2] }} {{ tos[i3 % len3] }} {{ paraves[i4 % len4] }}
