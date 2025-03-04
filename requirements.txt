@@ -17,5 +17,7 @@ matplotlib
 pdf2image
 primesieve==2.2.0
 transformers
+datasets
 typer
 jinja2
+pandas
