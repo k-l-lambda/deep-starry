@@ -3,9 +3,13 @@ id:     paraff/{date}-{filename}
 
 
 data:
-  type:                     VisionLanguage
-  root:                     ly-vl20250226
-  splits:                   '*0/1'
-  batch_size:               2
+  type:                         VisionLanguage
+  root:                         ly-vl20250226
+  splits:                       '*0/1'
+  batch_size:                   2
   args:
-    prompt_template:        paraffUndPrompt.jinja
+    prompt_template:            paraffUndPrompt.jinja
+    tokenizer:
+      path:                     deepseek-ai/Janus-Pro-7B
+      vocab_size:               102400
+      max_position_embeddings:  16384
