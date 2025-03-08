@@ -8,6 +8,8 @@ TODO:
 
 2025.3.8
 
+	+	tests/janus_language_model.ipynb created.
+
 	+	paraff/data/visionLanguage.py: output tensors implemented.
 
 
