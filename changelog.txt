@@ -8,6 +8,8 @@ TODO:
 
 2025.3.8
 
+	+	paraff/data/visionLanguage.py: added SFT template.
+
 	+	tests/janus_language_model.ipynb created.
 
 	+	paraff/data/visionLanguage.py: output tensors implemented.

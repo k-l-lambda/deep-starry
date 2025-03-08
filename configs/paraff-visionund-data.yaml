@@ -9,5 +9,13 @@ data:
   batch_size:                   2
   args:
     prompt_template:            paraffUndPrompt.jinja
+    sft_template:               janusSft.jinja
     tokenizer:
       path:                     deepseek-ai/Janus-Pro-7B
+    tags:
+      image:                    <image_placeholder>
+      image_start:              <begin_of_image>
+      image_end:                <end_of_image>
+      pad:                      <｜▁pad▁｜>
+      bos:                      <｜begin▁of▁sentence｜>
+      eos:                      <｜end▁of▁sentence｜>
