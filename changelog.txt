@@ -6,6 +6,11 @@ TODO:
 
 
 
+2025.3.8
+
+	+	paraff/data/visionLanguage.py: output tensors implemented.
+
+
 2025.3.4
 
 	+	paraff/data/visionLanguage.py created.

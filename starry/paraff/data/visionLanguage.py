@@ -1,10 +1,11 @@
 
+import os
 import torch
 from torch.utils.data import IterableDataset
 from fs import open_fs
 from jinja2 import Environment, FileSystemLoader
 import numpy as np
-from transformers import AutoModelForCausalLM
+from transformers import AutoTokenizer
 
 from ...utils.parsers import parseFilterStr, mergeArgs
 import pandas as pd
@@ -43,7 +44,7 @@ class VisionLanguage (IterableDataset):
 		env = Environment(loader=FileSystemLoader('./assets'))
 		self.prompt_template = env.get_template(prompt_template)
 
-		#self.tokenizer = AutoModelForCausalLM.from_pretrained(tokenizer['path'], trust_remote_code=True)#vocab_size=tokenizer['vocab_size'], max_position_embeddings=tokenizer['max_position_embeddings'])
+		self.tokenizer = AutoTokenizer.from_pretrained(os.path.expanduser(tokenizer['path']))
 
 
 	def __len__ (self):
@@ -59,17 +60,17 @@ class VisionLanguage (IterableDataset):
 
 		for _, row in self.table.iterrows():
 			index = row['index']
-			img_emb = torch.load(self.vision_lib.openbin(f'{index}.pt'))
+			img_emb = torch.load(self.vision_lib.openbin(f'{index}.pt'), weights_only=True)
 
 			prompt_seed = np.random.randint(0, 0x7fffffff) if self.shuffle else index
 			prompt = self.prompt_template.render(seed=prompt_seed).strip()
 
-			# TODO: tokenize text
-			#yield self.tokenizer.encode(prompt), self.tokenizer.encode(row['sentence']), img_emb
-			yield prompt, row['sentence'], img_emb
+			yield self.tokenizer.encode(prompt, return_tensors='pt'), self.tokenizer.encode(row['sentence'], return_tensors='pt'), img_emb
 
 
 	def collateBatch (self, batch):
-		sentence = [ex for ex in batch]
+		prompt = torch.nn.utils.rnn.pad_sequence([ex[0].squeeze(0) for ex in batch], batch_first=True).to(self.device)
+		sentence = torch.nn.utils.rnn.pad_sequence([ex[1].squeeze(0) for ex in batch], batch_first=True).to(self.device)
+		img_emb = torch.stack([ex[2] for ex in batch], dim=0).to(self.device)
 
-		return dict(sentence=sentence)
+		return dict(prompt=prompt, sentence=sentence, img_emb=img_emb)

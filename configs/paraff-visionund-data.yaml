@@ -11,5 +11,3 @@ data:
     prompt_template:            paraffUndPrompt.jinja
     tokenizer:
       path:                     deepseek-ai/Janus-Pro-7B
-      vocab_size:               102400
-      max_position_embeddings:  16384
