@@ -1,9 +1,15 @@
 
 TODO:
+	append paraff tokens into Janus-Pro tokenizer.
 	viewer for midiseq
 	ScoreSemanticValue: unified validation set
 	construct score topology data by semantic predictor
 
+
+
+2025.3.10
+
+	+	paraff/data/visionLanguage.py: concat input ids.
 
 
 2025.3.8

@@ -83,15 +83,25 @@ class VisionLanguage (IterableDataset):
 				input_ids=prompt_ids,
 			)
 
-			yield prompt_ids, self.tokenizer.encode(row['sentence'] + self.tags['eos'], return_tensors='pt', add_special_tokens=False), img_emb
+			target_ids = self.tokenizer.encode(row['sentence'] + self.tags['eos'], return_tensors='pt', add_special_tokens=False)[0]
+			input_ids = torch.cat([prompt_ids, target_ids])
+			prompt_len = len(prompt_ids)
+			target_len = len(target_ids)
+
+			yield input_ids, img_emb, prompt_len, target_len
 
 
 	def collateBatch (self, batch):
-		prompt = torch.nn.utils.rnn.pad_sequence([ex[0].squeeze(0) for ex in batch], batch_first=True, padding_value=self.pad_id).to(self.device)
-		sentence = torch.nn.utils.rnn.pad_sequence([ex[1].squeeze(0) for ex in batch], batch_first=True, padding_value=self.pad_id).to(self.device)
-		img_emb = torch.stack([ex[2] for ex in batch], dim=0).to(self.device)
+		input_ids = torch.nn.utils.rnn.pad_sequence([ex[0].squeeze(0) for ex in batch], batch_first=True, padding_value=self.pad_id).to(self.device)
+		img_emb = torch.stack([ex[1] for ex in batch], dim=0).to(self.device)
 
-		return dict(prompt=prompt, sentence=sentence, img_emb=img_emb)
+		image_seq_mask = input_ids == self.image_id
+
+		target_mask = torch.zeros_like(input_ids).bool()
+		for i, ex in enumerate(batch):
+			target_mask[i, ex[2]:ex[2] + ex[3]] = True
+
+		return dict(input_ids=input_ids, img_emb=img_emb, image_seq_mask=image_seq_mask, target_mask=target_mask)
 
 
 	def add_image_token(
