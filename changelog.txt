@@ -7,6 +7,11 @@ TODO:
 
 
 
+2025.3.12
+
+	+	paraff/models/janus.py: aligner added.
+
+
 2025.3.10
 
 	+	paraff/data/visionLanguage.py: concat input ids.

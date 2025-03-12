@@ -3,69 +3,68 @@ from typing import Tuple, Union
 
 import torch
 import torch.nn as nn
-#from attrdict import AttrDict
 
 
-class MlpProjector(nn.Module):
-    def __init__(self, cfg):
-        super().__init__()
+class MlpProjector (nn.Module):
+	def __init__(self, cfg):
+		super().__init__()
 
-        self.cfg = cfg
+		self.cfg = cfg
 
-        if cfg.projector_type == "identity":
-            modules = nn.Identity()
+		if cfg.projector_type == "identity":
+			modules = nn.Identity()
 
-        elif cfg.projector_type == "linear":
-            modules = nn.Linear(cfg.input_dim, cfg.n_embed)
+		elif cfg.projector_type == "linear":
+			modules = nn.Linear(cfg.input_dim, cfg.n_embed)
 
-        elif cfg.projector_type == "mlp_gelu":
-            mlp_depth = cfg.get("depth", 1)
-            modules = [nn.Linear(cfg.input_dim, cfg.n_embed)]
-            for _ in range(1, mlp_depth):
-                modules.append(nn.GELU())
-                modules.append(nn.Linear(cfg.n_embed, cfg.n_embed))
-            modules = nn.Sequential(*modules)
+		elif cfg.projector_type == "mlp_gelu":
+			mlp_depth = cfg.get("depth", 1)
+			modules = [nn.Linear(cfg.input_dim, cfg.n_embed)]
+			for _ in range(1, mlp_depth):
+				modules.append(nn.GELU())
+				modules.append(nn.Linear(cfg.n_embed, cfg.n_embed))
+			modules = nn.Sequential(*modules)
 
-        elif cfg.projector_type == "low_high_hybrid_split_mlp_gelu":
-            mlp_depth = cfg.get("depth", 1)
-            self.high_up_proj = nn.Linear(cfg.input_dim, cfg.n_embed // 2)
-            self.low_up_proj = nn.Linear(cfg.input_dim, cfg.n_embed // 2)
+		elif cfg.projector_type == "low_high_hybrid_split_mlp_gelu":
+			mlp_depth = cfg.get("depth", 1)
+			self.high_up_proj = nn.Linear(cfg.input_dim, cfg.n_embed // 2)
+			self.low_up_proj = nn.Linear(cfg.input_dim, cfg.n_embed // 2)
 
-            modules = []
-            for _ in range(1, mlp_depth):
-                modules.append(nn.GELU())
-                modules.append(nn.Linear(cfg.n_embed, cfg.n_embed))
-            modules = nn.Sequential(*modules)
+			modules = []
+			for _ in range(1, mlp_depth):
+				modules.append(nn.GELU())
+				modules.append(nn.Linear(cfg.n_embed, cfg.n_embed))
+			modules = nn.Sequential(*modules)
 
-        else:
-            raise ValueError(f"Unknown projector type: {cfg.projector_type}")
+		else:
+			raise ValueError(f"Unknown projector type: {cfg.projector_type}")
 
-        self.layers = modules
+		self.layers = modules
 
-    def forward(
-        self, x_or_tuple: Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]
-    ):
-        """
+	def forward(
+		self, x_or_tuple: Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]
+	):
+		"""
 
-        Args:
-            x_or_tuple (Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]:  if it is a tuple of torch.Tensor,
-                then it comes from the hybrid vision encoder, and x = high_res_x, low_res_x);
-                otherwise it is the feature from the single vision encoder.
+		Args:
+			x_or_tuple (Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]:  if it is a tuple of torch.Tensor,
+				then it comes from the hybrid vision encoder, and x = high_res_x, low_res_x);
+				otherwise it is the feature from the single vision encoder.
 
-        Returns:
-            x (torch.Tensor): [b, s, c]
-        """
+		Returns:
+			x (torch.Tensor): [b, s, c]
+		"""
 
-        if isinstance(x_or_tuple, tuple):
-            # self.cfg.projector_type == "low_high_hybrid_split_mlp_gelu":
-            high_x, low_x = x_or_tuple
-            high_x = self.high_up_proj(high_x)
-            low_x = self.low_up_proj(low_x)
-            x = torch.concat([high_x, low_x], dim=-1)
-        else:
-            x = x_or_tuple
+		if isinstance(x_or_tuple, tuple):
+			# self.cfg.projector_type == "low_high_hybrid_split_mlp_gelu":
+			high_x, low_x = x_or_tuple
+			high_x = self.high_up_proj(high_x)
+			low_x = self.low_up_proj(low_x)
+			x = torch.concat([high_x, low_x], dim=-1)
+		else:
+			x = x_or_tuple
 
-        return self.layers(x)
+		return self.layers(x)
 
 
 #if __name__ == "__main__":

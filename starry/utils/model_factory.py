@@ -48,6 +48,7 @@ def registerModels ():
 		pm.GraphParaffSummaryEncoder, pm.GraphParaffSummaryEncoderLoss,
 		pm.GraphParaffTranslator, pm.GraphParaffTranslatorLoss, pm.GraphParaffTranslatorOnnx,
 		pm.MidiParaffTranslator, pm.MidiParaffTranslatorLoss, pm.MidiParaffTranslatorDecoder, pm.MidiParaffTranslatorConsumer,
+		pm.JanusLanguage, pm.JanusLanguageLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])
