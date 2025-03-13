@@ -7,6 +7,11 @@ TODO:
 
 
 
+2025.3.13
+
+	+	paraff/models/janus.py: loss computaton implemneted.
+
+
 2025.3.12
 
 	+	paraff/models/janus.py: aligner added.

@@ -32,16 +32,21 @@ class JanusLanguageLoss (nn.Module):
 
 		self.aligner = MlpProjector(AttrDict(aligner_cfg))
 
-		aligner_weights = torch.load(os.path.expanduser(aligner_weights_path))
+		aligner_weights = torch.load(os.path.expanduser(aligner_weights_path), weights_only=True)
 		self.aligner.load_state_dict(aligner_weights)
 
 		for name, param in self.deducer.named_parameters():
 			if not any(name.startswith(p) for p in trainable_parameters):
 				param.requires_grad = False
 
+		self.ce_loss = nn.CrossEntropyLoss()
+
 
 	def forward (self, batch):
-		inputs_embeds = self.deducer.get_input_embeddings()(batch['input_ids'])
+		input_ids = batch['input_ids']
+		target_ids = torch.roll(input_ids, shifts=-1, dims=1)
+
+		inputs_embeds = self.deducer.get_input_embeddings()(input_ids)
 		image_seq_mask = batch['image_seq_mask']
 
 		image_embedding = self.aligner(batch['img_emb'].to(self.dtype))
@@ -49,7 +54,8 @@ class JanusLanguageLoss (nn.Module):
 		inputs_embeds[image_seq_mask] = image_embedding
 
 		attention_mask = batch['attention_mask']
-		logits = self.deducer(inputs_embeds=inputs_embeds, attention_mask=attention_mask)
+		logits = self.deducer(inputs_embeds=inputs_embeds, attention_mask=attention_mask).logits
 
-		# TODO:
-		return logits, {}
+		loss = self.ce_loss(logits.view(-1, self.deducer.vocab_size), target_ids.flatten())
+
+		return loss, {'loss': loss}

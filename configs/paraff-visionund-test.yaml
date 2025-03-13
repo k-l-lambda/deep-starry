@@ -24,7 +24,7 @@ data:
 model:
   type:                         JanusLanguage
   args:
-    model_path:                 ~/data/models/Janus-Pro-7B-language
+    model_path:                 ~/data/models/Janus-language-test
     aligner_cfg:
       depth:                    2
       input_dim:                1024
