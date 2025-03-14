@@ -13,6 +13,7 @@ for type_name in collections.abc.__all__:
 
 from attrdict import AttrDict
 
+from ...topology.models.modules import CrossEntropy
 from ...janus import MlpProjector
 
 
@@ -39,7 +40,7 @@ class JanusLanguageLoss (nn.Module):
 			if not any(name.startswith(p) for p in trainable_parameters):
 				param.requires_grad = False
 
-		self.ce_loss = nn.CrossEntropyLoss()
+		self.ce = CrossEntropy()
 
 
 	def forward (self, batch):
@@ -54,8 +55,10 @@ class JanusLanguageLoss (nn.Module):
 		inputs_embeds[image_seq_mask] = image_embedding
 
 		attention_mask = batch['attention_mask']
+		target_mask = batch['target_mask']
+
 		logits = self.deducer(inputs_embeds=inputs_embeds, attention_mask=attention_mask).logits
 
-		loss = self.ce_loss(logits.view(-1, self.deducer.vocab_size), target_ids.flatten())
+		loss = self.ce(logits, target_ids, mask=target_mask)
 
 		return loss, {'loss': loss}
