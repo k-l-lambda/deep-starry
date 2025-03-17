@@ -61,4 +61,38 @@ class JanusLanguageLoss (nn.Module):
 
 		loss = self.ce(logits, target_ids, mask=target_mask)
 
-		return loss, {'loss': loss}
+		pred_ids = torch.argmax(logits, dim=-1)
+		acc = (pred_ids == target_ids).float().mean()
+
+		return loss, dict(loss=loss, acc=acc)
+
+
+	@torch.inference_mode()
+	def inspectRun (self, batch):
+		input_ids = batch['input_ids']
+		target_ids = torch.roll(input_ids, shifts=-1, dims=1)
+
+		inputs_embeds = self.deducer.get_input_embeddings()(input_ids)
+		image_seq_mask = batch['image_seq_mask']
+
+		image_embedding = self.aligner(batch['img_emb'].to(self.dtype))
+		image_embedding = image_embedding.reshape((-1, image_embedding.shape[-1]))
+		inputs_embeds[image_seq_mask] = image_embedding
+
+		attention_mask = batch['attention_mask']
+		target_mask = batch['target_mask']
+
+		logits = self.deducer(inputs_embeds=inputs_embeds, attention_mask=attention_mask).logits
+
+		pred_ids = torch.argmax(logits, dim=-1)
+
+		target_flat = target_ids[target_mask]
+		pred_flat = logits[target_mask]
+
+		truth = (pred_ids == target_ids)[target_mask]
+
+		return dict(
+			target_flat=target_flat,
+			pred_flat=pred_flat,
+			truth=truth,
+		)

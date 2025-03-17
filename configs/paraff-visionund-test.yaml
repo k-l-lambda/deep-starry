@@ -6,7 +6,7 @@ data:
   type:                         VisionLanguage
   root:                         ly-vl20250226
   splits:                       '*0/1'
-  batch_size:                   2
+  batch_size:                   1
   args:
     prompt_template:            paraffUndPrompt.jinja
     sft_template:               janusSft.jinja
