@@ -9,6 +9,8 @@ TODO:
 
 2025.3.17
 
+	+	paraff/models/janus.py: added state dict loading & saving method.
+
 	+	tests/paraffVisionUnderstand-test.ipynb created.
 
 	+	paraff/models/janus.py: added inspectRun.

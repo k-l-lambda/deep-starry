@@ -19,9 +19,25 @@ from ...janus import MlpProjector
 
 
 class JanusLanguage (LlamaForCausalLM):
-	pass
-	#def __init__ (self):
-	#	super().__init__()
+	trainable_parameters: List[str] = []
+
+
+	def state_dict (self):
+		super_dict = super().state_dict()
+
+		if len(self.trainable_parameters) == 0:
+			return super_dict
+
+		states = dict()
+		for key in super_dict.keys():
+			if any(key.startswith(p) for p in self.trainable_parameters):
+				states[key] = super_dict[key]
+
+		return states
+
+
+	def load_state_dict (self, state_dict, strict=True):
+		return super().load_state_dict(state_dict, strict=False)
 
 
 class JanusLanguageLoss (nn.Module):
@@ -32,6 +48,8 @@ class JanusLanguageLoss (nn.Module):
 
 		self.deducer = JanusLanguage.from_pretrained(os.path.expanduser(model_path))
 		self.deducer.to(self.dtype)
+
+		self.deducer.trainable_parameters = trainable_parameters
 
 		self.aligner = MlpProjector(AttrDict(aligner_cfg))
 
