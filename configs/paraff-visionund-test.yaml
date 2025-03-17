@@ -5,7 +5,7 @@ id:     paraff/{date}-{filename}
 data:
   type:                         VisionLanguage
   root:                         ly-vl20250226
-  splits:                       '*0/1'
+  splits:                       '*1..98/100:99/500'
   batch_size:                   1
   args:
     prompt_template:            paraffUndPrompt.jinja
@@ -35,3 +35,28 @@ model:
     trainable_parameters:
     - lm_head.
     - model.layers.29.
+
+
+trainer:
+  env: ~
+  device:                   cuda
+  save_mode:                best
+  epoch:                    2
+  # 1 traversal ~= ? epochs
+  epoch_size:               16
+  report_step_unit:         examples
+  moniter:
+    field:                  loss
+    mode:                   min
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               1
+      n_warmup_steps:       6400
+      d_model:              4096

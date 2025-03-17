@@ -94,6 +94,9 @@ class Trainer:
 
 	def reportScalars (self, scalars, step):
 		for k, v in scalars.items():
+			if isinstance(v, torch.Tensor) and (v.dtype == torch.bfloat16):
+				v = v.float()
+
 			if type(v) == dict:
 				for kk, vv in v.items():
 					self.tb_writer.add_scalar(f'{k}/{kk}', vv, step)
@@ -103,7 +106,7 @@ class Trainer:
 
 	def train (self, training_data, validation_data):
 		def print_performances(header, loss, metric, start_time, lr):
-			print('  - {header:12} loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
+			logging.info('  - {header:12} loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
 				.format(header=f"({header})", loss=loss, metric=print_metric(metric), elapse=(time.time()-start_time)/60, lr=lr))
 
 		report_step_unit = self.options.get('report_step_unit')
