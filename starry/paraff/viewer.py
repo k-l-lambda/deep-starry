@@ -70,7 +70,7 @@ class ParaffViewer:
 		if self.show_graph:
 			self.showGraph(batch)
 
-		plt.show()
+		#plt.show()
 
 
 	def showLatent (self, mu, logvar):
