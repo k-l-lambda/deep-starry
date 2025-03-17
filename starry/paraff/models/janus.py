@@ -25,16 +25,19 @@ class JanusLanguage (LlamaForCausalLM):
 
 
 class JanusLanguageLoss (nn.Module):
-	def __init__ (self, model_path: str, aligner_cfg: dict, aligner_weights_path: str, trainable_parameters: List[str]):
+	def __init__ (self, model_path: str, aligner_cfg: dict, aligner_weights_path: str, trainable_parameters: List[str], dtype='float32'):
 		super().__init__()
 
+		self.dtype = getattr(torch, dtype)
+
 		self.deducer = JanusLanguage.from_pretrained(os.path.expanduser(model_path))
-		self.dtype = self.deducer.dtype
+		self.deducer.to(self.dtype)
 
 		self.aligner = MlpProjector(AttrDict(aligner_cfg))
 
 		aligner_weights = torch.load(os.path.expanduser(aligner_weights_path), weights_only=True)
 		self.aligner.load_state_dict(aligner_weights)
+		self.aligner.to(self.dtype)
 
 		for name, param in self.deducer.named_parameters():
 			if not any(name.startswith(p) for p in trainable_parameters):

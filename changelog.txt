@@ -9,6 +9,8 @@ TODO:
 
 2025.3.17
 
+	+	tests/paraffVisionUnderstand-test.ipynb created.
+
 	+	paraff/models/janus.py: added inspectRun.
 
 
