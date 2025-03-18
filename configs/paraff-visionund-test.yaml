@@ -5,7 +5,7 @@ id:     paraff/{date}-{filename}
 data:
   type:                         VisionLanguage
   root:                         ly-vl20250226
-  splits:                       '*1..98/100:99/500'
+  splits:                       '*1..98/100:99/100'
   batch_size:                   1
   args:
     prompt_template:            paraffUndPrompt.jinja
@@ -25,6 +25,7 @@ model:
   type:                         JanusLanguage
   args:
     model_path:                 ~/data/models/Janus-Pro-7B-language
+    # TODO: use float32
     dtype:                      bfloat16
     aligner_cfg:
       depth:                    2
@@ -41,9 +42,9 @@ trainer:
   env: ~
   device:                   cuda
   save_mode:                best
-  epoch:                    2
-  # 1 traversal ~= ? epochs
-  epoch_size:               16
+  epoch:                    20
+  # 1 traversal = 5224 ex
+  epoch_size:               256
   report_step_unit:         examples
   moniter:
     field:                  loss
@@ -58,5 +59,5 @@ optim:
     type:                   InvSqrt
     args:
       lr_mul:               1
-      n_warmup_steps:       6400
+      n_warmup_steps:       256
       d_model:              4096
