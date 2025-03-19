@@ -85,7 +85,7 @@ class JanusLanguageLoss (nn.Module):
 		pred_ids = torch.argmax(logits, dim=-1)
 		acc = (pred_ids == target_ids).float().mean()
 
-		return loss, dict(loss=loss, acc=acc)
+		return loss, dict(loss=loss.item(), acc=acc.item())
 
 
 	@torch.inference_mode()
