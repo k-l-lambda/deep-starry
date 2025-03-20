@@ -4,6 +4,7 @@ from typing import List
 from transformers import LlamaForCausalLM
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 # workaround error: cannot import name 'Mapping' from 'collections'
 import collections
@@ -19,20 +20,37 @@ from ...janus import MlpProjector
 
 
 class JanusLanguage (nn.Module):
-	def __init__ (self, trainable_parameters, model_path, dtype='float32', **_):
+	def __init__ (self, trainable_parameters, model_path, dtype='float32', additional_embedding_dims=None, **_):
 		super().__init__()
 
+		dtype = getattr(torch, dtype)
+
 		self.janus = LlamaForCausalLM.from_pretrained(os.path.expanduser(model_path))
-		self.janus.to(getattr(torch, dtype))
+		self.janus.to(dtype)
 
 		self.trainable_parameters = []
 		for key in self.janus.state_dict().keys():
 			if any(key.startswith(p) for p in trainable_parameters):
 				self.trainable_parameters.append(key)
 
+		self.additional_embedding_dims = additional_embedding_dims
+
+		if self.additional_embedding_dims is not None:
+			hidden_siize = self.janus.config.hidden_size
+			n_vocab = additional_embedding_dims[1] - additional_embedding_dims[0]
+			self.add_embedding = nn.Parameter(torch.zeros(n_vocab, hidden_siize, dtype=dtype))
+
 
 	def embed_input (self, input_ids):
-		return self.janus.get_input_embeddings()(input_ids)
+		emb = self.janus.get_input_embeddings()(input_ids)
+
+		if self.additional_embedding_dims is not None:
+			weights = torch.zeros((self.janus.config.vocab_size, emb.shape[-1]), dtype=self.add_embedding.dtype, device=emb.device)
+			weights[self.additional_embedding_dims[0]:self.additional_embedding_dims[1]] = self.add_embedding
+
+			emb += F.embedding(input_ids, weights)
+
+		return emb
 
 
 	def forward (self, input_ids, image_masks, image_embeddings, attention_mask):
@@ -48,7 +66,7 @@ class JanusLanguage (nn.Module):
 	def state_dict (self):
 		super_dict = self.janus.state_dict()
 
-		states = dict()
+		states = dict(add_embedding=self.add_embedding)
 		for key in self.trainable_parameters:
 			states[key] = super_dict[key]
 
@@ -56,16 +74,18 @@ class JanusLanguage (nn.Module):
 
 
 	def load_state_dict (self, state_dict, strict=True, assign: bool = False):
+		self.add_embedding = state_dict.pop('add_embedding')
+
 		return self.janus.load_state_dict(state_dict, strict=False, assign=assign)
 
 
 class JanusLanguageLoss (nn.Module):
-	def __init__ (self, model_path: str, aligner_cfg: dict, aligner_weights_path: str, trainable_parameters: List[str], dtype='float32'):
+	def __init__ (self, aligner_cfg: dict, aligner_weights_path: str, trainable_parameters: List[str], dtype='float32', **kwargs):
 		super().__init__()
 
 		self.dtype = getattr(torch, dtype)
 
-		self.deducer = JanusLanguage(model_path=model_path, trainable_parameters=trainable_parameters, dtype=dtype)
+		self.deducer = JanusLanguage(**kwargs, trainable_parameters=trainable_parameters, dtype=dtype)
 
 		self.aligner = MlpProjector(AttrDict(aligner_cfg))
 

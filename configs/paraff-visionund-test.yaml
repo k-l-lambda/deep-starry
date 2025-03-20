@@ -36,6 +36,8 @@ model:
     trainable_parameters:
     - lm_head.
     - model.layers.29.
+    # addtional input embedding weights channel range, on vocab dimension
+    additional_embedding_dims:  [100603, 100705]
 
 
 trainer:
@@ -47,8 +49,8 @@ trainer:
   epoch_size:               256
   report_step_unit:         examples
   moniter:
-    field:                  loss
-    mode:                   min
+    field:                  acc
+    mode:                   max
 
 optim:
   type:                     Adam

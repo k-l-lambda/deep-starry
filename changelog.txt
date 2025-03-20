@@ -9,6 +9,8 @@ TODO:
 
 2025.3.20
 
+	+	paraff/models/janus.py: added additional embedding.
+
 	+	paraff/models/janus.py: refactered JanusLanguage to a standalone model class.
 
 
