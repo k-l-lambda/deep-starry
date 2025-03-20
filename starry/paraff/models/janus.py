@@ -18,26 +18,45 @@ from ...janus import MlpProjector
 
 
 
-class JanusLanguage (LlamaForCausalLM):
-	trainable_parameters: List[str] = []
+class JanusLanguage (nn.Module):
+	def __init__ (self, trainable_parameters, model_path, dtype='float32', **_):
+		super().__init__()
+
+		self.janus = LlamaForCausalLM.from_pretrained(os.path.expanduser(model_path))
+		self.janus.to(getattr(torch, dtype))
+
+		self.trainable_parameters = []
+		for key in self.janus.state_dict().keys():
+			if any(key.startswith(p) for p in trainable_parameters):
+				self.trainable_parameters.append(key)
+
+
+	def embed_input (self, input_ids):
+		return self.janus.get_input_embeddings()(input_ids)
+
+
+	def forward (self, input_ids, image_masks, image_embeddings, attention_mask):
+		inputs_embeds = self.embed_input(input_ids)
+		for mask, emb in zip(image_masks, image_embeddings):
+			inputs_embeds[mask] = emb
+
+		logits = self.janus(inputs_embeds=inputs_embeds, attention_mask=attention_mask).logits
+
+		return logits
 
 
 	def state_dict (self):
-		super_dict = super().state_dict()
-
-		if len(self.trainable_parameters) == 0:
-			return super_dict
+		super_dict = self.janus.state_dict()
 
 		states = dict()
-		for key in super_dict.keys():
-			if any(key.startswith(p) for p in self.trainable_parameters):
-				states[key] = super_dict[key]
+		for key in self.trainable_parameters:
+			states[key] = super_dict[key]
 
 		return states
 
 
-	def load_state_dict (self, state_dict, strict=True):
-		return super().load_state_dict(state_dict, strict=False)
+	def load_state_dict (self, state_dict, strict=True, assign: bool = False):
+		return self.janus.load_state_dict(state_dict, strict=False, assign=assign)
 
 
 class JanusLanguageLoss (nn.Module):
@@ -46,10 +65,7 @@ class JanusLanguageLoss (nn.Module):
 
 		self.dtype = getattr(torch, dtype)
 
-		self.deducer = JanusLanguage.from_pretrained(os.path.expanduser(model_path))
-		self.deducer.to(self.dtype)
-
-		self.deducer.trainable_parameters = trainable_parameters
+		self.deducer = JanusLanguage(model_path=model_path, trainable_parameters=trainable_parameters, dtype=dtype)
 
 		self.aligner = MlpProjector(AttrDict(aligner_cfg))
 
@@ -68,17 +84,15 @@ class JanusLanguageLoss (nn.Module):
 		input_ids = batch['input_ids']
 		target_ids = torch.roll(input_ids, shifts=-1, dims=1)
 
-		inputs_embeds = self.deducer.get_input_embeddings()(input_ids)
 		image_seq_mask = batch['image_seq_mask']
 
 		image_embedding = self.aligner(batch['img_emb'].to(self.dtype))
 		image_embedding = image_embedding.reshape((-1, image_embedding.shape[-1]))
-		inputs_embeds[image_seq_mask] = image_embedding
 
 		attention_mask = batch['attention_mask']
 		target_mask = batch['target_mask']
 
-		logits = self.deducer(inputs_embeds=inputs_embeds, attention_mask=attention_mask).logits
+		logits = self.deducer(input_ids=input_ids, image_masks=[image_seq_mask], image_embeddings=[image_embedding], attention_mask=attention_mask)
 
 		loss = self.ce(logits, target_ids, mask=target_mask)
 
@@ -93,17 +107,15 @@ class JanusLanguageLoss (nn.Module):
 		input_ids = batch['input_ids']
 		target_ids = torch.roll(input_ids, shifts=-1, dims=1)
 
-		inputs_embeds = self.deducer.get_input_embeddings()(input_ids)
 		image_seq_mask = batch['image_seq_mask']
 
 		image_embedding = self.aligner(batch['img_emb'].to(self.dtype))
 		image_embedding = image_embedding.reshape((-1, image_embedding.shape[-1]))
-		inputs_embeds[image_seq_mask] = image_embedding
 
 		attention_mask = batch['attention_mask']
 		target_mask = batch['target_mask']
 
-		logits = self.deducer(inputs_embeds=inputs_embeds, attention_mask=attention_mask).logits
+		logits = self.deducer(input_ids=input_ids, image_masks=[image_seq_mask], image_embeddings=[image_embedding], attention_mask=attention_mask)
 
 		pred_ids = torch.argmax(logits, dim=-1)
 

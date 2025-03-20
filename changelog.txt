@@ -7,6 +7,11 @@ TODO:
 
 
 
+2025.3.20
+
+	+	paraff/models/janus.py: refactered JanusLanguage to a standalone model class.
+
+
 2025.3.17
 
 	+	paraff/models/janus.py: added state dict loading & saving method.
