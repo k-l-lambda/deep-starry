@@ -93,7 +93,7 @@ class JanusLanguageLoss (nn.Module):
 		self.aligner.load_state_dict(aligner_weights)
 		self.aligner.to(self.dtype)
 
-		for name, param in self.deducer.named_parameters():
+		for name, param in self.deducer.janus.named_parameters():
 			if not any(name.startswith(p) for p in trainable_parameters):
 				param.requires_grad = False
 
