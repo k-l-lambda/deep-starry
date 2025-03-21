@@ -86,7 +86,8 @@ class JanusLanguage (nn.Module):
 			weights = torch.zeros((self.janus.config.vocab_size, self.janus.config.hidden_size), dtype=self.add_embedding.dtype)
 			weights[self.additional_embedding_dims[0]:self.additional_embedding_dims[1]] = self.add_embedding
 
-			self.janus.get_input_embeddings().weight += weights
+			with torch.no_grad():
+				self.janus.get_input_embeddings().weight += weights
 
 		self.janus.save_pretrained(path)
 

@@ -3,6 +3,7 @@ import os
 import sys
 import argparse
 import logging
+import torch
 
 from starry.utils.config import Configuration
 from starry.utils.model_factory import loadModelAndWeights
@@ -23,6 +24,7 @@ def main ():
 	config = Configuration.createOrLoad(args.config)
 
 	model, cp = loadModelAndWeights(config, config['best'])
+	model.to(torch.bfloat16)
 
 	output_path = config.localPath(config['best'][:-6])
 	model.save_pretrained(output_path)
