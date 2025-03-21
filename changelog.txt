@@ -1,6 +1,5 @@
 
 TODO:
-	append paraff tokens into Janus-Pro tokenizer.
 	viewer for midiseq
 	ScoreSemanticValue: unified validation set
 	construct score topology data by semantic predictor
