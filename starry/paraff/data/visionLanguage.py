@@ -100,7 +100,7 @@ class VisionLanguage (IterableDataset):
 		target_mask = torch.zeros_like(input_ids).bool()
 		attention_mask = torch.zeros_like(input_ids).long()
 		for i, ex in enumerate(batch):
-			target_mask[i, ex[2]:ex[2] + ex[3] - 1] = True
+			target_mask[i, ex[2] - 1:ex[2] + ex[3] - 1] = True
 			attention_mask[i, :ex[2] + ex[3]] = 1
 
 		return dict(input_ids=input_ids, img_emb=img_emb, image_seq_mask=image_seq_mask, target_mask=target_mask, attention_mask=attention_mask)
