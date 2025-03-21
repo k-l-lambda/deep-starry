@@ -66,7 +66,8 @@ class JanusLanguage (nn.Module):
 	def state_dict (self):
 		super_dict = self.janus.state_dict()
 
-		states = dict(add_embedding=self.add_embedding)
+		if self.additional_embedding_dims is not None:
+			states = dict(add_embedding=self.add_embedding)
 		for key in self.trainable_parameters:
 			states[key] = super_dict[key]
 
@@ -74,9 +75,20 @@ class JanusLanguage (nn.Module):
 
 
 	def load_state_dict (self, state_dict, strict=True, assign: bool = False):
-		self.add_embedding = state_dict.pop('add_embedding')
+		if self.additional_embedding_dims is not None:
+			self.add_embedding = state_dict.pop('add_embedding')
 
 		return self.janus.load_state_dict(state_dict, strict=False, assign=assign)
+
+
+	def save_pretrained (self, path):
+		if self.additional_embedding_dims is not None:
+			weights = torch.zeros((self.janus.config.vocab_size, self.janus.config.hidden_size), dtype=self.add_embedding.dtype)
+			weights[self.additional_embedding_dims[0]:self.additional_embedding_dims[1]] = self.add_embedding
+
+			self.janus.get_input_embeddings().weight += weights
+
+		self.janus.save_pretrained(path)
 
 
 class JanusLanguageLoss (nn.Module):
