@@ -4,12 +4,14 @@ import typer
 from typing_extensions import Annotated
 import yaml
 import re
+from tqdm import tqdm
 
 
 
 word_pattern = re.compile(r'\S+')
 
 def main(paraff_path: Annotated[str, typer.Argument()], images_dir: Annotated[str, typer.Argument()]):
+	print('Loading paraff...')
 	original_lib = yaml.safe_load(open(paraff_path, 'r'))
 	lib = {}
 	for name, score in original_lib.items():
@@ -20,11 +22,13 @@ def main(paraff_path: Annotated[str, typer.Argument()], images_dir: Annotated[st
 	index = 0
 
 	for root, dirs, files in os.walk(images_dir):
-		for file in files:
+		for file in tqdm(files):
 			segs = file.split('.')
-			names = segs[1].split('_')
+			names = '.'.join(segs[1:-2]).split('_')
 			mm = names[-1]
 			name = '_'.join(names[:-1])
+			#print(f'{file=}, {name=}, {mm=}')
+			#print(f'{lib[name].keys()=}')
 			sentence = lib[name][mm]
 
 			words = word_pattern.findall(sentence)

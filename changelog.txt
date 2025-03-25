@@ -6,6 +6,11 @@ TODO:
 
 
 
+2025.3.25
+
+	+	tools/makeIndexForParaffVL.py: enhanced file name parsing.
+
+
 2025.3.21
 
 	>	paraff/data/visionLanguage.py: fixed range bug of target_mask field.
