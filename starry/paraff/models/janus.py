@@ -132,8 +132,8 @@ class JanusLanguageLoss (nn.Module):
 
 		loss = self.ce(logits, target_ids, mask=target_mask)
 
-		pred_ids = torch.argmax(logits, dim=-1)
-		acc = (pred_ids == target_ids).float().mean()
+		pred_ids = torch.argmax(logits[target_mask], dim=-1)
+		acc = (pred_ids == target_ids[target_mask]).float().mean()
 
 		return loss, dict(loss=loss.item(), acc=acc.item())
 
@@ -164,4 +164,5 @@ class JanusLanguageLoss (nn.Module):
 			target_flat=target_flat,
 			pred_flat=pred_flat,
 			truth=truth,
+			logits=logits,
 		)
