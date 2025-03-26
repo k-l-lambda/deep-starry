@@ -35,6 +35,7 @@ model:
     aligner_weights_path:       ~/data/models/Janus-Pro-7B-aligner.pt
     trainable_parameters:
     - lm_head.
+    - model.norm.
     - model.layers.29.
     # addtional input embedding weights channel range, on vocab dimension
     additional_embedding_dims:  [100603, 100705]
