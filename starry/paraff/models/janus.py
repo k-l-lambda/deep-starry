@@ -5,6 +5,7 @@ from transformers import LlamaForCausalLM
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from collections import OrderedDict
 
 # workaround error: cannot import name 'Mapping' from 'collections'
 import collections
@@ -62,14 +63,16 @@ class JanusLanguage (nn.Module):
 
 		return logits
 
-
-	def state_dict (self):
-		super_dict = self.janus.state_dict()
+	def state_dict(self):
+		states = OrderedDict()
 
 		if self.additional_embedding_dims is not None:
-			states = dict(add_embedding=self.add_embedding)
+			states['add_embedding'] = self.add_embedding.data.clone()
+
+		super_dict = self.janus.state_dict()
 		for key in self.trainable_parameters:
-			states[key] = super_dict[key]
+			if key in super_dict:
+				states[key] = super_dict[key]
 
 		return states
 
