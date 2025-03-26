@@ -28,17 +28,17 @@ class JanusLanguage (nn.Module):
 		self.janus = LlamaForCausalLM.from_pretrained(os.path.expanduser(model_path))
 		self.janus.to(dtype)
 
-		self.trainable_parameters = []
-		for key in self.janus.state_dict().keys():
-			if any(key.startswith(p) for p in trainable_parameters):
-				self.trainable_parameters.append(key)
+		self.trainable_parameters = [
+			key for key in self.janus.state_dict().keys()
+			if any(key.startswith(p) for p in trainable_parameters)
+		]
 
 		self.additional_embedding_dims = additional_embedding_dims
 
 		if self.additional_embedding_dims is not None:
-			hidden_siize = self.janus.config.hidden_size
+			hidden_size = self.janus.config.hidden_size
 			n_vocab = additional_embedding_dims[1] - additional_embedding_dims[0]
-			self.add_embedding = nn.Parameter(torch.zeros(n_vocab, hidden_siize, dtype=dtype))
+			self.add_embedding = nn.Parameter(torch.zeros(n_vocab, hidden_size, dtype=dtype))
 
 
 	def embed_input (self, input_ids):
@@ -76,7 +76,7 @@ class JanusLanguage (nn.Module):
 
 	def load_state_dict (self, state_dict, strict=True, assign: bool = False):
 		if self.additional_embedding_dims is not None:
-			self.add_embedding = state_dict.pop('add_embedding')
+			self.add_embedding.data.copy_(state_dict.pop('add_embedding'))
 
 		return self.janus.load_state_dict(state_dict, strict=False, assign=assign)
 
