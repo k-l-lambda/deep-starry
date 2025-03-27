@@ -8,6 +8,8 @@ TODO:
 
 2025.3.27
 
+	>	janus.py: fix the bug of weights loading, freeze weights of aligner.
+
 	+	validateMeasure.py: added argv of checkpoint.
 
 
