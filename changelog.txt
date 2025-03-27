@@ -6,6 +6,11 @@ TODO:
 
 
 
+2025.3.27
+
+	+	validateMeasure.py: added argv of checkpoint.
+
+
 2025.3.26
 
 	+	janus.py: fixed add_embedding loading & saving.
