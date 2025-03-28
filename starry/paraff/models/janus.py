@@ -84,14 +84,19 @@ class JanusLanguage (nn.Module):
 		return self.janus.load_state_dict(state_dict, strict=False, assign=assign)
 
 
-	def save_pretrained (self, path):
+	def merge_embeddings (self):
 		if self.additional_embedding_dims is not None:
 			weights = torch.zeros((self.janus.config.vocab_size, self.janus.config.hidden_size), dtype=self.add_embedding.dtype)
 			weights[self.additional_embedding_dims[0]:self.additional_embedding_dims[1]] = self.add_embedding
 
 			with torch.no_grad():
-				self.janus.get_input_embeddings().weight += weights
+				self.janus.get_input_embeddings().weight += weights.to(self.janus.get_input_embeddings().weight.device)
 
+		self.add_embedding.data.zero_()
+
+
+	def save_pretrained (self, path):
+		self.merge_embeddings()
 		self.janus.save_pretrained(path)
 
 
@@ -156,12 +161,12 @@ class JanusLanguageLoss (nn.Module):
 
 		logits = self.deducer(input_ids=input_ids, image_masks=[image_seq_mask], image_embeddings=[image_embedding], attention_mask=attention_mask)
 
-		pred_ids = torch.argmax(logits, dim=-1)
+		pred_ids = torch.argmax(logits[target_mask], dim=-1)
 
 		target_flat = target_ids[target_mask]
 		pred_flat = logits[target_mask]
 
-		truth = (pred_ids == target_ids)[target_mask]
+		truth = (pred_ids == target_ids[target_mask])
 
 		return dict(
 			target_flat=target_flat,

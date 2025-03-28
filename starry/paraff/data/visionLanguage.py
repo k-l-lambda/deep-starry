@@ -83,7 +83,7 @@ class VisionLanguage (IterableDataset):
 				input_ids=prompt_ids,
 			)
 
-			target_ids = self.tokenizer.encode(row['sentence'] + self.tags['eos'], return_tensors='pt', add_special_tokens=False)[0]
+			target_ids = self.tokenizer.encode(row['sentence'] + self.tags['eos'] + self.tags['pad'], return_tensors='pt', add_special_tokens=False)[0]
 			input_ids = torch.cat([prompt_ids, target_ids])
 			prompt_len = len(prompt_ids)
 			target_len = len(target_ids)
@@ -100,7 +100,7 @@ class VisionLanguage (IterableDataset):
 		target_mask = torch.zeros_like(input_ids).bool()
 		attention_mask = torch.zeros_like(input_ids).long()
 		for i, ex in enumerate(batch):
-			target_mask[i, ex[2] - 1:ex[2] + ex[3] - 1] = True
+			target_mask[i, ex[2] - 3:ex[2] + ex[3] - 1] = True
 			attention_mask[i, :ex[2] + ex[3]] = 1
 
 		return dict(input_ids=input_ids, img_emb=img_emb, image_seq_mask=image_seq_mask, target_mask=target_mask, attention_mask=attention_mask)
