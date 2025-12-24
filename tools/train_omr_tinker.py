@@ -8,6 +8,7 @@ import os
 import sys
 import random
 import argparse
+import io
 from pathlib import Path
 from tqdm import tqdm
 import pandas as pd
@@ -19,6 +20,68 @@ os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
 
 import tinker
 from tinker import types
+from PIL import Image
+
+
+import torch
+
+
+# Helper function to compute NLL from forward_backward output
+def compute_mean_nll(logprobs_list, weights_list) -> float:
+    """Compute weighted mean negative log likelihood."""
+    total_weighted_logprobs = 0.0
+    total_weights = 0.0
+
+    for logprobs, weights in zip(logprobs_list, weights_list):
+        logprobs_torch = torch.tensor(logprobs.data)
+        weights_torch = torch.tensor(weights.data)
+        total_weighted_logprobs += logprobs_torch.dot(weights_torch).item()
+        total_weights += weights_torch.sum().item()
+
+    if total_weights == 0:
+        return float("nan")
+
+    return float(-total_weighted_logprobs / total_weights)
+
+
+# === Image Processor Utilities (from tinker-cookbook) ===
+_image_processor_cache = {}
+
+def get_image_processor(model_name: str):
+    """Get image processor for a model (cached)."""
+    if model_name not in _image_processor_cache:
+        from transformers.models.auto.image_processing_auto import AutoImageProcessor
+        processor = AutoImageProcessor.from_pretrained(model_name, use_fast=True)
+        _image_processor_cache[model_name] = processor
+    return _image_processor_cache[model_name]
+
+
+def image_to_chunk(image_bytes: bytes, image_processor) -> types.ImageChunk:
+    """Convert image bytes to tinker ImageChunk with correct expected_tokens."""
+    pil_image = Image.open(io.BytesIO(image_bytes))
+
+    # Convert to RGB if needed (JPEG doesn't support RGBA/LA/P modes)
+    if pil_image.mode in ("RGBA", "LA", "P"):
+        pil_image = pil_image.convert("RGB")
+
+    # Save as JPEG
+    img_byte_arr = io.BytesIO()
+    pil_image.save(img_byte_arr, format="JPEG")
+    image_data = img_byte_arr.getvalue()
+
+    width, height = pil_image.size
+
+    # Calculate number of image tokens using image processor
+    num_image_tokens = (
+        image_processor.get_number_of_image_patches(height, width, images_kwargs={})
+        // image_processor.merge_size**2
+    )
+
+    return types.ImageChunk(
+        data=image_data,
+        format="jpeg",
+        expected_tokens=num_image_tokens,
+    )
 
 
 # === Prompt Templates ===
@@ -84,61 +147,105 @@ class OMRDataset:
             return f.read()
 
 
-def prepare_datum(sample: dict, image_bytes: bytes, tokenizer) -> types.Datum:
-    """Convert sample to Tinker Datum format for vision-language training."""
+def prepare_datum(sample: dict, image_bytes: bytes, tokenizer, image_processor) -> types.Datum:
+    """Convert sample to Tinker Datum format for vision-language training.
+
+    Uses Qwen3-VL Instruct format (no thinking tokens).
+    Following tinker-cookbook conventions for next-token prediction:
+    - model_input has last token removed
+    - target_tokens has first token removed
+    - weights aligned to target_tokens
+    """
     question = random.choice(QUESTIONS)
     response = sample['paraff']
 
-    # Qwen3-VL special tokens for vision
-    vision_start = "<|vision_start|>"
-    vision_end = "<|vision_end|>"
+    # Qwen3-VL special tokens
     im_start = "<|im_start|>"
     im_end = "<|im_end|>"
+    vision_start = "<|vision_start|>"
+    vision_end = "<|vision_end|>"
 
-    # Build prompt parts
-    system_part = f"{im_start}system\n{SYSTEM_PROMPT}\n{im_end}\n"
-    user_start = f"{im_start}user\n{vision_start}"
-    user_end = f"{vision_end}\n{question}\n{im_end}\n{im_start}assistant\n"
-    response_part = f"{response}{im_end}\n"
+    # Build prompt in Qwen3 Instruct format (no thinking tags)
+    # System message
+    system_str = f"{im_start}system\n{SYSTEM_PROMPT}{im_end}\n"
 
-    # Tokenize each part
-    system_tokens = tokenizer.encode(system_part, add_special_tokens=False)
-    user_start_tokens = tokenizer.encode(user_start, add_special_tokens=False)
-    user_end_tokens = tokenizer.encode(user_end, add_special_tokens=False)
-    response_tokens = tokenizer.encode(response_part, add_special_tokens=False)
+    # User message with image
+    user_prefix = f"{im_start}user\n{vision_start}"
+    user_suffix = f"{vision_end}\n{question}{im_end}\n"
 
-    # Build chunks for model input (including response for training)
-    chunks = [
+    # Assistant response (no thinking for Instruct models)
+    assistant_prefix = f"{im_start}assistant\n"
+    assistant_content = f"{response}{im_end}"
+
+    # Create image chunk with correct expected_tokens
+    image_chunk = image_to_chunk(image_bytes, image_processor)
+    num_image_tokens = image_chunk.expected_tokens
+
+    # Tokenize all text parts
+    system_tokens = tokenizer.encode(system_str, add_special_tokens=False)
+    user_prefix_tokens = tokenizer.encode(user_prefix, add_special_tokens=False)
+    user_suffix_tokens = tokenizer.encode(user_suffix, add_special_tokens=False)
+    assistant_prefix_tokens = tokenizer.encode(assistant_prefix, add_special_tokens=False)
+    assistant_content_tokens = tokenizer.encode(assistant_content, add_special_tokens=False)
+
+    # Build full sequence chunks (will truncate last token for input)
+    full_chunks = [
         types.EncodedTextChunk(tokens=system_tokens),
-        types.EncodedTextChunk(tokens=user_start_tokens),
-        types.ImageChunk(data=image_bytes, format="png"),
-        types.EncodedTextChunk(tokens=user_end_tokens),
-        types.EncodedTextChunk(tokens=response_tokens),
+        types.EncodedTextChunk(tokens=user_prefix_tokens),
+        image_chunk,
+        types.EncodedTextChunk(tokens=user_suffix_tokens),
+        types.EncodedTextChunk(tokens=assistant_prefix_tokens),
+        types.EncodedTextChunk(tokens=assistant_content_tokens),
     ]
 
-    model_input = types.ModelInput(chunks=chunks)
+    # Calculate full sequence length
+    prompt_length = (
+        len(system_tokens) +
+        len(user_prefix_tokens) +
+        num_image_tokens +
+        len(user_suffix_tokens) +
+        len(assistant_prefix_tokens)
+    )
+    response_length = len(assistant_content_tokens)
+    total_length = prompt_length + response_length
 
-    # Calculate token lengths for weight assignment
-    # Note: ImageChunk contributes variable tokens depending on image size
-    # For Qwen3-VL, we estimate ~1000 tokens per image as placeholder
-    IMAGE_TOKENS_ESTIMATE = 1000
+    # Create weights for full sequence: 0 for prompt, 1 for response
+    full_weights = [0.0] * prompt_length + [1.0] * response_length
 
-    prompt_length = len(system_tokens) + len(user_start_tokens) + IMAGE_TOKENS_ESTIMATE + len(user_end_tokens)
-    total_length = prompt_length + len(response_tokens)
+    # For next-token prediction:
+    # - Input: all tokens except last
+    # - Target: all tokens except first (shifted left)
+    # - Weights: aligned with target (remove first weight)
 
-    # Create weights: 0 for prompt (no loss), 1 for response (compute loss)
-    weights = [0.0] * prompt_length + [1.0] * len(response_tokens)
+    # Build input chunks (remove last token from last chunk)
+    if assistant_content_tokens:
+        input_chunks = [
+            types.EncodedTextChunk(tokens=system_tokens),
+            types.EncodedTextChunk(tokens=user_prefix_tokens),
+            image_chunk,
+            types.EncodedTextChunk(tokens=user_suffix_tokens),
+            types.EncodedTextChunk(tokens=assistant_prefix_tokens),
+            types.EncodedTextChunk(tokens=assistant_content_tokens[:-1]) if len(assistant_content_tokens) > 1 else None,
+        ]
+        input_chunks = [c for c in input_chunks if c is not None]
+    else:
+        input_chunks = full_chunks[:-1]
 
-    # For target tokens, we need the actual token sequence
-    # Since we can't get exact tokens with images, we'll use the text tokens
-    # The model will handle the image tokens internally
-    all_text_tokens = system_tokens + user_start_tokens + user_end_tokens + response_tokens
-    target_tokens = all_text_tokens[1:] + [tokenizer.eos_token_id]  # Shifted
+    model_input = types.ModelInput(chunks=input_chunks)
 
-    # Adjust weights to match target length
-    weights = weights[:len(target_tokens)]
-    if len(weights) < len(target_tokens):
-        weights = weights + [1.0] * (len(target_tokens) - len(weights))
+    # Target tokens: collect all tokens, shift left (remove first)
+    all_tokens = (
+        system_tokens +
+        user_prefix_tokens +
+        [0] * num_image_tokens +  # Placeholder for image tokens
+        user_suffix_tokens +
+        assistant_prefix_tokens +
+        assistant_content_tokens
+    )
+    target_tokens = all_tokens[1:]  # Left shift
+
+    # Weights: align with target (remove first weight)
+    weights = full_weights[1:]
 
     return types.Datum(
         model_input=model_input,
@@ -170,6 +277,11 @@ def train(args):
 
     tokenizer = training_client.get_tokenizer()
     print(f"Tokenizer loaded, vocab size: {len(tokenizer)}")
+
+    # Load image processor for calculating image token counts
+    print(f"Loading image processor for {args.model}...")
+    image_processor = get_image_processor(args.model)
+    print(f"Image processor loaded (merge_size={image_processor.merge_size}, patch_size={image_processor.patch_size})")
 
     # === Load Dataset ===
     print(f"\nLoading dataset from {args.csv}...")
@@ -221,7 +333,7 @@ def train(args):
         for idx in batch_indices:
             sample = dataset[idx]
             image_bytes = dataset.get_image_bytes(idx)
-            datum = prepare_datum(sample, image_bytes, tokenizer)
+            datum = prepare_datum(sample, image_bytes, tokenizer, image_processor)
             batch.append(datum)
 
         # Forward-backward
@@ -241,7 +353,10 @@ def train(args):
             )
         ).result()
 
-        train_loss = fwdbwd_result.loss
+        # Compute loss from logprobs and weights
+        logprobs = [x["logprobs"] for x in fwdbwd_result.loss_fn_outputs]
+        weights = [datum.loss_fn_inputs["weights"] for datum in batch]
+        train_loss = compute_mean_nll(logprobs, weights)
 
         # Logging
         metrics = {
@@ -260,7 +375,7 @@ def train(args):
             for idx in val_batch_indices:
                 sample = dataset[idx]
                 image_bytes = dataset.get_image_bytes(idx)
-                datum = prepare_datum(sample, image_bytes, tokenizer)
+                datum = prepare_datum(sample, image_bytes, tokenizer, image_processor)
                 val_batch.append(datum)
 
             val_result = training_client.forward_backward(
@@ -268,7 +383,9 @@ def train(args):
                 loss_fn="cross_entropy"
             ).result()
 
-            val_loss = val_result.loss
+            val_logprobs = [x["logprobs"] for x in val_result.loss_fn_outputs]
+            val_weights = [datum.loss_fn_inputs["weights"] for datum in val_batch]
+            val_loss = compute_mean_nll(val_logprobs, val_weights)
             metrics['val_loss'] = val_loss
             print(f"Step {step:4d} | val_loss: {val_loss:.4f}")
 
