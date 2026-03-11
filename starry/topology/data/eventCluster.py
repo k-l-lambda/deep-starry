@@ -45,7 +45,8 @@ class EventCluster (IterableDataset):
 
 
 	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None, grace_amplitude=None,
-		chaos_exp=-1, chaos_flip=False, batch_slice=None, use_cache=True, with_beading=False, time8th_drop=0, event_drop=0, sampling_by_weights=False):
+		chaos_exp=-1, chaos_flip=False, batch_slice=None, use_cache=True, with_beading=False, time8th_drop=0, event_drop=0, sampling_by_weights=False,
+		weights_mapping=None):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -62,6 +63,7 @@ class EventCluster (IterableDataset):
 		self.time8th_drop = time8th_drop
 		self.event_drop = event_drop
 		self.sampling_by_weights = sampling_by_weights
+		self.weights_mapping = weights_mapping
 
 		self.entry_cache = {} if use_cache else None
 
@@ -95,7 +97,11 @@ class EventCluster (IterableDataset):
 			np.random.seed(len(self.entries))
 
 		if self.sampling_by_weights:
-			entry_weights = torch.tensor([entry['weight'] for entry in self.entries], dtype=torch.float32)
+			if self.weights_mapping:
+				mapping = {int(k): v for k, v in self.weights_mapping.items()}
+				entry_weights = torch.tensor([mapping.get(entry.get('weight', 1), entry.get('weight', 1)) for entry in self.entries], dtype=torch.float32)
+			else:
+				entry_weights = torch.tensor([entry['weight'] for entry in self.entries], dtype=torch.float32)
 			indices = torch.multinomial(entry_weights, len(self.entries), replacement=True).tolist()
 
 			for index in indices:
