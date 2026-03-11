@@ -159,15 +159,15 @@ class BeadPickerLoss (nn.Module):
 		err_suc = 1 - ((pred_suc[is_candidate] > self.decisive_confidence).float() == batch['successor'][is_candidate]).float().mean()
 
 		if not self.use_vtick:
-			loss_tick = self.mse(rec['tick'], batch['tick'])
+			loss_tick = self.mse(rec['tick'][is_entity], batch['tick'][is_entity])
 			err_tick = torch.sqrt(loss_tick.detach())
 
 			loss_tick_fixed = self.mse(rec['tick'][is_fixed], batch['tick'][is_fixed])
 			err_tick_fixed = torch.sqrt(loss_tick_fixed.detach())
 		else:
 			target_vtick = self.tick2vec(batch['tick'])
-			loss_tick = self.bce_logits(rec['vtick'], target_vtick)
-			err_tick = torch.sqrt(self.mse(rec['tick'], batch['tick']).detach())
+			loss_tick = self.bce_logits(rec['vtick'][is_entity], target_vtick[is_entity])
+			err_tick = torch.sqrt(self.mse(rec['tick'][is_entity], batch['tick'][is_entity]).detach())
 
 			loss_tick_fixed = self.bce_logits(rec['vtick'][is_fixed], target_vtick[is_fixed])
 			err_tick_fixed = torch.sqrt(self.mse(rec['tick'][is_fixed], batch['tick'][is_fixed]).detach())
