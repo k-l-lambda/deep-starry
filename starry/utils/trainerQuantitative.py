@@ -125,7 +125,7 @@ class Trainer:
 
 	@property
 	def exampleN (self):
-		return self.config['trainer.steps'] * self.config['data.batch_size']
+		return (self.config['trainer.steps'] or 0) * self.config['data.batch_size']
 
 
 	def train (self, data):
