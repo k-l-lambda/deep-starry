@@ -10,6 +10,75 @@ from .rectifyJointer import EncoderLayerStack, DEFAULT_ERROR_WEIGHTS
 from ...modules.classInt import Int2PClass
 
 
+def _build_causal_mask(stype, beading_pos, x):
+	"""Build a partial causal mask for fixed elements.
+
+	Non-fixed, non-PAD positions get full attention to all non-PAD keys.
+	Fixed positions (beading_pos < 0) get segmented causal attention:
+	sorted by beading_pos ascending, split into segments where x is
+	monotonically increasing; causal within segments, full across earlier segments.
+
+	Args:
+		stype: (batch, seq) int tensor of event types
+		beading_pos: (batch, seq) int tensor
+		x: (batch, seq) float tensor of x positions
+
+	Returns:
+		mask: (batch, seq, seq) bool tensor, True = allowed attention
+	"""
+	batch_size, seq_len = stype.shape
+	device = stype.device
+
+	# Base mask: each position can attend to all non-PAD keys
+	pad_mask = (stype != EventElementType.PAD)					# (batch, seq)
+	mask = pad_mask.unsqueeze(1).expand(-1, seq_len, -1).clone()	# (batch, seq, seq)
+
+	is_bos = (stype == EventElementType.BOS)	# (batch, seq)
+	is_fixed = (beading_pos < 0) & ~is_bos		# (batch, seq) — exclude BOS from causal blocking
+
+	for b in range(batch_size):
+		fixed_indices = is_fixed[b].nonzero(as_tuple=False).squeeze(-1)		# (n_fixed,)
+		if fixed_indices.numel() < 2:
+			continue
+
+		# Sort fixed by beading_pos ascending (most negative first)
+		bp_vals = beading_pos[b, fixed_indices]
+		sorted_order = bp_vals.argsort()
+		sorted_fixed = fixed_indices[sorted_order]		# original indices, sorted by bp
+
+		# Get x values in sorted order
+		sorted_x = x[b, sorted_fixed]
+
+		# Split into segments by x monotonicity; new segment when x decreases
+		n_fixed = sorted_fixed.shape[0]
+		seg_id = torch.zeros(n_fixed, dtype=torch.long, device=device)
+		seg_pos = torch.zeros(n_fixed, dtype=torch.long, device=device)	# position within segment
+		for k in range(1, n_fixed):
+			if sorted_x[k] > sorted_x[k - 1]:
+				seg_id[k] = seg_id[k - 1]
+				seg_pos[k] = seg_pos[k - 1] + 1
+			else:
+				seg_id[k] = seg_id[k - 1] + 1
+				seg_pos[k] = 0
+
+		# Fixed elements: block keys in different segments or later in same segment
+		for qi in range(n_fixed):
+			q_idx = sorted_fixed[qi]
+			for ki in range(n_fixed):
+				if qi == ki:
+					continue
+				k_idx = sorted_fixed[ki]
+				if seg_id[ki] != seg_id[qi] or seg_pos[ki] > seg_pos[qi]:
+					mask[b, q_idx, k_idx] = False
+
+	# BOS: visible to all (key), but sees only itself (query)
+	bos_mask = is_bos.unsqueeze(-1).expand_as(mask)		# (batch, seq, seq) — True for BOS query rows
+	eye = torch.eye(seq_len, dtype=torch.bool, device=device).unsqueeze(0)
+	mask[bos_mask] = eye.expand_as(mask)[bos_mask]
+
+	return mask
+
+
 
 RectifierParsers = {
 	'v2': RectifierParser2,
@@ -19,11 +88,12 @@ RectifierParsers = {
 
 class BeadPicker (nn.Module):
 	def __init__ (self, n_layers=1, angle_cycle=1000, d_position=512, feature_activation=None, zero_candidates=False,
-			with_time8th=False,
+			with_time8th=False, causal_mask=False,
 			d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64, dropout=0.1, rectifier_version='v2', **_):
 		super().__init__()
 
 		self.with_time8th = with_time8th
+		self.causal_mask = causal_mask
 
 		event_encoder_class = EventEncoderV4 if with_time8th else EventOrderedEncoder
 		self.event_encoder = event_encoder_class(d_model, angle_cycle=angle_cycle, d_position=d_position,
@@ -43,13 +113,18 @@ class BeadPicker (nn.Module):
 
 
 	def forward (self, stype, staff, feature, x, y1, y2, beading_pos, time8th: Optional[torch.Tensor] =None):
+		x_pos = x	# save positional x before encoder overwrites x
+
 		if time8th is not None:
 			x = self.event_encoder(stype, staff, feature, x, y1, y2, beading_pos, time8th)	# (n, seq, d_model)
 		else:
 			x = self.event_encoder(stype, staff, feature, x, y1, y2, beading_pos)	# (n, seq, d_model)
 
-		mask_pad = stype != self.PAD
-		mask = mask_pad.unsqueeze(-2)
+		if self.causal_mask:
+			mask = _build_causal_mask(stype, beading_pos, x_pos)
+		else:
+			mask_pad = stype != self.PAD
+			mask = mask_pad.unsqueeze(-2)
 
 		x = self.attention(x, mask)
 		x = self.out(x)
