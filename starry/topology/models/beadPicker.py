@@ -44,32 +44,41 @@ def _build_causal_mask(stype, beading_pos, x):
 		# Sort fixed by beading_pos ascending (most negative first)
 		bp_vals = beading_pos[b, fixed_indices]
 		sorted_order = bp_vals.argsort()
-		sorted_fixed = fixed_indices[sorted_order]		# original indices, sorted by bp
+		sorted_fixed = fixed_indices[sorted_order]		# (n_fixed,) original indices, sorted by bp
 
 		# Get x values in sorted order
-		sorted_x = x[b, sorted_fixed]
+		sorted_x = x[b, sorted_fixed]					# (n_fixed,)
 
-		# Split into segments by x monotonicity; new segment when x decreases
-		n_fixed = sorted_fixed.shape[0]
-		seg_id = torch.zeros(n_fixed, dtype=torch.long, device=device)
-		seg_pos = torch.zeros(n_fixed, dtype=torch.long, device=device)	# position within segment
-		for k in range(1, n_fixed):
-			if sorted_x[k] > sorted_x[k - 1]:
-				seg_id[k] = seg_id[k - 1]
-				seg_pos[k] = seg_pos[k - 1] + 1
-			else:
-				seg_id[k] = seg_id[k - 1] + 1
-				seg_pos[k] = 0
+		# Vectorized segment computation
+		# new segment starts where x does not increase vs previous element
+		x_increases = sorted_x[1:] > sorted_x[:-1]		# (n_fixed-1,) bool
+		seg_id = torch.zeros(sorted_x.shape[0], dtype=torch.long, device=device)
+		seg_id[1:] = (~x_increases).cumsum(0)			# (n_fixed,) segment index
 
-		# Fixed elements: block keys in different segments or later in same segment
-		for qi in range(n_fixed):
-			q_idx = sorted_fixed[qi]
-			for ki in range(n_fixed):
-				if qi == ki:
-					continue
-				k_idx = sorted_fixed[ki]
-				if seg_id[ki] != seg_id[qi] or seg_pos[ki] > seg_pos[qi]:
-					mask[b, q_idx, k_idx] = False
+		# seg_pos[k] = position of k within its segment = k - first_index_of_segment
+		# first index of segment s = index of the s-th segment boundary
+		seg_boundaries = torch.cat([
+			torch.zeros(1, dtype=torch.long, device=device),
+			(~x_increases).nonzero(as_tuple=False).squeeze(-1) + 1,
+		])												# (n_segs,) start indices of each segment
+		seg_first = seg_boundaries[seg_id]				# (n_fixed,) first index of each element's segment
+		arange = torch.arange(sorted_x.shape[0], device=device)
+		seg_pos = arange - seg_first					# (n_fixed,) position within segment
+
+		# Build block mask via broadcasting: (n_fixed, n_fixed)
+		# block[qi, ki] = True if key ki should be blocked for query qi
+		seg_id_q = seg_id.unsqueeze(1)					# (n_fixed, 1)
+		seg_id_k = seg_id.unsqueeze(0)					# (1, n_fixed)
+		seg_pos_q = seg_pos.unsqueeze(1)				# (n_fixed, 1)
+		seg_pos_k = seg_pos.unsqueeze(0)				# (1, n_fixed)
+		# block if different segment OR key is later in same segment; never block self
+		block = (seg_id_q != seg_id_k) | (seg_pos_k > seg_pos_q)	# (n_fixed, n_fixed)
+		block.fill_diagonal_(False)
+
+		# Apply to mask using advanced indexing
+		q_idx = sorted_fixed.unsqueeze(1).expand_as(block)		# (n_fixed, n_fixed)
+		k_idx = sorted_fixed.unsqueeze(0).expand_as(block)		# (n_fixed, n_fixed)
+		mask[b, q_idx[block], k_idx[block]] = False
 
 	# BOS: visible to all (key), but sees only itself (query)
 	bos_mask = is_bos.unsqueeze(-1).expand_as(mask)		# (batch, seq, seq) — True for BOS query rows
