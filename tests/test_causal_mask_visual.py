@@ -81,6 +81,7 @@ def print_sample(batch, b, seq_len):
 		stype.unsqueeze(0),
 		bp.unsqueeze(0),
 		x.unsqueeze(0),
+		strict_causal=True,
 	)[0]  # (seq, seq)
 
 	print()
@@ -151,6 +152,14 @@ def print_sample(batch, b, seq_len):
 		print(f"\n  Fixed elements: {fixed_indices.tolist()}")
 		print(f"  Sorted by bp: {sorted_fixed.tolist()}")
 		print(f"  Segments (by x monotonicity): {segments}")
+
+		# Verify: fixed queries cannot attend to non-fixed keys (strict_causal)
+		non_fixed_non_pad = (~is_fixed[:end]) & (stype[:end] != EventElementType.PAD) & (~is_bos[:end])
+		for pi in range(len(sorted_fixed)):
+			q_idx = sorted_fixed[pi].item()
+			for ki in non_fixed_non_pad.nonzero(as_tuple=False).squeeze(-1).tolist():
+				assert not mask[q_idx, ki].item(), \
+					f"Strict causal: fixed query {q_idx} should not attend to non-fixed key {ki}"
 
 		# Verify: cross-segment fully isolated, within-segment causal
 		for si, seg_i in enumerate(segments):
