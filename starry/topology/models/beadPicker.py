@@ -10,7 +10,7 @@ from .rectifyJointer import EncoderLayerStack, DEFAULT_ERROR_WEIGHTS
 from ...modules.classInt import Int2PClass
 
 
-def _build_causal_mask(stype, beading_pos, x):
+def _build_causal_mask(stype, beading_pos, x, strict_causal=False):
 	"""Build a partial causal mask for fixed elements.
 
 	Non-fixed, non-PAD positions get full attention to all non-PAD keys.
@@ -65,20 +65,28 @@ def _build_causal_mask(stype, beading_pos, x):
 		arange = torch.arange(sorted_x.shape[0], device=device)
 		seg_pos = arange - seg_first					# (n_fixed,) position within segment
 
-		# Build block mask via broadcasting: (n_fixed, n_fixed)
-		# block[qi, ki] = True if key ki should be blocked for query qi
+		# Build attention mask for fixed queries
 		seg_id_q = seg_id.unsqueeze(1)					# (n_fixed, 1)
 		seg_id_k = seg_id.unsqueeze(0)					# (1, n_fixed)
 		seg_pos_q = seg_pos.unsqueeze(1)				# (n_fixed, 1)
 		seg_pos_k = seg_pos.unsqueeze(0)				# (1, n_fixed)
-		# block if different segment OR key is later in same segment; never block self
-		block = (seg_id_q != seg_id_k) | (seg_pos_k > seg_pos_q)	# (n_fixed, n_fixed)
-		block.fill_diagonal_(False)
 
-		# Apply to mask using advanced indexing
-		q_idx = sorted_fixed.unsqueeze(1).expand_as(block)		# (n_fixed, n_fixed)
-		k_idx = sorted_fixed.unsqueeze(0).expand_as(block)		# (n_fixed, n_fixed)
-		mask[b, q_idx[block], k_idx[block]] = False
+		if strict_causal:
+			# Strict: fixed queries may only attend to fixed keys in the same segment (causal).
+			# Clear entire row for each fixed query, then re-open allowed fixed→fixed cells.
+			mask[b, sorted_fixed, :] = False
+			allowed = (seg_id_q == seg_id_k) & (seg_pos_k <= seg_pos_q)	# (n_fixed, n_fixed)
+			q_idx = sorted_fixed.unsqueeze(1).expand_as(allowed)
+			k_idx = sorted_fixed.unsqueeze(0).expand_as(allowed)
+			mask[b, q_idx[allowed], k_idx[allowed]] = True
+		else:
+			# Default: fixed queries see all non-PAD keys, restricted to causal within same segment.
+			# Block fixed→fixed cells that violate the causal-within-segment rule.
+			block = (seg_id_q != seg_id_k) | (seg_pos_k > seg_pos_q)	# (n_fixed, n_fixed)
+			block.fill_diagonal_(False)
+			q_idx = sorted_fixed.unsqueeze(1).expand_as(block)
+			k_idx = sorted_fixed.unsqueeze(0).expand_as(block)
+			mask[b, q_idx[block], k_idx[block]] = False
 
 	# BOS: visible to all (key), but sees only itself (query)
 	bos_mask = is_bos.unsqueeze(-1).expand_as(mask)		# (batch, seq, seq) — True for BOS query rows
@@ -97,12 +105,13 @@ RectifierParsers = {
 
 class BeadPicker (nn.Module):
 	def __init__ (self, n_layers=1, angle_cycle=1000, d_position=512, feature_activation=None, zero_candidates=False,
-			with_time8th=False, causal_mask=False,
+			with_time8th=False, causal_mask=False, strict_causal=False,
 			d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64, dropout=0.1, rectifier_version='v2', **_):
 		super().__init__()
 
 		self.with_time8th = with_time8th
 		self.causal_mask = causal_mask
+		self.strict_causal = strict_causal
 
 		event_encoder_class = EventEncoderV4 if with_time8th else EventOrderedEncoder
 		self.event_encoder = event_encoder_class(d_model, angle_cycle=angle_cycle, d_position=d_position,
@@ -130,7 +139,7 @@ class BeadPicker (nn.Module):
 			x = self.event_encoder(stype, staff, feature, x, y1, y2, beading_pos)	# (n, seq, d_model)
 
 		if self.causal_mask:
-			mask = _build_causal_mask(stype, beading_pos, x_pos)
+			mask = _build_causal_mask(stype, beading_pos, x_pos, strict_causal=self.strict_causal)
 		else:
 			mask_pad = stype != self.PAD
 			mask = mask_pad.unsqueeze(-2)
