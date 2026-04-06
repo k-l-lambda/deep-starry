@@ -153,13 +153,18 @@ def print_sample(batch, b, seq_len):
 		print(f"  Sorted by bp: {sorted_fixed.tolist()}")
 		print(f"  Segments (by x monotonicity): {segments}")
 
-		# Verify: fixed queries cannot attend to non-fixed keys (strict_causal)
-		non_fixed_non_pad = (~is_fixed[:end]) & (stype[:end] != EventElementType.PAD) & (~is_bos[:end])
+		# Verify: fixed queries cannot attend to non-fixed keys (strict_causal),
+		# except BOS and EOS which are global context keys always visible.
+		is_eos_row = stype[:end] == EventElementType.EOS
+		non_fixed_non_global = (~is_fixed[:end]) & (stype[:end] != EventElementType.PAD) & (~is_bos[:end]) & (~is_eos_row)
 		for pi in range(len(sorted_fixed)):
 			q_idx = sorted_fixed[pi].item()
-			for ki in non_fixed_non_pad.nonzero(as_tuple=False).squeeze(-1).tolist():
+			for ki in non_fixed_non_global.nonzero(as_tuple=False).squeeze(-1).tolist():
 				assert not mask[q_idx, ki].item(), \
 					f"Strict causal: fixed query {q_idx} should not attend to non-fixed key {ki}"
+			for ki in is_eos_row.nonzero(as_tuple=False).squeeze(-1).tolist():
+				assert mask[q_idx, ki].item(), \
+					f"Strict causal: fixed query {q_idx} should always see EOS key {ki}"
 
 		# Verify: cross-segment fully isolated, within-segment causal
 		for si, seg_i in enumerate(segments):

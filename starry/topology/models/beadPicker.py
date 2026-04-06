@@ -34,6 +34,7 @@ def _build_causal_mask(stype, beading_pos, x, strict_causal=False):
 	mask = pad_mask.unsqueeze(1).expand(-1, seq_len, -1).clone()	# (batch, seq, seq)
 
 	is_bos = (stype == EventElementType.BOS)	# (batch, seq)
+	is_eos = (stype == EventElementType.EOS)	# (batch, seq)
 	is_fixed = (beading_pos < 0) & ~is_bos		# (batch, seq) — exclude BOS from causal blocking
 
 	for b in range(batch_size):
@@ -73,17 +74,17 @@ def _build_causal_mask(stype, beading_pos, x, strict_causal=False):
 
 		if strict_causal:
 			# Strict: fixed queries may only attend to fixed keys in the same segment (causal),
-			# plus BOS which is always a global context key.
+			# plus BOS and EOS which are global context keys.
 			# Clear entire row for each fixed query, then re-open allowed cells.
 			mask[b, sorted_fixed, :] = False
 			allowed = (seg_id_q == seg_id_k) & (seg_pos_k <= seg_pos_q)	# (n_fixed, n_fixed)
 			q_idx = sorted_fixed.unsqueeze(1).expand_as(allowed)
 			k_idx = sorted_fixed.unsqueeze(0).expand_as(allowed)
 			mask[b, q_idx[allowed], k_idx[allowed]] = True
-			# BOS key is always visible to fixed queries
-			bos_pos = is_bos[b].nonzero(as_tuple=False).squeeze(-1)
-			if bos_pos.numel() > 0:
-				mask[b, sorted_fixed.unsqueeze(1), bos_pos.unsqueeze(0)] = True
+			# BOS and EOS keys are always visible to fixed queries
+			global_pos = (is_bos[b] | is_eos[b]).nonzero(as_tuple=False).squeeze(-1)
+			if global_pos.numel() > 0:
+				mask[b, sorted_fixed.unsqueeze(1), global_pos.unsqueeze(0)] = True
 		else:
 			# Default: fixed queries see all non-PAD keys, restricted to causal within same segment.
 			# Block fixed→fixed cells that violate the causal-within-segment rule.
