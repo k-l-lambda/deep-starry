@@ -1,0 +1,51 @@
+
+id:     lilylet/{date}-{filename}
+
+
+data:
+  type:                     LilyletPatchy
+  root:                     notagenx-from-abc.lilylet-notagen.pt
+  splits:                   '*0..8/10:9/10'
+  batch_size:               2
+  args_variant: ~
+  args:
+    patch_size:             16
+    patch_length:           2048
+    patch_stream:           true
+    tokenizer_path:         assets/manual-tokenizer.json
+
+
+model:
+  type:                     LilyletNotaGen
+  args:
+    char_vocab_size:        256
+    patch_size:             16
+    patch_length:           2048
+    hidden_size:            256
+    patch_num_layers:       4
+    char_num_layers:        2
+    n_head:                 4
+
+
+trainer:
+  env: ~
+  device:                   cpu
+  save_mode:                best
+  epoch:                    2
+  epoch_size:               16
+  report_step_unit:         examples
+  moniter:
+    field:                  loss
+    mode:                   min
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               1
+      n_warmup_steps:       100
+      d_model:              256
