@@ -202,7 +202,8 @@ def patchify_text(
 	padded = [pad_patch(patch, patch_size, tokenizer.pad_id) for patch in patches]
 	masks = [1] * len(padded)
 	unknown_list = [hit.__dict__ for hit in unknowns.values()]
-	return torch.tensor(padded, dtype=torch.long), torch.tensor(masks, dtype=torch.long), unknown_list
+	# Token ids fit in 0..255 (vocab size 256), so store patches compactly as uint8.
+	return torch.tensor(padded, dtype=torch.uint8), torch.tensor(masks, dtype=torch.uint8), unknown_list
 
 
 def find_lilylet_files(source_dir: str) -> List[str]:
