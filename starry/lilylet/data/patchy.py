@@ -36,9 +36,16 @@ class LilyletPatchy(Dataset):
     def __len__(self):
         return len(self.indices)
 
+    def _item(self, index):
+        item = self.artifact['items'][index]
+        patches = item['patches'].long()
+        # The per-item mask is always all-ones; reconstruct it from the patch count.
+        # Older artifacts may still carry a stored 'mask'; honor it if present.
+        mask = item['mask'].long() if 'mask' in item else torch.ones(patches.shape[0], dtype=torch.long)
+        return patches, mask
+
     def __getitem__(self, index):
-        item = self.artifact['items'][self.indices[index]]
-        return item['patches'].long(), item['mask'].long()
+        return self._item(self.indices[index])
 
     def __iter__(self):
         indices = self.indices.copy()
@@ -46,8 +53,7 @@ class LilyletPatchy(Dataset):
             order = torch.randperm(len(indices)).tolist()
             indices = [indices[i] for i in order]
         for index in indices:
-            item = self.artifact['items'][index]
-            yield item['patches'].long(), item['mask'].long()
+            yield self._item(index)
 
     def collateBatch(self, batch):
         input_patches = [ex[0] for ex in batch]

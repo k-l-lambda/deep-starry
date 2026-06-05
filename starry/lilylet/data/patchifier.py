@@ -158,7 +158,7 @@ def patchify_text(
 	patch_length: int = 2048,
 	patch_stream: bool = True,
 	add_special_patches: bool = True,
-) -> Tuple[torch.Tensor, torch.Tensor, List[Dict[str, Any]]]:
+) -> Tuple[torch.Tensor, List[Dict[str, Any]]]:
 	unknowns: Dict[Tuple[str, str], UnknownHit] = {}
 	metadata_lines, body_lines = split_lilylet_document(text)
 	measures = split_measures(body_lines)
@@ -200,10 +200,11 @@ def patchify_text(
 		patches = patches[:patch_length]
 
 	padded = [pad_patch(patch, patch_size, tokenizer.pad_id) for patch in patches]
-	masks = [1] * len(padded)
 	unknown_list = [hit.__dict__ for hit in unknowns.values()]
 	# Token ids fit in 0..255 (vocab size 256), so store patches compactly as uint8.
-	return torch.tensor(padded, dtype=torch.uint8), torch.tensor(masks, dtype=torch.uint8), unknown_list
+	# The per-item mask is always all-ones (real padding only happens at batch time),
+	# so it is not stored; the dataset reconstructs it from the patch count.
+	return torch.tensor(padded, dtype=torch.uint8), unknown_list
 
 
 def find_lilylet_files(source_dir: str) -> List[str]:
@@ -230,7 +231,7 @@ def pack_lilylet_notagen(
 	for file_path in files:
 		with open(file_path, 'r', encoding='utf-8') as f:
 			text = f.read()
-		patches, mask, unknowns = patchify_text(
+		patches, unknowns = patchify_text(
 			text,
 			tokenizer,
 			file=os.path.relpath(file_path, source_dir),
@@ -242,7 +243,6 @@ def pack_lilylet_notagen(
 		items.append(dict(
 			path=os.path.relpath(file_path, source_dir),
 			patches=patches,
-			mask=mask,
 			unknowns=unknowns,
 		))
 
