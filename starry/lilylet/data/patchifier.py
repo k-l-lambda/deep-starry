@@ -216,6 +216,12 @@ def find_lilylet_files(source_dir: str) -> List[str]:
 	return sorted(results)
 
 
+def _shard_path(output_path: str, shard_index: int) -> str:
+	# foo.lilylet-notagen.pt -> foo.lilylet-notagen.shard00000.pt
+	base, ext = os.path.splitext(output_path)
+	return f'{base}.shard{shard_index:05d}{ext}'
+
+
 def pack_lilylet_notagen(
 	source_dir: str,
 	output_path: str,
@@ -223,12 +229,21 @@ def pack_lilylet_notagen(
 	patch_size: int = 16,
 	patch_length: int = 2048,
 	patch_stream: bool = True,
+	shard_size: int = 0,
 ) -> Dict[str, Any]:
+	'''Pack .lyl files under source_dir into a NotaGen-style patch artifact.
+
+	shard_size = 0: write a single artifact at output_path (legacy, version 1).
+	shard_size > 0: write each `shard_size` items to a separate .pt shard and write
+	    an index file at output_path (version 2) that lists the shards. Items are
+	    flushed shard-by-shard so memory stays bounded for very large corpora.
+	'''
 	tokenizer = LilyletTokenizer(tokenizer_path)
 	files = find_lilylet_files(source_dir)
-	items = []
-	unknown_total = 0
-	for file_path in files:
+	vocab_size = max(entry['id'] for entry in tokenizer.vocab) + 1
+	config = dict(patch_size=patch_size, patch_length=patch_length, patch_stream=patch_stream)
+
+	def make_item(file_path: str):
 		with open(file_path, 'r', encoding='utf-8') as f:
 			text = f.read()
 		patches, unknowns = patchify_text(
@@ -239,21 +254,61 @@ def pack_lilylet_notagen(
 			patch_length=patch_length,
 			patch_stream=patch_stream,
 		)
-		unknown_total += sum(hit['count'] for hit in unknowns)
-		items.append(dict(
-			path=os.path.relpath(file_path, source_dir),
-			patches=patches,
-			unknowns=unknowns,
-		))
+		return dict(path=os.path.relpath(file_path, source_dir), patches=patches, unknowns=unknowns), \
+			sum(hit['count'] for hit in unknowns)
 
-	artifact = dict(
-		version=1,
-		format='lilylet-notagen-patches',
-		tokenizer=dict(path=tokenizer_path, vocab_size=max(entry['id'] for entry in tokenizer.vocab) + 1),
-		config=dict(patch_size=patch_size, patch_length=patch_length, patch_stream=patch_stream),
-		items=items,
-		stats=dict(files=len(files), unknown_total=unknown_total),
+	os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+
+	# --- legacy single-file mode ---
+	if not shard_size or shard_size <= 0:
+		items = []
+		unknown_total = 0
+		for file_path in files:
+			item, n_unknown = make_item(file_path)
+			items.append(item)
+			unknown_total += n_unknown
+		artifact = dict(
+			version=1,
+			format='lilylet-notagen-patches',
+			tokenizer=dict(path=tokenizer_path, vocab_size=vocab_size),
+			config=config,
+			items=items,
+			stats=dict(files=len(files), unknown_total=unknown_total),
+		)
+		torch.save(artifact, output_path)
+		return artifact
+
+	# --- sharded mode ---
+	shards: List[Dict[str, Any]] = []
+	unknown_total = 0
+	buffer: List[Dict[str, Any]] = []
+
+	def flush():
+		nonlocal buffer
+		if not buffer:
+			return
+		shard_index = len(shards)
+		shard_path = _shard_path(output_path, shard_index)
+		torch.save(dict(items=buffer), shard_path)
+		shards.append(dict(file=os.path.basename(shard_path), count=len(buffer)))
+		buffer = []
+
+	for file_path in files:
+		item, n_unknown = make_item(file_path)
+		buffer.append(item)
+		unknown_total += n_unknown
+		if len(buffer) >= shard_size:
+			flush()
+	flush()
+
+	index = dict(
+		version=2,
+		format='lilylet-notagen-patches-sharded',
+		tokenizer=dict(path=tokenizer_path, vocab_size=vocab_size),
+		config=config,
+		shards=shards,
+		stats=dict(files=len(files), unknown_total=unknown_total, shards=len(shards), shard_size=shard_size),
 	)
-	os.makedirs(os.path.dirname(output_path), exist_ok=True)
-	torch.save(artifact, output_path)
-	return artifact
+	torch.save(index, output_path)
+	return index
+
