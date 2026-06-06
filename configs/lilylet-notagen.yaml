@@ -37,6 +37,7 @@ trainer:
   moniter:
     field:                  loss
     mode:                   min
+  dtype:                    bf16
 
 optim:
   type:                     Adam
