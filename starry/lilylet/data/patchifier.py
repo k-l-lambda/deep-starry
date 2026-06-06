@@ -222,6 +222,135 @@ def _shard_path(output_path: str, shard_index: int) -> str:
 	return f'{base}.shard{shard_index:05d}{ext}'
 
 
+# --- parallel worker plumbing (one tokenizer per process) ---
+_WORKER = {}
+
+
+def _worker_init(tokenizer_path, source_dir, patch_size, patch_length, patch_stream):
+	_WORKER['tokenizer'] = LilyletTokenizer(tokenizer_path)
+	_WORKER['source_dir'] = source_dir
+	_WORKER['patch_size'] = patch_size
+	_WORKER['patch_length'] = patch_length
+	_WORKER['patch_stream'] = patch_stream
+
+
+def _worker_make_item(file_path):
+	with open(file_path, 'r', encoding='utf-8') as f:
+		text = f.read()
+	rel = os.path.relpath(file_path, _WORKER['source_dir'])
+	patches, unknowns = patchify_text(
+		text,
+		_WORKER['tokenizer'],
+		file=rel,
+		patch_size=_WORKER['patch_size'],
+		patch_length=_WORKER['patch_length'],
+		patch_stream=_WORKER['patch_stream'],
+	)
+	return dict(path=rel, patches=patches, unknowns=unknowns), sum(hit['count'] for hit in unknowns)
+
+
+def _worker_process_range(task):
+	'''Patchify a contiguous slice of files AND write its own shards to disk.
+	Returns (worker_index, [(tmp_shard_path, count), ...], unknown_total).
+	No item data flows back to the parent, so the parent is never a
+	serialization bottleneck and CPU scales near-linearly.'''
+	wid, file_list, output_path, shard_size = task
+	base, ext = os.path.splitext(output_path)
+	shards = []
+	unknown_total = 0
+	buffer = []
+
+	def flush():
+		nonlocal buffer
+		if not buffer:
+			return
+		tmp = f'{base}.w{wid:04d}.s{len(shards):05d}{ext}'
+		torch.save(dict(items=buffer), tmp)
+		shards.append((tmp, len(buffer)))
+		buffer = []
+
+	for fp in file_list:
+		item, n_unknown = _worker_make_item(fp)
+		buffer.append(item)
+		unknown_total += n_unknown
+		if len(buffer) >= shard_size:
+			flush()
+	flush()
+	return wid, shards, unknown_total
+
+
+def pack_lilylet_notagen_parallel(
+	source_dir: str,
+	output_path: str,
+	tokenizer_path: str,
+	patch_size: int = 16,
+	patch_length: int = 1024,
+	patch_stream: bool = True,
+	shard_size: int = 20000,
+	num_workers: int = 0,
+	chunksize: int = 64,
+	log=None,
+) -> Dict[str, Any]:
+	'''Parallel sharded packing with WORKER-SIDE sharding (workers write own shards).'''
+	import multiprocessing as mp
+
+	tokenizer = LilyletTokenizer(tokenizer_path)
+	vocab_size = max(entry['id'] for entry in tokenizer.vocab) + 1
+	files = find_lilylet_files(source_dir)
+	config = dict(patch_size=patch_size, patch_length=patch_length, patch_stream=patch_stream)
+	os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+
+	if not num_workers or num_workers <= 0:
+		num_workers = max(1, (os.cpu_count() or 2) - 1)
+	if shard_size <= 0:
+		shard_size = 20000
+
+	num_workers = min(num_workers, max(1, len(files)))
+
+	n = len(files)
+	per = (n + num_workers - 1) // num_workers
+	tasks = []
+	for wid in range(num_workers):
+		chunk = files[wid * per:(wid + 1) * per]
+		if chunk:
+			tasks.append((wid, chunk, output_path, shard_size))
+	if log:
+		log('dispatching %d files to %d workers (~%d files/worker)' % (n, len(tasks), per))
+
+	ctx = mp.get_context('fork')
+	with ctx.Pool(
+		processes=num_workers,
+		initializer=_worker_init,
+		initargs=(tokenizer_path, source_dir, patch_size, patch_length, patch_stream),
+	) as pool:
+		results = pool.map(_worker_process_range, tasks)
+
+	# rename per-worker shards into global contiguous order, build index
+	results.sort(key=lambda r: r[0])
+	shards: List[Dict[str, Any]] = []
+	unknown_total = 0
+	for wid, wshards, w_unknown in results:
+		unknown_total += w_unknown
+		for tmp_path, count in wshards:
+			final_path = _shard_path(output_path, len(shards))
+			os.replace(tmp_path, final_path)
+			shards.append(dict(file=os.path.basename(final_path), count=count))
+	if log:
+		log('wrote %d shards, %d files, %d unknowns' % (len(shards), n, unknown_total))
+
+	index = dict(
+		version=2,
+		format='lilylet-notagen-patches-sharded',
+		tokenizer=dict(path=tokenizer_path, vocab_size=vocab_size),
+		config=config,
+		shards=shards,
+		stats=dict(files=n, unknown_total=unknown_total, shards=len(shards),
+			shard_size=shard_size, num_workers=len(tasks)),
+	)
+	torch.save(index, output_path)
+	return index
+
+
 def pack_lilylet_notagen(
 	source_dir: str,
 	output_path: str,

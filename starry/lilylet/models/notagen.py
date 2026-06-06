@@ -169,6 +169,12 @@ class LilyletNotaGenLoss (nn.Module):
 
 		self.deducer = LilyletNotaGen(**kw_args)
 
+	def training_parameters (self):
+		return list(self.deducer.parameters()) + list(self.deducer.buffers())
+
+	def validation_parameters (self):
+		return []
+
 	def _char_accuracy (self, output, target_patches):
 		# next-token accuracy over valid (non-pad) char positions, matching the
 		# label shift the char-level GPT2 applies internally.

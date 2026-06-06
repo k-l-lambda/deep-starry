@@ -1,0 +1,57 @@
+# Lilylet NotaGen — NotaGen-X "large" hyperparameters.
+# Mirrors ElectricAlexis/NotaGen checkpoint
+#   weights_notagenx_p_size_16_p_length_1024_p_layers_20_h_size_1280.pth
+#   PATCH_SIZE=16, PATCH_LENGTH=1024, PATCH_NUM_LAYERS=20,
+#   CHAR_NUM_LAYERS=6, HIDDEN_SIZE=1280, n_head = HIDDEN_SIZE // 64 = 20.
+# char_vocab_size stays 256 (lilylet manual tokenizer) vs NotaGen's 128.
+
+id:     lilylet/{date}-notagenx-large
+
+
+data:
+  type:                     LilyletPatchy
+  root:                     notagenx1m-lyl-20260606.pt
+  splits:                   '*0..8/10:9/10'
+  batch_size:               4
+  args_variant: ~
+  args:
+    patch_size:             16
+    patch_length:           1024
+    patch_stream:           true
+    tokenizer_path:         assets/manual-tokenizer.json
+
+
+model:
+  type:                     LilyletNotaGen
+  args:
+    char_vocab_size:        256
+    patch_size:             16
+    patch_length:           1024
+    hidden_size:            1280
+    patch_num_layers:       20
+    char_num_layers:        6
+    n_head:                 20
+
+
+trainer:
+  env: ~
+  device:                   cuda
+  save_mode:                best
+  epoch:                    1000
+  epoch_size:               256
+  report_step_unit:         examples
+  moniter:
+    field:                  loss
+    mode:                   min
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               1
+      n_warmup_steps:       1000
+      d_model:              1280
