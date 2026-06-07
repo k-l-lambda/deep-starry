@@ -111,6 +111,22 @@ class Trainer:
 		return torch.autocast(device_type='cuda', dtype=self.autocast_dtype)
 
 
+	def cleanupSnapshots (self, keep=None):
+		# Remove all model_*.chkpt snapshots except `keep`. Used in save_mode='best'
+		# so the optim-bearing per-epoch snapshots don't accumulate and fill the disk;
+		# best.chkpt retains the model weights independently.
+		import glob
+		keep_path = self.config.localPath(keep) if keep else None
+		for path in glob.glob(self.config.localPath('model_*.chkpt')):
+			if keep_path and os.path.abspath(path) == os.path.abspath(keep_path):
+				continue
+			try:
+				os.remove(path)
+				self.log('Removed old snapshot: %s', os.path.basename(path))
+			except OSError as e:
+				self.log('Failed to remove snapshot %s: %s', os.path.basename(path), e)
+
+
 	def print_performances(self, loss, metric, start_time, lr=math.nan):
 		self.log('loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
 			.format(loss=loss, metric=print_metric(metric), elapse=(time.time()-start_time)/60, lr=lr))
@@ -306,6 +322,11 @@ class Trainer:
 							'model': self.model.deducer.state_dict(),
 						}
 						torch.save(checkpoint, self.config.localPath('best.chkpt'))
+
+						# dynamic cleanup: keep only the newest model_*.chkpt snapshot
+						# (best.chkpt already holds the model weights), so the optim-bearing
+						# 6GB per-epoch snapshots don't accumulate and fill the disk.
+						self.cleanupSnapshots(keep=model_name)
 
 						self.log('The checkpoint file has been updated.')
 
