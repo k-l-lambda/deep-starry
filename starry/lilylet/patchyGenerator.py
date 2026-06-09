@@ -71,15 +71,33 @@ class LilyletPatchyGenerator:
 		if missing or unexpected:
 			print(f'[LilyletPatchyGenerator] load_state_dict: {len(missing)} missing, {len(unexpected)} unexpected keys')
 
-		tokenizer = LilyletTokenizer(tokenizer_path)
+		tokenizer = LilyletTokenizer(cls._resolve_tokenizer(tokenizer_path))
 		return cls(model, tokenizer, device=device)
 
+	@staticmethod
+	def _resolve_tokenizer (tokenizer_path):
+		'''Resolve a tokenizer path robustly: use it as-is if it exists, otherwise
+		(for a repo-relative path like "assets/manual-tokenizer.json") resolve it
+		against the repo root, so loading doesn't depend on the cwd.'''
+		import os
+		if os.path.isfile(tokenizer_path):
+			return tokenizer_path
+		if not os.path.isabs(tokenizer_path):
+			# repo root = .../deep-starry, two levels up from this file's package dir
+			repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+			candidate = os.path.join(repo_root, tokenizer_path)
+			if os.path.isfile(candidate):
+				return candidate
+		return tokenizer_path
+
 	@classmethod
-	def from_config (cls, config, checkpoint_path, device=None):
-		'''Build from a deep-starry Configuration: reads model.args and
-		data.args.tokenizer_path.'''
+	def from_config (cls, config, checkpoint_path, tokenizer_path=None, device=None):
+		'''Build from a deep-starry Configuration: reads model.args and (unless
+		overridden) data.args.tokenizer_path. Pass tokenizer_path explicitly when the
+		config stores a repo-relative path but the cwd is elsewhere.'''
 		model_args = dict(config['model.args'])
-		tokenizer_path = config['data.args.tokenizer_path']
+		if tokenizer_path is None:
+			tokenizer_path = config['data.args.tokenizer_path']
 		return cls.load(checkpoint_path, tokenizer_path, model_args, device=device)
 
 	def patch_to_text (self, patch):
