@@ -1,0 +1,59 @@
+# Lilylet NotaGen — Llama-backbone variant (test config).
+# Same hierarchical patch/char structure as the GPT2 variant, but both decoders
+# use a Llama base (RoPE positions, GQA-capable) via model.args.base_type: llama.
+# Smaller dims here for a quick build / forward / save-load smoke test.
+
+id:     lilylet/{date}-notagen-llama
+
+
+data:
+  type:                     LilyletPatchy
+  root:                     notagenx1m-lyl-20260606.pt
+  splits:                   '*0..8/10:9/10'
+  batch_size:               4
+  args_variant: ~
+  args:
+    patch_size:             16
+    patch_length:           1024
+    patch_stream:           true
+    tokenizer_path:         assets/manual-tokenizer.json
+
+
+model:
+  type:                     LilyletNotaGen
+  args:
+    base_type:              llama
+    char_vocab_size:        256
+    patch_size:             16
+    patch_length:           1024
+    hidden_size:            512
+    patch_num_layers:       8
+    char_num_layers:        3
+    n_head:                 8
+    num_key_value_heads:    8
+    intermediate_size:      2048
+
+
+trainer:
+  env: ~
+  device:                   cuda
+  dtype:                    bf16
+  save_mode:                best
+  epoch:                    1000
+  epoch_size:               256
+  report_step_unit:         examples
+  moniter:
+    field:                  loss
+    mode:                   min
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               1
+      n_warmup_steps:       1000
+      d_model:              512

@@ -21,6 +21,7 @@ import re
 
 from ..utils.model_factory import loadModel
 from .data.patchifier import LilyletTokenizer
+from .models.notagen import token_embedding_weight
 
 
 def sample_next (logits, temperature=1.0, top_k=0, top_p=1.0):
@@ -124,7 +125,7 @@ class LilyletPatchyGenerator:
 		Returns a list of exactly patch_size ids.
 		'''
 		char = self.model.char_level_decoder
-		wte = char.base.transformer.wte.weight
+		wte = token_embedding_weight(char.base)
 		# position 0 holds the encoded patch state; positions 1.. are embedded chars.
 		tokens = [self.bos_id] + list(prefix_ids or [])
 		generated = list(prefix_ids or [])

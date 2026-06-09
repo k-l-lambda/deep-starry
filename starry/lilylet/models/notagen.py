@@ -24,6 +24,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from transformers import GPT2Config, GPT2Model, GPT2LMHeadModel, PreTrainedModel
+from transformers import LlamaConfig, LlamaModel, LlamaForCausalLM
+from transformers import PretrainedConfig
 
 
 PAD_TOKEN_ID = 0
@@ -31,10 +33,22 @@ BOS_TOKEN_ID = 1
 EOS_TOKEN_ID = 2
 
 
+def token_embedding_weight (base):
+	'''Return the input token-embedding weight of a HF base model, regardless of
+	architecture: GPT2 stores it at `transformer.wte`, Llama at `model.embed_tokens`.'''
+	if hasattr(base, 'transformer'):			# GPT2Model / GPT2LMHeadModel
+		return base.transformer.wte.weight
+	if hasattr(base, 'model'):				# LlamaForCausalLM
+		return base.model.embed_tokens.weight
+	if hasattr(base, 'embed_tokens'):			# LlamaModel
+		return base.embed_tokens.weight
+	raise AttributeError(f'cannot locate token embedding on {type(base).__name__}')
+
+
 class PatchLevelDecoder (PreTrainedModel):
 	'''Encodes patches into per-patch hidden states (auto-regressive over patches).'''
 
-	config_class = GPT2Config
+	config_class = PretrainedConfig
 
 	def __init__ (self, config, patch_size, char_vocab_size):
 		super().__init__(config)
@@ -42,10 +56,11 @@ class PatchLevelDecoder (PreTrainedModel):
 		self.patch_size = patch_size
 		self.char_vocab_size = char_vocab_size
 
-		self.patch_embedding = nn.Linear(patch_size * char_vocab_size, config.n_embd)
+		hidden = getattr(config, 'n_embd', None) or config.hidden_size
+		self.patch_embedding = nn.Linear(patch_size * char_vocab_size, hidden)
 		nn.init.normal_(self.patch_embedding.weight, std=0.02)
 
-		self.base = GPT2Model(config)
+		self.base = LlamaModel(config) if isinstance(config, LlamaConfig) else GPT2Model(config)
 
 	def forward (self, patches: torch.Tensor, masks: Optional[torch.Tensor] = None):
 		# patches: [B, T, patch_size] -> one-hot [B, T, patch_size, char_vocab_size]
@@ -61,14 +76,14 @@ class PatchLevelDecoder (PreTrainedModel):
 class CharLevelDecoder (PreTrainedModel):
 	'''Generates the tokens within a patch, conditioned on the patch hidden state.'''
 
-	config_class = GPT2Config
+	config_class = PretrainedConfig
 
 	def __init__ (self, config):
 		super().__init__(config)
 
 		self.special_token_id = PAD_TOKEN_ID
 		self.bos_token_id = BOS_TOKEN_ID
-		self.base = GPT2LMHeadModel(config)
+		self.base = LlamaForCausalLM(config) if isinstance(config, LlamaConfig) else GPT2LMHeadModel(config)
 
 	def forward (self, encoded_patches: torch.Tensor, target_patches: torch.Tensor):
 		# target_patches: [N, patch_size]; prepend BOS -> [N, patch_size + 1]
@@ -84,7 +99,7 @@ class CharLevelDecoder (PreTrainedModel):
 		target_masks = target_masks.masked_fill(labels == -100, 0)
 
 		# char embeddings, replace first position with the encoded patch state
-		inputs_embeds = F.embedding(target_patches, self.base.transformer.wte.weight)
+		inputs_embeds = F.embedding(target_patches, token_embedding_weight(self.base))
 		inputs_embeds = torch.cat((encoded_patches.unsqueeze(1), inputs_embeds[:, 1:, :]), dim=1)
 
 		return self.base(inputs_embeds=inputs_embeds, attention_mask=target_masks, labels=labels)
@@ -101,36 +116,66 @@ class LilyletNotaGen (nn.Module):
 		patch_num_layers: layers of the patch-level GPT2
 		char_num_layers: layers of the char-level GPT2
 		n_head: attention heads (default hidden_size // 64)
+		base_type: 'gpt2' (default) or 'llama' backbone for both decoders
+		intermediate_size: Llama FFN dim (default hidden_size * 4; ignored for gpt2)
+		num_key_value_heads: Llama GQA kv heads (default n_head; ignored for gpt2)
 	'''
 
 	def __init__ (self, char_vocab_size=256, patch_size=16, patch_length=2048,
-		hidden_size=768, patch_num_layers=12, char_num_layers=3, n_head=None, **_):
+		hidden_size=768, patch_num_layers=12, char_num_layers=3, n_head=None,
+		base_type='gpt2', intermediate_size=None, num_key_value_heads=None, **_):
 		super().__init__()
 
 		self.char_vocab_size = char_vocab_size
 		self.patch_size = patch_size
+		self.base_type = base_type
 		self.special_token_id = PAD_TOKEN_ID
 		self.bos_token_id = BOS_TOKEN_ID
 		self.eos_token_id = EOS_TOKEN_ID
 
 		n_head = n_head or max(1, hidden_size // 64)
 
-		patch_config = GPT2Config(
-			num_hidden_layers=patch_num_layers,
-			max_length=patch_length,
-			max_position_embeddings=patch_length,
-			n_embd=hidden_size,
-			num_attention_heads=n_head,
-			vocab_size=1,
-		)
-		char_config = GPT2Config(
-			num_hidden_layers=char_num_layers,
-			max_length=patch_size + 1,
-			max_position_embeddings=patch_size + 1,
-			hidden_size=hidden_size,
-			num_attention_heads=n_head,
-			vocab_size=char_vocab_size,
-		)
+		if base_type == 'llama':
+			# Llama base: RoPE positions (no learned position table), GQA-capable.
+			inter = intermediate_size or hidden_size * 4
+			n_kv = num_key_value_heads or n_head
+			patch_config = LlamaConfig(
+				num_hidden_layers=patch_num_layers,
+				max_position_embeddings=patch_length,
+				hidden_size=hidden_size,
+				intermediate_size=inter,
+				num_attention_heads=n_head,
+				num_key_value_heads=n_kv,
+				vocab_size=1,
+			)
+			char_config = LlamaConfig(
+				num_hidden_layers=char_num_layers,
+				max_position_embeddings=patch_size + 1,
+				hidden_size=hidden_size,
+				intermediate_size=inter,
+				num_attention_heads=n_head,
+				num_key_value_heads=n_kv,
+				vocab_size=char_vocab_size,
+			)
+		elif base_type == 'gpt2':
+			patch_config = GPT2Config(
+				num_hidden_layers=patch_num_layers,
+				max_length=patch_length,
+				max_position_embeddings=patch_length,
+				n_embd=hidden_size,
+				num_attention_heads=n_head,
+				vocab_size=1,
+			)
+			char_config = GPT2Config(
+				num_hidden_layers=char_num_layers,
+				max_length=patch_size + 1,
+				max_position_embeddings=patch_size + 1,
+				hidden_size=hidden_size,
+				num_attention_heads=n_head,
+				vocab_size=char_vocab_size,
+			)
+		else:
+			raise ValueError(f'Unknown base_type "{base_type}" (expected "gpt2" or "llama")')
 
 		self.patch_level_decoder = PatchLevelDecoder(patch_config, patch_size, char_vocab_size)
 		self.char_level_decoder = CharLevelDecoder(char_config)
