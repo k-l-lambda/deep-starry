@@ -1,12 +1,16 @@
 """Smoke test: generate a small Lilylet file with LilyletPatchyGenerator.
 
-Loads the trained NotaGen-X "large" checkpoint (lr0.2 run, fully trained at
-epoch 999) and autoregressively decodes a short document, writing it to
-tests/output/lilylet_generated.lyl.
+Loads a trained NotaGen-X checkpoint and autoregressively decodes a short
+document, writing it to tests/output/lilylet_generated.lyl.
+
+The model architecture (base_type, hidden_size, heads, etc.) is read from the
+checkpoint run's own `.state.yaml` — `Configuration.createOrLoad(<run dir>)`
+loads it — so the script never hardcodes hyperparameters and works for any
+backbone (gpt2 / llama / GQA) without extra flags.
 
 Usage:
 	python tests/test_lilylet_patchy_generator.py
-	python tests/test_lilylet_patchy_generator.py --max-patches 96 --temperature 0.9
+	python tests/test_lilylet_patchy_generator.py --checkpoint <run>/best.chkpt --measures 8 --postprocess
 """
 
 import os
@@ -17,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 
+from starry.utils.config import Configuration
 from starry.lilylet.patchyGenerator import LilyletPatchyGenerator
 
 
@@ -24,24 +29,16 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Checkpoint sync has stopped; this lr0.2 best.chkpt is currently stable and usable.
 CKPT = '/home/camus/data/models/deep-starry-logs/lilylet/20260606-lilylet-notagenx-large-lr0.2/best.chkpt'
-TOKENIZER = os.path.join(REPO_ROOT, 'assets', 'manual-tokenizer.json')
-
-# NotaGen-X "large" hyperparameters (must match the checkpoint).
-MODEL_ARGS = dict(
-	char_vocab_size=256,
-	patch_size=16,
-	patch_length=1024,
-	hidden_size=1280,
-	patch_num_layers=20,
-	char_num_layers=6,
-	n_head=20,
-)
 
 
 def main ():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--checkpoint', default=CKPT)
-	parser.add_argument('--tokenizer', default=TOKENIZER)
+	parser.add_argument('--config', default=None,
+		help="config to read model.args from; default = the checkpoint run's own "
+		     "directory (its .state.yaml), so the architecture always matches")
+	parser.add_argument('--tokenizer', default=None,
+		help='override tokenizer path; default = the one recorded in the config')
 	parser.add_argument('--max-patches', type=int, default=1024,
 		help='patch cap; default 1024 = model patch_length, so the model stops on its own EOS')
 	parser.add_argument('--temperature', type=float, default=0.9)
@@ -58,9 +55,25 @@ def main ():
 
 	torch.manual_seed(args.seed)
 
+	# Read the run's recorded state: the checkpoint's directory holds a .state.yaml
+	# with the full model.args (base_type, heads, intermediate_size, ...). Passing a
+	# non-.yaml path to createOrLoad loads that, so the architecture always matches
+	# the weights and we never hardcode hyperparameters here.
+	config_src = args.config or os.path.dirname(args.checkpoint)
+	config = Configuration.createOrLoad(config_src, volatile=True)
+
+	# The config stores a repo-relative tokenizer path; resolve it absolutely so it
+	# doesn't depend on the cwd (LilyletPatchyGenerator also hardens this).
+	tokenizer_path = args.tokenizer
+	if tokenizer_path is None:
+		tk = config['data.args.tokenizer_path']
+		tokenizer_path = tk if os.path.isabs(tk) else os.path.join(REPO_ROOT, tk)
+
 	print('checkpoint:', args.checkpoint)
-	print('tokenizer: ', args.tokenizer)
-	gen = LilyletPatchyGenerator.load(args.checkpoint, args.tokenizer, MODEL_ARGS)
+	print('config src:', config_src)
+	print('base_type: ', config['model.args.base_type'] or 'gpt2')
+	print('tokenizer: ', tokenizer_path)
+	gen = LilyletPatchyGenerator.from_config(config, args.checkpoint, tokenizer_path=tokenizer_path)
 	print('device:', gen.device, '| patch_size:', gen.patch_size,
 		'| pad/bos/eos:', gen.pad_id, gen.bos_id, gen.eos_id)
 
