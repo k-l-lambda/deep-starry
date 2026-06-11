@@ -260,3 +260,33 @@ class LilyletNotaGenLoss (nn.Module):
 			'target_patches': target,
 			'n_patches': int(target.shape[0]),
 		}
+
+
+# ---- thin tensor-in/tensor-out wrappers around the two transformer forwards,
+# used for ONNX export (the cheap one-hot / embedding-lookup / patch-state splice
+# stay outside, done in numpy/torch by the caller). ----
+
+class PatchNet (nn.Module):
+	'''patch ids [1,T,patch_size] -> patch hidden states [1,T,hidden].'''
+	def __init__ (self, model):
+		super().__init__()
+		self.dec = model.patch_level_decoder
+		self.token_vocab_size = model.token_vocab_size
+		self.patch_size = model.patch_size
+
+	def forward (self, patches):
+		oh = F.one_hot(patches.long(), num_classes=self.token_vocab_size).to(self.dec.patch_embedding.weight.dtype)
+		oh = oh.reshape(1, -1, self.patch_size * self.token_vocab_size)
+		emb = self.dec.patch_embedding(oh)
+		return self.dec.base(inputs_embeds=emb).last_hidden_state
+
+
+class TokenNet (nn.Module):
+	'''token inputs_embeds [1,L,hidden] -> logits [1,L,vocab]. Embedding lookup +
+	the position-0 patch-state splice stay outside (cheap, done in numpy/torch).'''
+	def __init__ (self, model):
+		super().__init__()
+		self.base = model.token_level_decoder.base
+
+	def forward (self, inputs_embeds):
+		return self.base(inputs_embeds=inputs_embeds).logits

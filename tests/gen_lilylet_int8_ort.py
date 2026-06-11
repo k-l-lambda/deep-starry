@@ -42,9 +42,9 @@ def main ():
 	gen = LilyletPatchyGenerator.from_config(config, CKPT, tokenizer_path=tk, device='cpu')
 
 	patch_i8 = os.path.join(ONNX_DIR, 'patch_int8.onnx')
-	char_i8 = os.path.join(ONNX_DIR, 'char_int8.onnx')
-	assert os.path.isfile(patch_i8) and os.path.isfile(char_i8), 'run bench_lilylet_int8_ort.py first to export int8 onnx'
-	ort_i8 = ORTGenerator(gen, patch_i8, char_i8, threads=args.threads)
+	token_i8 = os.path.join(ONNX_DIR, 'token_int8.onnx')
+	assert os.path.isfile(patch_i8) and os.path.isfile(token_i8), 'run bench_lilylet_int8_ort.py first to export int8 onnx'
+	ort_i8 = ORTGenerator(gen, patch_i8, token_i8, threads=args.threads)
 
 	print('=== INT8 ONNX generation ===')
 	print('prompt:')

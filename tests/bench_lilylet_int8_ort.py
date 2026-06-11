@@ -3,8 +3,8 @@
 Pipeline:
   1. Load the torch model (architecture read from the run's .state.yaml).
   2. Export the two heavy transformer forwards to ONNX:
-       - PatchNet: patch ids [1,T,patch_size] -> patch hidden states [1,T,hidden]
-       - CharNet : inputs_embeds [1,L,hidden]  -> logits [1,L,vocab]
+       - PatchNet : patch ids [1,T,patch_size] -> patch hidden states [1,T,hidden]
+       - TokenNet : inputs_embeds [1,L,hidden]  -> logits [1,L,vocab]
      (the cheap one-hot/embedding lookups stay; only the transformers are exported)
   3. quantize_dynamic both to INT8 (weight int8, activation dynamic — no calibration).
   4. Build an ORT-int8 generator mirroring patchyGenerator.generate.
@@ -30,7 +30,7 @@ import torch.nn.functional as F
 
 from starry.utils.config import Configuration
 from starry.lilylet.patchyGenerator import LilyletPatchyGenerator, sample_next
-from starry.lilylet.models.notagen import token_embedding_weight
+from starry.lilylet.models.notagen import token_embedding_weight, PatchNet, TokenNet
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUN = '/home/camus/data/models/deep-starry-logs/lilylet/20260609-lilylet-notagenx-large-llama-lr0.2'
@@ -38,49 +38,21 @@ CKPT = os.path.join(RUN, 'best.chkpt')
 ONNX_DIR = os.path.join(REPO_ROOT, 'tests', 'output', 'onnx')
 
 
-# ---- thin tensor-in/tensor-out wrappers around the two transformer forwards ----
-
-class PatchNet (torch.nn.Module):
-	'''patch ids [1,T,patch_size] -> patch hidden states [1,T,hidden].'''
-	def __init__ (self, model):
-		super().__init__()
-		self.dec = model.patch_level_decoder
-		self.token_vocab_size = model.token_vocab_size
-		self.patch_size = model.patch_size
-
-	def forward (self, patches):
-		oh = F.one_hot(patches.long(), num_classes=self.token_vocab_size).to(self.dec.patch_embedding.weight.dtype)
-		oh = oh.reshape(1, -1, self.patch_size * self.token_vocab_size)
-		emb = self.dec.patch_embedding(oh)
-		return self.dec.base(inputs_embeds=emb).last_hidden_state
-
-
-class CharNet (torch.nn.Module):
-	'''char inputs_embeds [1,L,hidden] -> logits [1,L,vocab]. Embedding lookup +
-	the position-0 patch-state splice stay outside (cheap, done in numpy/torch).'''
-	def __init__ (self, model):
-		super().__init__()
-		self.base = model.token_level_decoder.base
-
-	def forward (self, inputs_embeds):
-		return self.base(inputs_embeds=inputs_embeds).logits
-
-
 def export_and_quantize (gen, hidden):
-	'''Export PatchNet/CharNet to ONNX and produce INT8 dynamic-quantized copies.'''
+	'''Export PatchNet/TokenNet to ONNX and produce INT8 dynamic-quantized copies.'''
 	import onnx  # noqa
 	from onnxruntime.quantization import quantize_dynamic, QuantType
 
 	os.makedirs(ONNX_DIR, exist_ok=True)
 	model = gen.model
 	patch_net = PatchNet(model).eval()
-	char_net = CharNet(model).eval()
+	token_net = TokenNet(model).eval()
 
 	paths = {
 		'patch_fp32': os.path.join(ONNX_DIR, 'patch_fp32.onnx'),
 		'patch_int8': os.path.join(ONNX_DIR, 'patch_int8.onnx'),
-		'char_fp32': os.path.join(ONNX_DIR, 'char_fp32.onnx'),
-		'char_int8': os.path.join(ONNX_DIR, 'char_int8.onnx'),
+		'token_fp32': os.path.join(ONNX_DIR, 'token_fp32.onnx'),
+		'token_int8': os.path.join(ONNX_DIR, 'token_int8.onnx'),
 	}
 
 	# dummy inputs (dynamic axes let real T / L vary)
@@ -92,12 +64,12 @@ def export_and_quantize (gen, hidden):
 		torch.onnx.export(patch_net, (dummy_patches,), paths['patch_fp32'],
 			input_names=['patches'], output_names=['hidden'],
 			dynamic_axes={'patches': {1: 'T'}, 'hidden': {1: 'T'}}, opset_version=17)
-		torch.onnx.export(char_net, (dummy_embed,), paths['char_fp32'],
+		torch.onnx.export(token_net, (dummy_embed,), paths['token_fp32'],
 			input_names=['inputs_embeds'], output_names=['logits'],
 			dynamic_axes={'inputs_embeds': {1: 'L'}, 'logits': {1: 'L'}}, opset_version=17)
 
 	print('exported fp32 onnx; quantizing to int8...')
-	for lvl in ('patch', 'char'):
+	for lvl in ('patch', 'token'):
 		quantize_dynamic(paths[f'{lvl}_fp32'], paths[f'{lvl}_int8'], weight_type=QuantType.QInt8)
 	for k, p in paths.items():
 		print('  %-11s %8.1f MB  %s' % (k, os.path.getsize(p) / 1e6, p))
@@ -107,13 +79,13 @@ def export_and_quantize (gen, hidden):
 class ORTGenerator:
 	'''Mirrors LilyletPatchyGenerator.generate but runs the two transformer
 	forwards through ORT sessions. Embedding lookup + sampling stay in numpy/torch.'''
-	def __init__ (self, gen, patch_onnx, char_onnx, threads=None):
+	def __init__ (self, gen, patch_onnx, token_onnx, threads=None):
 		import onnxruntime as ort
 		so = ort.SessionOptions()
 		if threads:
 			so.intra_op_num_threads = threads
 		self.patch_sess = ort.InferenceSession(patch_onnx, so, providers=['CPUExecutionProvider'])
-		self.char_sess = ort.InferenceSession(char_onnx, so, providers=['CPUExecutionProvider'])
+		self.token_sess = ort.InferenceSession(token_onnx, so, providers=['CPUExecutionProvider'])
 		self.g = gen
 		self.wte = token_embedding_weight(gen.model.token_level_decoder.base).detach().cpu().numpy()
 
@@ -121,8 +93,8 @@ class ORTGenerator:
 		x = np.asarray([patches_2d], dtype=np.int64)
 		return self.patch_sess.run(None, {'patches': x})[0]  # [1,T,hidden]
 
-	def char_logits (self, inputs_embeds_np):
-		return self.char_sess.run(None, {'inputs_embeds': inputs_embeds_np.astype(np.float32)})[0]
+	def token_logits (self, inputs_embeds_np):
+		return self.token_sess.run(None, {'inputs_embeds': inputs_embeds_np.astype(np.float32)})[0]
 
 	def generate_patch (self, last_hidden, prefix_ids=None, temperature=1.0, top_k=0, top_p=1.0):
 		g = self.g
@@ -132,7 +104,7 @@ class ORTGenerator:
 		while len(generated) < g.patch_size:
 			emb = self.wte[np.asarray(tokens)][None]          # [1,len,hidden]
 			emb = np.concatenate([enc, emb[:, 1:, :]], axis=1)
-			logits = self.char_logits(emb)[0, -1]
+			logits = self.token_logits(emb)[0, -1]
 			nxt = sample_next(torch.from_numpy(logits), temperature=temperature, top_k=top_k, top_p=top_p)
 			generated.append(nxt); tokens.append(nxt)
 		return generated
@@ -195,8 +167,8 @@ def main ():
 		(sum(p.numel() for p in gen.model.parameters()) / 1e6, hidden, args.threads))
 
 	paths = export_and_quantize(gen, hidden)
-	ort_i8 = ORTGenerator(gen, paths['patch_int8'], paths['char_int8'], threads=args.threads)
-	ort_f32 = ORTGenerator(gen, paths['patch_fp32'], paths['char_fp32'], threads=args.threads)
+	ort_i8 = ORTGenerator(gen, paths['patch_int8'], paths['token_int8'], threads=args.threads)
+	ort_f32 = ORTGenerator(gen, paths['patch_fp32'], paths['token_fp32'], threads=args.threads)
 
 	# ---- fidelity: same inputs through torch-fp32 vs ORT-int8 ----
 	print('\n===== FIDELITY (identical inputs) =====')
@@ -213,7 +185,7 @@ def main ():
 	emb = torch.cat((last_t.reshape(1, 1, -1), emb[1:].reshape(1, -1, hidden)), dim=1).detach()
 	with torch.no_grad():
 		t_logits = gen.model.token_level_decoder.base(inputs_embeds=emb).logits.numpy()
-	i_logits = ort_i8.char_logits(emb.numpy())
+	i_logits = ort_i8.token_logits(emb.numpy())
 	top1 = (t_logits[0].argmax(-1) == i_logits[0].argmax(-1)).mean()
 	print('char logits:  cos %.5f  max|Δ| %.4f  top1-agree %.3f' %
 		(_cos(t_logits, i_logits), np.abs(t_logits - i_logits).max(), top1))
