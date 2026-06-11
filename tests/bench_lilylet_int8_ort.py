@@ -144,6 +144,84 @@ class ORTGenerator:
 		return g.postprocess(out_text) if postprocess else out_text
 
 
+class ORTGeneratorKV (ORTGenerator):
+	'''Patch-level KV-cache generator. Same token path as ORTGenerator, but the
+	patch decoder runs incrementally through the patch_kv_int8 session instead of
+	recomputing the whole patch sequence every step. Output is identical to
+	ORTGenerator (greedy: byte-for-byte); only the patch-level cost changes from
+	O(T) per step to O(1).'''
+
+	def __init__ (self, gen, patch_kv_onnx, token_onnx, threads=None):
+		import onnxruntime as ort
+		so = ort.SessionOptions()
+		if threads:
+			so.intra_op_num_threads = threads
+		self.patch_kv_sess = ort.InferenceSession(patch_kv_onnx, so, providers=['CPUExecutionProvider'])
+		self.token_sess = ort.InferenceSession(token_onnx, so, providers=['CPUExecutionProvider'])
+		self.g = gen
+		self.wte = token_embedding_weight(gen.model.token_level_decoder.base).detach().cpu().numpy()
+		# KV geometry from the patch-level base
+		pbase = gen.model.patch_level_decoder.base
+		self.n_layers = pbase.config.num_hidden_layers
+		self.n_kv = pbase.config.num_key_value_heads
+		self.head_dim = pbase.config.hidden_size // pbase.config.num_attention_heads
+		self.out_names = [o.name for o in self.patch_kv_sess.get_outputs()]
+
+	def _empty_past (self):
+		return [np.zeros((1, self.n_kv, 0, self.head_dim), dtype=np.float32) for _ in range(2 * self.n_layers)]
+
+	def patch_kv_step (self, patch_rows, past):
+		'''Feed L new patches (list of patch_size-length id rows) + past KV.
+		Returns (last_hidden [hidden], new_past list). new_past replaces past.'''
+		x = np.asarray([patch_rows], dtype=np.int64)        # [1, L, patch_size]
+		feed = {'patches': x}
+		for i in range(self.n_layers):
+			feed[f'past_k_{i}'] = past[2 * i]
+			feed[f'past_v_{i}'] = past[2 * i + 1]
+		out = dict(zip(self.out_names, self.patch_kv_sess.run(None, feed)))
+		new_past = []
+		for i in range(self.n_layers):
+			new_past.append(out[f'new_k_{i}'])
+			new_past.append(out[f'new_v_{i}'])
+		return out['hidden'][0, -1], new_past
+
+	def generate (self, prompt_text='', max_patches=256, temperature=1.0, top_k=0, top_p=0.9,
+		measures=None, postprocess=False):
+		g = self.g
+		bos_patch = [g.bos_id] * (g.patch_size - 1) + [g.eos_id]
+		patches = [bos_patch]
+		if prompt_text:
+			for line in prompt_text.splitlines():
+				ids = g.tokenizer.encode(line + '\n')
+				for i in range(0, len(ids), g.patch_size):
+					chunk = ids[i:i + g.patch_size]
+					patches.append(chunk + [g.pad_id] * (g.patch_size - len(chunk)))
+		out_text = g.patches_to_text(patches[1:])
+		prime_ids = g.tokenizer.encode(f'[r:0/{measures}]') if measures is not None else None
+		primed = False
+
+		# prefill: run all seed patches through the KV decoder in one call
+		past = self._empty_past()
+		last, past = self.patch_kv_step(patches, past)
+
+		for _ in range(max_patches):
+			patch_ids = self.generate_patch(last, temperature=temperature, top_k=top_k, top_p=top_p)
+			if prime_ids is not None and not primed and g.patch_to_text(patch_ids).startswith('[r:'):
+				primed = True
+				patch_ids = self.generate_patch(last, prefix_ids=prime_ids,
+					temperature=temperature, top_k=top_k, top_p=top_p)
+			if patch_ids[0] == g.bos_id and patch_ids[1] == g.eos_id:
+				break
+			out_text += g.patch_to_text(patch_ids)
+			clean = list(patch_ids); seen = False
+			for j in range(len(clean)):
+				if seen: clean[j] = g.pad_id
+				if clean[j] == g.eos_id: seen = True
+			# advance the patch-level cache by the one new patch -> next hidden state
+			last, past = self.patch_kv_step([clean], past)
+		return g.postprocess(out_text) if postprocess else out_text
+
+
 def _cos (a, b):
 	a = a.ravel().astype(np.float64); b = b.ravel().astype(np.float64)
 	return float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12))

@@ -290,3 +290,45 @@ class TokenNet (nn.Module):
 
 	def forward (self, inputs_embeds):
 		return self.base(inputs_embeds=inputs_embeds).logits
+
+
+class PatchNetKV (nn.Module):
+	'''KV-cache variant of PatchNet for incremental patch-level decoding.
+
+	Input:  patches [1, L, patch_size]  (the L new patches, usually L=1 in the loop,
+	            L>1 only for the initial prefill of the seed patches)
+	        past:   list of 2*num_layers tensors  [k0, v0, k1, v1, ...], each
+	            [1, num_kv_heads, P, head_dim] (P = cached patch length, 0 at prefill)
+	Output: (last_hidden [1, L, hidden], new_k0, new_v0, new_k1, new_v1, ...)
+	        where each new_k/new_v is [1, num_kv_heads, P+L, head_dim].
+
+	The one-hot + patch_embedding stay inside the graph (so they get quantized);
+	the caller keeps only the per-layer K/V tensors between steps.
+	'''
+	def __init__ (self, model):
+		super().__init__()
+		self.dec = model.patch_level_decoder
+		self.token_vocab_size = model.token_vocab_size
+		self.patch_size = model.patch_size
+		self.num_layers = self.dec.base.config.num_hidden_layers
+
+	def forward (self, patches, past):
+		from transformers import DynamicCache
+		oh = F.one_hot(patches.long(), num_classes=self.token_vocab_size).to(self.dec.patch_embedding.weight.dtype)
+		oh = oh.reshape(1, -1, self.patch_size * self.token_vocab_size)
+		emb = self.dec.patch_embedding(oh)
+
+		cache = DynamicCache()
+		past_len = past[0].shape[2]
+		for i in range(self.num_layers):
+			cache.update(past[2 * i], past[2 * i + 1], i)
+
+		cache_position = torch.arange(past_len, past_len + emb.shape[1])
+		out = self.dec.base(inputs_embeds=emb, past_key_values=cache, use_cache=True,
+			cache_position=cache_position)
+
+		outs = [out.last_hidden_state]
+		for i in range(self.num_layers):
+			outs.append(cache.layers[i].keys)
+			outs.append(cache.layers[i].values)
+		return tuple(outs)
