@@ -18,12 +18,12 @@ data:
 model:
   type:                     LilyletNotaGen
   args:
-    char_vocab_size:        256
+    token_vocab_size:        256
     patch_size:             16
     patch_length:           2048
     hidden_size:            256
     patch_num_layers:       4
-    char_num_layers:        2
+    token_num_layers:        2
     n_head:                 4
 
 

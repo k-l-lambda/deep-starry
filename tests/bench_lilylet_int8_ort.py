@@ -45,12 +45,12 @@ class PatchNet (torch.nn.Module):
 	def __init__ (self, model):
 		super().__init__()
 		self.dec = model.patch_level_decoder
-		self.char_vocab_size = model.char_vocab_size
+		self.token_vocab_size = model.token_vocab_size
 		self.patch_size = model.patch_size
 
 	def forward (self, patches):
-		oh = F.one_hot(patches.long(), num_classes=self.char_vocab_size).to(self.dec.patch_embedding.weight.dtype)
-		oh = oh.reshape(1, -1, self.patch_size * self.char_vocab_size)
+		oh = F.one_hot(patches.long(), num_classes=self.token_vocab_size).to(self.dec.patch_embedding.weight.dtype)
+		oh = oh.reshape(1, -1, self.patch_size * self.token_vocab_size)
 		emb = self.dec.patch_embedding(oh)
 		return self.dec.base(inputs_embeds=emb).last_hidden_state
 
@@ -60,7 +60,7 @@ class CharNet (torch.nn.Module):
 	the position-0 patch-state splice stay outside (cheap, done in numpy/torch).'''
 	def __init__ (self, model):
 		super().__init__()
-		self.base = model.char_level_decoder.base
+		self.base = model.token_level_decoder.base
 
 	def forward (self, inputs_embeds):
 		return self.base(inputs_embeds=inputs_embeds).logits
@@ -115,7 +115,7 @@ class ORTGenerator:
 		self.patch_sess = ort.InferenceSession(patch_onnx, so, providers=['CPUExecutionProvider'])
 		self.char_sess = ort.InferenceSession(char_onnx, so, providers=['CPUExecutionProvider'])
 		self.g = gen
-		self.wte = token_embedding_weight(gen.model.char_level_decoder.base).detach().cpu().numpy()
+		self.wte = token_embedding_weight(gen.model.token_level_decoder.base).detach().cpu().numpy()
 
 	def patch_forward (self, patches_2d):
 		x = np.asarray([patches_2d], dtype=np.int64)
@@ -209,10 +209,10 @@ def main ():
 	print('patch hidden: cos %.5f  max|Δ| %.4f' % (_cos(t_hidden, i_hidden), np.abs(t_hidden - i_hidden).max()))
 
 	last_t = torch.from_numpy(t_hidden[0, -1])
-	emb = F.embedding(torch.tensor([gen.bos_id, demo[0], demo[1]]), token_embedding_weight(gen.model.char_level_decoder.base))
+	emb = F.embedding(torch.tensor([gen.bos_id, demo[0], demo[1]]), token_embedding_weight(gen.model.token_level_decoder.base))
 	emb = torch.cat((last_t.reshape(1, 1, -1), emb[1:].reshape(1, -1, hidden)), dim=1).detach()
 	with torch.no_grad():
-		t_logits = gen.model.char_level_decoder.base(inputs_embeds=emb).logits.numpy()
+		t_logits = gen.model.token_level_decoder.base(inputs_embeds=emb).logits.numpy()
 	i_logits = ort_i8.char_logits(emb.numpy())
 	top1 = (t_logits[0].argmax(-1) == i_logits[0].argmax(-1)).mean()
 	print('char logits:  cos %.5f  max|Δ| %.4f  top1-agree %.3f' %

@@ -23,12 +23,12 @@ model:
   type:                     LilyletNotaGen
   args:
     base_type:              llama
-    char_vocab_size:        256
+    token_vocab_size:        256
     patch_size:             16
     patch_length:           1024
     hidden_size:            512
     patch_num_layers:       8
-    char_num_layers:        3
+    token_num_layers:        3
     n_head:                 8
     num_key_value_heads:    8
     intermediate_size:      2048

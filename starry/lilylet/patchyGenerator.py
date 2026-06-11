@@ -1,13 +1,13 @@
 
 '''
-Autoregressive generator for the Lilylet NotaGen hierarchical patch/char model.
+Autoregressive generator for the Lilylet NotaGen hierarchical patch/token model.
 
 Wraps a trained `LilyletNotaGen` (see starry/lilylet/models/notagen.py) with the
 hierarchical decoding loop adapted from NotaGen's inference/inference.py:
 
 	- The patch-level decoder encodes the patch sequence generated so far into a
 	  per-step hidden state.
-	- The char-level decoder autoregressively samples the `patch_size` token ids
+	- The token-level decoder autoregressively samples the `patch_size` token ids
 	  inside the next patch, seeded by that hidden state.
 	- Generation stops on an EOS patch `[bos, eos, ...]` or a patch-count cap.
 
@@ -68,6 +68,12 @@ class LilyletPatchyGenerator:
 		model = loadModel({'type': 'LilyletNotaGen', 'args': model_args})
 		checkpoint = torch.load(checkpoint_path, map_location='cpu')
 		state = checkpoint['model'] if 'model' in checkpoint else checkpoint
+		# legacy checkpoints store the token-level decoder as `char_level_decoder.*`;
+		# remap to the renamed `token_level_decoder.*` so they still load.
+		state = {
+			(k.replace('char_level_decoder.', 'token_level_decoder.', 1) if k.startswith('char_level_decoder.') else k): v
+			for k, v in state.items()
+		}
 		missing, unexpected = model.load_state_dict(state, strict=False)
 		if missing or unexpected:
 			print(f'[LilyletPatchyGenerator] load_state_dict: {len(missing)} missing, {len(unexpected)} unexpected keys')
@@ -124,9 +130,9 @@ class LilyletPatchyGenerator:
 		prefix_ids: optional ids already fixed at the start of this patch.
 		Returns a list of exactly patch_size ids.
 		'''
-		char = self.model.char_level_decoder
-		wte = token_embedding_weight(char.base)
-		# position 0 holds the encoded patch state; positions 1.. are embedded chars.
+		dec = self.model.token_level_decoder
+		wte = token_embedding_weight(dec.base)
+		# position 0 holds the encoded patch state; positions 1.. are embedded tokens.
 		tokens = [self.bos_id] + list(prefix_ids or [])
 		generated = list(prefix_ids or [])
 		encoded = encoded_patch.reshape(1, 1, -1)
@@ -134,7 +140,7 @@ class LilyletPatchyGenerator:
 			tok_tensor = torch.tensor([tokens], device=self.device)
 			emb = F.embedding(tok_tensor, wte)
 			emb = torch.cat((encoded, emb[:, 1:, :]), dim=1)
-			logits = char.base(inputs_embeds=emb).logits[0, -1]
+			logits = dec.base(inputs_embeds=emb).logits[0, -1]
 			nxt = sample_next(logits, temperature=temperature, top_k=top_k, top_p=top_p)
 			generated.append(nxt)
 			tokens.append(nxt)

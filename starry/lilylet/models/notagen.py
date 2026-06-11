@@ -1,20 +1,20 @@
 
 '''
-NotaGen-style hierarchical patch/char model for Lilylet, adapted to deep-starry conventions.
+NotaGen-style hierarchical patch/token model for Lilylet, adapted to deep-starry conventions.
 
 Reference: /home/camus/work/NotaGen/pretrain/utils.py
 
 The model has two levels:
 	- PatchLevelDecoder: encodes a sequence of patches (each patch is a fixed-length
 	  sequence of token ids) into per-patch hidden states with a GPT2 backbone.
-	- CharLevelDecoder: an auto-regressive GPT2 LM that, conditioned on a patch's encoded
+	- TokenLevelDecoder: an auto-regressive GPT2 LM that, conditioned on a patch's encoded
 	  hidden state, generates the token ids inside that patch.
 
 Inference model (deducer): LilyletNotaGen
 Loss model (training wrapper): LilyletNotaGenLoss
 
 Batch contract (from LilyletPatchy.collateBatch):
-	input_patches: LongTensor [B, T, patch_size]   token ids in [0, char_vocab_size)
+	input_patches: LongTensor [B, T, patch_size]   token ids in [0, token_vocab_size)
 	input_masks:   LongTensor [B, T]               1 for real patch, 0 for padding
 '''
 
@@ -50,22 +50,22 @@ class PatchLevelDecoder (PreTrainedModel):
 
 	config_class = PretrainedConfig
 
-	def __init__ (self, config, patch_size, char_vocab_size):
+	def __init__ (self, config, patch_size, token_vocab_size):
 		super().__init__(config)
 
 		self.patch_size = patch_size
-		self.char_vocab_size = char_vocab_size
+		self.token_vocab_size = token_vocab_size
 
 		hidden = getattr(config, 'n_embd', None) or config.hidden_size
-		self.patch_embedding = nn.Linear(patch_size * char_vocab_size, hidden)
+		self.patch_embedding = nn.Linear(patch_size * token_vocab_size, hidden)
 		nn.init.normal_(self.patch_embedding.weight, std=0.02)
 
 		self.base = LlamaModel(config) if isinstance(config, LlamaConfig) else GPT2Model(config)
 
 	def forward (self, patches: torch.Tensor, masks: Optional[torch.Tensor] = None):
-		# patches: [B, T, patch_size] -> one-hot [B, T, patch_size, char_vocab_size]
-		patches = F.one_hot(patches.long(), num_classes=self.char_vocab_size).to(self.patch_embedding.weight.dtype)
-		patches = patches.reshape(len(patches), -1, self.patch_size * self.char_vocab_size)
+		# patches: [B, T, patch_size] -> one-hot [B, T, patch_size, token_vocab_size]
+		patches = F.one_hot(patches.long(), num_classes=self.token_vocab_size).to(self.patch_embedding.weight.dtype)
+		patches = patches.reshape(len(patches), -1, self.patch_size * self.token_vocab_size)
 		patches = self.patch_embedding(patches)
 
 		if masks is None:
@@ -73,7 +73,7 @@ class PatchLevelDecoder (PreTrainedModel):
 		return self.base(inputs_embeds=patches, attention_mask=masks)
 
 
-class CharLevelDecoder (PreTrainedModel):
+class TokenLevelDecoder (PreTrainedModel):
 	'''Generates the tokens within a patch, conditioned on the patch hidden state.'''
 
 	config_class = PretrainedConfig
@@ -94,11 +94,11 @@ class CharLevelDecoder (PreTrainedModel):
 		labels = target_patches.clone()
 		labels = labels.masked_fill(labels == self.special_token_id, -100)
 
-		# attention mask over chars: 1 where label is valid, 0 where -100
+		# attention mask over tokens: 1 where label is valid, 0 where -100
 		target_masks = torch.ones_like(labels)
 		target_masks = target_masks.masked_fill(labels == -100, 0)
 
-		# char embeddings, replace first position with the encoded patch state
+		# token embeddings, replace first position with the encoded patch state
 		inputs_embeds = F.embedding(target_patches, token_embedding_weight(self.base))
 		inputs_embeds = torch.cat((encoded_patches.unsqueeze(1), inputs_embeds[:, 1:, :]), dim=1)
 
@@ -106,27 +106,36 @@ class CharLevelDecoder (PreTrainedModel):
 
 
 class LilyletNotaGen (nn.Module):
-	'''Inference model: hierarchical patch-level + char-level decoders.
+	'''Inference model: hierarchical patch-level + token-level decoders.
 
 	Args (from config['model.args']):
-		char_vocab_size: token vocabulary size (Lilylet manual tokenizer = 256)
+		token_vocab_size: token vocabulary size (Lilylet manual tokenizer = 256)
 		patch_size: tokens per patch (16)
 		patch_length: max patches per document (used for position embeddings)
 		hidden_size: GPT2 embedding dim
 		patch_num_layers: layers of the patch-level GPT2
-		char_num_layers: layers of the char-level GPT2
+		token_num_layers: layers of the token-level GPT2
 		n_head: attention heads (default hidden_size // 64)
 		base_type: 'gpt2' (default) or 'llama' backbone for both decoders
 		intermediate_size: Llama FFN dim (default hidden_size * 4; ignored for gpt2)
 		num_key_value_heads: Llama GQA kv heads (default n_head; ignored for gpt2)
+
+	Backward compat: the legacy arg names `char_vocab_size` / `char_num_layers`
+	are still accepted as aliases for `token_vocab_size` / `token_num_layers`, so
+	configs (and .state.yaml) written before the rename keep loading.
 	'''
 
-	def __init__ (self, char_vocab_size=256, patch_size=16, patch_length=2048,
-		hidden_size=768, patch_num_layers=12, char_num_layers=3, n_head=None,
-		base_type='gpt2', intermediate_size=None, num_key_value_heads=None, **_):
+	def __init__ (self, token_vocab_size=None, patch_size=16, patch_length=2048,
+		hidden_size=768, patch_num_layers=12, token_num_layers=None, n_head=None,
+		base_type='gpt2', intermediate_size=None, num_key_value_heads=None,
+		char_vocab_size=None, char_num_layers=None, **_):
 		super().__init__()
 
-		self.char_vocab_size = char_vocab_size
+		# legacy aliases (char_* -> token_*) for pre-rename configs/checkpoints
+		token_vocab_size = token_vocab_size if token_vocab_size is not None else (char_vocab_size if char_vocab_size is not None else 256)
+		token_num_layers = token_num_layers if token_num_layers is not None else (char_num_layers if char_num_layers is not None else 3)
+
+		self.token_vocab_size = token_vocab_size
 		self.patch_size = patch_size
 		self.base_type = base_type
 		self.special_token_id = PAD_TOKEN_ID
@@ -148,14 +157,14 @@ class LilyletNotaGen (nn.Module):
 				num_key_value_heads=n_kv,
 				vocab_size=1,
 			)
-			char_config = LlamaConfig(
-				num_hidden_layers=char_num_layers,
+			token_config = LlamaConfig(
+				num_hidden_layers=token_num_layers,
 				max_position_embeddings=patch_size + 1,
 				hidden_size=hidden_size,
 				intermediate_size=inter,
 				num_attention_heads=n_head,
 				num_key_value_heads=n_kv,
-				vocab_size=char_vocab_size,
+				vocab_size=token_vocab_size,
 			)
 		elif base_type == 'gpt2':
 			patch_config = GPT2Config(
@@ -166,26 +175,26 @@ class LilyletNotaGen (nn.Module):
 				num_attention_heads=n_head,
 				vocab_size=1,
 			)
-			char_config = GPT2Config(
-				num_hidden_layers=char_num_layers,
+			token_config = GPT2Config(
+				num_hidden_layers=token_num_layers,
 				max_length=patch_size + 1,
 				max_position_embeddings=patch_size + 1,
 				hidden_size=hidden_size,
 				num_attention_heads=n_head,
-				vocab_size=char_vocab_size,
+				vocab_size=token_vocab_size,
 			)
 		else:
 			raise ValueError(f'Unknown base_type "{base_type}" (expected "gpt2" or "llama")')
 
-		self.patch_level_decoder = PatchLevelDecoder(patch_config, patch_size, char_vocab_size)
-		self.char_level_decoder = CharLevelDecoder(char_config)
+		self.patch_level_decoder = PatchLevelDecoder(patch_config, patch_size, token_vocab_size)
+		self.token_level_decoder = TokenLevelDecoder(token_config)
 
 	def forward (self, patches: torch.Tensor, masks: torch.Tensor):
 		'''
 		patches: [B, T, patch_size] token ids
 		masks:   [B, T] 1 for real patch, 0 for padding
 		Returns (output, target_patches):
-			output: char-level GPT2 output (has .loss and .logits) for next-patch prediction
+			output: token-level GPT2 output (has .loss and .logits) for next-patch prediction
 			target_patches: [N, patch_size] the target tokens aligned to each prediction
 		'''
 		patches = patches.reshape(len(patches), -1, self.patch_size)
@@ -203,7 +212,7 @@ class LilyletNotaGen (nn.Module):
 		encoded_patches = encoded_patches[left_shift_masks == 1]
 		target_patches = patches[masks == 1]
 
-		return self.char_level_decoder(encoded_patches, target_patches), target_patches
+		return self.token_level_decoder(encoded_patches, target_patches), target_patches
 
 
 class LilyletNotaGenLoss (nn.Module):
@@ -220,12 +229,12 @@ class LilyletNotaGenLoss (nn.Module):
 	def validation_parameters (self):
 		return []
 
-	def _char_accuracy (self, output, target_patches):
-		# next-token accuracy over valid (non-pad) char positions, matching the
-		# label shift the char-level GPT2 applies internally.
-		char_targets = torch.cat(
+	def _token_accuracy (self, output, target_patches):
+		# next-token accuracy over valid (non-pad) token positions, matching the
+		# label shift the token-level GPT2 applies internally.
+		token_targets = torch.cat(
 			(torch.ones_like(target_patches[:, 0:1]) * self.deducer.bos_token_id, target_patches), dim=1)
-		labels = char_targets.masked_fill(char_targets == self.deducer.special_token_id, -100)
+		labels = token_targets.masked_fill(token_targets == self.deducer.special_token_id, -100)
 		shift_logits = output.logits[:, :-1, :]
 		shift_labels = labels[:, 1:]
 		valid = shift_labels != -100
@@ -237,7 +246,7 @@ class LilyletNotaGenLoss (nn.Module):
 		output, target = self.deducer(batch['input_patches'], batch['input_masks'])
 
 		with torch.no_grad():
-			acc = self._char_accuracy(output, target)
+			acc = self._token_accuracy(output, target)
 
 		return output.loss, {'acc': acc}
 
@@ -246,7 +255,7 @@ class LilyletNotaGenLoss (nn.Module):
 
 		return {
 			'loss': output.loss.item(),
-			'acc': self._char_accuracy(output, target),
+			'acc': self._token_accuracy(output, target),
 			'logits': output.logits,
 			'target_patches': target,
 			'n_patches': int(target.shape[0]),

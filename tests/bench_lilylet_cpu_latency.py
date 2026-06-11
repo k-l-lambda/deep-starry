@@ -49,7 +49,7 @@ def main ():
 	# Instrument the two forward levels by timing a real generation run. We
 	# replicate the generate() inner loop here so we can time each level.
 	patch_dec = gen.model.patch_level_decoder
-	char_base = gen.model.char_level_decoder.base
+	char_base = gen.model.token_level_decoder.base
 	from starry.lilylet.models.notagen import token_embedding_weight
 	import torch.nn.functional as F
 	wte = token_embedding_weight(char_base)

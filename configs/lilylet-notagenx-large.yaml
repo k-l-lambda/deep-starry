@@ -3,7 +3,7 @@
 #   weights_notagenx_p_size_16_p_length_1024_p_layers_20_h_size_1280.pth
 #   PATCH_SIZE=16, PATCH_LENGTH=1024, PATCH_NUM_LAYERS=20,
 #   CHAR_NUM_LAYERS=6, HIDDEN_SIZE=1280, n_head = HIDDEN_SIZE // 64 = 20.
-# char_vocab_size stays 256 (lilylet manual tokenizer) vs NotaGen's 128.
+# token_vocab_size stays 256 (lilylet manual tokenizer) vs NotaGen's 128.
 
 id:     lilylet/{date}-notagenx-large
 
@@ -24,12 +24,12 @@ data:
 model:
   type:                     LilyletNotaGen
   args:
-    char_vocab_size:        256
+    token_vocab_size:        256
     patch_size:             16
     patch_length:           1024
     hidden_size:            1280
     patch_num_layers:       20
-    char_num_layers:        6
+    token_num_layers:        6
     n_head:                 20
 
 
