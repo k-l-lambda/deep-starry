@@ -78,7 +78,7 @@ class LilyletPatchyGenerator:
 	@staticmethod
 	def _resolve_tokenizer (tokenizer_path):
 		'''Resolve a tokenizer path robustly: use it as-is if it exists, otherwise
-		(for a repo-relative path like "assets/manual-tokenizer.json") resolve it
+		(for a repo-relative path like "assets/lilylet-tokenizer.json") resolve it
 		against the repo root, so loading doesn't depend on the cwd.'''
 		import os
 		if os.path.isfile(tokenizer_path):

@@ -16,7 +16,7 @@ data:
     patch_size:             16
     patch_length:           1024
     patch_stream:           true
-    tokenizer_path:         assets/manual-tokenizer.json
+    tokenizer_path:         assets/lilylet-tokenizer.json
 
 
 model:
