@@ -145,13 +145,13 @@ class ORTGenerator:
 
 
 class ORTGeneratorKV (ORTGenerator):
-	'''Patch-level KV-cache generator. Same token path as ORTGenerator, but the
-	patch decoder runs incrementally through the patch_kv_int8 session instead of
-	recomputing the whole patch sequence every step. Output is identical to
-	ORTGenerator (greedy: byte-for-byte); only the patch-level cost changes from
-	O(T) per step to O(1).'''
+	'''KV-cache generator. The patch decoder runs incrementally through the
+	patch_kv_int8 session (O(1) per step instead of O(T) full recompute). If a
+	token_kv_onnx is also given, the token decoder inside each patch likewise runs
+	incrementally (token_kv_int8) instead of re-feeding the growing prefix every
+	step. Output matches ORTGenerator up to int8 quantization noise.'''
 
-	def __init__ (self, gen, patch_kv_onnx, token_onnx, threads=None):
+	def __init__ (self, gen, patch_kv_onnx, token_onnx, threads=None, token_kv_onnx=None):
 		import onnxruntime as ort
 		so = ort.SessionOptions()
 		if threads:
@@ -160,12 +160,21 @@ class ORTGeneratorKV (ORTGenerator):
 		self.token_sess = ort.InferenceSession(token_onnx, so, providers=['CPUExecutionProvider'])
 		self.g = gen
 		self.wte = token_embedding_weight(gen.model.token_level_decoder.base).detach().cpu().numpy()
-		# KV geometry from the patch-level base
+		# patch-level KV geometry
 		pbase = gen.model.patch_level_decoder.base
 		self.n_layers = pbase.config.num_hidden_layers
 		self.n_kv = pbase.config.num_key_value_heads
 		self.head_dim = pbase.config.hidden_size // pbase.config.num_attention_heads
 		self.out_names = [o.name for o in self.patch_kv_sess.get_outputs()]
+		# optional token-level KV session
+		self.token_kv_sess = None
+		if token_kv_onnx is not None:
+			self.token_kv_sess = ort.InferenceSession(token_kv_onnx, so, providers=['CPUExecutionProvider'])
+			tbase = gen.model.token_level_decoder.base
+			self.t_layers = tbase.config.num_hidden_layers
+			self.t_kv = tbase.config.num_key_value_heads
+			self.t_head_dim = tbase.config.hidden_size // tbase.config.num_attention_heads
+			self.token_kv_out_names = [o.name for o in self.token_kv_sess.get_outputs()]
 
 	def _empty_past (self):
 		return [np.zeros((1, self.n_kv, 0, self.head_dim), dtype=np.float32) for _ in range(2 * self.n_layers)]
@@ -184,6 +193,50 @@ class ORTGeneratorKV (ORTGenerator):
 			new_past.append(out[f'new_k_{i}'])
 			new_past.append(out[f'new_v_{i}'])
 		return out['hidden'][0, -1], new_past
+
+	def _empty_token_past (self):
+		return [np.zeros((1, self.t_kv, 0, self.t_head_dim), dtype=np.float32) for _ in range(2 * self.t_layers)]
+
+	def _token_kv_step (self, emb_np, past):
+		'''Feed L new token embeddings [1,L,hidden] + past KV. Returns (logits[-1], new_past).'''
+		feed = {'inputs_embeds': emb_np.astype(np.float32)}
+		for i in range(self.t_layers):
+			feed[f'past_k_{i}'] = past[2 * i]
+			feed[f'past_v_{i}'] = past[2 * i + 1]
+		out = dict(zip(self.token_kv_out_names, self.token_kv_sess.run(None, feed)))
+		new_past = []
+		for i in range(self.t_layers):
+			new_past.append(out[f'new_k_{i}'])
+			new_past.append(out[f'new_v_{i}'])
+		return out['logits'][0, -1], new_past
+
+	def generate_patch (self, last_hidden, prefix_ids=None, temperature=1.0, top_k=0, top_p=1.0):
+		'''Token-level decode for one patch. Uses the token-KV session when available
+		(feed one embedding at a time, growing the token cache); otherwise falls back
+		to the inherited full-recompute loop.'''
+		if self.token_kv_sess is None:
+			return super().generate_patch(last_hidden, prefix_ids=prefix_ids,
+				temperature=temperature, top_k=top_k, top_p=top_p)
+		g = self.g
+		generated = list(prefix_ids or [])
+		# the embedding sequence is: [patch_state, emb(bos? no) ...] -- mirror the
+		# non-KV path: position 0 = patch state, positions 1.. = embeddings of the
+		# tokens fixed so far (bos + prefix_ids). We feed them incrementally.
+		tokens = [g.bos_id] + list(prefix_ids or [])
+		past = self._empty_token_past()
+		# step embeddings: pos 0 -> patch state; pos i>0 -> wte[tokens[i]]
+		enc = last_hidden.reshape(1, 1, -1).astype(np.float32)
+		logits, past = self._token_kv_step(enc, past)
+		for i in range(1, len(tokens)):
+			emb = self.wte[tokens[i]].reshape(1, 1, -1)
+			logits, past = self._token_kv_step(emb, past)
+		# now sample until the patch is full
+		while len(generated) < g.patch_size:
+			nxt = sample_next(torch.from_numpy(logits), temperature=temperature, top_k=top_k, top_p=top_p)
+			generated.append(nxt); tokens.append(nxt)
+			emb = self.wte[nxt].reshape(1, 1, -1)
+			logits, past = self._token_kv_step(emb, past)
+		return generated
 
 	def generate (self, prompt_text='', max_patches=256, temperature=1.0, top_k=0, top_p=0.9,
 		measures=None, postprocess=False):

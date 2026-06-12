@@ -6,6 +6,8 @@ quantize_dynamic needs, then is deleted):
   - token_int8.onnx    : TokenNet   (inputs_embeds -> logits, the token-level decoder)
   - patch_kv_int8.onnx : PatchNetKV (patch ids + past KV -> hidden + present KV, for
                          incremental patch-level decoding with a KV cache)
+  - token_kv_int8.onnx : TokenNetKV (inputs_embeds + past KV -> logits + present KV,
+                         for incremental token-level decoding with a KV cache)
 
 Architecture is read from the run's own .state.yaml so it always matches the
 weights. Uses the PatchNet/TokenNet transformer wrappers from
@@ -27,7 +29,7 @@ import torch
 
 from starry.utils.config import Configuration
 from starry.lilylet.patchyGenerator import LilyletPatchyGenerator
-from starry.lilylet.models.notagen import PatchNet, TokenNet, PatchNetKV
+from starry.lilylet.models.notagen import PatchNet, TokenNet, PatchNetKV, TokenNetKV
 
 
 def _rm (path):
@@ -109,6 +111,43 @@ def export_patch_kv_int8 (gen, hidden, out_dir):
 	return {'patch_kv_int8': int8}
 
 
+def export_token_kv_int8 (gen, hidden, out_dir):
+	'''Export the KV-cache token decoder (TokenNetKV) to int8 ONNX.
+
+	Inputs:  inputs_embeds [1,L,hidden], past_k_{i}/past_v_{i} [1,NKV,P,HD]
+	Outputs: logits [1,L,vocab], new_k_{i}/new_v_{i} [1,NKV,P+L,HD]
+	'''
+	from onnxruntime.quantization import quantize_dynamic, QuantType
+	from torch.export import Dim
+
+	os.makedirs(out_dir, exist_ok=True)
+	net = TokenNetKV(gen.model).eval()
+	base = gen.model.token_level_decoder.base
+	NL = base.config.num_hidden_layers
+	NKV = base.config.num_key_value_heads
+	HD = base.config.hidden_size // base.config.num_attention_heads
+
+	dummy_embed = torch.randn(1, 2, hidden)
+	dummy_past = [torch.randn(1, NKV, 3, HD) for _ in range(2 * NL)]
+
+	L = Dim('L', min=1, max=64)
+	P = Dim('P', min=1, max=4096)
+	dynamic_shapes = ({1: L}, [{2: P} for _ in range(2 * NL)])
+
+	in_names = ['inputs_embeds'] + sum([[f'past_k_{i}', f'past_v_{i}'] for i in range(NL)], [])
+	out_names = ['logits'] + sum([[f'new_k_{i}', f'new_v_{i}'] for i in range(NL)], [])
+
+	fp32 = os.path.join(out_dir, 'token_kv_fp32_tmp.onnx')
+	int8 = os.path.join(out_dir, 'token_kv_int8.onnx')
+	with torch.no_grad():
+		torch.onnx.export(net, (dummy_embed, dummy_past), fp32,
+			input_names=in_names, output_names=out_names,
+			dynamic_shapes=dynamic_shapes, opset_version=18, dynamo=True)
+	quantize_dynamic(fp32, int8, weight_type=QuantType.QInt8)
+	_rm(fp32)
+	return {'token_kv_int8': int8}
+
+
 def main ():
 	ap = argparse.ArgumentParser()
 	ap.add_argument('--run', required=True, help='training run dir (holds best.chkpt + .state.yaml)')
@@ -138,6 +177,7 @@ def main ():
 
 	paths = export_int8(gen, hidden, out_dir)
 	paths.update(export_patch_kv_int8(gen, hidden, out_dir))
+	paths.update(export_token_kv_int8(gen, hidden, out_dir))
 
 	print('\n=== exported int8 artifacts ===')
 	for k, p in paths.items():

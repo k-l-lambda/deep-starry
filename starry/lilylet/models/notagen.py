@@ -332,3 +332,38 @@ class PatchNetKV (nn.Module):
 			outs.append(cache.layers[i].keys)
 			outs.append(cache.layers[i].values)
 		return tuple(outs)
+
+
+class TokenNetKV (nn.Module):
+	'''KV-cache variant of TokenNet for incremental token-level decoding.
+
+	Input:  inputs_embeds [1, L, hidden]  (the L new token embeddings; L=1 in the
+	            loop, the first step's position 0 holds the patch hidden state)
+	        past:   list of 2*num_layers tensors [k0, v0, k1, v1, ...], each
+	            [1, num_kv_heads, P, head_dim] (P = cached token length, 0 at prefill)
+	Output: (logits [1, L, vocab], new_k0, new_v0, ...)  each new_k/v [1,NKV,P+L,HD].
+
+	The embedding lookup + the position-0 patch-state splice stay outside (done in
+	numpy/torch by the caller), exactly like TokenNet.
+	'''
+	def __init__ (self, model):
+		super().__init__()
+		self.base = model.token_level_decoder.base
+		self.num_layers = self.base.config.num_hidden_layers
+
+	def forward (self, inputs_embeds, past):
+		from transformers import DynamicCache
+		cache = DynamicCache()
+		past_len = past[0].shape[2]
+		for i in range(self.num_layers):
+			cache.update(past[2 * i], past[2 * i + 1], i)
+
+		cache_position = torch.arange(past_len, past_len + inputs_embeds.shape[1])
+		out = self.base(inputs_embeds=inputs_embeds, past_key_values=cache, use_cache=True,
+			cache_position=cache_position)
+
+		outs = [out.logits]
+		for i in range(self.num_layers):
+			outs.append(cache.layers[i].keys)
+			outs.append(cache.layers[i].values)
+		return tuple(outs)
