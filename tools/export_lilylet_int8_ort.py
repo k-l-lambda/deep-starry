@@ -9,6 +9,13 @@ quantize_dynamic needs, then is deleted):
   - token_kv_int8.onnx : TokenNetKV (inputs_embeds + past KV -> logits + present KV,
                          for incremental token-level decoding with a KV cache)
 
+It also dumps the torch-free runtime assets a standalone generator needs to run
+these graphs without torch / deep-starry (so the whole bundle is self-contained):
+  - wte.npy               : token-embedding table [vocab, hidden] (a model weight;
+                            the token graph takes inputs_embeds, lookup stays outside)
+  - geometry.json         : patch_size, special ids, per-level KV-cache geometry
+  - tokenizer.json: a copy of the run's tokenizer
+
 Architecture is read from the run's own .state.yaml so it always matches the
 weights. Uses the PatchNet/TokenNet transformer wrappers from
 starry.lilylet.models.notagen (TokenNet wraps model.token_level_decoder).
@@ -148,6 +155,55 @@ def export_token_kv_int8 (gen, hidden, out_dir):
 	return {'token_kv_int8': int8}
 
 
+def export_runtime_assets (gen, out_dir):
+	'''Dump the torch-free runtime assets a standalone generator needs alongside
+	the int8 KV onnx: the token-embedding table (a model weight) + the geometry
+	(KV-cache shapes) + a copy of the tokenizer. Mirrors what LilyScript's
+	StreamingLilyletGenerator loads, so the export is a complete self-contained
+	bundle (no torch / no deep-starry needed at inference time).'''
+	import json
+	import shutil
+	import numpy as np
+	from starry.lilylet.models.notagen import token_embedding_weight
+
+	# token embedding table (token-level decoder base) -> wte.npy
+	wte = token_embedding_weight(gen.model.token_level_decoder.base).detach().cpu().numpy().astype(np.float32)
+	np.save(os.path.join(out_dir, 'wte.npy'), wte)
+
+	# geometry: read from the two base configs so it always matches the weights
+	pbase = gen.model.patch_level_decoder.base.config
+	tbase = gen.model.token_level_decoder.base.config
+	geometry = {
+		'patch_size': gen.patch_size,
+		'hidden': pbase.hidden_size,
+		'vocab': max(e['id'] for e in gen.tokenizer.vocab) + 1,
+		'pad_id': gen.pad_id,
+		'bos_id': gen.bos_id,
+		'eos_id': gen.eos_id,
+		'patch': {
+			'n_layers': pbase.num_hidden_layers,
+			'n_kv_heads': pbase.num_key_value_heads,
+			'head_dim': pbase.hidden_size // pbase.num_attention_heads,
+		},
+		'token': {
+			'n_layers': tbase.num_hidden_layers,
+			'n_kv_heads': tbase.num_key_value_heads,
+			'head_dim': tbase.hidden_size // tbase.num_attention_heads,
+		},
+	}
+	with open(os.path.join(out_dir, 'geometry.json'), 'w') as f:
+		json.dump(geometry, f, indent=2)
+
+	# tokenizer copy (so the bundle is self-contained)
+	shutil.copyfile(gen.tokenizer.path, os.path.join(out_dir, 'tokenizer.json'))
+
+	return {
+		'wte.npy': os.path.join(out_dir, 'wte.npy'),
+		'geometry.json': os.path.join(out_dir, 'geometry.json'),
+		'tokenizer.json': os.path.join(out_dir, 'tokenizer.json'),
+	}
+
+
 def main ():
 	ap = argparse.ArgumentParser()
 	ap.add_argument('--run', required=True, help='training run dir (holds best.chkpt + .state.yaml)')
@@ -178,11 +234,12 @@ def main ():
 	paths = export_int8(gen, hidden, out_dir)
 	paths.update(export_patch_kv_int8(gen, hidden, out_dir))
 	paths.update(export_token_kv_int8(gen, hidden, out_dir))
+	paths.update(export_runtime_assets(gen, out_dir))
 
-	print('\n=== exported int8 artifacts ===')
+	print('\n=== exported artifacts ===')
 	for k, p in paths.items():
-		print('  %-11s %8.1f MB  %s' % (k, os.path.getsize(p) / 1e6, p))
-	print('\nint8 onnx ready in', out_dir)
+		print('  %-22s %8.1f MB  %s' % (k, os.path.getsize(p) / 1e6, p))
+	print('\nint8 onnx + runtime assets ready in', out_dir)
 
 
 if __name__ == '__main__':
