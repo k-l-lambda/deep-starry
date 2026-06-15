@@ -102,6 +102,7 @@
     "Presto",
     "ritard",
     "sempre",
+    "treble",
     "troppo",
     "vivace",
     "\\clef",
@@ -133,6 +134,7 @@
     "\\sfz",
     "alto",
     "arco",
+    "bass",
     "lent",
     "moto",
     "pizz",
@@ -373,17 +375,15 @@
     },
     {
       "id": 26,
-      "type": "byte",
-      "token": "\u001a",
-      "text": "\u001a",
-      "value": 26
+      "type": "protected",
+      "token": "treble",
+      "text": "treble"
     },
     {
       "id": 27,
-      "type": "byte",
-      "token": "\u001b",
-      "text": "\u001b",
-      "value": 27
+      "type": "protected",
+      "token": "bass",
+      "text": "bass"
     },
     {
       "id": 28,
@@ -2754,16 +2754,16 @@
     },
     {
       "id": 26,
-      "type": "byte",
-      "token": "\u001a",
-      "text": "\u001a",
+      "type": "protected",
+      "token": "treble",
+      "text": "treble",
       "frequency": 0
     },
     {
       "id": 27,
-      "type": "byte",
-      "token": "\u001b",
-      "text": "\u001b",
+      "type": "protected",
+      "token": "bass",
+      "text": "bass",
       "frequency": 0
     },
     {
