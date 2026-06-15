@@ -176,9 +176,11 @@ class LilyletPatchyGenerator:
 			print(out_text, end='')
 
 		# one-shot priming prefix for the first body (stream) patch. Includes the
-		# closing `]` so the remaining-measure count is exactly `measures` and the
-		# model can't extend the digits (e.g. 8 -> 81).
-		prime_ids = self.tokenizer.encode(f'[r:0/{measures}]') if measures is not None else None
+		# closing `]` so the remaining-measure count is exactly `measures - 1` and the
+		# model can't extend the digits (e.g. 8 -> 81). The marker is 0-based and `y`
+		# counts measures remaining AFTER this one (see patchifier: y = total - i - 1),
+		# so `[r:0/{measures-1}]` yields exactly `measures` total measures.
+		prime_ids = self.tokenizer.encode(f'[r:0/{measures - 1}]') if measures is not None and measures >= 1 else None
 		primed = False
 
 		for _ in range(max_patches):
