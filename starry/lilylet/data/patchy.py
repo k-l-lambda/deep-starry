@@ -89,12 +89,15 @@ class LilyletPatchy(Dataset):
 			for i, split in enumerate(splits)
 		)
 
-	def __init__(self, root, split, device='cpu', shuffle=False, pad_id=0, bos_id=1, **_):
+	def __init__(self, root, split, device='cpu', shuffle=False, pad_id=0, bos_id=1, prompt_dropout=0.0, **_):
 		super().__init__()
 		self.device = device
 		self.shuffle = shuffle
 		self.pad_id = pad_id
 		self.bos_id = bos_id
+		# Probability of independently dropping each leading `%`-style prompt comment line
+		# (style conditioning augmentation). 0 = never drop (default).
+		self.prompt_dropout = prompt_dropout
 		self.store = _get_store(root)
 
 		phases, cycle = parseFilterStr(split)
@@ -106,12 +109,43 @@ class LilyletPatchy(Dataset):
 	def __len__(self):
 		return len(self.indices)
 
+	# The `%` mark that begins a prompt comment line, as a token id (ASCII '%').
+	PROMPT_MARK_ID = ord('%')
+
+	def _drop_prompt_lines(self, patches, boundary):
+		'''Randomly drop whole `%`-style prompt comment lines from patches[:boundary].
+
+		A comment line is a `%`-starting patch plus the following non-`%` continuation
+		patches that belong to it (a single line can span >1 patch). Each line is dropped
+		independently with probability self.prompt_dropout; dropping a line removes its
+		`%` patch AND its continuation patches. The <bos> patch at `boundary` and the
+		supervised body after it are untouched.
+		'''
+		if self.prompt_dropout <= 0 or boundary <= 0:
+			return patches, boundary
+
+		# group the prompt patches [0, boundary) into comment lines: each group starts at a
+		# `%`-marked patch and runs until the next `%`-marked patch (or the boundary).
+		starts = [i for i in range(boundary) if int(patches[i, 0]) == self.PROMPT_MARK_ID]
+		if not starts:
+			return patches, boundary
+		bounds = starts + [boundary]
+
+		keep = torch.ones(patches.shape[0], dtype=torch.bool)
+		# any leading patches before the first `%` (shouldn't normally exist) are kept.
+		for g in range(len(starts)):
+			if torch.rand(()).item() < self.prompt_dropout:
+				keep[bounds[g]:bounds[g + 1]] = False
+
+		if bool(keep.all()):
+			return patches, boundary
+
+		dropped_before_boundary = int((~keep[:boundary]).sum().item())
+		return patches[keep], boundary - dropped_before_boundary
+
 	def _item(self, index):
 		item = self.store.get(index)
 		patches = item['patches'].long()
-		# Attention mask: 1 for every real patch (incl. the unsupervised prompt). Real
-		# padding (and its 0s) is only introduced at batch time by collateBatch.
-		mask = item['mask'].long() if 'mask' in item else torch.ones(patches.shape[0], dtype=torch.long)
 		# Supervision boundary: the `<bos>` patch (token[0] == bos_id) sits after the
 		# leading `%`-style prompt patches and before the first `[`-header. Everything up
 		# to and INCLUDING <bos> is prompt/context (not a prediction target); supervision
@@ -119,6 +153,11 @@ class LilyletPatchy(Dataset):
 		# boundary 0 reproduces the previous supervise-all-but-first behavior.
 		bos = (patches[:, 0] == self.bos_id).nonzero()
 		boundary = int(bos[0].item()) if bos.numel() > 0 else 0
+		# Optionally drop whole prompt comment lines (style-conditioning augmentation).
+		patches, boundary = self._drop_prompt_lines(patches, boundary)
+		# Attention mask: 1 for every real patch (incl. the unsupervised prompt). Real
+		# padding (and its 0s) is only introduced at batch time by collateBatch.
+		mask = torch.ones(patches.shape[0], dtype=torch.long)
 		return patches, mask, boundary
 
 	def __getitem__(self, index):
