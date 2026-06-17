@@ -46,15 +46,24 @@ def displayToken (token_id, id_to_token):
 def showBatch (batch, index, id_to_token, max_patches):
 	patches = batch['input_patches'][0]
 	masks = batch['input_masks'][0]
+	# Supervision mask (optional): 1 where the patch is a prediction target, 0 over the
+	# prompt + <bos> boundary + padding. Absent for legacy datasets.
+	targets = batch['input_targets'][0] if 'input_targets' in batch else None
 	n_patches, patch_size = patches.shape
 
-	logging.info('batch %d: patches=%s masks=%s real=%d', index, tuple(patches.shape), tuple(masks.shape), int(masks.sum()))
+	if targets is not None:
+		logging.info('batch %d: patches=%s masks=%s real=%d supervised=%d', index,
+			tuple(patches.shape), tuple(masks.shape), int(masks.sum()), int(targets.sum()))
+	else:
+		logging.info('batch %d: patches=%s masks=%s real=%d', index,
+			tuple(patches.shape), tuple(masks.shape), int(masks.sum()))
 
 	limit = n_patches if max_patches <= 0 else min(max_patches, n_patches)
 	for p in range(limit):
 		ids = [int(x) for x in patches[p].tolist()]
 		rendered = ' '.join(displayToken(x, id_to_token) for x in ids)
-		print(f'  [{p:04d}] mask={int(masks[p])} | {rendered}')
+		tgt = f' tgt={int(targets[p])}' if targets is not None else ''
+		print(f'  [{p:04d}] mask={int(masks[p])}{tgt} | {rendered}')
 	if limit < n_patches:
 		print(f'  ... ({n_patches - limit} more patches)')
 
