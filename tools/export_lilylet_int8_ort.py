@@ -100,7 +100,14 @@ def export_patch_kv_int8 (gen, hidden, out_dir):
 	dummy_patches = torch.randint(0, 256, (1, 2, gen.patch_size), dtype=torch.long)
 	dummy_past = [torch.randn(1, NKV, 3, HD) for _ in range(2 * NL)]
 
-	L = Dim('L', min=1, max=4096)
+	# L (new-patch count) uses Dim.AUTO: a full-MHA model (num_kv_heads == num_heads)
+	# routes attention through the plain `matmul` decomposition, which adds a benign
+	# `Ne(L, 1)` guard (batched vs non-batched matmul). An explicit `Dim('L', min=1)`
+	# range collides with that guard ("not all values satisfy L != 1") and aborts the
+	# export; Dim.AUTO lets the exporter absorb the specialization while keeping the axis
+	# dynamic (ONNX MatMul is shape-polymorphic, so L=1 still runs at inference). The
+	# cache length P stays an explicit Dim — it carries no such guard.
+	L = Dim.AUTO
 	P = Dim('P', min=1, max=4096)
 	dynamic_shapes = ({1: L}, [{2: P} for _ in range(2 * NL)])
 
@@ -137,7 +144,9 @@ def export_token_kv_int8 (gen, hidden, out_dir):
 	dummy_embed = torch.randn(1, 2, hidden)
 	dummy_past = [torch.randn(1, NKV, 3, HD) for _ in range(2 * NL)]
 
-	L = Dim('L', min=1, max=64)
+	# L uses Dim.AUTO (see export_patch_kv_int8: absorbs the benign matmul `Ne(L,1)`
+	# guard a full-MHA model emits, while keeping the new-token axis dynamic).
+	L = Dim.AUTO
 	P = Dim('P', min=1, max=4096)
 	dynamic_shapes = ({1: L}, [{2: P} for _ in range(2 * NL)])
 
