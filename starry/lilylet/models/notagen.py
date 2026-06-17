@@ -189,10 +189,14 @@ class LilyletNotaGen (nn.Module):
 		self.patch_level_decoder = PatchLevelDecoder(patch_config, patch_size, token_vocab_size)
 		self.token_level_decoder = TokenLevelDecoder(token_config)
 
-	def forward (self, patches: torch.Tensor, masks: torch.Tensor):
+	def forward (self, patches: torch.Tensor, masks: torch.Tensor, target_masks: Optional[torch.Tensor] = None):
 		'''
 		patches: [B, T, patch_size] token ids
-		masks:   [B, T] 1 for real patch, 0 for padding
+		masks:   [B, T] 1 for real patch, 0 for padding (the patch-level ATTENTION mask;
+		         prompt patches stay 1 here so the model conditions on them).
+		target_masks: [B, T] 1 where the patch is a supervised prediction TARGET, 0 over
+		         the prompt + <bos> boundary + padding. When None, falls back to the legacy
+		         behavior (supervise every real patch except the first).
 		Returns (output, target_patches):
 			output: token-level GPT2 output (has .loss and .logits) for next-patch prediction
 			target_patches: [N, patch_size] the target tokens aligned to each prediction
@@ -200,17 +204,22 @@ class LilyletNotaGen (nn.Module):
 		patches = patches.reshape(len(patches), -1, self.patch_size)
 		encoded_patches = self.patch_level_decoder(patches, masks)['last_hidden_state']
 
-		# Pair each encoded patch with the *next* patch's tokens (next-patch prediction):
-		# - left_shift_masks selects encoded positions that have a valid following patch
-		#   (i.e. drop the last real patch of each sequence).
-		# - masks[:, 0] = 0 drops the first patch from the targets, so target i aligns to
-		#   encoded position i-1.
-		masks = masks.clone()
-		left_shift_masks = masks * (masks.flip(1).cumsum(1).flip(1) > 1)
-		masks[:, 0] = 0
+		# Next-patch prediction: encoded patch i predicts patch i+1. A patch is a target iff
+		# target_masks==1; an encoded position is a supervised INPUT iff its next patch is a
+		# target. So left_shift_masks = target_masks shifted left by one, gated by the
+		# attention mask (the input itself must be a real patch).
+		if target_masks is None:
+			target_masks = masks.clone()
+			target_masks[:, 0] = 0  # legacy: drop the first (<bos>) patch from targets
+		else:
+			target_masks = target_masks.clone()
+
+		left_shift_masks = torch.zeros_like(masks)
+		left_shift_masks[:, :-1] = target_masks[:, 1:]
+		left_shift_masks = left_shift_masks * masks
 
 		encoded_patches = encoded_patches[left_shift_masks == 1]
-		target_patches = patches[masks == 1]
+		target_patches = patches[target_masks == 1]
 
 		return self.token_level_decoder(encoded_patches, target_patches), target_patches
 
@@ -243,7 +252,7 @@ class LilyletNotaGenLoss (nn.Module):
 		return (shift_logits.argmax(dim=-1)[valid] == shift_labels[valid]).float().mean().item()
 
 	def forward (self, batch):
-		output, target = self.deducer(batch['input_patches'], batch['input_masks'])
+		output, target = self.deducer(batch['input_patches'], batch['input_masks'], batch.get('input_targets'))
 
 		with torch.no_grad():
 			acc = self._token_accuracy(output, target)
@@ -251,7 +260,7 @@ class LilyletNotaGenLoss (nn.Module):
 		return output.loss, {'acc': acc}
 
 	def inspectRun (self, batch):
-		output, target = self.deducer(batch['input_patches'], batch['input_masks'])
+		output, target = self.deducer(batch['input_patches'], batch['input_masks'], batch.get('input_targets'))
 
 		return {
 			'loss': output.loss.item(),

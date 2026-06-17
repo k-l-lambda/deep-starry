@@ -89,11 +89,12 @@ class LilyletPatchy(Dataset):
 			for i, split in enumerate(splits)
 		)
 
-	def __init__(self, root, split, device='cpu', shuffle=False, pad_id=0, **_):
+	def __init__(self, root, split, device='cpu', shuffle=False, pad_id=0, bos_id=1, **_):
 		super().__init__()
 		self.device = device
 		self.shuffle = shuffle
 		self.pad_id = pad_id
+		self.bos_id = bos_id
 		self.store = _get_store(root)
 
 		phases, cycle = parseFilterStr(split)
@@ -108,10 +109,17 @@ class LilyletPatchy(Dataset):
 	def _item(self, index):
 		item = self.store.get(index)
 		patches = item['patches'].long()
-		# The per-item mask is always all-ones; reconstruct it from the patch count.
-		# Older artifacts may still carry a stored 'mask'; honor it if present.
+		# Attention mask: 1 for every real patch (incl. the unsupervised prompt). Real
+		# padding (and its 0s) is only introduced at batch time by collateBatch.
 		mask = item['mask'].long() if 'mask' in item else torch.ones(patches.shape[0], dtype=torch.long)
-		return patches, mask
+		# Supervision boundary: the `<bos>` patch (token[0] == bos_id) sits after the
+		# leading `%`-style prompt patches and before the first `[`-header. Everything up
+		# to and INCLUDING <bos> is prompt/context (not a prediction target); supervision
+		# begins at the patch after <bos>. Old-format items have <bos> at index 0, so
+		# boundary 0 reproduces the previous supervise-all-but-first behavior.
+		bos = (patches[:, 0] == self.bos_id).nonzero()
+		boundary = int(bos[0].item()) if bos.numel() > 0 else 0
+		return patches, mask, boundary
 
 	def __getitem__(self, index):
 		return self._item(self.indices[index])
@@ -127,9 +135,19 @@ class LilyletPatchy(Dataset):
 	def collateBatch(self, batch):
 		input_patches = [ex[0] for ex in batch]
 		input_masks = [ex[1] for ex in batch]
+		# Supervision mask: copy the attention mask, then zero the first boundary+1 patches
+		# (the prompt + the <bos> boundary) so they are attended but never prediction
+		# targets. Padding stays 0 after pad_sequence.
+		input_targets = []
+		for (_, m, boundary) in batch:
+			t = m.clone()
+			t[:boundary + 1] = 0
+			input_targets.append(t)
 		input_patches = pad_sequence(input_patches, batch_first=True, padding_value=self.pad_id)
 		input_masks = pad_sequence(input_masks, batch_first=True, padding_value=0)
+		input_targets = pad_sequence(input_targets, batch_first=True, padding_value=0)
 		return dict(
 			input_patches=input_patches.to(self.device),
 			input_masks=input_masks.to(self.device),
+			input_targets=input_targets.to(self.device),
 		)

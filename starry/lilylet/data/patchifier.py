@@ -182,9 +182,16 @@ def patchify_text(
 		total = len(measures)
 		measures = [f'[r:{i}/{total - i - 1}]' + measure for i, measure in enumerate(measures)]
 
-	metadata_patches: List[List[int]] = []
+	# Split the metadata lines into the unsupervised PROMPT (leading `%<style>` comment
+	# lines — period/composer/instrumentation) and the supervised HEADER (`[field "..."]`
+	# lines, e.g. [staves]/[instrument-*]). The `<bos>` patch is placed BETWEEN them, so
+	# the prompt is attended-only context and supervision starts at `<bos>`. The `%` lines
+	# always lead the block (split_lilylet_document preserves order).
+	prompt_patches: List[List[int]] = []
+	header_patches: List[List[int]] = []
 	for line in metadata_lines:
-		metadata_patches.extend(split_patches(tokenizer.encode(line, file, unknowns), patch_size, tokenizer.eos_id))
+		target = prompt_patches if line.lstrip().startswith('%') else header_patches
+		target.extend(split_patches(tokenizer.encode(line, file, unknowns), patch_size, tokenizer.eos_id))
 
 	def body_to_patches(chunks: List[str]) -> List[List[int]]:
 		patches: List[List[int]] = []
@@ -195,11 +202,16 @@ def patchify_text(
 
 	body_patches = body_to_patches(measures)
 
+	# Non-droppable prefix = prompt + <bos> + header. <bos> sits after the prompt so the
+	# supervised region (header + body) begins at <bos>; when there are no `%` prompt lines
+	# (old-format docs) prompt_patches is empty and <bos> lands at index 0 as before.
 	if add_special_patches:
-		metadata_patches = [special_patch('bos', patch_size, tokenizer.bos_id, tokenizer.eos_id)] + metadata_patches
+		prefix_patches = prompt_patches + [special_patch('bos', patch_size, tokenizer.bos_id, tokenizer.eos_id)] + header_patches
 		body_patches = body_patches + [special_patch('eos', patch_size, tokenizer.bos_id, tokenizer.eos_id)]
+	else:
+		prefix_patches = prompt_patches + header_patches
 
-	patches = metadata_patches + body_patches
+	patches = prefix_patches + body_patches
 	if len(patches) > patch_length:
 		if patch_stream and measures:
 			choices = ['head'] if len(measures) == 1 else ['head', 'tail', 'middle']
@@ -211,7 +223,7 @@ def patchify_text(
 				body_patches = body_to_patches(measures[start:])
 			if add_special_patches:
 				body_patches = body_patches + [special_patch('eos', patch_size, tokenizer.bos_id, tokenizer.eos_id)]
-			patches = metadata_patches + body_patches
+			patches = prefix_patches + body_patches
 		patches = patches[:patch_length]
 
 	padded = [pad_patch(patch, patch_size, tokenizer.pad_id) for patch in patches]
