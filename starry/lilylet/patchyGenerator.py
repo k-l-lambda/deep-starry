@@ -251,7 +251,10 @@ class LilyletPatchyGenerator:
 				pending = m.group(1)
 				ln = self._STREAM_RE.sub('', ln).rstrip()
 
-			is_meta = ln.startswith('[') and ln.endswith(']')
+			# metadata lines: `[field "..."]` headers and leading `%<style>` comments
+			# (the --styles-in-comments format). Both belong to the meta block, so the
+			# blank-line separator goes after the last of them, not before a `%` style line.
+			is_meta = (ln.startswith('[') and ln.endswith(']')) or (ln.startswith('%') and not ln.startswith('%%'))
 			# blank line once the metadata block ends and the body begins
 			if not meta_done and out and not is_meta and ln:
 				out.append('')

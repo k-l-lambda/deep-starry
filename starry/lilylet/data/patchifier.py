@@ -8,7 +8,15 @@ from typing import Any, Dict, Iterable, List, Tuple
 import torch
 
 
-METADATA_RE = re.compile(r'^\[[A-Za-z][A-Za-z-]*\s+".*"\]$')
+# A metadata header line `[field "..."]`. The field name may carry digits/hyphens
+# for per-staff instrument keys (`[instrument-1-2 "Piano" "Pno."]`), and the line may
+# hold more than one quoted string (full name + abbreviation).
+METADATA_RE = re.compile(r'^\[[A-Za-z][A-Za-z0-9-]*\s+".*"\]$')
+# A leading style comment line (`--styles-in-comments` output: %<period>, %<composer>,
+# %<instrumentation>). These sit at the very top of the document and carry the style
+# conditioning, so — unlike inline/measure-end `%` comments — they must be PRESERVED
+# as part of the metadata block. A bare `%` directive (`%%...`) is not a style line.
+STYLE_COMMENT_RE = re.compile(r'^%(?!%).*$')
 MEASURE_END_RE = re.compile(r'\|\s*$')
 # Voice separator is `\\` and part separator is `\\\` in serialized Lilylet.
 # Split at runs of 2+ backslashes so patches never cross voice/part boundaries,
@@ -92,16 +100,23 @@ def normalize_text(text: str) -> str:
 
 
 def split_lilylet_document(text: str) -> Tuple[List[str], List[str]]:
-	lines = [line for line in normalize_text(text).split('\n') if line.strip()]
+	# Scan the RAW (un-normalized) lines for the leading metadata block first: it can
+	# hold both `[field "..."]` lines and leading `%<style>` comment lines (the
+	# `--styles-in-comments` format). Those style comments must survive — normalize_text
+	# strips every `%`, so normalizing before this scan would drop them. The body (after
+	# the block) is normalized to remove inline / measure-end `%` comments as before.
+	raw_lines = [line for line in text.replace('\r\n', '\n').replace('\r', '\n').split('\n') if line.strip()]
 	metadata: List[str] = []
 	body_start = 0
-	for i, line in enumerate(lines):
-		if METADATA_RE.match(line.strip()):
-			metadata.append(line + '\n')
+	for i, line in enumerate(raw_lines):
+		stripped = line.strip()
+		if METADATA_RE.match(stripped) or STYLE_COMMENT_RE.match(stripped):
+			metadata.append(stripped + '\n')
 			body_start = i + 1
 		else:
 			break
-	body_lines = [line + '\n' for line in lines[body_start:]]
+	body_text = '\n'.join(raw_lines[body_start:])
+	body_lines = [line + '\n' for line in normalize_text(body_text).split('\n') if line.strip()]
 	return metadata, body_lines
 
 
