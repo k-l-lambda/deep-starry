@@ -63,9 +63,17 @@ class PatchLevelDecoder (PreTrainedModel):
 		self.base = LlamaModel(config) if isinstance(config, LlamaConfig) else GPT2Model(config)
 
 	def forward (self, patches: torch.Tensor, masks: Optional[torch.Tensor] = None):
+		'''
+		patches: LongTensor [B, T, patch_size]   token ids in [0, token_vocab_size)
+		masks:   LongTensor [B, T] or None       1 for real patch, 0 for padding
+		                                         (None = attend all positions)
+		Returns: the HF base model output; `.last_hidden_state` is [B, T, hidden].
+		'''
 		# patches: [B, T, patch_size] -> one-hot [B, T, patch_size, token_vocab_size]
 		patches = F.one_hot(patches.long(), num_classes=self.token_vocab_size).to(self.patch_embedding.weight.dtype)
+		# flatten each patch's one-hot into a single vector -> [B, T, patch_size * token_vocab_size]
 		patches = patches.reshape(len(patches), -1, self.patch_size * self.token_vocab_size)
+		# project to per-patch embeddings -> [B, T, hidden]
 		patches = self.patch_embedding(patches)
 
 		if masks is None:
@@ -86,6 +94,13 @@ class TokenLevelDecoder (PreTrainedModel):
 		self.base = LlamaForCausalLM(config) if isinstance(config, LlamaConfig) else GPT2LMHeadModel(config)
 
 	def forward (self, encoded_patches: torch.Tensor, target_patches: torch.Tensor):
+		'''
+		encoded_patches: FloatTensor [N, hidden]        per-patch hidden state (1 per target patch)
+		target_patches:  LongTensor  [N, patch_size]    the token ids to teacher-force
+		Returns: HF CausalLM output over [N, patch_size + 1] positions, with
+			.loss   scalar cross-entropy (padding positions masked via -100 labels)
+			.logits FloatTensor [N, patch_size + 1, token_vocab_size]
+		'''
 		# target_patches: [N, patch_size]; prepend BOS -> [N, patch_size + 1]
 		target_patches = torch.cat(
 			(torch.ones_like(target_patches[:, 0:1]) * self.bos_token_id, target_patches), dim=1)
@@ -191,15 +206,16 @@ class LilyletNotaGen (nn.Module):
 
 	def forward (self, patches: torch.Tensor, masks: torch.Tensor, target_masks: Optional[torch.Tensor] = None):
 		'''
-		patches: [B, T, patch_size] token ids
-		masks:   [B, T] 1 for real patch, 0 for padding (the patch-level ATTENTION mask;
-		         prompt patches stay 1 here so the model conditions on them).
-		target_masks: [B, T] 1 where the patch is a supervised prediction TARGET, 0 over
-		         the prompt + <bos> boundary + padding. When None, falls back to the legacy
-		         behavior (supervise every real patch except the first).
-		Returns (output, target_patches):
-			output: token-level GPT2 output (has .loss and .logits) for next-patch prediction
-			target_patches: [N, patch_size] the target tokens aligned to each prediction
+		patches: LongTensor [B, T, patch_size] token ids
+		masks:   LongTensor [B, T] 1 for real patch, 0 for padding (the patch-level ATTENTION
+		         mask; prompt patches stay 1 here so the model conditions on them).
+		target_masks: LongTensor [B, T] or None. 1 where the patch is a supervised prediction
+		         TARGET, 0 over the prompt + <bos> boundary + padding. When None, falls back to
+		         the legacy behavior (supervise every real patch except the first).
+		Returns (output, target_patches), where N = number of target patches across the batch:
+			output: token-level decoder output (has .loss scalar and
+			        .logits [N, patch_size + 1, token_vocab_size]) for next-patch prediction
+			target_patches: LongTensor [N, patch_size] the target tokens aligned to each prediction
 		'''
 		patches = patches.reshape(len(patches), -1, self.patch_size)
 		encoded_patches = self.patch_level_decoder(patches, masks)['last_hidden_state']
@@ -239,19 +255,36 @@ class LilyletNotaGenLoss (nn.Module):
 		return []
 
 	def _token_accuracy (self, output, target_patches):
-		# next-token accuracy over valid (non-pad) token positions, matching the
-		# label shift the token-level GPT2 applies internally.
+		'''Next-token accuracy over valid (non-pad) token positions, reproducing the
+		label shift the token-level decoder applies internally.
+
+		output:         the token-level decoder output; .logits is [N, patch_size + 1, token_vocab_size]
+		target_patches: LongTensor [N, patch_size] the target tokens (N = #target patches)
+		Returns: float scalar accuracy (0.0 when there are no valid positions).
+		'''
+		# rebuild the same labels the decoder used: prepend <bos> -> [N, patch_size + 1],
+		# then mask pad positions with -100 so they are excluded.
 		token_targets = torch.cat(
 			(torch.ones_like(target_patches[:, 0:1]) * self.deducer.bos_token_id, target_patches), dim=1)
 		labels = token_targets.masked_fill(token_targets == self.deducer.special_token_id, -100)
-		shift_logits = output.logits[:, :-1, :]
-		shift_labels = labels[:, 1:]
+		# causal shift: logits at position i predict the token at position i+1.
+		shift_logits = output.logits[:, :-1, :]		# [N, patch_size, token_vocab_size]
+		shift_labels = labels[:, 1:]				# [N, patch_size]
 		valid = shift_labels != -100
 		if not valid.any():
 			return 0.0
 		return (shift_logits.argmax(dim=-1)[valid] == shift_labels[valid]).float().mean().item()
 
 	def forward (self, batch):
+		'''
+		batch: dict from LilyletPatchy.collateBatch with
+			input_patches LongTensor [B, T, patch_size]
+			input_masks   LongTensor [B, T]            patch-level attention mask
+			input_targets LongTensor [B, T] (optional) supervision mask; absent -> legacy behavior
+		Returns (loss, metrics):
+			loss:    scalar token-level cross-entropy
+			metrics: {'acc': float next-token accuracy}
+		'''
 		output, target = self.deducer(batch['input_patches'], batch['input_masks'], batch.get('input_targets'))
 
 		with torch.no_grad():
@@ -284,6 +317,7 @@ class PatchNet (nn.Module):
 		self.patch_size = model.patch_size
 
 	def forward (self, patches):
+		'''patches: LongTensor [1, T, patch_size] -> last_hidden FloatTensor [1, T, hidden].'''
 		oh = F.one_hot(patches.long(), num_classes=self.token_vocab_size).to(self.dec.patch_embedding.weight.dtype)
 		oh = oh.reshape(1, -1, self.patch_size * self.token_vocab_size)
 		emb = self.dec.patch_embedding(oh)
@@ -298,6 +332,7 @@ class TokenNet (nn.Module):
 		self.base = model.token_level_decoder.base
 
 	def forward (self, inputs_embeds):
+		'''inputs_embeds: FloatTensor [1, L, hidden] -> logits FloatTensor [1, L, token_vocab_size].'''
 		return self.base(inputs_embeds=inputs_embeds).logits
 
 
@@ -322,6 +357,12 @@ class PatchNetKV (nn.Module):
 		self.num_layers = self.dec.base.config.num_hidden_layers
 
 	def forward (self, patches, past):
+		'''
+		patches: LongTensor [1, L, patch_size]   the L new patches (L=1 in the loop)
+		past:    list of 2*num_layers tensors [k0, v0, ...], each [1, num_kv_heads, P, head_dim]
+		Returns: tuple (last_hidden [1, L, hidden], new_k0, new_v0, ...) with each
+		         new_k/new_v of shape [1, num_kv_heads, P+L, head_dim].
+		'''
 		from transformers import DynamicCache
 		oh = F.one_hot(patches.long(), num_classes=self.token_vocab_size).to(self.dec.patch_embedding.weight.dtype)
 		oh = oh.reshape(1, -1, self.patch_size * self.token_vocab_size)
@@ -361,6 +402,12 @@ class TokenNetKV (nn.Module):
 		self.num_layers = self.base.config.num_hidden_layers
 
 	def forward (self, inputs_embeds, past):
+		'''
+		inputs_embeds: FloatTensor [1, L, hidden]   the L new token embeddings (L=1 in the loop)
+		past:          list of 2*num_layers tensors [k0, v0, ...], each [1, num_kv_heads, P, head_dim]
+		Returns: tuple (logits [1, L, token_vocab_size], new_k0, new_v0, ...) with each
+		         new_k/new_v of shape [1, num_kv_heads, P+L, head_dim].
+		'''
 		from transformers import DynamicCache
 		cache = DynamicCache()
 		past_len = past[0].shape[2]
