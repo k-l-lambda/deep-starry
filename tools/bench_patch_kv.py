@@ -33,7 +33,7 @@ from starry.utils.config import Configuration
 from starry.lilylet.patchyGenerator import LilyletPatchyGenerator
 from bench_lilylet_int8_ort import ORTGenerator, ORTGeneratorKV
 
-PROMPT = '[composer "Schubert, Franz"]\n[genre "Romantic"]\n[instrument "Keyboard"]\n'
+PROMPT = '%Romantic\n%Schubert, Franz\n%Keyboard\n'
 
 
 def main ():

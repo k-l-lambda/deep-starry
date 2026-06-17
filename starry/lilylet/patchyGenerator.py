@@ -24,9 +24,17 @@ from .data.patchifier import LilyletTokenizer
 from .models.notagen import token_embedding_weight
 
 
-def sample_next (logits, temperature=1.0, top_k=0, top_p=1.0):
-	'''Sample a single token id from a logits vector with temperature/top-k/top-p.'''
+def sample_next (logits, temperature=1.0, top_k=0, top_p=1.0, banned_ids=None):
+	'''Sample a single token id from a logits vector with temperature/top-k/top-p.
+
+	banned_ids: optional iterable of token ids to forbid; their logits are set to
+	-inf before any other filtering, so they can never be drawn (used by the
+	syntax-blacklist MaskMonitor). Default None = no-op.
+	'''
 	logits = logits.float()
+	if banned_ids:
+		logits = logits.clone()
+		logits[list(banned_ids)] = float('-inf')
 	if temperature != 1.0:
 		logits = logits / max(temperature, 1e-6)
 	if top_k and top_k > 0:
@@ -122,6 +130,34 @@ class LilyletPatchyGenerator:
 	def patches_to_text (self, patches):
 		return ''.join(self.patch_to_text(p) for p in patches)
 
+	def _encode_lines (self, lines):
+		'''Encode a list of text lines into padded patches (each line gets a trailing
+		newline, matching patchify_text). Returns a list of patch_size-long id lists.'''
+		patches = []
+		for line in lines:
+			ids = self.tokenizer.encode(line + '\n')
+			for i in range(0, len(ids), self.patch_size):
+				chunk = ids[i:i + self.patch_size]
+				patches.append(chunk + [self.pad_id] * (self.patch_size - len(chunk)))
+		return patches
+
+	def _seed_patches (self, prompt_text):
+		'''Build the seed patch list, mirroring patchify_text's layout:
+
+			%-prompt patches  ->  <bos> patch  ->  [header] patches
+
+		Lines in `prompt_text` starting with `%` are the unsupervised style PROMPT and
+		go BEFORE <bos>; the rest (`[field "..."]` headers, e.g. [staves]/[instrument-*])
+		are the supervised HEADER and go AFTER <bos>. With no `%` lines this reduces to
+		`[<bos>] + header`, i.e. the legacy layout (<bos> at index 0).
+		'''
+		prompt_lines, header_lines = [], []
+		for line in prompt_text.splitlines():
+			(prompt_lines if line.lstrip().startswith('%') else header_lines).append(line)
+
+		bos_patch = [self.bos_id] * (self.patch_size - 1) + [self.eos_id]
+		return self._encode_lines(prompt_lines) + [bos_patch] + self._encode_lines(header_lines)
+
 	@torch.no_grad()
 	def generate_patch (self, encoded_patch, prefix_ids=None, temperature=1.0, top_k=0, top_p=1.0):
 		'''Sample the token ids inside one patch, conditioned on a patch hidden state.
@@ -151,9 +187,9 @@ class LilyletPatchyGenerator:
 		measures=None, postprocess=False, verbose=False):
 		'''Autoregressively generate a Lilylet document.
 
-		Seeds with a BOS patch (+ optional metadata prompt), then samples patch by
-		patch until an EOS patch appears or max_patches is reached. Returns the
-		decoded text.
+		Seeds with the %-prompt -> <bos> -> [header] layout (see _seed_patches), then
+		samples patch by patch until an EOS patch appears or max_patches is reached.
+		Returns the decoded text.
 
 		measures: if set, forces the first body patch to start with `[r:0/<measures>`
 			(a one-shot priming of the stream marker, like NotaGen's `[r:0/`); if None,
@@ -161,17 +197,11 @@ class LilyletPatchyGenerator:
 		postprocess: if True, run self.postprocess on the result (drop `[r:x/y]`
 			markers, insert blank lines after the meta block and at measure boundaries).
 		'''
-		bos_patch = [self.bos_id] * (self.patch_size - 1) + [self.eos_id]
-		patches = [bos_patch]
+		patches = self._seed_patches(prompt_text)
 
-		if prompt_text:
-			for line in prompt_text.splitlines():
-				ids = self.tokenizer.encode(line + '\n')
-				for i in range(0, len(ids), self.patch_size):
-					chunk = ids[i:i + self.patch_size]
-					patches.append(chunk + [self.pad_id] * (self.patch_size - len(chunk)))
-
-		out_text = self.patches_to_text(patches[1:])
+		# decoded seed text (the <bos>/pad/eos patches render empty, so the prompt and
+		# header lines come through verbatim).
+		out_text = self.patches_to_text(patches)
 		if verbose and out_text:
 			print(out_text, end='')
 

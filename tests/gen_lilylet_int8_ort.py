@@ -14,10 +14,12 @@ import torch
 
 from starry.utils.config import Configuration
 from starry.lilylet.patchyGenerator import LilyletPatchyGenerator
+from starry.lilylet.mask_monitor import MaskMonitor, load_blacklist
 from bench_lilylet_int8_ort import ORTGenerator, RUN, CKPT, ONNX_DIR, REPO_ROOT
 
 
-PROMPT = '[composer "Schubert, Franz"]\n[genre "Romantic"]\n[instrument "Keyboard"]\n'
+PROMPT = '%Romantic\n%Schubert, Franz\n%Keyboard\n'
+DEFAULT_BLACKLIST = '/home/camus/work/LilyScript/assets/lilylet-blacklist.json'
 
 
 def main ():
@@ -30,6 +32,8 @@ def main ():
 	ap.add_argument('--temperature', type=float, default=0.9)
 	ap.add_argument('--top-k', type=int, default=20)
 	ap.add_argument('--top-p', type=float, default=0.95)
+	ap.add_argument('--blacklist', default=DEFAULT_BLACKLIST,
+		help='syntax-blacklist JSON path; pass "" to disable masking')
 	ap.add_argument('--out', default=os.path.join(REPO_ROOT, 'tests', 'output', 'lilylet_schubert_int8.lyl'))
 	args = ap.parse_args()
 
@@ -46,16 +50,25 @@ def main ():
 	assert os.path.isfile(patch_i8) and os.path.isfile(token_i8), 'run bench_lilylet_int8_ort.py first to export int8 onnx'
 	ort_i8 = ORTGenerator(gen, patch_i8, token_i8, threads=args.threads)
 
+	monitor = None
+	if args.blacklist:
+		blacklist = load_blacklist(args.blacklist)
+		if blacklist:
+			monitor = MaskMonitor(gen, blacklist)
+			print('syntax blacklist: %d context keys from %s' % (len(blacklist), args.blacklist))
+		else:
+			print('syntax blacklist: %s empty/missing -> masking disabled' % args.blacklist)
+
 	print('=== INT8 ONNX generation ===')
 	print('prompt:')
 	print(PROMPT)
-	print('--- output (seed=%d temp=%.2f top_k=%d top_p=%.2f measures=%s) ---\n'
-		% (args.seed, args.temperature, args.top_k, args.top_p, args.measures))
+	print('--- output (seed=%d temp=%.2f top_k=%d top_p=%.2f measures=%s blacklist=%s) ---\n'
+		% (args.seed, args.temperature, args.top_k, args.top_p, args.measures, monitor is not None))
 
 	t0 = time.perf_counter()
 	text = ort_i8.generate(prompt_text=PROMPT, max_patches=args.max_patches,
 		temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
-		measures=args.measures, postprocess=True)
+		measures=args.measures, postprocess=True, monitor=monitor)
 	dt = time.perf_counter() - t0
 
 	print(text)

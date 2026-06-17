@@ -32,10 +32,16 @@ from starry.utils.config import Configuration
 from starry.lilylet.patchyGenerator import LilyletPatchyGenerator, sample_next
 from starry.lilylet.models.notagen import token_embedding_weight, PatchNet, TokenNet
 
+
+class _StreamAborted(Exception):
+	'''Raised inside generate_patch when every masked redraw was rejected; the
+	generate loop catches it and ends the stream cleanly.'''
+
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RUN = '/home/camus/data/models/deep-starry-logs/lilylet/20260609-lilylet-notagenx-large-llama-lr0.2'
+RUN = '/home/camus/data/models/deep-starry-logs/lilylet/20260617-lilylet-notagenx-1m0617-llama-l4+10-lr0.2'
 CKPT = os.path.join(RUN, 'best.chkpt')
-ONNX_DIR = os.path.join(REPO_ROOT, 'tests', 'output', 'onnx')
+ONNX_DIR = os.path.join(RUN, 'onnx')
 
 
 def export_and_quantize (gen, hidden):
@@ -96,43 +102,70 @@ class ORTGenerator:
 	def token_logits (self, inputs_embeds_np):
 		return self.token_sess.run(None, {'inputs_embeds': inputs_embeds_np.astype(np.float32)})[0]
 
-	def generate_patch (self, last_hidden, prefix_ids=None, temperature=1.0, top_k=0, top_p=1.0):
+	def generate_patch (self, last_hidden, prefix_ids=None, temperature=1.0, top_k=0, top_p=1.0,
+		monitor=None, max_redraws=16):
 		g = self.g
 		tokens = [g.bos_id] + list(prefix_ids or [])
 		generated = list(prefix_ids or [])
+		if monitor is not None:
+			for tid in prefix_ids or []:
+				monitor.commit_forced(tid)
 		enc = last_hidden.reshape(1, 1, -1)
 		while len(generated) < g.patch_size:
 			emb = self.wte[np.asarray(tokens)][None]          # [1,len,hidden]
 			emb = np.concatenate([enc, emb[:, 1:, :]], axis=1)
-			logits = self.token_logits(emb)[0, -1]
-			nxt = sample_next(torch.from_numpy(logits), temperature=temperature, top_k=top_k, top_p=top_p)
+			logits = torch.from_numpy(self.token_logits(emb)[0, -1])
+			if monitor is None:
+				nxt = sample_next(logits, temperature=temperature, top_k=top_k, top_p=top_p)
+			else:
+				# draw with the current ban mask; a rejected token is redrawn from the
+				# SAME logits with the now-larger mask (the token graph isn't advanced
+				# until the committed token, so redrawing is free).
+				for _ in range(max_redraws):
+					nxt = sample_next(logits, temperature=temperature, top_k=top_k, top_p=top_p,
+						banned_ids=monitor.banned())
+					if monitor.accept(nxt):
+						break
+				else:
+					# every redraw rejected -> abort this patch (signal EOS-like stop)
+					raise _StreamAborted()
 			generated.append(nxt); tokens.append(nxt)
 		return generated
 
 	def generate (self, prompt_text='', max_patches=256, temperature=1.0, top_k=0, top_p=0.9,
-		measures=None, postprocess=False):
+		measures=None, postprocess=False, monitor=None):
 		g = self.g
-		bos_patch = [g.bos_id] * (g.patch_size - 1) + [g.eos_id]
-		patches = [bos_patch]
-		if prompt_text:
-			for line in prompt_text.splitlines():
-				ids = g.tokenizer.encode(line + '\n')
-				for i in range(0, len(ids), g.patch_size):
-					chunk = ids[i:i + g.patch_size]
-					patches.append(chunk + [g.pad_id] * (g.patch_size - len(chunk)))
-		out_text = g.patches_to_text(patches[1:])
+		patches = g._seed_patches(prompt_text)
+		out_text = g.patches_to_text(patches)
 		prime_ids = g.tokenizer.encode(f'[r:0/{measures}]') if measures is not None else None
 		primed = False
+		# seed the monitor's running context from the seed patches (commit_forced skips
+		# bos/pad/eos, so passing the whole list incl. the <bos> patch is safe).
+		if monitor is not None:
+			for p in patches:
+				for tid in p:
+					monitor.commit_forced(tid)
 		for _ in range(max_patches):
 			flat = sum(patches, [])
 			grid = [flat[i:i + g.patch_size] for i in range(0, len(flat), g.patch_size)]
 			hidden = self.patch_forward(grid)
 			last = hidden[0, -1]
-			patch_ids = self.generate_patch(last, temperature=temperature, top_k=top_k, top_p=top_p)
-			if prime_ids is not None and not primed and g.patch_to_text(patch_ids).startswith('[r:'):
+			# snapshot before the draw so a discarded priming probe can be undone.
+			can_prime_with_monitor = monitor is not None and hasattr(monitor, 'mark')
+			if can_prime_with_monitor:
+				monitor.mark()
+			try:
+				patch_ids = self.generate_patch(last, temperature=temperature, top_k=top_k, top_p=top_p,
+					monitor=monitor)
+			except _StreamAborted:
+				break
+			if prime_ids is not None and not primed and g.patch_to_text(patch_ids).startswith('[r:') \
+					and (monitor is None or can_prime_with_monitor):
 				primed = True
+				if can_prime_with_monitor:
+					monitor.rollback()
 				patch_ids = self.generate_patch(last, prefix_ids=prime_ids,
-					temperature=temperature, top_k=top_k, top_p=top_p)
+					temperature=temperature, top_k=top_k, top_p=top_p, monitor=monitor)
 			if patch_ids[0] == g.bos_id and patch_ids[1] == g.eos_id:
 				break
 			out_text += g.patch_to_text(patch_ids)
@@ -210,15 +243,19 @@ class ORTGeneratorKV (ORTGenerator):
 			new_past.append(out[f'new_v_{i}'])
 		return out['logits'][0, -1], new_past
 
-	def generate_patch (self, last_hidden, prefix_ids=None, temperature=1.0, top_k=0, top_p=1.0):
+	def generate_patch (self, last_hidden, prefix_ids=None, temperature=1.0, top_k=0, top_p=1.0,
+		monitor=None, max_redraws=16):
 		'''Token-level decode for one patch. Uses the token-KV session when available
 		(feed one embedding at a time, growing the token cache); otherwise falls back
 		to the inherited full-recompute loop.'''
 		if self.token_kv_sess is None:
 			return super().generate_patch(last_hidden, prefix_ids=prefix_ids,
-				temperature=temperature, top_k=top_k, top_p=top_p)
+				temperature=temperature, top_k=top_k, top_p=top_p, monitor=monitor, max_redraws=max_redraws)
 		g = self.g
 		generated = list(prefix_ids or [])
+		if monitor is not None:
+			for tid in prefix_ids or []:
+				monitor.commit_forced(tid)
 		# the embedding sequence is: [patch_state, emb(bos? no) ...] -- mirror the
 		# non-KV path: position 0 = patch state, positions 1.. = embeddings of the
 		# tokens fixed so far (bos + prefix_ids). We feed them incrementally.
@@ -232,37 +269,56 @@ class ORTGeneratorKV (ORTGenerator):
 			logits, past = self._token_kv_step(emb, past)
 		# now sample until the patch is full
 		while len(generated) < g.patch_size:
-			nxt = sample_next(torch.from_numpy(logits), temperature=temperature, top_k=top_k, top_p=top_p)
+			lg = torch.from_numpy(logits)
+			if monitor is None:
+				nxt = sample_next(lg, temperature=temperature, top_k=top_k, top_p=top_p)
+			else:
+				# redraw against the growing mask from the SAME logits; the token cache is
+				# only advanced for the committed token below, so redraws are free.
+				for _ in range(max_redraws):
+					nxt = sample_next(lg, temperature=temperature, top_k=top_k, top_p=top_p,
+						banned_ids=monitor.banned())
+					if monitor.accept(nxt):
+						break
+				else:
+					raise _StreamAborted()
 			generated.append(nxt); tokens.append(nxt)
 			emb = self.wte[nxt].reshape(1, 1, -1)
 			logits, past = self._token_kv_step(emb, past)
 		return generated
 
 	def generate (self, prompt_text='', max_patches=256, temperature=1.0, top_k=0, top_p=0.9,
-		measures=None, postprocess=False):
+		measures=None, postprocess=False, monitor=None):
 		g = self.g
-		bos_patch = [g.bos_id] * (g.patch_size - 1) + [g.eos_id]
-		patches = [bos_patch]
-		if prompt_text:
-			for line in prompt_text.splitlines():
-				ids = g.tokenizer.encode(line + '\n')
-				for i in range(0, len(ids), g.patch_size):
-					chunk = ids[i:i + g.patch_size]
-					patches.append(chunk + [g.pad_id] * (g.patch_size - len(chunk)))
-		out_text = g.patches_to_text(patches[1:])
+		patches = g._seed_patches(prompt_text)
+		out_text = g.patches_to_text(patches)
 		prime_ids = g.tokenizer.encode(f'[r:0/{measures}]') if measures is not None else None
 		primed = False
+		if monitor is not None:
+			for p in patches:
+				for tid in p:
+					monitor.commit_forced(tid)
 
 		# prefill: run all seed patches through the KV decoder in one call
 		past = self._empty_past()
 		last, past = self.patch_kv_step(patches, past)
 
 		for _ in range(max_patches):
-			patch_ids = self.generate_patch(last, temperature=temperature, top_k=top_k, top_p=top_p)
-			if prime_ids is not None and not primed and g.patch_to_text(patch_ids).startswith('[r:'):
+			can_prime_with_monitor = monitor is not None and hasattr(monitor, 'mark')
+			if can_prime_with_monitor:
+				monitor.mark()
+			try:
+				patch_ids = self.generate_patch(last, temperature=temperature, top_k=top_k, top_p=top_p,
+					monitor=monitor)
+			except _StreamAborted:
+				break
+			if prime_ids is not None and not primed and g.patch_to_text(patch_ids).startswith('[r:') \
+					and (monitor is None or can_prime_with_monitor):
 				primed = True
+				if can_prime_with_monitor:
+					monitor.rollback()
 				patch_ids = self.generate_patch(last, prefix_ids=prime_ids,
-					temperature=temperature, top_k=top_k, top_p=top_p)
+					temperature=temperature, top_k=top_k, top_p=top_p, monitor=monitor)
 			if patch_ids[0] == g.bos_id and patch_ids[1] == g.eos_id:
 				break
 			out_text += g.patch_to_text(patch_ids)
