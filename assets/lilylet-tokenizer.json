@@ -102,6 +102,7 @@
     "Presto",
     "ritard",
     "sempre",
+    "staves",
     "treble",
     "troppo",
     "vivace",
@@ -387,10 +388,9 @@
     },
     {
       "id": 28,
-      "type": "byte",
-      "token": "\u001c",
-      "text": "\u001c",
-      "value": 28
+      "type": "protected",
+      "token": "staves",
+      "text": "staves"
     },
     {
       "id": 29,
@@ -1861,14 +1861,21 @@
       "type": "protected",
       "token": " ",
       "text": " ",
-      "frequency": 557427
+      "frequency": 567436
     },
     {
       "id": 10,
       "type": "protected",
       "token": "\n",
       "text": "\n",
-      "frequency": 115131
+      "frequency": 116588
+    },
+    {
+      "id": 102,
+      "type": "protected",
+      "token": "f",
+      "text": "f",
+      "frequency": 93664
     },
     {
       "id": 39,
@@ -1878,18 +1885,11 @@
       "frequency": 73459
     },
     {
-      "id": 114,
-      "type": "byte",
-      "token": "r",
-      "text": "r",
-      "frequency": 68314
-    },
-    {
       "id": 46,
       "type": "protected",
       "token": ".",
       "text": ".",
-      "frequency": 66311
+      "frequency": 69061
     },
     {
       "id": 226,
@@ -1903,105 +1903,119 @@
       "type": "byte",
       "token": "4",
       "text": "4",
-      "frequency": 63985
+      "frequency": 63908
     },
     {
       "id": 62,
       "type": "protected",
       "token": ">",
       "text": ">",
-      "frequency": 52101
+      "frequency": 52238
     },
     {
       "id": 50,
       "type": "byte",
       "token": "2",
       "text": "2",
-      "frequency": 51522
-    },
-    {
-      "id": 102,
-      "type": "protected",
-      "token": "f",
-      "text": "f",
-      "frequency": 51443
+      "frequency": 52051
     },
     {
       "id": 103,
       "type": "byte",
       "token": "g",
       "text": "g",
-      "frequency": 50694
+      "frequency": 50779
     },
     {
       "id": 60,
       "type": "protected",
       "token": "<",
       "text": "<",
-      "frequency": 50096
+      "frequency": 50233
     },
     {
       "id": 56,
       "type": "byte",
       "token": "8",
       "text": "8",
-      "frequency": 48542
+      "frequency": 48812
     },
     {
       "id": 99,
       "type": "byte",
       "token": "c",
       "text": "c",
-      "frequency": 48056
-    },
-    {
-      "id": 100,
-      "type": "byte",
-      "token": "d",
-      "text": "d",
-      "frequency": 46271
+      "frequency": 48443
     },
     {
       "id": 98,
       "type": "byte",
       "token": "b",
       "text": "b",
-      "frequency": 46158
+      "frequency": 46447
     },
     {
-      "id": 101,
+      "id": 100,
       "type": "byte",
-      "token": "e",
-      "text": "e",
-      "frequency": 43759
+      "token": "d",
+      "text": "d",
+      "frequency": 46437
+    },
+    {
+      "id": 114,
+      "type": "byte",
+      "token": "r",
+      "text": "r",
+      "frequency": 46217
+    },
+    {
+      "id": 115,
+      "type": "protected",
+      "token": "s",
+      "text": "s",
+      "frequency": 45859
     },
     {
       "id": 97,
       "type": "byte",
       "token": "a",
       "text": "a",
-      "frequency": 43713
+      "frequency": 44744
+    },
+    {
+      "id": 101,
+      "type": "byte",
+      "token": "e",
+      "text": "e",
+      "frequency": 44325
     },
     {
       "id": 40,
       "type": "protected",
       "token": "(",
       "text": "(",
-      "frequency": 42060
+      "frequency": 42062
     },
     {
       "id": 45,
       "type": "byte",
       "token": "-",
       "text": "-",
-      "frequency": 35055
+      "frequency": 36531
     },
     {
       "id": 44,
       "type": "protected",
       "token": ",",
       "text": ",",
-      "frequency": 32179
+      "frequency": 32345
+    },
+    {
+      "id": 49,
+      "type": "byte",
+      "token": "1",
+      "text": "1",
+      "frequency": 25257
     },
     {
       "id": 170,
@@ -2011,25 +2025,25 @@
       "frequency": 24499
     },
     {
-      "id": 49,
+      "id": 82,
       "type": "byte",
-      "token": "1",
-      "text": "1",
-      "frequency": 23990
-    },
-    {
-      "id": 47,
-      "type": "protected",
-      "token": "/",
-      "text": "/",
-      "frequency": 21632
+      "token": "R",
+      "text": "R",
+      "frequency": 22745
     },
     {
       "id": 54,
       "type": "byte",
       "token": "6",
       "text": "6",
-      "frequency": 20819
+      "frequency": 21810
+    },
+    {
+      "id": 47,
+      "type": "protected",
+      "token": "/",
+      "text": "/",
+      "frequency": 21633
     },
     {
       "id": 124,
@@ -2050,7 +2064,14 @@
       "type": "byte",
       "token": "3",
       "text": "3",
-      "frequency": 18237
+      "frequency": 18439
+    },
+    {
+      "id": 37,
+      "type": "protected",
+      "token": "%",
+      "text": "%",
+      "frequency": 18255
     },
     {
       "id": 167,
@@ -2067,18 +2088,11 @@
       "frequency": 18051
     },
     {
-      "id": 37,
-      "type": "protected",
-      "token": "%",
-      "text": "%",
-      "frequency": 17610
-    },
-    {
       "id": 244,
       "type": "protected",
       "token": "\\\\",
       "text": "\\\\",
-      "frequency": 14538
+      "frequency": 14562
     },
     {
       "id": 223,
@@ -2088,11 +2102,18 @@
       "frequency": 12936
     },
     {
+      "id": 34,
+      "type": "byte",
+      "token": "\"",
+      "text": "\"",
+      "frequency": 12538
+    },
+    {
       "id": 41,
       "type": "protected",
       "token": ")",
       "text": ")",
-      "frequency": 11851
+      "frequency": 11853
     },
     {
       "id": 224,
@@ -2102,53 +2123,53 @@
       "frequency": 11563
     },
     {
-      "id": 34,
-      "type": "byte",
-      "token": "\"",
-      "text": "\"",
-      "frequency": 5840
-    },
-    {
-      "id": 115,
-      "type": "protected",
-      "token": "s",
-      "text": "s",
-      "frequency": 5119
-    },
-    {
       "id": 248,
       "type": "protected",
       "token": "\\p",
       "text": "\\p",
-      "frequency": 4689
-    },
-    {
-      "id": 247,
-      "type": "protected",
-      "token": "\\f",
-      "text": "\\f",
-      "frequency": 3969
-    },
-    {
-      "id": 53,
-      "type": "byte",
-      "token": "5",
-      "text": "5",
-      "frequency": 3485
+      "frequency": 4859
     },
     {
       "id": 123,
       "type": "byte",
       "token": "{",
       "text": "{",
-      "frequency": 2866
+      "frequency": 4478
     },
     {
       "id": 125,
       "type": "byte",
       "token": "}",
       "text": "}",
-      "frequency": 2866
+      "frequency": 4478
+    },
+    {
+      "id": 247,
+      "type": "protected",
+      "token": "\\f",
+      "text": "\\f",
+      "frequency": 4001
+    },
+    {
+      "id": 53,
+      "type": "byte",
+      "token": "5",
+      "text": "5",
+      "frequency": 3535
+    },
+    {
+      "id": 249,
+      "type": "protected",
+      "token": "ff",
+      "text": "ff",
+      "frequency": 3242
+    },
+    {
+      "id": 55,
+      "type": "byte",
+      "token": "7",
+      "text": "7",
+      "frequency": 2870
     },
     {
       "id": 158,
@@ -2158,11 +2179,11 @@
       "frequency": 2866
     },
     {
-      "id": 55,
+      "id": 48,
       "type": "byte",
-      "token": "7",
-      "text": "7",
-      "frequency": 2825
+      "token": "0",
+      "text": "0",
+      "frequency": 2629
     },
     {
       "id": 202,
@@ -2172,18 +2193,11 @@
       "frequency": 2622
     },
     {
-      "id": 48,
-      "type": "byte",
-      "token": "0",
-      "text": "0",
-      "frequency": 2592
-    },
-    {
       "id": 57,
       "type": "byte",
       "token": "9",
       "text": "9",
-      "frequency": 2448
+      "frequency": 2488
     },
     {
       "id": 58,
@@ -2193,11 +2207,25 @@
       "frequency": 2290
     },
     {
-      "id": 249,
+      "id": 154,
       "type": "protected",
-      "token": "ff",
-      "text": "ff",
-      "frequency": 2126
+      "token": "\\markup",
+      "text": "\\markup",
+      "frequency": 2057
+    },
+    {
+      "id": 181,
+      "type": "protected",
+      "token": "\\clef",
+      "text": "\\clef",
+      "frequency": 1951
+    },
+    {
+      "id": 95,
+      "type": "protected",
+      "token": "_",
+      "text": "_",
+      "frequency": 1875
     },
     {
       "id": 246,
@@ -2207,18 +2235,18 @@
       "frequency": 1702
     },
     {
+      "id": 111,
+      "type": "byte",
+      "token": "o",
+      "text": "o",
+      "frequency": 1650
+    },
+    {
       "id": 166,
       "type": "protected",
       "token": "\\grace",
       "text": "\\grace",
-      "frequency": 1691
-    },
-    {
-      "id": 181,
-      "type": "protected",
-      "token": "\\clef",
-      "text": "\\clef",
-      "frequency": 1525
+      "frequency": 1461
     },
     {
       "id": 245,
@@ -2235,6 +2263,13 @@
       "frequency": 1318
     },
     {
+      "id": 94,
+      "type": "protected",
+      "token": "^",
+      "text": "^",
+      "frequency": 1298
+    },
+    {
       "id": 243,
       "type": "protected",
       "token": "\\!",
@@ -2242,18 +2277,25 @@
       "frequency": 1255
     },
     {
-      "id": 95,
-      "type": "protected",
-      "token": "_",
-      "text": "_",
-      "frequency": 995
-    },
-    {
       "id": 231,
       "type": "protected",
       "token": "\\pp",
       "text": "\\pp",
-      "frequency": 986
+      "frequency": 1124
+    },
+    {
+      "id": 91,
+      "type": "byte",
+      "token": "[",
+      "text": "[",
+      "frequency": 967
+    },
+    {
+      "id": 93,
+      "type": "byte",
+      "token": "]",
+      "text": "]",
+      "frequency": 966
     },
     {
       "id": 126,
@@ -2263,11 +2305,32 @@
       "frequency": 966
     },
     {
+      "id": 105,
+      "type": "byte",
+      "token": "i",
+      "text": "i",
+      "frequency": 926
+    },
+    {
+      "id": 108,
+      "type": "byte",
+      "token": "l",
+      "text": "l",
+      "frequency": 919
+    },
+    {
+      "id": 145,
+      "type": "protected",
+      "token": "\"treble\"",
+      "text": "\"treble\"",
+      "frequency": 876
+    },
+    {
       "id": 227,
       "type": "protected",
       "token": "\\ff",
       "text": "\\ff",
-      "frequency": 853
+      "frequency": 857
     },
     {
       "id": 128,
@@ -2277,18 +2340,32 @@
       "frequency": 846
     },
     {
-      "id": 145,
-      "type": "protected",
-      "token": "\"treble\"",
-      "text": "\"treble\"",
-      "frequency": 778
-    },
-    {
       "id": 165,
       "type": "protected",
       "token": "\"bass\"",
       "text": "\"bass\"",
-      "frequency": 635
+      "frequency": 842
+    },
+    {
+      "id": 110,
+      "type": "byte",
+      "token": "n",
+      "text": "n",
+      "frequency": 810
+    },
+    {
+      "id": 137,
+      "type": "protected",
+      "token": "instrument",
+      "text": "instrument",
+      "frequency": 731
+    },
+    {
+      "id": 253,
+      "type": "protected",
+      "token": "ss",
+      "text": "ss",
+      "frequency": 650
     },
     {
       "id": 146,
@@ -2296,6 +2373,13 @@
       "token": "\\fermata",
       "text": "\\fermata",
       "frequency": 610
+    },
+    {
+      "id": 188,
+      "type": "protected",
+      "token": "cresc",
+      "text": "cresc",
+      "frequency": 599
     },
     {
       "id": 61,
@@ -2312,6 +2396,13 @@
       "frequency": 524
     },
     {
+      "id": 116,
+      "type": "byte",
+      "token": "t",
+      "text": "t",
+      "frequency": 498
+    },
+    {
       "id": 133,
       "type": "protected",
       "token": "\\sustainOff",
@@ -2319,11 +2410,25 @@
       "frequency": 472
     },
     {
-      "id": 253,
+      "id": 86,
+      "type": "byte",
+      "token": "V",
+      "text": "V",
+      "frequency": 338
+    },
+    {
+      "id": 121,
+      "type": "byte",
+      "token": "y",
+      "text": "y",
+      "frequency": 332
+    },
+    {
+      "id": 205,
       "type": "protected",
-      "token": "ss",
-      "text": "ss",
-      "frequency": 387
+      "token": "\\ppp",
+      "text": "\\ppp",
+      "frequency": 328
     },
     {
       "id": 173,
@@ -2333,13 +2438,6 @@
       "frequency": 307
     },
     {
-      "id": 205,
-      "type": "protected",
-      "token": "\\ppp",
-      "text": "\\ppp",
-      "frequency": 305
-    },
-    {
       "id": 138,
       "type": "protected",
       "token": "\\arpeggio",
@@ -2347,81 +2445,123 @@
       "frequency": 300
     },
     {
-      "id": 111,
+      "id": 84,
       "type": "byte",
-      "token": "o",
-      "text": "o",
-      "frequency": 286
+      "token": "T",
+      "text": "T",
+      "frequency": 295
     },
     {
-      "id": 107,
+      "id": 70,
       "type": "byte",
-      "token": "k",
-      "text": "k",
-      "frequency": 196
+      "token": "F",
+      "text": "F",
+      "frequency": 283
     },
     {
-      "id": 121,
+      "id": 80,
       "type": "byte",
-      "token": "y",
-      "text": "y",
-      "frequency": 196
+      "token": "P",
+      "text": "P",
+      "frequency": 278
     },
     {
-      "id": 91,
+      "id": 67,
       "type": "byte",
-      "token": "[",
-      "text": "[",
-      "frequency": 186
-    },
-    {
-      "id": 93,
-      "type": "byte",
-      "token": "]",
-      "text": "]",
-      "frequency": 186
-    },
-    {
-      "id": 116,
-      "type": "byte",
-      "token": "t",
-      "text": "t",
-      "frequency": 186
-    },
-    {
-      "id": 149,
-      "type": "protected",
-      "token": "composer",
-      "text": "composer",
-      "frequency": 186
+      "token": "C",
+      "text": "C",
+      "frequency": 276
     },
     {
       "id": 104,
       "type": "byte",
       "token": "h",
       "text": "h",
-      "frequency": 158
+      "frequency": 252
+    },
+    {
+      "id": 28,
+      "type": "protected",
+      "token": "staves",
+      "text": "staves",
+      "frequency": 215
+    },
+    {
+      "id": 251,
+      "type": "protected",
+      "token": "in",
+      "text": "in",
+      "frequency": 205
+    },
+    {
+      "id": 107,
+      "type": "byte",
+      "token": "k",
+      "text": "k",
+      "frequency": 203
+    },
+    {
+      "id": 161,
+      "type": "protected",
+      "token": "Andante",
+      "text": "Andante",
+      "frequency": 172
     },
     {
       "id": 118,
       "type": "byte",
       "token": "v",
       "text": "v",
-      "frequency": 154
+      "frequency": 160
     },
     {
-      "id": 105,
-      "type": "byte",
-      "token": "i",
-      "text": "i",
-      "frequency": 128
+      "id": 252,
+      "type": "protected",
+      "token": "ma",
+      "text": "ma",
+      "frequency": 160
     },
     {
-      "id": 110,
+      "id": 117,
       "type": "byte",
-      "token": "n",
-      "text": "n",
-      "frequency": 120
+      "token": "u",
+      "text": "u",
+      "frequency": 147
+    },
+    {
+      "id": 75,
+      "type": "byte",
+      "token": "K",
+      "text": "K",
+      "frequency": 139
+    },
+    {
+      "id": 79,
+      "type": "byte",
+      "token": "O",
+      "text": "O",
+      "frequency": 129
+    },
+    {
+      "id": 109,
+      "type": "byte",
+      "token": "m",
+      "text": "m",
+      "frequency": 129
+    },
+    {
+      "id": 73,
+      "type": "byte",
+      "token": "I",
+      "text": "I",
+      "frequency": 124
+    },
+    {
+      "id": 26,
+      "type": "protected",
+      "token": "treble",
+      "text": "treble",
+      "frequency": 113
     },
     {
       "id": 208,
@@ -2445,39 +2585,95 @@
       "frequency": 108
     },
     {
-      "id": 80,
+      "id": 66,
       "type": "byte",
-      "token": "P",
-      "text": "P",
-      "frequency": 98
+      "token": "B",
+      "text": "B",
+      "frequency": 107
     },
     {
-      "id": 84,
-      "type": "byte",
-      "token": "T",
-      "text": "T",
-      "frequency": 98
+      "id": 220,
+      "type": "protected",
+      "token": "Trio",
+      "text": "Trio",
+      "frequency": 100
     },
     {
-      "id": 117,
-      "type": "byte",
-      "token": "u",
-      "text": "u",
-      "frequency": 86
+      "id": 232,
+      "type": "protected",
+      "token": "con",
+      "text": "con",
+      "frequency": 92
+    },
+    {
+      "id": 211,
+      "type": "protected",
+      "token": "moto",
+      "text": "moto",
+      "frequency": 88
     },
     {
       "id": 229,
       "type": "protected",
       "token": "\\mf",
       "text": "\\mf",
-      "frequency": 69
+      "frequency": 86
+    },
+    {
+      "id": 112,
+      "type": "byte",
+      "token": "p",
+      "text": "p",
+      "frequency": 83
+    },
+    {
+      "id": 65,
+      "type": "byte",
+      "token": "A",
+      "text": "A",
+      "frequency": 78
     },
     {
       "id": 122,
       "type": "byte",
       "token": "z",
       "text": "z",
+      "frequency": 71
+    },
+    {
+      "id": 219,
+      "type": "protected",
+      "token": "Text",
+      "text": "Text",
+      "frequency": 65
+    },
+    {
+      "id": 209,
+      "type": "protected",
+      "token": "arco",
+      "text": "arco",
+      "frequency": 61
+    },
+    {
+      "id": 72,
+      "type": "byte",
+      "token": "H",
+      "text": "H",
       "frequency": 58
+    },
+    {
+      "id": 189,
+      "type": "protected",
+      "token": "dolce",
+      "text": "dolce",
+      "frequency": 57
+    },
+    {
+      "id": 160,
+      "type": "protected",
+      "token": "Allegro",
+      "text": "Allegro",
+      "frequency": 56
     },
     {
       "id": 203,
@@ -2487,74 +2683,130 @@
       "frequency": 51
     },
     {
-      "id": 65,
-      "type": "byte",
-      "token": "A",
-      "text": "A",
-      "frequency": 30
+      "id": 233,
+      "type": "protected",
+      "token": "dim",
+      "text": "dim",
+      "frequency": 51
     },
     {
-      "id": 66,
-      "type": "byte",
-      "token": "B",
-      "text": "B",
-      "frequency": 30
+      "id": 174,
+      "type": "protected",
+      "token": "Adagio",
+      "text": "Adagio",
+      "frequency": 50
     },
     {
-      "id": 77,
-      "type": "byte",
-      "token": "M",
-      "text": "M",
-      "frequency": 30
+      "id": 135,
+      "type": "protected",
+      "token": "Allegretto",
+      "text": "Allegretto",
+      "frequency": 49
+    },
+    {
+      "id": 214,
+      "type": "protected",
+      "token": "poco",
+      "text": "poco",
+      "frequency": 48
+    },
+    {
+      "id": 200,
+      "type": "protected",
+      "token": "tempo",
+      "text": "tempo",
+      "frequency": 45
     },
     {
       "id": 83,
       "type": "byte",
       "token": "S",
       "text": "S",
-      "frequency": 30
+      "frequency": 44
     },
     {
-      "id": 87,
-      "type": "byte",
-      "token": "W",
-      "text": "W",
-      "frequency": 30
-    },
-    {
-      "id": 108,
-      "type": "byte",
-      "token": "l",
-      "text": "l",
-      "frequency": 30
-    },
-    {
-      "id": 252,
+      "id": 212,
       "type": "protected",
-      "token": "ma",
-      "text": "ma",
-      "frequency": 30
-    },
-    {
-      "id": 70,
-      "type": "byte",
-      "token": "F",
-      "text": "F",
-      "frequency": 28
+      "token": "pizz",
+      "text": "pizz",
+      "frequency": 43
     },
     {
       "id": 76,
       "type": "byte",
       "token": "L",
       "text": "L",
-      "frequency": 28
+      "frequency": 41
+    },
+    {
+      "id": 241,
+      "type": "protected",
+      "token": "rit",
+      "text": "rit",
+      "frequency": 41
+    },
+    {
+      "id": 77,
+      "type": "byte",
+      "token": "M",
+      "text": "M",
+      "frequency": 40
+    },
+    {
+      "id": 87,
+      "type": "byte",
+      "token": "W",
+      "text": "W",
+      "frequency": 33
+    },
+    {
+      "id": 152,
+      "type": "protected",
+      "token": "moderato",
+      "text": "moderato",
+      "frequency": 31
     },
     {
       "id": 119,
       "type": "byte",
       "token": "w",
       "text": "w",
-      "frequency": 28
+      "frequency": 29
+    },
+    {
+      "id": 194,
+      "type": "protected",
+      "token": "molto",
+      "text": "molto",
+      "frequency": 29
+    },
+    {
+      "id": 177,
+      "type": "protected",
+      "token": "ritard",
+      "text": "ritard",
+      "frequency": 23
+    },
+    {
+      "id": 150,
+      "type": "protected",
+      "token": "grazioso",
+      "text": "grazioso",
+      "frequency": 20
+    },
+    {
+      "id": 68,
+      "type": "byte",
+      "token": "D",
+      "text": "D",
+      "frequency": 19
+    },
+    {
+      "id": 143,
+      "type": "protected",
+      "token": "cantabile",
+      "text": "cantabile",
+      "frequency": 18
     },
     {
       "id": 169,
@@ -2564,6 +2816,272 @@
       "frequency": 18
     },
     {
+      "id": 196,
+      "type": "protected",
+      "token": "mosso",
+      "text": "mosso",
+      "frequency": 17
+    },
+    {
+      "id": 197,
+      "type": "protected",
+      "token": "riten",
+      "text": "riten",
+      "frequency": 17
+    },
+    {
+      "id": 69,
+      "type": "byte",
+      "token": "E",
+      "text": "E",
+      "frequency": 16
+    },
+    {
+      "id": 216,
+      "type": "protected",
+      "token": "rall",
+      "text": "rall",
+      "frequency": 14
+    },
+    {
+      "id": 239,
+      "type": "protected",
+      "token": "piu",
+      "text": "piu",
+      "frequency": 14
+    },
+    {
+      "id": 71,
+      "type": "byte",
+      "token": "G",
+      "text": "G",
+      "frequency": 13
+    },
+    {
+      "id": 185,
+      "type": "protected",
+      "token": "assai",
+      "text": "assai",
+      "frequency": 13
+    },
+    {
+      "id": 250,
+      "type": "protected",
+      "token": "II",
+      "text": "II",
+      "frequency": 13
+    },
+    {
+      "id": 175,
+      "type": "protected",
+      "token": "legato",
+      "text": "legato",
+      "frequency": 12
+    },
+    {
+      "id": 201,
+      "type": "protected",
+      "token": "Tempo",
+      "text": "Tempo",
+      "frequency": 12
+    },
+    {
+      "id": 85,
+      "type": "byte",
+      "token": "U",
+      "text": "U",
+      "frequency": 11
+    },
+    {
+      "id": 27,
+      "type": "protected",
+      "token": "bass",
+      "text": "bass",
+      "frequency": 10
+    },
+    {
+      "id": 136,
+      "type": "protected",
+      "token": "espressivo",
+      "text": "espressivo",
+      "frequency": 10
+    },
+    {
+      "id": 179,
+      "type": "protected",
+      "token": "troppo",
+      "text": "troppo",
+      "frequency": 10
+    },
+    {
+      "id": 237,
+      "type": "protected",
+      "token": "non",
+      "text": "non",
+      "frequency": 10
+    },
+    {
+      "id": 142,
+      "type": "protected",
+      "token": "Andantino",
+      "text": "Andantino",
+      "frequency": 8
+    },
+    {
+      "id": 153,
+      "type": "protected",
+      "token": "Moderato",
+      "text": "Moderato",
+      "frequency": 8
+    },
+    {
+      "id": 151,
+      "type": "protected",
+      "token": "Menuetto",
+      "text": "Menuetto",
+      "frequency": 7
+    },
+    {
+      "id": 178,
+      "type": "protected",
+      "token": "sempre",
+      "text": "sempre",
+      "frequency": 7
+    },
+    {
+      "id": 198,
+      "type": "protected",
+      "token": "smorz",
+      "text": "smorz",
+      "frequency": 7
+    },
+    {
+      "id": 215,
+      "type": "protected",
+      "token": "Poco",
+      "text": "Poco",
+      "frequency": 7
+    },
+    {
+      "id": 222,
+      "type": "protected",
+      "token": "voce",
+      "text": "voce",
+      "frequency": 7
+    },
+    {
+      "id": 74,
+      "type": "byte",
+      "token": "J",
+      "text": "J",
+      "frequency": 6
+    },
+    {
+      "id": 163,
+      "type": "protected",
+      "token": "espress",
+      "text": "espress",
+      "frequency": 6
+    },
+    {
+      "id": 176,
+      "type": "protected",
+      "token": "Presto",
+      "text": "Presto",
+      "frequency": 6
+    },
+    {
+      "id": 195,
+      "type": "protected",
+      "token": "Molto",
+      "text": "Molto",
+      "frequency": 6
+    },
+    {
+      "id": 199,
+      "type": "protected",
+      "token": "sotto",
+      "text": "sotto",
+      "frequency": 6
+    },
+    {
+      "id": 78,
+      "type": "byte",
+      "token": "N",
+      "text": "N",
+      "frequency": 5
+    },
+    {
+      "id": 144,
+      "type": "protected",
+      "token": "sostenuto",
+      "text": "sostenuto",
+      "frequency": 5
+    },
+    {
+      "id": 180,
+      "type": "protected",
+      "token": "vivace",
+      "text": "vivace",
+      "frequency": 5
+    },
+    {
+      "id": 192,
+      "type": "protected",
+      "token": "lento",
+      "text": "lento",
+      "frequency": 5
+    },
+    {
+      "id": 217,
+      "type": "protected",
+      "token": "Solo",
+      "text": "Solo",
+      "frequency": 5
+    },
+    {
+      "id": 236,
+      "type": "protected",
+      "token": "III",
+      "text": "III",
+      "frequency": 5
+    },
+    {
+      "id": 240,
+      "type": "protected",
+      "token": "Piu",
+      "text": "Piu",
+      "frequency": 5
+    },
+    {
+      "id": 113,
+      "type": "byte",
+      "token": "q",
+      "text": "q",
+      "frequency": 4
+    },
+    {
+      "id": 162,
+      "type": "protected",
+      "token": "animato",
+      "text": "animato",
+      "frequency": 4
+    },
+    {
+      "id": 193,
+      "type": "protected",
+      "token": "Lento",
+      "text": "Lento",
+      "frequency": 4
+    },
+    {
+      "id": 159,
+      "type": "protected",
+      "token": "agitato",
+      "text": "agitato",
+      "frequency": 3
+    },
+    {
       "id": 207,
       "type": "protected",
       "token": "\\sfz",
@@ -2571,11 +3089,88 @@
       "frequency": 3
     },
     {
-      "id": 74,
-      "type": "byte",
-      "token": "J",
-      "text": "J",
+      "id": 238,
+      "type": "protected",
+      "token": "peu",
+      "text": "peu",
+      "frequency": 3
+    },
+    {
+      "id": 254,
+      "type": "protected",
+      "token": "un",
+      "text": "un",
+      "frequency": 3
+    },
+    {
+      "id": 187,
+      "type": "protected",
+      "token": "corda",
+      "text": "corda",
       "frequency": 2
+    },
+    {
+      "id": 191,
+      "type": "protected",
+      "token": "Largo",
+      "text": "Largo",
+      "frequency": 2
+    },
+    {
+      "id": 213,
+      "type": "protected",
+      "token": "plus",
+      "text": "plus",
+      "frequency": 2
+    },
+    {
+      "id": 221,
+      "type": "protected",
+      "token": "unis",
+      "text": "unis",
+      "frequency": 2
+    },
+    {
+      "id": 242,
+      "type": "protected",
+      "token": "una",
+      "text": "una",
+      "frequency": 2
+    },
+    {
+      "id": 81,
+      "type": "byte",
+      "token": "Q",
+      "text": "Q",
+      "frequency": 1
+    },
+    {
+      "id": 164,
+      "type": "protected",
+      "token": "marcato",
+      "text": "marcato",
+      "frequency": 1
+    },
+    {
+      "id": 186,
+      "type": "protected",
+      "token": "colla",
+      "text": "colla",
+      "frequency": 1
+    },
+    {
+      "id": 210,
+      "type": "protected",
+      "token": "lent",
+      "text": "lent",
+      "frequency": 1
+    },
+    {
+      "id": 255,
+      "type": "protected",
+      "token": "Un",
+      "text": "Un",
+      "frequency": 1
     },
     {
       "id": 0,
@@ -2753,27 +3348,6 @@
       "frequency": 0
     },
     {
-      "id": 26,
-      "type": "protected",
-      "token": "treble",
-      "text": "treble",
-      "frequency": 0
-    },
-    {
-      "id": 27,
-      "type": "protected",
-      "token": "bass",
-      "text": "bass",
-      "frequency": 0
-    },
-    {
-      "id": 28,
-      "type": "byte",
-      "token": "\u001c",
-      "text": "\u001c",
-      "frequency": 0
-    },
-    {
       "id": 29,
       "type": "byte",
       "token": "\u001d",
@@ -2851,97 +3425,6 @@
       "frequency": 0
     },
     {
-      "id": 67,
-      "type": "byte",
-      "token": "C",
-      "text": "C",
-      "frequency": 0
-    },
-    {
-      "id": 68,
-      "type": "byte",
-      "token": "D",
-      "text": "D",
-      "frequency": 0
-    },
-    {
-      "id": 69,
-      "type": "byte",
-      "token": "E",
-      "text": "E",
-      "frequency": 0
-    },
-    {
-      "id": 71,
-      "type": "byte",
-      "token": "G",
-      "text": "G",
-      "frequency": 0
-    },
-    {
-      "id": 72,
-      "type": "byte",
-      "token": "H",
-      "text": "H",
-      "frequency": 0
-    },
-    {
-      "id": 73,
-      "type": "byte",
-      "token": "I",
-      "text": "I",
-      "frequency": 0
-    },
-    {
-      "id": 75,
-      "type": "byte",
-      "token": "K",
-      "text": "K",
-      "frequency": 0
-    },
-    {
-      "id": 78,
-      "type": "byte",
-      "token": "N",
-      "text": "N",
-      "frequency": 0
-    },
-    {
-      "id": 79,
-      "type": "byte",
-      "token": "O",
-      "text": "O",
-      "frequency": 0
-    },
-    {
-      "id": 81,
-      "type": "byte",
-      "token": "Q",
-      "text": "Q",
-      "frequency": 0
-    },
-    {
-      "id": 82,
-      "type": "byte",
-      "token": "R",
-      "text": "R",
-      "frequency": 0
-    },
-    {
-      "id": 85,
-      "type": "byte",
-      "token": "U",
-      "text": "U",
-      "frequency": 0
-    },
-    {
-      "id": 86,
-      "type": "byte",
-      "token": "V",
-      "text": "V",
-      "frequency": 0
-    },
-    {
       "id": 88,
       "type": "byte",
       "token": "X",
@@ -2970,13 +3453,6 @@
       "frequency": 0
     },
     {
-      "id": 94,
-      "type": "protected",
-      "token": "^",
-      "text": "^",
-      "frequency": 0
-    },
-    {
       "id": 96,
       "type": "byte",
       "token": "`",
@@ -2988,27 +3464,6 @@
       "type": "byte",
       "token": "j",
       "text": "j",
-      "frequency": 0
-    },
-    {
-      "id": 109,
-      "type": "byte",
-      "token": "m",
-      "text": "m",
-      "frequency": 0
-    },
-    {
-      "id": 112,
-      "type": "byte",
-      "token": "p",
-      "text": "p",
-      "frequency": 0
-    },
-    {
-      "id": 113,
-      "type": "byte",
-      "token": "q",
-      "text": "q",
       "frequency": 0
     },
     {
@@ -3054,27 +3509,6 @@
       "frequency": 0
     },
     {
-      "id": 135,
-      "type": "protected",
-      "token": "Allegretto",
-      "text": "Allegretto",
-      "frequency": 0
-    },
-    {
-      "id": 136,
-      "type": "protected",
-      "token": "espressivo",
-      "text": "espressivo",
-      "frequency": 0
-    },
-    {
-      "id": 137,
-      "type": "protected",
-      "token": "instrument",
-      "text": "instrument",
-      "frequency": 0
-    },
-    {
       "id": 139,
       "type": "protected",
       "token": "\\stemDown",
@@ -3096,27 +3530,6 @@
       "frequency": 0
     },
     {
-      "id": 142,
-      "type": "protected",
-      "token": "Andantino",
-      "text": "Andantino",
-      "frequency": 0
-    },
-    {
-      "id": 143,
-      "type": "protected",
-      "token": "cantabile",
-      "text": "cantabile",
-      "frequency": 0
-    },
-    {
-      "id": 144,
-      "type": "protected",
-      "token": "sostenuto",
-      "text": "sostenuto",
-      "frequency": 0
-    },
-    {
       "id": 147,
       "type": "protected",
       "token": "\\mordent",
@@ -3131,38 +3544,10 @@
       "frequency": 0
     },
     {
-      "id": 150,
+      "id": 149,
       "type": "protected",
-      "token": "grazioso",
-      "text": "grazioso",
-      "frequency": 0
-    },
-    {
-      "id": 151,
-      "type": "protected",
-      "token": "Menuetto",
-      "text": "Menuetto",
-      "frequency": 0
-    },
-    {
-      "id": 152,
-      "type": "protected",
-      "token": "moderato",
-      "text": "moderato",
-      "frequency": 0
-    },
-    {
-      "id": 153,
-      "type": "protected",
-      "token": "Moderato",
-      "text": "Moderato",
-      "frequency": 0
-    },
-    {
-      "id": 154,
-      "type": "protected",
-      "token": "\\markup",
-      "text": "\\markup",
+      "token": "composer",
+      "text": "composer",
       "frequency": 0
     },
     {
@@ -3180,48 +3565,6 @@
       "frequency": 0
     },
     {
-      "id": 159,
-      "type": "protected",
-      "token": "agitato",
-      "text": "agitato",
-      "frequency": 0
-    },
-    {
-      "id": 160,
-      "type": "protected",
-      "token": "Allegro",
-      "text": "Allegro",
-      "frequency": 0
-    },
-    {
-      "id": 161,
-      "type": "protected",
-      "token": "Andante",
-      "text": "Andante",
-      "frequency": 0
-    },
-    {
-      "id": 162,
-      "type": "protected",
-      "token": "animato",
-      "text": "animato",
-      "frequency": 0
-    },
-    {
-      "id": 163,
-      "type": "protected",
-      "token": "espress",
-      "text": "espress",
-      "frequency": 0
-    },
-    {
-      "id": 164,
-      "type": "protected",
-      "token": "marcato",
-      "text": "marcato",
-      "frequency": 0
-    },
-    {
       "id": 168,
       "type": "protected",
       "token": "\\minor",
@@ -3233,55 +3576,6 @@
       "type": "protected",
       "token": "\\times",
       "text": "\\times",
-      "frequency": 0
-    },
-    {
-      "id": 174,
-      "type": "protected",
-      "token": "Adagio",
-      "text": "Adagio",
-      "frequency": 0
-    },
-    {
-      "id": 175,
-      "type": "protected",
-      "token": "legato",
-      "text": "legato",
-      "frequency": 0
-    },
-    {
-      "id": 176,
-      "type": "protected",
-      "token": "Presto",
-      "text": "Presto",
-      "frequency": 0
-    },
-    {
-      "id": 177,
-      "type": "protected",
-      "token": "ritard",
-      "text": "ritard",
-      "frequency": 0
-    },
-    {
-      "id": 178,
-      "type": "protected",
-      "token": "sempre",
-      "text": "sempre",
-      "frequency": 0
-    },
-    {
-      "id": 179,
-      "type": "protected",
-      "token": "troppo",
-      "text": "troppo",
-      "frequency": 0
-    },
-    {
-      "id": 180,
-      "type": "protected",
-      "token": "vivace",
-      "text": "vivace",
       "frequency": 0
     },
     {
@@ -3299,122 +3593,10 @@
       "frequency": 0
     },
     {
-      "id": 185,
-      "type": "protected",
-      "token": "assai",
-      "text": "assai",
-      "frequency": 0
-    },
-    {
-      "id": 186,
-      "type": "protected",
-      "token": "colla",
-      "text": "colla",
-      "frequency": 0
-    },
-    {
-      "id": 187,
-      "type": "protected",
-      "token": "corda",
-      "text": "corda",
-      "frequency": 0
-    },
-    {
-      "id": 188,
-      "type": "protected",
-      "token": "cresc",
-      "text": "cresc",
-      "frequency": 0
-    },
-    {
-      "id": 189,
-      "type": "protected",
-      "token": "dolce",
-      "text": "dolce",
-      "frequency": 0
-    },
-    {
       "id": 190,
       "type": "protected",
       "token": "genre",
       "text": "genre",
-      "frequency": 0
-    },
-    {
-      "id": 191,
-      "type": "protected",
-      "token": "Largo",
-      "text": "Largo",
-      "frequency": 0
-    },
-    {
-      "id": 192,
-      "type": "protected",
-      "token": "lento",
-      "text": "lento",
-      "frequency": 0
-    },
-    {
-      "id": 193,
-      "type": "protected",
-      "token": "Lento",
-      "text": "Lento",
-      "frequency": 0
-    },
-    {
-      "id": 194,
-      "type": "protected",
-      "token": "molto",
-      "text": "molto",
-      "frequency": 0
-    },
-    {
-      "id": 195,
-      "type": "protected",
-      "token": "Molto",
-      "text": "Molto",
-      "frequency": 0
-    },
-    {
-      "id": 196,
-      "type": "protected",
-      "token": "mosso",
-      "text": "mosso",
-      "frequency": 0
-    },
-    {
-      "id": 197,
-      "type": "protected",
-      "token": "riten",
-      "text": "riten",
-      "frequency": 0
-    },
-    {
-      "id": 198,
-      "type": "protected",
-      "token": "smorz",
-      "text": "smorz",
-      "frequency": 0
-    },
-    {
-      "id": 199,
-      "type": "protected",
-      "token": "sotto",
-      "text": "sotto",
-      "frequency": 0
-    },
-    {
-      "id": 200,
-      "type": "protected",
-      "token": "tempo",
-      "text": "tempo",
-      "frequency": 0
-    },
-    {
-      "id": 201,
-      "type": "protected",
-      "token": "Tempo",
-      "text": "Tempo",
       "frequency": 0
     },
     {
@@ -3425,101 +3607,10 @@
       "frequency": 0
     },
     {
-      "id": 209,
-      "type": "protected",
-      "token": "arco",
-      "text": "arco",
-      "frequency": 0
-    },
-    {
-      "id": 210,
-      "type": "protected",
-      "token": "lent",
-      "text": "lent",
-      "frequency": 0
-    },
-    {
-      "id": 211,
-      "type": "protected",
-      "token": "moto",
-      "text": "moto",
-      "frequency": 0
-    },
-    {
-      "id": 212,
-      "type": "protected",
-      "token": "pizz",
-      "text": "pizz",
-      "frequency": 0
-    },
-    {
-      "id": 213,
-      "type": "protected",
-      "token": "plus",
-      "text": "plus",
-      "frequency": 0
-    },
-    {
-      "id": 214,
-      "type": "protected",
-      "token": "poco",
-      "text": "poco",
-      "frequency": 0
-    },
-    {
-      "id": 215,
-      "type": "protected",
-      "token": "Poco",
-      "text": "Poco",
-      "frequency": 0
-    },
-    {
-      "id": 216,
-      "type": "protected",
-      "token": "rall",
-      "text": "rall",
-      "frequency": 0
-    },
-    {
-      "id": 217,
-      "type": "protected",
-      "token": "Solo",
-      "text": "Solo",
-      "frequency": 0
-    },
-    {
       "id": 218,
       "type": "protected",
       "token": "sord",
       "text": "sord",
-      "frequency": 0
-    },
-    {
-      "id": 219,
-      "type": "protected",
-      "token": "Text",
-      "text": "Text",
-      "frequency": 0
-    },
-    {
-      "id": 220,
-      "type": "protected",
-      "token": "Trio",
-      "text": "Trio",
-      "frequency": 0
-    },
-    {
-      "id": 221,
-      "type": "protected",
-      "token": "unis",
-      "text": "unis",
-      "frequency": 0
-    },
-    {
-      "id": 222,
-      "type": "protected",
-      "token": "voce",
-      "text": "voce",
       "frequency": 0
     },
     {
@@ -3544,20 +3635,6 @@
       "frequency": 0
     },
     {
-      "id": 232,
-      "type": "protected",
-      "token": "con",
-      "text": "con",
-      "frequency": 0
-    },
-    {
-      "id": 233,
-      "type": "protected",
-      "token": "dim",
-      "text": "dim",
-      "frequency": 0
-    },
-    {
       "id": 234,
       "type": "protected",
       "token": "div",
@@ -3570,83 +3647,6 @@
       "token": "dol",
       "text": "dol",
       "frequency": 0
-    },
-    {
-      "id": 236,
-      "type": "protected",
-      "token": "III",
-      "text": "III",
-      "frequency": 0
-    },
-    {
-      "id": 237,
-      "type": "protected",
-      "token": "non",
-      "text": "non",
-      "frequency": 0
-    },
-    {
-      "id": 238,
-      "type": "protected",
-      "token": "peu",
-      "text": "peu",
-      "frequency": 0
-    },
-    {
-      "id": 239,
-      "type": "protected",
-      "token": "piu",
-      "text": "piu",
-      "frequency": 0
-    },
-    {
-      "id": 240,
-      "type": "protected",
-      "token": "Piu",
-      "text": "Piu",
-      "frequency": 0
-    },
-    {
-      "id": 241,
-      "type": "protected",
-      "token": "rit",
-      "text": "rit",
-      "frequency": 0
-    },
-    {
-      "id": 242,
-      "type": "protected",
-      "token": "una",
-      "text": "una",
-      "frequency": 0
-    },
-    {
-      "id": 250,
-      "type": "protected",
-      "token": "II",
-      "text": "II",
-      "frequency": 0
-    },
-    {
-      "id": 251,
-      "type": "protected",
-      "token": "in",
-      "text": "in",
-      "frequency": 0
-    },
-    {
-      "id": 254,
-      "type": "protected",
-      "token": "un",
-      "text": "un",
-      "frequency": 0
-    },
-    {
-      "id": 255,
-      "type": "protected",
-      "token": "Un",
-      "text": "Un",
-      "frequency": 0
     }
   ],
   "unknowns": {
@@ -3656,12 +3656,12 @@
   },
   "stats": {
     "files": 215,
-    "inputBytes": 2623813,
+    "inputBytes": 2790068,
     "seedVocabSize": 256,
     "vocabSize": 256,
     "merges": 0,
-    "seedTokens": 1972017,
-    "finalTokens": 1972017,
+    "seedTokens": 2106043,
+    "finalTokens": 2106043,
     "compressionRatio": 1
   }
 }

@@ -4,7 +4,7 @@ env: ~
 
 data:
   type: LilyletPatchy
-  root: notagenx-from-abc.lilylet-notagen.pt
+  root: notagenx-from-abc-20260617.pt
   splits: '*0..8/10:9/10'
   batch_size: 2
   args_variant: ~
