@@ -1,0 +1,66 @@
+
+id:     paraff/{date}-{filename}
+
+
+data:
+  type:                         VisionLanguage
+  root:                         ly-vl20250226
+  splits:                       '*1..98/100:99/100'
+  batch_size:                   1
+  args:
+    prompt_template:            paraffUndPrompt.jinja
+    sft_template:               janusSft.jinja
+    tokenizer:
+      path:                     deepseek-ai/Janus-Pro-7B
+    tags:
+      image:                    <image_placeholder>
+      image_start:              <begin_of_image>
+      image_end:                <end_of_image>
+      pad:                      <｜▁pad▁｜>
+      bos:                      <｜begin▁of▁sentence｜>
+      eos:                      <｜end▁of▁sentence｜>
+
+
+model:
+  type:                         JanusLanguage
+  args:
+    model_path:                 ~/data/models/Janus-Pro-7B-language
+    # TODO: use float32
+    dtype:                      bfloat16
+    aligner_cfg:
+      depth:                    2
+      input_dim:                1024
+      n_embed:                  4096
+      projector_type:           mlp_gelu
+    aligner_weights_path:       ~/data/models/Janus-Pro-7B-aligner.pt
+    trainable_parameters:
+    - lm_head.
+    - model.norm.
+    - model.layers.29.
+    # addtional input embedding weights channel range, on vocab dimension
+    additional_embedding_dims:  [100603, 100705]
+
+
+trainer:
+  env: ~
+  device:                   cuda
+  save_mode:                best
+  epoch:                    20
+  # 1 traversal = 5224 ex
+  epoch_size:               256
+  report_step_unit:         examples
+  moniter:
+    field:                  acc
+    mode:                   max
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               1
+      n_warmup_steps:       256
+      d_model:              4096

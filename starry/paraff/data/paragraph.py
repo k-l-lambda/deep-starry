@@ -18,39 +18,48 @@ PHID_MEASURE = 3
 
 
 class MeasureLibrary:
-	def __init__(self, file, n_seq, encoder_config, semantic_file=None):
+	def __init__(self, file, n_seq=0, summaries=None, encoder_config=None, semantic_tensors=None):
 		paraff = ParaffFile(file)
 		self.tokens = paraff.tokens
 
-		padding_zeros = [0] * (n_seq + 1 - paraff.sentence_align_size)
-		sentences = [s + padding_zeros for s in paraff.sentences]
-		self.entries = torch.tensor(sentences, dtype=torch.uint8)
+		if n_seq > 0:
+			padding_zeros = [0] * (n_seq + 1 - paraff.sentence_align_size)
+			sentences = [s + padding_zeros for s in paraff.sentences]
+			self.entries = torch.tensor(sentences, dtype=torch.uint8)[:, :n_seq]
 
-		file.close()
-
+		self.summaries = summaries
 		if encoder_config is not None:
-			encoder = torch.jit.load(encoder_config['weight']).to(encoder_config['device'])
-			encoder.eval()
-			batch_size = encoder_config.get('batch_size', 1)
-
-			codes = []
-			sigma = torch.zeros(1).to(encoder_config['device'])
-			with torch.no_grad():
-				for ei in tqdm(range(0, self.entries.shape[0], batch_size), 'Encoding measures'):
-					es = self.entries[ei:ei + batch_size].to(encoder_config['device'])
-					if encoder_config.get('test'):
-						z = torch.randn(batch_size, 256)
-					else:
-						z = encoder(es, sigma).cpu()
-					codes.append(z)
-
-			self.summaries = torch.cat(codes, dim=0)
-		else:
+			self.summaries = self.encodeMeasures(encoder_config)
+		elif self.summaries is None:
 			self.summaries = torch.zeros(self.entries.shape[0], 256)
 
-		if semantic_file:
-			self.semantic_tensors = pickle.load(semantic_file)
-			semantic_file.close()
+		self.semantic_tensors = semantic_tensors
+
+
+	def encodeMeasures (self, encoder_config):
+		encoder = torch.jit.load(encoder_config['weight']).to(encoder_config['device'])
+		encoder.eval()
+		batch_size = encoder_config.get('batch_size', 1)
+
+		codes = []
+		sigma = torch.zeros(1).to(encoder_config['device'])
+		with torch.no_grad():
+			for ei in tqdm(range(0, self.entries.shape[0], batch_size), 'Encoding measures'):
+				es = self.entries[ei:ei + batch_size].to(encoder_config['device'])
+				if encoder_config.get('test'):
+					z = torch.randn(batch_size, 256)
+				else:
+					z = encoder(es, sigma).cpu()
+					if es.shape[0] < batch_size:
+						z = F.pad(z, (0, 0, 0, batch_size - es.shape[0]), 'constant', value=0)
+				codes.append(z)
+
+		return torch.cat(codes, dim=0)
+
+
+	def loadSemantic (self, semantic_file):
+		self.semantic_tensors = pickle.load(semantic_file)
+		semantic_file.close()
 
 
 class PhasedParagraph (IterableDataset):
@@ -80,9 +89,11 @@ class PhasedParagraph (IterableDataset):
 		semantic_file = None
 		if with_graph:
 			semantic_path = paraff_path.replace('.paraff', '-semantic.pkl')
-			semantic_file = open(semantic_path, 'rb')
+			with open(semantic_path, 'rb') as semantic_file:
+				semantic_tensors = pickle.load(semantic_file)
 
-		cls.measure_lib[paraff_path] = MeasureLibrary(open(paraff_path, 'rb'), n_seq, encoder_config, semantic_file=semantic_file)
+		with open(paraff_path, 'rb') as paraff_file:
+			cls.measure_lib[paraff_path] = MeasureLibrary(paraff_file, n_seq, encoder_config=encoder_config, semantic_tensors=semantic_tensors)
 
 		return cls.measure_lib[paraff_path]
 

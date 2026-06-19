@@ -27,6 +27,20 @@ def stat_average (data, n_batch):
 	return dict([(k, v / n_batch) for k, v in data.items()])
 
 
+def infiniteTraverse (dataset):
+	while True:
+		for batch in dataset:
+			yield batch
+
+def finiteTraverse (iter, n_iteration):
+	i = 0
+	while i < n_iteration:
+		batch = next(iter)
+		i += 1
+
+		yield batch
+
+
 class Moniter:
 	def __init__ (self, field='loss', mode='min', best_value=None):
 		self.field = field
@@ -80,6 +94,9 @@ class Trainer:
 
 	def reportScalars (self, scalars, step):
 		for k, v in scalars.items():
+			if isinstance(v, torch.Tensor) and (v.dtype == torch.bfloat16):
+				v = v.float()
+
 			if type(v) == dict:
 				for kk, vv in v.items():
 					self.tb_writer.add_scalar(f'{k}/{kk}', vv, step)
@@ -89,11 +106,19 @@ class Trainer:
 
 	def train (self, training_data, validation_data):
 		def print_performances(header, loss, metric, start_time, lr):
-			print('  - {header:12} loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
+			logging.info('  - {header:12} loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
 				.format(header=f"({header})", loss=loss, metric=print_metric(metric), elapse=(time.time()-start_time)/60, lr=lr))
 
-		report_step = 0
+		report_step_unit = self.options.get('report_step_unit')
+		report_step = self.options.get('steps', 0) * self.config['data.batch_size'] if report_step_unit == 'examples' else self.start_epoch
 		checkpoint = None
+
+		epoch_data = training_data
+		n_steps = len(training_data)
+		if 'epoch_size' in self.options:
+			data_it = infiniteTraverse(training_data)
+			n_steps = self.options['epoch_size'] // self.config['data.batch_size']
+
 		for epoch_i in range(self.start_epoch, self.options['epoch']):
 			logging.info(f'[Epoch {epoch_i}]')
 
@@ -138,8 +163,11 @@ class Trainer:
 			self.config.save()
 
 			# training
+			if 'epoch_size' in self.options:
+				epoch_data = finiteTraverse(data_it, n_steps)
+
 			start = time.time()
-			train_loss, train_metric = self.train_epoch(training_data)
+			train_loss, train_metric = self.train_epoch(epoch_data, n_steps=n_steps)
 			#train_ppl = math.exp(min(train_loss, 100))
 
 			# Current learning rate
@@ -160,17 +188,16 @@ class Trainer:
 				'learning_rate': lr,
 				**train_metric,
 			}
-			report_step_unit = self.options.get('report_step_unit')
 			report_step = self.optimizer.n_steps * self.config['data.batch_size'] if report_step_unit == 'examples' else epoch_i
 			self.reportScalars(scalars, report_step)
 
 
-	def train_epoch (self, dataset):
+	def train_epoch (self, dataset, n_steps=None):
 		self.model.train()
 		total_loss, n_batch = 0, 0
 		metric_data = {}
 
-		for batch in tqdm(dataset, mininterval=2, desc='  - (Training)   ', leave=False):
+		for batch in tqdm(dataset, total=n_steps, mininterval=2, desc='  - (Training)   ', leave=False):
 			# forward
 			self.optimizer.zero_grad()
 			loss, metric = self.model(batch)

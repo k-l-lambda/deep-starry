@@ -21,15 +21,17 @@ DATA_DIR = os.environ.get('VISION_DATA_DIR') or os.environ.get('DATA_DIR')
 
 
 class Validator:
-	def __init__(self, config, device):
+	def __init__(self, config, device, checkpoint=None):
 		super().__init__()
 
 		#self.config = config
 		self.model = loadModel(config['model'], postfix='Loss')
 		self.model.to(device)
 
-		if config['best']:
-			weights_path = config.localPath(config['best'])
+		checkpoint = checkpoint or config['best']
+
+		if checkpoint:
+			weights_path = config.localPath(checkpoint)
 			checkpoint = torch.load(weights_path, map_location=device)
 			self.model.deducer.load_state_dict(checkpoint['model'])
 
@@ -69,6 +71,7 @@ def main ():
 	parser.add_argument('-d', '--data', type=str, required=True, help='data configuration file')
 	parser.add_argument('-s', '--splits', type=str, default='0/10')
 	parser.add_argument('-dv', '--device', type=str, default='cpu')
+	parser.add_argument('-cp', '--checkpoint', type=str, default=None)
 
 	args = parser.parse_args()
 
@@ -84,7 +87,7 @@ def main ():
 		config['data.splits'] = args.splits
 
 	data, = loadDataset(config, data_dir=DATA_DIR, device=args.device)
-	validator = Validator(config, device=args.device)
+	validator = Validator(config, device=args.device, checkpoint=args.checkpoint)
 
 	validator.run(data)
 

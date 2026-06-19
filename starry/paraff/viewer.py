@@ -19,7 +19,8 @@ class ParaffViewer:
 
 	def __init__ (self, config, show_latent=False, show_graph=False):
 		if config['_vocab'] is not None:
-			self.vocab = config['_vocab'].split(',')
+			if type(config['_vocab']) == str:
+				self.vocab = config['_vocab'].split(',')
 		self.show_latent = show_latent
 		self.show_graph = show_graph
 
@@ -30,6 +31,7 @@ class ParaffViewer:
 		for i, batch in enumerate(data):
 			logging.info('batch: %d', i)
 
+			#print(f'{batch=}')
 			if self.show_graph:
 				body_mask = batch['body_mask'][0]
 				ids = batch['output_ids'][0][body_mask]
@@ -55,7 +57,7 @@ class ParaffViewer:
 		plt.gca().format_coord = format_coord
 
 		plt.get_current_fig_manager().full_screen_toggle()
-		plt.pcolormesh(inspection['pred_flat'].transpose(0, 1).numpy(), cmap='RdBu', vmin=-25, vmax=30)
+		plt.pcolormesh(inspection['pred_flat'].transpose(0, 1).float().numpy(), cmap='RdBu', vmin=-25, vmax=30)
 		plt.xlabel('seq')
 		plt.ylabel('vocab id')
 		plt.xticks([i for i, _ in enumerate(target_ids)], [self.vocab[id] + ('' if truth[i] else ' *') for i, id in enumerate(target_ids)], rotation=-60)
@@ -68,7 +70,7 @@ class ParaffViewer:
 		if self.show_graph:
 			self.showGraph(batch)
 
-		plt.show()
+		#plt.show()
 
 
 	def showLatent (self, mu, logvar):

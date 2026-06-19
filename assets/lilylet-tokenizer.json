@@ -1,0 +1,3667 @@
+{
+  "version": 1,
+  "type": "byte-level-bpe",
+  "source": {
+    "corpusDir": "tests/output/notagenx-from-abc",
+    "serializer": "source/lilylet/serializer.ts",
+    "frequencyTsv": "tests/output/bpe-tokenizer/token-frequencies.tsv"
+  },
+  "config": {
+    "vocabSize": 256,
+    "minFrequency": 2,
+    "allowMerges": false,
+    "byteFallback": true,
+    "unknownToken": "<unknown>",
+    "protectedTokensDoNotMerge": true,
+    "fixedTokensUseLongestMatch": true,
+    "asciiByteIdsUseByteValue": true
+  },
+  "specialTokens": [
+    {
+      "id": 0,
+      "token": "<pad>"
+    },
+    {
+      "id": 1,
+      "token": "<bos>"
+    },
+    {
+      "id": 2,
+      "token": "<eos>"
+    },
+    {
+      "id": 3,
+      "token": "<unknown>"
+    },
+    {
+      "id": 4,
+      "token": "<mask>"
+    },
+    {
+      "id": 5,
+      "token": "<sep>"
+    },
+    {
+      "id": 6,
+      "token": "<reserved_6>"
+    },
+    {
+      "id": 7,
+      "token": "<reserved_7>"
+    }
+  ],
+  "protectedTokens": [
+    "\\numericTimeSignature",
+    "\\shortfermata",
+    "\\sostenutoOff",
+    "\\sostenutoOn",
+    "\\stemNeutral",
+    "\\sustainOff",
+    "\\sustainOn",
+    "Allegretto",
+    "espressivo",
+    "instrument",
+    "\\arpeggio",
+    "\\stemDown",
+    "\\treCorde",
+    "\\unaCorda",
+    "Andantino",
+    "cantabile",
+    "sostenuto",
+    "\"treble\"",
+    "\\fermata",
+    "\\mordent",
+    "\\partial",
+    "composer",
+    "grazioso",
+    "Menuetto",
+    "moderato",
+    "Moderato",
+    "\\markup",
+    "\\ottava",
+    "\\repeat",
+    "\\stemUp",
+    "\\tuplet",
+    "agitato",
+    "Allegro",
+    "Andante",
+    "animato",
+    "espress",
+    "marcato",
+    "\"bass\"",
+    "\\grace",
+    "\\major",
+    "\\minor",
+    "\\prall",
+    "\\staff",
+    "\\tempo",
+    "\\times",
+    "\\trill",
+    "Adagio",
+    "legato",
+    "Presto",
+    "ritard",
+    "sempre",
+    "staves",
+    "treble",
+    "troppo",
+    "vivace",
+    "\\clef",
+    "\\rest",
+    "\\time",
+    "\\turn",
+    "assai",
+    "colla",
+    "corda",
+    "cresc",
+    "dolce",
+    "genre",
+    "Largo",
+    "lento",
+    "Lento",
+    "molto",
+    "Molto",
+    "mosso",
+    "riten",
+    "smorz",
+    "sotto",
+    "tempo",
+    "Tempo",
+    "\\bar",
+    "\\fff",
+    "\\key",
+    "\\ppp",
+    "\\rfz",
+    "\\sfz",
+    "alto",
+    "arco",
+    "bass",
+    "lent",
+    "moto",
+    "pizz",
+    "plus",
+    "poco",
+    "Poco",
+    "rall",
+    "Solo",
+    "sord",
+    "Text",
+    "Trio",
+    "unis",
+    "voce",
+    "\"1\"",
+    "\"2\"",
+    "\"3\"",
+    "\\\\\\",
+    "\\ff",
+    "\\fp",
+    "\\mf",
+    "\\mp",
+    "\\pp",
+    "con",
+    "dim",
+    "div",
+    "dol",
+    "III",
+    "non",
+    "peu",
+    "piu",
+    "Piu",
+    "rit",
+    "una",
+    "\\!",
+    "\\\\",
+    "\\<",
+    "\\>",
+    "\\f",
+    "\\p",
+    "ff",
+    "II",
+    "in",
+    "ma",
+    "ss",
+    "un",
+    "Un",
+    "\n",
+    " ",
+    "_",
+    ",",
+    "!",
+    ".",
+    "'",
+    "(",
+    ")",
+    "/",
+    "%",
+    "^",
+    "<",
+    ">",
+    "à",
+    "À",
+    "é",
+    "É",
+    "è",
+    "È",
+    "f",
+    "ì",
+    "Ì",
+    "ò",
+    "Ò",
+    "s",
+    "ù",
+    "Ù"
+  ],
+  "vocab": [
+    {
+      "id": 0,
+      "type": "special",
+      "token": "<pad>",
+      "text": "<pad>"
+    },
+    {
+      "id": 1,
+      "type": "special",
+      "token": "<bos>",
+      "text": "<bos>"
+    },
+    {
+      "id": 2,
+      "type": "special",
+      "token": "<eos>",
+      "text": "<eos>"
+    },
+    {
+      "id": 3,
+      "type": "special",
+      "token": "<unknown>",
+      "text": "<unknown>"
+    },
+    {
+      "id": 4,
+      "type": "special",
+      "token": "<mask>",
+      "text": "<mask>"
+    },
+    {
+      "id": 5,
+      "type": "special",
+      "token": "<sep>",
+      "text": "<sep>"
+    },
+    {
+      "id": 6,
+      "type": "special",
+      "token": "<reserved_6>",
+      "text": "<reserved_6>"
+    },
+    {
+      "id": 7,
+      "type": "special",
+      "token": "<reserved_7>",
+      "text": "<reserved_7>"
+    },
+    {
+      "id": 8,
+      "type": "byte",
+      "token": "\b",
+      "text": "\b",
+      "value": 8
+    },
+    {
+      "id": 9,
+      "type": "byte",
+      "token": "\t",
+      "text": "\t",
+      "value": 9
+    },
+    {
+      "id": 10,
+      "type": "protected",
+      "token": "\n",
+      "text": "\n",
+      "value": 10
+    },
+    {
+      "id": 11,
+      "type": "byte",
+      "token": "\u000b",
+      "text": "\u000b",
+      "value": 11
+    },
+    {
+      "id": 12,
+      "type": "byte",
+      "token": "\f",
+      "text": "\f",
+      "value": 12
+    },
+    {
+      "id": 13,
+      "type": "byte",
+      "token": "\r",
+      "text": "\r",
+      "value": 13
+    },
+    {
+      "id": 14,
+      "type": "protected",
+      "token": "à",
+      "text": "à"
+    },
+    {
+      "id": 15,
+      "type": "protected",
+      "token": "è",
+      "text": "è"
+    },
+    {
+      "id": 16,
+      "type": "protected",
+      "token": "é",
+      "text": "é"
+    },
+    {
+      "id": 17,
+      "type": "protected",
+      "token": "ì",
+      "text": "ì"
+    },
+    {
+      "id": 18,
+      "type": "protected",
+      "token": "ò",
+      "text": "ò"
+    },
+    {
+      "id": 19,
+      "type": "protected",
+      "token": "ù",
+      "text": "ù"
+    },
+    {
+      "id": 20,
+      "type": "protected",
+      "token": "À",
+      "text": "À"
+    },
+    {
+      "id": 21,
+      "type": "protected",
+      "token": "È",
+      "text": "È"
+    },
+    {
+      "id": 22,
+      "type": "protected",
+      "token": "É",
+      "text": "É"
+    },
+    {
+      "id": 23,
+      "type": "protected",
+      "token": "Ì",
+      "text": "Ì"
+    },
+    {
+      "id": 24,
+      "type": "protected",
+      "token": "Ò",
+      "text": "Ò"
+    },
+    {
+      "id": 25,
+      "type": "protected",
+      "token": "Ù",
+      "text": "Ù"
+    },
+    {
+      "id": 26,
+      "type": "protected",
+      "token": "treble",
+      "text": "treble"
+    },
+    {
+      "id": 27,
+      "type": "protected",
+      "token": "bass",
+      "text": "bass"
+    },
+    {
+      "id": 28,
+      "type": "protected",
+      "token": "staves",
+      "text": "staves"
+    },
+    {
+      "id": 29,
+      "type": "byte",
+      "token": "\u001d",
+      "text": "\u001d",
+      "value": 29
+    },
+    {
+      "id": 30,
+      "type": "byte",
+      "token": "\u001e",
+      "text": "\u001e",
+      "value": 30
+    },
+    {
+      "id": 31,
+      "type": "byte",
+      "token": "\u001f",
+      "text": "\u001f",
+      "value": 31
+    },
+    {
+      "id": 32,
+      "type": "protected",
+      "token": " ",
+      "text": " ",
+      "value": 32
+    },
+    {
+      "id": 33,
+      "type": "protected",
+      "token": "!",
+      "text": "!",
+      "value": 33
+    },
+    {
+      "id": 34,
+      "type": "byte",
+      "token": "\"",
+      "text": "\"",
+      "value": 34
+    },
+    {
+      "id": 35,
+      "type": "byte",
+      "token": "#",
+      "text": "#",
+      "value": 35
+    },
+    {
+      "id": 36,
+      "type": "byte",
+      "token": "$",
+      "text": "$",
+      "value": 36
+    },
+    {
+      "id": 37,
+      "type": "protected",
+      "token": "%",
+      "text": "%",
+      "value": 37
+    },
+    {
+      "id": 38,
+      "type": "byte",
+      "token": "&",
+      "text": "&",
+      "value": 38
+    },
+    {
+      "id": 39,
+      "type": "protected",
+      "token": "'",
+      "text": "'",
+      "value": 39
+    },
+    {
+      "id": 40,
+      "type": "protected",
+      "token": "(",
+      "text": "(",
+      "value": 40
+    },
+    {
+      "id": 41,
+      "type": "protected",
+      "token": ")",
+      "text": ")",
+      "value": 41
+    },
+    {
+      "id": 42,
+      "type": "byte",
+      "token": "*",
+      "text": "*",
+      "value": 42
+    },
+    {
+      "id": 43,
+      "type": "byte",
+      "token": "+",
+      "text": "+",
+      "value": 43
+    },
+    {
+      "id": 44,
+      "type": "protected",
+      "token": ",",
+      "text": ",",
+      "value": 44
+    },
+    {
+      "id": 45,
+      "type": "byte",
+      "token": "-",
+      "text": "-",
+      "value": 45
+    },
+    {
+      "id": 46,
+      "type": "protected",
+      "token": ".",
+      "text": ".",
+      "value": 46
+    },
+    {
+      "id": 47,
+      "type": "protected",
+      "token": "/",
+      "text": "/",
+      "value": 47
+    },
+    {
+      "id": 48,
+      "type": "byte",
+      "token": "0",
+      "text": "0",
+      "value": 48
+    },
+    {
+      "id": 49,
+      "type": "byte",
+      "token": "1",
+      "text": "1",
+      "value": 49
+    },
+    {
+      "id": 50,
+      "type": "byte",
+      "token": "2",
+      "text": "2",
+      "value": 50
+    },
+    {
+      "id": 51,
+      "type": "byte",
+      "token": "3",
+      "text": "3",
+      "value": 51
+    },
+    {
+      "id": 52,
+      "type": "byte",
+      "token": "4",
+      "text": "4",
+      "value": 52
+    },
+    {
+      "id": 53,
+      "type": "byte",
+      "token": "5",
+      "text": "5",
+      "value": 53
+    },
+    {
+      "id": 54,
+      "type": "byte",
+      "token": "6",
+      "text": "6",
+      "value": 54
+    },
+    {
+      "id": 55,
+      "type": "byte",
+      "token": "7",
+      "text": "7",
+      "value": 55
+    },
+    {
+      "id": 56,
+      "type": "byte",
+      "token": "8",
+      "text": "8",
+      "value": 56
+    },
+    {
+      "id": 57,
+      "type": "byte",
+      "token": "9",
+      "text": "9",
+      "value": 57
+    },
+    {
+      "id": 58,
+      "type": "byte",
+      "token": ":",
+      "text": ":",
+      "value": 58
+    },
+    {
+      "id": 59,
+      "type": "byte",
+      "token": ";",
+      "text": ";",
+      "value": 59
+    },
+    {
+      "id": 60,
+      "type": "protected",
+      "token": "<",
+      "text": "<",
+      "value": 60
+    },
+    {
+      "id": 61,
+      "type": "byte",
+      "token": "=",
+      "text": "=",
+      "value": 61
+    },
+    {
+      "id": 62,
+      "type": "protected",
+      "token": ">",
+      "text": ">",
+      "value": 62
+    },
+    {
+      "id": 63,
+      "type": "byte",
+      "token": "?",
+      "text": "?",
+      "value": 63
+    },
+    {
+      "id": 64,
+      "type": "byte",
+      "token": "@",
+      "text": "@",
+      "value": 64
+    },
+    {
+      "id": 65,
+      "type": "byte",
+      "token": "A",
+      "text": "A",
+      "value": 65
+    },
+    {
+      "id": 66,
+      "type": "byte",
+      "token": "B",
+      "text": "B",
+      "value": 66
+    },
+    {
+      "id": 67,
+      "type": "byte",
+      "token": "C",
+      "text": "C",
+      "value": 67
+    },
+    {
+      "id": 68,
+      "type": "byte",
+      "token": "D",
+      "text": "D",
+      "value": 68
+    },
+    {
+      "id": 69,
+      "type": "byte",
+      "token": "E",
+      "text": "E",
+      "value": 69
+    },
+    {
+      "id": 70,
+      "type": "byte",
+      "token": "F",
+      "text": "F",
+      "value": 70
+    },
+    {
+      "id": 71,
+      "type": "byte",
+      "token": "G",
+      "text": "G",
+      "value": 71
+    },
+    {
+      "id": 72,
+      "type": "byte",
+      "token": "H",
+      "text": "H",
+      "value": 72
+    },
+    {
+      "id": 73,
+      "type": "byte",
+      "token": "I",
+      "text": "I",
+      "value": 73
+    },
+    {
+      "id": 74,
+      "type": "byte",
+      "token": "J",
+      "text": "J",
+      "value": 74
+    },
+    {
+      "id": 75,
+      "type": "byte",
+      "token": "K",
+      "text": "K",
+      "value": 75
+    },
+    {
+      "id": 76,
+      "type": "byte",
+      "token": "L",
+      "text": "L",
+      "value": 76
+    },
+    {
+      "id": 77,
+      "type": "byte",
+      "token": "M",
+      "text": "M",
+      "value": 77
+    },
+    {
+      "id": 78,
+      "type": "byte",
+      "token": "N",
+      "text": "N",
+      "value": 78
+    },
+    {
+      "id": 79,
+      "type": "byte",
+      "token": "O",
+      "text": "O",
+      "value": 79
+    },
+    {
+      "id": 80,
+      "type": "byte",
+      "token": "P",
+      "text": "P",
+      "value": 80
+    },
+    {
+      "id": 81,
+      "type": "byte",
+      "token": "Q",
+      "text": "Q",
+      "value": 81
+    },
+    {
+      "id": 82,
+      "type": "byte",
+      "token": "R",
+      "text": "R",
+      "value": 82
+    },
+    {
+      "id": 83,
+      "type": "byte",
+      "token": "S",
+      "text": "S",
+      "value": 83
+    },
+    {
+      "id": 84,
+      "type": "byte",
+      "token": "T",
+      "text": "T",
+      "value": 84
+    },
+    {
+      "id": 85,
+      "type": "byte",
+      "token": "U",
+      "text": "U",
+      "value": 85
+    },
+    {
+      "id": 86,
+      "type": "byte",
+      "token": "V",
+      "text": "V",
+      "value": 86
+    },
+    {
+      "id": 87,
+      "type": "byte",
+      "token": "W",
+      "text": "W",
+      "value": 87
+    },
+    {
+      "id": 88,
+      "type": "byte",
+      "token": "X",
+      "text": "X",
+      "value": 88
+    },
+    {
+      "id": 89,
+      "type": "byte",
+      "token": "Y",
+      "text": "Y",
+      "value": 89
+    },
+    {
+      "id": 90,
+      "type": "byte",
+      "token": "Z",
+      "text": "Z",
+      "value": 90
+    },
+    {
+      "id": 91,
+      "type": "byte",
+      "token": "[",
+      "text": "[",
+      "value": 91
+    },
+    {
+      "id": 92,
+      "type": "byte",
+      "token": "\\",
+      "text": "\\",
+      "value": 92
+    },
+    {
+      "id": 93,
+      "type": "byte",
+      "token": "]",
+      "text": "]",
+      "value": 93
+    },
+    {
+      "id": 94,
+      "type": "protected",
+      "token": "^",
+      "text": "^",
+      "value": 94
+    },
+    {
+      "id": 95,
+      "type": "protected",
+      "token": "_",
+      "text": "_",
+      "value": 95
+    },
+    {
+      "id": 96,
+      "type": "byte",
+      "token": "`",
+      "text": "`",
+      "value": 96
+    },
+    {
+      "id": 97,
+      "type": "byte",
+      "token": "a",
+      "text": "a",
+      "value": 97
+    },
+    {
+      "id": 98,
+      "type": "byte",
+      "token": "b",
+      "text": "b",
+      "value": 98
+    },
+    {
+      "id": 99,
+      "type": "byte",
+      "token": "c",
+      "text": "c",
+      "value": 99
+    },
+    {
+      "id": 100,
+      "type": "byte",
+      "token": "d",
+      "text": "d",
+      "value": 100
+    },
+    {
+      "id": 101,
+      "type": "byte",
+      "token": "e",
+      "text": "e",
+      "value": 101
+    },
+    {
+      "id": 102,
+      "type": "protected",
+      "token": "f",
+      "text": "f",
+      "value": 102
+    },
+    {
+      "id": 103,
+      "type": "byte",
+      "token": "g",
+      "text": "g",
+      "value": 103
+    },
+    {
+      "id": 104,
+      "type": "byte",
+      "token": "h",
+      "text": "h",
+      "value": 104
+    },
+    {
+      "id": 105,
+      "type": "byte",
+      "token": "i",
+      "text": "i",
+      "value": 105
+    },
+    {
+      "id": 106,
+      "type": "byte",
+      "token": "j",
+      "text": "j",
+      "value": 106
+    },
+    {
+      "id": 107,
+      "type": "byte",
+      "token": "k",
+      "text": "k",
+      "value": 107
+    },
+    {
+      "id": 108,
+      "type": "byte",
+      "token": "l",
+      "text": "l",
+      "value": 108
+    },
+    {
+      "id": 109,
+      "type": "byte",
+      "token": "m",
+      "text": "m",
+      "value": 109
+    },
+    {
+      "id": 110,
+      "type": "byte",
+      "token": "n",
+      "text": "n",
+      "value": 110
+    },
+    {
+      "id": 111,
+      "type": "byte",
+      "token": "o",
+      "text": "o",
+      "value": 111
+    },
+    {
+      "id": 112,
+      "type": "byte",
+      "token": "p",
+      "text": "p",
+      "value": 112
+    },
+    {
+      "id": 113,
+      "type": "byte",
+      "token": "q",
+      "text": "q",
+      "value": 113
+    },
+    {
+      "id": 114,
+      "type": "byte",
+      "token": "r",
+      "text": "r",
+      "value": 114
+    },
+    {
+      "id": 115,
+      "type": "protected",
+      "token": "s",
+      "text": "s",
+      "value": 115
+    },
+    {
+      "id": 116,
+      "type": "byte",
+      "token": "t",
+      "text": "t",
+      "value": 116
+    },
+    {
+      "id": 117,
+      "type": "byte",
+      "token": "u",
+      "text": "u",
+      "value": 117
+    },
+    {
+      "id": 118,
+      "type": "byte",
+      "token": "v",
+      "text": "v",
+      "value": 118
+    },
+    {
+      "id": 119,
+      "type": "byte",
+      "token": "w",
+      "text": "w",
+      "value": 119
+    },
+    {
+      "id": 120,
+      "type": "byte",
+      "token": "x",
+      "text": "x",
+      "value": 120
+    },
+    {
+      "id": 121,
+      "type": "byte",
+      "token": "y",
+      "text": "y",
+      "value": 121
+    },
+    {
+      "id": 122,
+      "type": "byte",
+      "token": "z",
+      "text": "z",
+      "value": 122
+    },
+    {
+      "id": 123,
+      "type": "byte",
+      "token": "{",
+      "text": "{",
+      "value": 123
+    },
+    {
+      "id": 124,
+      "type": "byte",
+      "token": "|",
+      "text": "|",
+      "value": 124
+    },
+    {
+      "id": 125,
+      "type": "byte",
+      "token": "}",
+      "text": "}",
+      "value": 125
+    },
+    {
+      "id": 126,
+      "type": "byte",
+      "token": "~",
+      "text": "~",
+      "value": 126
+    },
+    {
+      "id": 127,
+      "type": "byte",
+      "token": "",
+      "text": "",
+      "value": 127
+    },
+    {
+      "id": 128,
+      "type": "protected",
+      "token": "\\numericTimeSignature",
+      "text": "\\numericTimeSignature"
+    },
+    {
+      "id": 129,
+      "type": "protected",
+      "token": "\\shortfermata",
+      "text": "\\shortfermata"
+    },
+    {
+      "id": 130,
+      "type": "protected",
+      "token": "\\sostenutoOff",
+      "text": "\\sostenutoOff"
+    },
+    {
+      "id": 131,
+      "type": "protected",
+      "token": "\\sostenutoOn",
+      "text": "\\sostenutoOn"
+    },
+    {
+      "id": 132,
+      "type": "protected",
+      "token": "\\stemNeutral",
+      "text": "\\stemNeutral"
+    },
+    {
+      "id": 133,
+      "type": "protected",
+      "token": "\\sustainOff",
+      "text": "\\sustainOff"
+    },
+    {
+      "id": 134,
+      "type": "protected",
+      "token": "\\sustainOn",
+      "text": "\\sustainOn"
+    },
+    {
+      "id": 135,
+      "type": "protected",
+      "token": "Allegretto",
+      "text": "Allegretto"
+    },
+    {
+      "id": 136,
+      "type": "protected",
+      "token": "espressivo",
+      "text": "espressivo"
+    },
+    {
+      "id": 137,
+      "type": "protected",
+      "token": "instrument",
+      "text": "instrument"
+    },
+    {
+      "id": 138,
+      "type": "protected",
+      "token": "\\arpeggio",
+      "text": "\\arpeggio"
+    },
+    {
+      "id": 139,
+      "type": "protected",
+      "token": "\\stemDown",
+      "text": "\\stemDown"
+    },
+    {
+      "id": 140,
+      "type": "protected",
+      "token": "\\treCorde",
+      "text": "\\treCorde"
+    },
+    {
+      "id": 141,
+      "type": "protected",
+      "token": "\\unaCorda",
+      "text": "\\unaCorda"
+    },
+    {
+      "id": 142,
+      "type": "protected",
+      "token": "Andantino",
+      "text": "Andantino"
+    },
+    {
+      "id": 143,
+      "type": "protected",
+      "token": "cantabile",
+      "text": "cantabile"
+    },
+    {
+      "id": 144,
+      "type": "protected",
+      "token": "sostenuto",
+      "text": "sostenuto"
+    },
+    {
+      "id": 145,
+      "type": "protected",
+      "token": "\"treble\"",
+      "text": "\"treble\""
+    },
+    {
+      "id": 146,
+      "type": "protected",
+      "token": "\\fermata",
+      "text": "\\fermata"
+    },
+    {
+      "id": 147,
+      "type": "protected",
+      "token": "\\mordent",
+      "text": "\\mordent"
+    },
+    {
+      "id": 148,
+      "type": "protected",
+      "token": "\\partial",
+      "text": "\\partial"
+    },
+    {
+      "id": 149,
+      "type": "protected",
+      "token": "composer",
+      "text": "composer"
+    },
+    {
+      "id": 150,
+      "type": "protected",
+      "token": "grazioso",
+      "text": "grazioso"
+    },
+    {
+      "id": 151,
+      "type": "protected",
+      "token": "Menuetto",
+      "text": "Menuetto"
+    },
+    {
+      "id": 152,
+      "type": "protected",
+      "token": "moderato",
+      "text": "moderato"
+    },
+    {
+      "id": 153,
+      "type": "protected",
+      "token": "Moderato",
+      "text": "Moderato"
+    },
+    {
+      "id": 154,
+      "type": "protected",
+      "token": "\\markup",
+      "text": "\\markup"
+    },
+    {
+      "id": 155,
+      "type": "protected",
+      "token": "\\ottava",
+      "text": "\\ottava"
+    },
+    {
+      "id": 156,
+      "type": "protected",
+      "token": "\\repeat",
+      "text": "\\repeat"
+    },
+    {
+      "id": 157,
+      "type": "protected",
+      "token": "\\stemUp",
+      "text": "\\stemUp"
+    },
+    {
+      "id": 158,
+      "type": "protected",
+      "token": "\\tuplet",
+      "text": "\\tuplet"
+    },
+    {
+      "id": 159,
+      "type": "protected",
+      "token": "agitato",
+      "text": "agitato"
+    },
+    {
+      "id": 160,
+      "type": "protected",
+      "token": "Allegro",
+      "text": "Allegro"
+    },
+    {
+      "id": 161,
+      "type": "protected",
+      "token": "Andante",
+      "text": "Andante"
+    },
+    {
+      "id": 162,
+      "type": "protected",
+      "token": "animato",
+      "text": "animato"
+    },
+    {
+      "id": 163,
+      "type": "protected",
+      "token": "espress",
+      "text": "espress"
+    },
+    {
+      "id": 164,
+      "type": "protected",
+      "token": "marcato",
+      "text": "marcato"
+    },
+    {
+      "id": 165,
+      "type": "protected",
+      "token": "\"bass\"",
+      "text": "\"bass\""
+    },
+    {
+      "id": 166,
+      "type": "protected",
+      "token": "\\grace",
+      "text": "\\grace"
+    },
+    {
+      "id": 167,
+      "type": "protected",
+      "token": "\\major",
+      "text": "\\major"
+    },
+    {
+      "id": 168,
+      "type": "protected",
+      "token": "\\minor",
+      "text": "\\minor"
+    },
+    {
+      "id": 169,
+      "type": "protected",
+      "token": "\\prall",
+      "text": "\\prall"
+    },
+    {
+      "id": 170,
+      "type": "protected",
+      "token": "\\staff",
+      "text": "\\staff"
+    },
+    {
+      "id": 171,
+      "type": "protected",
+      "token": "\\tempo",
+      "text": "\\tempo"
+    },
+    {
+      "id": 172,
+      "type": "protected",
+      "token": "\\times",
+      "text": "\\times"
+    },
+    {
+      "id": 173,
+      "type": "protected",
+      "token": "\\trill",
+      "text": "\\trill"
+    },
+    {
+      "id": 174,
+      "type": "protected",
+      "token": "Adagio",
+      "text": "Adagio"
+    },
+    {
+      "id": 175,
+      "type": "protected",
+      "token": "legato",
+      "text": "legato"
+    },
+    {
+      "id": 176,
+      "type": "protected",
+      "token": "Presto",
+      "text": "Presto"
+    },
+    {
+      "id": 177,
+      "type": "protected",
+      "token": "ritard",
+      "text": "ritard"
+    },
+    {
+      "id": 178,
+      "type": "protected",
+      "token": "sempre",
+      "text": "sempre"
+    },
+    {
+      "id": 179,
+      "type": "protected",
+      "token": "troppo",
+      "text": "troppo"
+    },
+    {
+      "id": 180,
+      "type": "protected",
+      "token": "vivace",
+      "text": "vivace"
+    },
+    {
+      "id": 181,
+      "type": "protected",
+      "token": "\\clef",
+      "text": "\\clef"
+    },
+    {
+      "id": 182,
+      "type": "protected",
+      "token": "\\rest",
+      "text": "\\rest"
+    },
+    {
+      "id": 183,
+      "type": "protected",
+      "token": "\\time",
+      "text": "\\time"
+    },
+    {
+      "id": 184,
+      "type": "protected",
+      "token": "\\turn",
+      "text": "\\turn"
+    },
+    {
+      "id": 185,
+      "type": "protected",
+      "token": "assai",
+      "text": "assai"
+    },
+    {
+      "id": 186,
+      "type": "protected",
+      "token": "colla",
+      "text": "colla"
+    },
+    {
+      "id": 187,
+      "type": "protected",
+      "token": "corda",
+      "text": "corda"
+    },
+    {
+      "id": 188,
+      "type": "protected",
+      "token": "cresc",
+      "text": "cresc"
+    },
+    {
+      "id": 189,
+      "type": "protected",
+      "token": "dolce",
+      "text": "dolce"
+    },
+    {
+      "id": 190,
+      "type": "protected",
+      "token": "genre",
+      "text": "genre"
+    },
+    {
+      "id": 191,
+      "type": "protected",
+      "token": "Largo",
+      "text": "Largo"
+    },
+    {
+      "id": 192,
+      "type": "protected",
+      "token": "lento",
+      "text": "lento"
+    },
+    {
+      "id": 193,
+      "type": "protected",
+      "token": "Lento",
+      "text": "Lento"
+    },
+    {
+      "id": 194,
+      "type": "protected",
+      "token": "molto",
+      "text": "molto"
+    },
+    {
+      "id": 195,
+      "type": "protected",
+      "token": "Molto",
+      "text": "Molto"
+    },
+    {
+      "id": 196,
+      "type": "protected",
+      "token": "mosso",
+      "text": "mosso"
+    },
+    {
+      "id": 197,
+      "type": "protected",
+      "token": "riten",
+      "text": "riten"
+    },
+    {
+      "id": 198,
+      "type": "protected",
+      "token": "smorz",
+      "text": "smorz"
+    },
+    {
+      "id": 199,
+      "type": "protected",
+      "token": "sotto",
+      "text": "sotto"
+    },
+    {
+      "id": 200,
+      "type": "protected",
+      "token": "tempo",
+      "text": "tempo"
+    },
+    {
+      "id": 201,
+      "type": "protected",
+      "token": "Tempo",
+      "text": "Tempo"
+    },
+    {
+      "id": 202,
+      "type": "protected",
+      "token": "\\bar",
+      "text": "\\bar"
+    },
+    {
+      "id": 203,
+      "type": "protected",
+      "token": "\\fff",
+      "text": "\\fff"
+    },
+    {
+      "id": 204,
+      "type": "protected",
+      "token": "\\key",
+      "text": "\\key"
+    },
+    {
+      "id": 205,
+      "type": "protected",
+      "token": "\\ppp",
+      "text": "\\ppp"
+    },
+    {
+      "id": 206,
+      "type": "protected",
+      "token": "\\rfz",
+      "text": "\\rfz"
+    },
+    {
+      "id": 207,
+      "type": "protected",
+      "token": "\\sfz",
+      "text": "\\sfz"
+    },
+    {
+      "id": 208,
+      "type": "protected",
+      "token": "alto",
+      "text": "alto"
+    },
+    {
+      "id": 209,
+      "type": "protected",
+      "token": "arco",
+      "text": "arco"
+    },
+    {
+      "id": 210,
+      "type": "protected",
+      "token": "lent",
+      "text": "lent"
+    },
+    {
+      "id": 211,
+      "type": "protected",
+      "token": "moto",
+      "text": "moto"
+    },
+    {
+      "id": 212,
+      "type": "protected",
+      "token": "pizz",
+      "text": "pizz"
+    },
+    {
+      "id": 213,
+      "type": "protected",
+      "token": "plus",
+      "text": "plus"
+    },
+    {
+      "id": 214,
+      "type": "protected",
+      "token": "poco",
+      "text": "poco"
+    },
+    {
+      "id": 215,
+      "type": "protected",
+      "token": "Poco",
+      "text": "Poco"
+    },
+    {
+      "id": 216,
+      "type": "protected",
+      "token": "rall",
+      "text": "rall"
+    },
+    {
+      "id": 217,
+      "type": "protected",
+      "token": "Solo",
+      "text": "Solo"
+    },
+    {
+      "id": 218,
+      "type": "protected",
+      "token": "sord",
+      "text": "sord"
+    },
+    {
+      "id": 219,
+      "type": "protected",
+      "token": "Text",
+      "text": "Text"
+    },
+    {
+      "id": 220,
+      "type": "protected",
+      "token": "Trio",
+      "text": "Trio"
+    },
+    {
+      "id": 221,
+      "type": "protected",
+      "token": "unis",
+      "text": "unis"
+    },
+    {
+      "id": 222,
+      "type": "protected",
+      "token": "voce",
+      "text": "voce"
+    },
+    {
+      "id": 223,
+      "type": "protected",
+      "token": "\"1\"",
+      "text": "\"1\""
+    },
+    {
+      "id": 224,
+      "type": "protected",
+      "token": "\"2\"",
+      "text": "\"2\""
+    },
+    {
+      "id": 225,
+      "type": "protected",
+      "token": "\"3\"",
+      "text": "\"3\""
+    },
+    {
+      "id": 226,
+      "type": "protected",
+      "token": "\\\\\\",
+      "text": "\\\\\\"
+    },
+    {
+      "id": 227,
+      "type": "protected",
+      "token": "\\ff",
+      "text": "\\ff"
+    },
+    {
+      "id": 228,
+      "type": "protected",
+      "token": "\\fp",
+      "text": "\\fp"
+    },
+    {
+      "id": 229,
+      "type": "protected",
+      "token": "\\mf",
+      "text": "\\mf"
+    },
+    {
+      "id": 230,
+      "type": "protected",
+      "token": "\\mp",
+      "text": "\\mp"
+    },
+    {
+      "id": 231,
+      "type": "protected",
+      "token": "\\pp",
+      "text": "\\pp"
+    },
+    {
+      "id": 232,
+      "type": "protected",
+      "token": "con",
+      "text": "con"
+    },
+    {
+      "id": 233,
+      "type": "protected",
+      "token": "dim",
+      "text": "dim"
+    },
+    {
+      "id": 234,
+      "type": "protected",
+      "token": "div",
+      "text": "div"
+    },
+    {
+      "id": 235,
+      "type": "protected",
+      "token": "dol",
+      "text": "dol"
+    },
+    {
+      "id": 236,
+      "type": "protected",
+      "token": "III",
+      "text": "III"
+    },
+    {
+      "id": 237,
+      "type": "protected",
+      "token": "non",
+      "text": "non"
+    },
+    {
+      "id": 238,
+      "type": "protected",
+      "token": "peu",
+      "text": "peu"
+    },
+    {
+      "id": 239,
+      "type": "protected",
+      "token": "piu",
+      "text": "piu"
+    },
+    {
+      "id": 240,
+      "type": "protected",
+      "token": "Piu",
+      "text": "Piu"
+    },
+    {
+      "id": 241,
+      "type": "protected",
+      "token": "rit",
+      "text": "rit"
+    },
+    {
+      "id": 242,
+      "type": "protected",
+      "token": "una",
+      "text": "una"
+    },
+    {
+      "id": 243,
+      "type": "protected",
+      "token": "\\!",
+      "text": "\\!"
+    },
+    {
+      "id": 244,
+      "type": "protected",
+      "token": "\\\\",
+      "text": "\\\\"
+    },
+    {
+      "id": 245,
+      "type": "protected",
+      "token": "\\<",
+      "text": "\\<"
+    },
+    {
+      "id": 246,
+      "type": "protected",
+      "token": "\\>",
+      "text": "\\>"
+    },
+    {
+      "id": 247,
+      "type": "protected",
+      "token": "\\f",
+      "text": "\\f"
+    },
+    {
+      "id": 248,
+      "type": "protected",
+      "token": "\\p",
+      "text": "\\p"
+    },
+    {
+      "id": 249,
+      "type": "protected",
+      "token": "ff",
+      "text": "ff"
+    },
+    {
+      "id": 250,
+      "type": "protected",
+      "token": "II",
+      "text": "II"
+    },
+    {
+      "id": 251,
+      "type": "protected",
+      "token": "in",
+      "text": "in"
+    },
+    {
+      "id": 252,
+      "type": "protected",
+      "token": "ma",
+      "text": "ma"
+    },
+    {
+      "id": 253,
+      "type": "protected",
+      "token": "ss",
+      "text": "ss"
+    },
+    {
+      "id": 254,
+      "type": "protected",
+      "token": "un",
+      "text": "un"
+    },
+    {
+      "id": 255,
+      "type": "protected",
+      "token": "Un",
+      "text": "Un"
+    }
+  ],
+  "merges": [],
+  "tokenFrequencies": [
+    {
+      "id": 32,
+      "type": "protected",
+      "token": " ",
+      "text": " ",
+      "frequency": 567436
+    },
+    {
+      "id": 10,
+      "type": "protected",
+      "token": "\n",
+      "text": "\n",
+      "frequency": 116588
+    },
+    {
+      "id": 102,
+      "type": "protected",
+      "token": "f",
+      "text": "f",
+      "frequency": 93664
+    },
+    {
+      "id": 39,
+      "type": "protected",
+      "token": "'",
+      "text": "'",
+      "frequency": 73459
+    },
+    {
+      "id": 46,
+      "type": "protected",
+      "token": ".",
+      "text": ".",
+      "frequency": 69061
+    },
+    {
+      "id": 226,
+      "type": "protected",
+      "token": "\\\\\\",
+      "text": "\\\\\\",
+      "frequency": 65431
+    },
+    {
+      "id": 52,
+      "type": "byte",
+      "token": "4",
+      "text": "4",
+      "frequency": 63908
+    },
+    {
+      "id": 62,
+      "type": "protected",
+      "token": ">",
+      "text": ">",
+      "frequency": 52238
+    },
+    {
+      "id": 50,
+      "type": "byte",
+      "token": "2",
+      "text": "2",
+      "frequency": 52051
+    },
+    {
+      "id": 103,
+      "type": "byte",
+      "token": "g",
+      "text": "g",
+      "frequency": 50779
+    },
+    {
+      "id": 60,
+      "type": "protected",
+      "token": "<",
+      "text": "<",
+      "frequency": 50233
+    },
+    {
+      "id": 56,
+      "type": "byte",
+      "token": "8",
+      "text": "8",
+      "frequency": 48812
+    },
+    {
+      "id": 99,
+      "type": "byte",
+      "token": "c",
+      "text": "c",
+      "frequency": 48443
+    },
+    {
+      "id": 98,
+      "type": "byte",
+      "token": "b",
+      "text": "b",
+      "frequency": 46447
+    },
+    {
+      "id": 100,
+      "type": "byte",
+      "token": "d",
+      "text": "d",
+      "frequency": 46437
+    },
+    {
+      "id": 114,
+      "type": "byte",
+      "token": "r",
+      "text": "r",
+      "frequency": 46217
+    },
+    {
+      "id": 115,
+      "type": "protected",
+      "token": "s",
+      "text": "s",
+      "frequency": 45859
+    },
+    {
+      "id": 97,
+      "type": "byte",
+      "token": "a",
+      "text": "a",
+      "frequency": 44744
+    },
+    {
+      "id": 101,
+      "type": "byte",
+      "token": "e",
+      "text": "e",
+      "frequency": 44325
+    },
+    {
+      "id": 40,
+      "type": "protected",
+      "token": "(",
+      "text": "(",
+      "frequency": 42062
+    },
+    {
+      "id": 45,
+      "type": "byte",
+      "token": "-",
+      "text": "-",
+      "frequency": 36531
+    },
+    {
+      "id": 44,
+      "type": "protected",
+      "token": ",",
+      "text": ",",
+      "frequency": 32345
+    },
+    {
+      "id": 49,
+      "type": "byte",
+      "token": "1",
+      "text": "1",
+      "frequency": 25257
+    },
+    {
+      "id": 170,
+      "type": "protected",
+      "token": "\\staff",
+      "text": "\\staff",
+      "frequency": 24499
+    },
+    {
+      "id": 82,
+      "type": "byte",
+      "token": "R",
+      "text": "R",
+      "frequency": 22745
+    },
+    {
+      "id": 54,
+      "type": "byte",
+      "token": "6",
+      "text": "6",
+      "frequency": 21810
+    },
+    {
+      "id": 47,
+      "type": "protected",
+      "token": "/",
+      "text": "/",
+      "frequency": 21633
+    },
+    {
+      "id": 124,
+      "type": "byte",
+      "token": "|",
+      "text": "|",
+      "frequency": 19659
+    },
+    {
+      "id": 183,
+      "type": "protected",
+      "token": "\\time",
+      "text": "\\time",
+      "frequency": 18766
+    },
+    {
+      "id": 51,
+      "type": "byte",
+      "token": "3",
+      "text": "3",
+      "frequency": 18439
+    },
+    {
+      "id": 37,
+      "type": "protected",
+      "token": "%",
+      "text": "%",
+      "frequency": 18255
+    },
+    {
+      "id": 167,
+      "type": "protected",
+      "token": "\\major",
+      "text": "\\major",
+      "frequency": 18051
+    },
+    {
+      "id": 204,
+      "type": "protected",
+      "token": "\\key",
+      "text": "\\key",
+      "frequency": 18051
+    },
+    {
+      "id": 244,
+      "type": "protected",
+      "token": "\\\\",
+      "text": "\\\\",
+      "frequency": 14562
+    },
+    {
+      "id": 223,
+      "type": "protected",
+      "token": "\"1\"",
+      "text": "\"1\"",
+      "frequency": 12936
+    },
+    {
+      "id": 34,
+      "type": "byte",
+      "token": "\"",
+      "text": "\"",
+      "frequency": 12538
+    },
+    {
+      "id": 41,
+      "type": "protected",
+      "token": ")",
+      "text": ")",
+      "frequency": 11853
+    },
+    {
+      "id": 224,
+      "type": "protected",
+      "token": "\"2\"",
+      "text": "\"2\"",
+      "frequency": 11563
+    },
+    {
+      "id": 248,
+      "type": "protected",
+      "token": "\\p",
+      "text": "\\p",
+      "frequency": 4859
+    },
+    {
+      "id": 123,
+      "type": "byte",
+      "token": "{",
+      "text": "{",
+      "frequency": 4478
+    },
+    {
+      "id": 125,
+      "type": "byte",
+      "token": "}",
+      "text": "}",
+      "frequency": 4478
+    },
+    {
+      "id": 247,
+      "type": "protected",
+      "token": "\\f",
+      "text": "\\f",
+      "frequency": 4001
+    },
+    {
+      "id": 53,
+      "type": "byte",
+      "token": "5",
+      "text": "5",
+      "frequency": 3535
+    },
+    {
+      "id": 249,
+      "type": "protected",
+      "token": "ff",
+      "text": "ff",
+      "frequency": 3242
+    },
+    {
+      "id": 55,
+      "type": "byte",
+      "token": "7",
+      "text": "7",
+      "frequency": 2870
+    },
+    {
+      "id": 158,
+      "type": "protected",
+      "token": "\\tuplet",
+      "text": "\\tuplet",
+      "frequency": 2866
+    },
+    {
+      "id": 48,
+      "type": "byte",
+      "token": "0",
+      "text": "0",
+      "frequency": 2629
+    },
+    {
+      "id": 202,
+      "type": "protected",
+      "token": "\\bar",
+      "text": "\\bar",
+      "frequency": 2622
+    },
+    {
+      "id": 57,
+      "type": "byte",
+      "token": "9",
+      "text": "9",
+      "frequency": 2488
+    },
+    {
+      "id": 58,
+      "type": "byte",
+      "token": ":",
+      "text": ":",
+      "frequency": 2290
+    },
+    {
+      "id": 154,
+      "type": "protected",
+      "token": "\\markup",
+      "text": "\\markup",
+      "frequency": 2057
+    },
+    {
+      "id": 181,
+      "type": "protected",
+      "token": "\\clef",
+      "text": "\\clef",
+      "frequency": 1951
+    },
+    {
+      "id": 95,
+      "type": "protected",
+      "token": "_",
+      "text": "_",
+      "frequency": 1875
+    },
+    {
+      "id": 246,
+      "type": "protected",
+      "token": "\\>",
+      "text": "\\>",
+      "frequency": 1702
+    },
+    {
+      "id": 111,
+      "type": "byte",
+      "token": "o",
+      "text": "o",
+      "frequency": 1650
+    },
+    {
+      "id": 166,
+      "type": "protected",
+      "token": "\\grace",
+      "text": "\\grace",
+      "frequency": 1461
+    },
+    {
+      "id": 245,
+      "type": "protected",
+      "token": "\\<",
+      "text": "\\<",
+      "frequency": 1439
+    },
+    {
+      "id": 134,
+      "type": "protected",
+      "token": "\\sustainOn",
+      "text": "\\sustainOn",
+      "frequency": 1318
+    },
+    {
+      "id": 94,
+      "type": "protected",
+      "token": "^",
+      "text": "^",
+      "frequency": 1298
+    },
+    {
+      "id": 243,
+      "type": "protected",
+      "token": "\\!",
+      "text": "\\!",
+      "frequency": 1255
+    },
+    {
+      "id": 231,
+      "type": "protected",
+      "token": "\\pp",
+      "text": "\\pp",
+      "frequency": 1124
+    },
+    {
+      "id": 91,
+      "type": "byte",
+      "token": "[",
+      "text": "[",
+      "frequency": 967
+    },
+    {
+      "id": 93,
+      "type": "byte",
+      "token": "]",
+      "text": "]",
+      "frequency": 966
+    },
+    {
+      "id": 126,
+      "type": "byte",
+      "token": "~",
+      "text": "~",
+      "frequency": 966
+    },
+    {
+      "id": 105,
+      "type": "byte",
+      "token": "i",
+      "text": "i",
+      "frequency": 926
+    },
+    {
+      "id": 108,
+      "type": "byte",
+      "token": "l",
+      "text": "l",
+      "frequency": 919
+    },
+    {
+      "id": 145,
+      "type": "protected",
+      "token": "\"treble\"",
+      "text": "\"treble\"",
+      "frequency": 876
+    },
+    {
+      "id": 227,
+      "type": "protected",
+      "token": "\\ff",
+      "text": "\\ff",
+      "frequency": 857
+    },
+    {
+      "id": 128,
+      "type": "protected",
+      "token": "\\numericTimeSignature",
+      "text": "\\numericTimeSignature",
+      "frequency": 846
+    },
+    {
+      "id": 165,
+      "type": "protected",
+      "token": "\"bass\"",
+      "text": "\"bass\"",
+      "frequency": 842
+    },
+    {
+      "id": 110,
+      "type": "byte",
+      "token": "n",
+      "text": "n",
+      "frequency": 810
+    },
+    {
+      "id": 137,
+      "type": "protected",
+      "token": "instrument",
+      "text": "instrument",
+      "frequency": 731
+    },
+    {
+      "id": 253,
+      "type": "protected",
+      "token": "ss",
+      "text": "ss",
+      "frequency": 650
+    },
+    {
+      "id": 146,
+      "type": "protected",
+      "token": "\\fermata",
+      "text": "\\fermata",
+      "frequency": 610
+    },
+    {
+      "id": 188,
+      "type": "protected",
+      "token": "cresc",
+      "text": "cresc",
+      "frequency": 599
+    },
+    {
+      "id": 61,
+      "type": "byte",
+      "token": "=",
+      "text": "=",
+      "frequency": 524
+    },
+    {
+      "id": 171,
+      "type": "protected",
+      "token": "\\tempo",
+      "text": "\\tempo",
+      "frequency": 524
+    },
+    {
+      "id": 116,
+      "type": "byte",
+      "token": "t",
+      "text": "t",
+      "frequency": 498
+    },
+    {
+      "id": 133,
+      "type": "protected",
+      "token": "\\sustainOff",
+      "text": "\\sustainOff",
+      "frequency": 472
+    },
+    {
+      "id": 86,
+      "type": "byte",
+      "token": "V",
+      "text": "V",
+      "frequency": 338
+    },
+    {
+      "id": 121,
+      "type": "byte",
+      "token": "y",
+      "text": "y",
+      "frequency": 332
+    },
+    {
+      "id": 205,
+      "type": "protected",
+      "token": "\\ppp",
+      "text": "\\ppp",
+      "frequency": 328
+    },
+    {
+      "id": 173,
+      "type": "protected",
+      "token": "\\trill",
+      "text": "\\trill",
+      "frequency": 307
+    },
+    {
+      "id": 138,
+      "type": "protected",
+      "token": "\\arpeggio",
+      "text": "\\arpeggio",
+      "frequency": 300
+    },
+    {
+      "id": 84,
+      "type": "byte",
+      "token": "T",
+      "text": "T",
+      "frequency": 295
+    },
+    {
+      "id": 70,
+      "type": "byte",
+      "token": "F",
+      "text": "F",
+      "frequency": 283
+    },
+    {
+      "id": 80,
+      "type": "byte",
+      "token": "P",
+      "text": "P",
+      "frequency": 278
+    },
+    {
+      "id": 67,
+      "type": "byte",
+      "token": "C",
+      "text": "C",
+      "frequency": 276
+    },
+    {
+      "id": 104,
+      "type": "byte",
+      "token": "h",
+      "text": "h",
+      "frequency": 252
+    },
+    {
+      "id": 28,
+      "type": "protected",
+      "token": "staves",
+      "text": "staves",
+      "frequency": 215
+    },
+    {
+      "id": 251,
+      "type": "protected",
+      "token": "in",
+      "text": "in",
+      "frequency": 205
+    },
+    {
+      "id": 107,
+      "type": "byte",
+      "token": "k",
+      "text": "k",
+      "frequency": 203
+    },
+    {
+      "id": 161,
+      "type": "protected",
+      "token": "Andante",
+      "text": "Andante",
+      "frequency": 172
+    },
+    {
+      "id": 118,
+      "type": "byte",
+      "token": "v",
+      "text": "v",
+      "frequency": 160
+    },
+    {
+      "id": 252,
+      "type": "protected",
+      "token": "ma",
+      "text": "ma",
+      "frequency": 160
+    },
+    {
+      "id": 117,
+      "type": "byte",
+      "token": "u",
+      "text": "u",
+      "frequency": 147
+    },
+    {
+      "id": 75,
+      "type": "byte",
+      "token": "K",
+      "text": "K",
+      "frequency": 139
+    },
+    {
+      "id": 79,
+      "type": "byte",
+      "token": "O",
+      "text": "O",
+      "frequency": 129
+    },
+    {
+      "id": 109,
+      "type": "byte",
+      "token": "m",
+      "text": "m",
+      "frequency": 129
+    },
+    {
+      "id": 73,
+      "type": "byte",
+      "token": "I",
+      "text": "I",
+      "frequency": 124
+    },
+    {
+      "id": 26,
+      "type": "protected",
+      "token": "treble",
+      "text": "treble",
+      "frequency": 113
+    },
+    {
+      "id": 208,
+      "type": "protected",
+      "token": "alto",
+      "text": "alto",
+      "frequency": 112
+    },
+    {
+      "id": 35,
+      "type": "byte",
+      "token": "#",
+      "text": "#",
+      "frequency": 108
+    },
+    {
+      "id": 155,
+      "type": "protected",
+      "token": "\\ottava",
+      "text": "\\ottava",
+      "frequency": 108
+    },
+    {
+      "id": 66,
+      "type": "byte",
+      "token": "B",
+      "text": "B",
+      "frequency": 107
+    },
+    {
+      "id": 220,
+      "type": "protected",
+      "token": "Trio",
+      "text": "Trio",
+      "frequency": 100
+    },
+    {
+      "id": 232,
+      "type": "protected",
+      "token": "con",
+      "text": "con",
+      "frequency": 92
+    },
+    {
+      "id": 211,
+      "type": "protected",
+      "token": "moto",
+      "text": "moto",
+      "frequency": 88
+    },
+    {
+      "id": 229,
+      "type": "protected",
+      "token": "\\mf",
+      "text": "\\mf",
+      "frequency": 86
+    },
+    {
+      "id": 112,
+      "type": "byte",
+      "token": "p",
+      "text": "p",
+      "frequency": 83
+    },
+    {
+      "id": 65,
+      "type": "byte",
+      "token": "A",
+      "text": "A",
+      "frequency": 78
+    },
+    {
+      "id": 122,
+      "type": "byte",
+      "token": "z",
+      "text": "z",
+      "frequency": 71
+    },
+    {
+      "id": 219,
+      "type": "protected",
+      "token": "Text",
+      "text": "Text",
+      "frequency": 65
+    },
+    {
+      "id": 209,
+      "type": "protected",
+      "token": "arco",
+      "text": "arco",
+      "frequency": 61
+    },
+    {
+      "id": 72,
+      "type": "byte",
+      "token": "H",
+      "text": "H",
+      "frequency": 58
+    },
+    {
+      "id": 189,
+      "type": "protected",
+      "token": "dolce",
+      "text": "dolce",
+      "frequency": 57
+    },
+    {
+      "id": 160,
+      "type": "protected",
+      "token": "Allegro",
+      "text": "Allegro",
+      "frequency": 56
+    },
+    {
+      "id": 203,
+      "type": "protected",
+      "token": "\\fff",
+      "text": "\\fff",
+      "frequency": 51
+    },
+    {
+      "id": 233,
+      "type": "protected",
+      "token": "dim",
+      "text": "dim",
+      "frequency": 51
+    },
+    {
+      "id": 174,
+      "type": "protected",
+      "token": "Adagio",
+      "text": "Adagio",
+      "frequency": 50
+    },
+    {
+      "id": 135,
+      "type": "protected",
+      "token": "Allegretto",
+      "text": "Allegretto",
+      "frequency": 49
+    },
+    {
+      "id": 214,
+      "type": "protected",
+      "token": "poco",
+      "text": "poco",
+      "frequency": 48
+    },
+    {
+      "id": 200,
+      "type": "protected",
+      "token": "tempo",
+      "text": "tempo",
+      "frequency": 45
+    },
+    {
+      "id": 83,
+      "type": "byte",
+      "token": "S",
+      "text": "S",
+      "frequency": 44
+    },
+    {
+      "id": 212,
+      "type": "protected",
+      "token": "pizz",
+      "text": "pizz",
+      "frequency": 43
+    },
+    {
+      "id": 76,
+      "type": "byte",
+      "token": "L",
+      "text": "L",
+      "frequency": 41
+    },
+    {
+      "id": 241,
+      "type": "protected",
+      "token": "rit",
+      "text": "rit",
+      "frequency": 41
+    },
+    {
+      "id": 77,
+      "type": "byte",
+      "token": "M",
+      "text": "M",
+      "frequency": 40
+    },
+    {
+      "id": 87,
+      "type": "byte",
+      "token": "W",
+      "text": "W",
+      "frequency": 33
+    },
+    {
+      "id": 152,
+      "type": "protected",
+      "token": "moderato",
+      "text": "moderato",
+      "frequency": 31
+    },
+    {
+      "id": 119,
+      "type": "byte",
+      "token": "w",
+      "text": "w",
+      "frequency": 29
+    },
+    {
+      "id": 194,
+      "type": "protected",
+      "token": "molto",
+      "text": "molto",
+      "frequency": 29
+    },
+    {
+      "id": 177,
+      "type": "protected",
+      "token": "ritard",
+      "text": "ritard",
+      "frequency": 23
+    },
+    {
+      "id": 150,
+      "type": "protected",
+      "token": "grazioso",
+      "text": "grazioso",
+      "frequency": 20
+    },
+    {
+      "id": 68,
+      "type": "byte",
+      "token": "D",
+      "text": "D",
+      "frequency": 19
+    },
+    {
+      "id": 143,
+      "type": "protected",
+      "token": "cantabile",
+      "text": "cantabile",
+      "frequency": 18
+    },
+    {
+      "id": 169,
+      "type": "protected",
+      "token": "\\prall",
+      "text": "\\prall",
+      "frequency": 18
+    },
+    {
+      "id": 196,
+      "type": "protected",
+      "token": "mosso",
+      "text": "mosso",
+      "frequency": 17
+    },
+    {
+      "id": 197,
+      "type": "protected",
+      "token": "riten",
+      "text": "riten",
+      "frequency": 17
+    },
+    {
+      "id": 69,
+      "type": "byte",
+      "token": "E",
+      "text": "E",
+      "frequency": 16
+    },
+    {
+      "id": 216,
+      "type": "protected",
+      "token": "rall",
+      "text": "rall",
+      "frequency": 14
+    },
+    {
+      "id": 239,
+      "type": "protected",
+      "token": "piu",
+      "text": "piu",
+      "frequency": 14
+    },
+    {
+      "id": 71,
+      "type": "byte",
+      "token": "G",
+      "text": "G",
+      "frequency": 13
+    },
+    {
+      "id": 185,
+      "type": "protected",
+      "token": "assai",
+      "text": "assai",
+      "frequency": 13
+    },
+    {
+      "id": 250,
+      "type": "protected",
+      "token": "II",
+      "text": "II",
+      "frequency": 13
+    },
+    {
+      "id": 175,
+      "type": "protected",
+      "token": "legato",
+      "text": "legato",
+      "frequency": 12
+    },
+    {
+      "id": 201,
+      "type": "protected",
+      "token": "Tempo",
+      "text": "Tempo",
+      "frequency": 12
+    },
+    {
+      "id": 85,
+      "type": "byte",
+      "token": "U",
+      "text": "U",
+      "frequency": 11
+    },
+    {
+      "id": 27,
+      "type": "protected",
+      "token": "bass",
+      "text": "bass",
+      "frequency": 10
+    },
+    {
+      "id": 136,
+      "type": "protected",
+      "token": "espressivo",
+      "text": "espressivo",
+      "frequency": 10
+    },
+    {
+      "id": 179,
+      "type": "protected",
+      "token": "troppo",
+      "text": "troppo",
+      "frequency": 10
+    },
+    {
+      "id": 237,
+      "type": "protected",
+      "token": "non",
+      "text": "non",
+      "frequency": 10
+    },
+    {
+      "id": 142,
+      "type": "protected",
+      "token": "Andantino",
+      "text": "Andantino",
+      "frequency": 8
+    },
+    {
+      "id": 153,
+      "type": "protected",
+      "token": "Moderato",
+      "text": "Moderato",
+      "frequency": 8
+    },
+    {
+      "id": 151,
+      "type": "protected",
+      "token": "Menuetto",
+      "text": "Menuetto",
+      "frequency": 7
+    },
+    {
+      "id": 178,
+      "type": "protected",
+      "token": "sempre",
+      "text": "sempre",
+      "frequency": 7
+    },
+    {
+      "id": 198,
+      "type": "protected",
+      "token": "smorz",
+      "text": "smorz",
+      "frequency": 7
+    },
+    {
+      "id": 215,
+      "type": "protected",
+      "token": "Poco",
+      "text": "Poco",
+      "frequency": 7
+    },
+    {
+      "id": 222,
+      "type": "protected",
+      "token": "voce",
+      "text": "voce",
+      "frequency": 7
+    },
+    {
+      "id": 74,
+      "type": "byte",
+      "token": "J",
+      "text": "J",
+      "frequency": 6
+    },
+    {
+      "id": 163,
+      "type": "protected",
+      "token": "espress",
+      "text": "espress",
+      "frequency": 6
+    },
+    {
+      "id": 176,
+      "type": "protected",
+      "token": "Presto",
+      "text": "Presto",
+      "frequency": 6
+    },
+    {
+      "id": 195,
+      "type": "protected",
+      "token": "Molto",
+      "text": "Molto",
+      "frequency": 6
+    },
+    {
+      "id": 199,
+      "type": "protected",
+      "token": "sotto",
+      "text": "sotto",
+      "frequency": 6
+    },
+    {
+      "id": 78,
+      "type": "byte",
+      "token": "N",
+      "text": "N",
+      "frequency": 5
+    },
+    {
+      "id": 144,
+      "type": "protected",
+      "token": "sostenuto",
+      "text": "sostenuto",
+      "frequency": 5
+    },
+    {
+      "id": 180,
+      "type": "protected",
+      "token": "vivace",
+      "text": "vivace",
+      "frequency": 5
+    },
+    {
+      "id": 192,
+      "type": "protected",
+      "token": "lento",
+      "text": "lento",
+      "frequency": 5
+    },
+    {
+      "id": 217,
+      "type": "protected",
+      "token": "Solo",
+      "text": "Solo",
+      "frequency": 5
+    },
+    {
+      "id": 236,
+      "type": "protected",
+      "token": "III",
+      "text": "III",
+      "frequency": 5
+    },
+    {
+      "id": 240,
+      "type": "protected",
+      "token": "Piu",
+      "text": "Piu",
+      "frequency": 5
+    },
+    {
+      "id": 113,
+      "type": "byte",
+      "token": "q",
+      "text": "q",
+      "frequency": 4
+    },
+    {
+      "id": 162,
+      "type": "protected",
+      "token": "animato",
+      "text": "animato",
+      "frequency": 4
+    },
+    {
+      "id": 193,
+      "type": "protected",
+      "token": "Lento",
+      "text": "Lento",
+      "frequency": 4
+    },
+    {
+      "id": 159,
+      "type": "protected",
+      "token": "agitato",
+      "text": "agitato",
+      "frequency": 3
+    },
+    {
+      "id": 207,
+      "type": "protected",
+      "token": "\\sfz",
+      "text": "\\sfz",
+      "frequency": 3
+    },
+    {
+      "id": 238,
+      "type": "protected",
+      "token": "peu",
+      "text": "peu",
+      "frequency": 3
+    },
+    {
+      "id": 254,
+      "type": "protected",
+      "token": "un",
+      "text": "un",
+      "frequency": 3
+    },
+    {
+      "id": 187,
+      "type": "protected",
+      "token": "corda",
+      "text": "corda",
+      "frequency": 2
+    },
+    {
+      "id": 191,
+      "type": "protected",
+      "token": "Largo",
+      "text": "Largo",
+      "frequency": 2
+    },
+    {
+      "id": 213,
+      "type": "protected",
+      "token": "plus",
+      "text": "plus",
+      "frequency": 2
+    },
+    {
+      "id": 221,
+      "type": "protected",
+      "token": "unis",
+      "text": "unis",
+      "frequency": 2
+    },
+    {
+      "id": 242,
+      "type": "protected",
+      "token": "una",
+      "text": "una",
+      "frequency": 2
+    },
+    {
+      "id": 81,
+      "type": "byte",
+      "token": "Q",
+      "text": "Q",
+      "frequency": 1
+    },
+    {
+      "id": 164,
+      "type": "protected",
+      "token": "marcato",
+      "text": "marcato",
+      "frequency": 1
+    },
+    {
+      "id": 186,
+      "type": "protected",
+      "token": "colla",
+      "text": "colla",
+      "frequency": 1
+    },
+    {
+      "id": 210,
+      "type": "protected",
+      "token": "lent",
+      "text": "lent",
+      "frequency": 1
+    },
+    {
+      "id": 255,
+      "type": "protected",
+      "token": "Un",
+      "text": "Un",
+      "frequency": 1
+    },
+    {
+      "id": 0,
+      "type": "special",
+      "token": "<pad>",
+      "text": "<pad>",
+      "frequency": 0
+    },
+    {
+      "id": 1,
+      "type": "special",
+      "token": "<bos>",
+      "text": "<bos>",
+      "frequency": 0
+    },
+    {
+      "id": 2,
+      "type": "special",
+      "token": "<eos>",
+      "text": "<eos>",
+      "frequency": 0
+    },
+    {
+      "id": 3,
+      "type": "special",
+      "token": "<unknown>",
+      "text": "<unknown>",
+      "frequency": 0
+    },
+    {
+      "id": 4,
+      "type": "special",
+      "token": "<mask>",
+      "text": "<mask>",
+      "frequency": 0
+    },
+    {
+      "id": 5,
+      "type": "special",
+      "token": "<sep>",
+      "text": "<sep>",
+      "frequency": 0
+    },
+    {
+      "id": 6,
+      "type": "special",
+      "token": "<reserved_6>",
+      "text": "<reserved_6>",
+      "frequency": 0
+    },
+    {
+      "id": 7,
+      "type": "special",
+      "token": "<reserved_7>",
+      "text": "<reserved_7>",
+      "frequency": 0
+    },
+    {
+      "id": 8,
+      "type": "byte",
+      "token": "\b",
+      "text": "\b",
+      "frequency": 0
+    },
+    {
+      "id": 9,
+      "type": "byte",
+      "token": "\t",
+      "text": "\t",
+      "frequency": 0
+    },
+    {
+      "id": 11,
+      "type": "byte",
+      "token": "\u000b",
+      "text": "\u000b",
+      "frequency": 0
+    },
+    {
+      "id": 12,
+      "type": "byte",
+      "token": "\f",
+      "text": "\f",
+      "frequency": 0
+    },
+    {
+      "id": 13,
+      "type": "byte",
+      "token": "\r",
+      "text": "\r",
+      "frequency": 0
+    },
+    {
+      "id": 14,
+      "type": "protected",
+      "token": "à",
+      "text": "à",
+      "frequency": 0
+    },
+    {
+      "id": 15,
+      "type": "protected",
+      "token": "è",
+      "text": "è",
+      "frequency": 0
+    },
+    {
+      "id": 16,
+      "type": "protected",
+      "token": "é",
+      "text": "é",
+      "frequency": 0
+    },
+    {
+      "id": 17,
+      "type": "protected",
+      "token": "ì",
+      "text": "ì",
+      "frequency": 0
+    },
+    {
+      "id": 18,
+      "type": "protected",
+      "token": "ò",
+      "text": "ò",
+      "frequency": 0
+    },
+    {
+      "id": 19,
+      "type": "protected",
+      "token": "ù",
+      "text": "ù",
+      "frequency": 0
+    },
+    {
+      "id": 20,
+      "type": "protected",
+      "token": "À",
+      "text": "À",
+      "frequency": 0
+    },
+    {
+      "id": 21,
+      "type": "protected",
+      "token": "È",
+      "text": "È",
+      "frequency": 0
+    },
+    {
+      "id": 22,
+      "type": "protected",
+      "token": "É",
+      "text": "É",
+      "frequency": 0
+    },
+    {
+      "id": 23,
+      "type": "protected",
+      "token": "Ì",
+      "text": "Ì",
+      "frequency": 0
+    },
+    {
+      "id": 24,
+      "type": "protected",
+      "token": "Ò",
+      "text": "Ò",
+      "frequency": 0
+    },
+    {
+      "id": 25,
+      "type": "protected",
+      "token": "Ù",
+      "text": "Ù",
+      "frequency": 0
+    },
+    {
+      "id": 29,
+      "type": "byte",
+      "token": "\u001d",
+      "text": "\u001d",
+      "frequency": 0
+    },
+    {
+      "id": 30,
+      "type": "byte",
+      "token": "\u001e",
+      "text": "\u001e",
+      "frequency": 0
+    },
+    {
+      "id": 31,
+      "type": "byte",
+      "token": "\u001f",
+      "text": "\u001f",
+      "frequency": 0
+    },
+    {
+      "id": 33,
+      "type": "protected",
+      "token": "!",
+      "text": "!",
+      "frequency": 0
+    },
+    {
+      "id": 36,
+      "type": "byte",
+      "token": "$",
+      "text": "$",
+      "frequency": 0
+    },
+    {
+      "id": 38,
+      "type": "byte",
+      "token": "&",
+      "text": "&",
+      "frequency": 0
+    },
+    {
+      "id": 42,
+      "type": "byte",
+      "token": "*",
+      "text": "*",
+      "frequency": 0
+    },
+    {
+      "id": 43,
+      "type": "byte",
+      "token": "+",
+      "text": "+",
+      "frequency": 0
+    },
+    {
+      "id": 59,
+      "type": "byte",
+      "token": ";",
+      "text": ";",
+      "frequency": 0
+    },
+    {
+      "id": 63,
+      "type": "byte",
+      "token": "?",
+      "text": "?",
+      "frequency": 0
+    },
+    {
+      "id": 64,
+      "type": "byte",
+      "token": "@",
+      "text": "@",
+      "frequency": 0
+    },
+    {
+      "id": 88,
+      "type": "byte",
+      "token": "X",
+      "text": "X",
+      "frequency": 0
+    },
+    {
+      "id": 89,
+      "type": "byte",
+      "token": "Y",
+      "text": "Y",
+      "frequency": 0
+    },
+    {
+      "id": 90,
+      "type": "byte",
+      "token": "Z",
+      "text": "Z",
+      "frequency": 0
+    },
+    {
+      "id": 92,
+      "type": "byte",
+      "token": "\\",
+      "text": "\\",
+      "frequency": 0
+    },
+    {
+      "id": 96,
+      "type": "byte",
+      "token": "`",
+      "text": "`",
+      "frequency": 0
+    },
+    {
+      "id": 106,
+      "type": "byte",
+      "token": "j",
+      "text": "j",
+      "frequency": 0
+    },
+    {
+      "id": 120,
+      "type": "byte",
+      "token": "x",
+      "text": "x",
+      "frequency": 0
+    },
+    {
+      "id": 127,
+      "type": "byte",
+      "token": "",
+      "text": "",
+      "frequency": 0
+    },
+    {
+      "id": 129,
+      "type": "protected",
+      "token": "\\shortfermata",
+      "text": "\\shortfermata",
+      "frequency": 0
+    },
+    {
+      "id": 130,
+      "type": "protected",
+      "token": "\\sostenutoOff",
+      "text": "\\sostenutoOff",
+      "frequency": 0
+    },
+    {
+      "id": 131,
+      "type": "protected",
+      "token": "\\sostenutoOn",
+      "text": "\\sostenutoOn",
+      "frequency": 0
+    },
+    {
+      "id": 132,
+      "type": "protected",
+      "token": "\\stemNeutral",
+      "text": "\\stemNeutral",
+      "frequency": 0
+    },
+    {
+      "id": 139,
+      "type": "protected",
+      "token": "\\stemDown",
+      "text": "\\stemDown",
+      "frequency": 0
+    },
+    {
+      "id": 140,
+      "type": "protected",
+      "token": "\\treCorde",
+      "text": "\\treCorde",
+      "frequency": 0
+    },
+    {
+      "id": 141,
+      "type": "protected",
+      "token": "\\unaCorda",
+      "text": "\\unaCorda",
+      "frequency": 0
+    },
+    {
+      "id": 147,
+      "type": "protected",
+      "token": "\\mordent",
+      "text": "\\mordent",
+      "frequency": 0
+    },
+    {
+      "id": 148,
+      "type": "protected",
+      "token": "\\partial",
+      "text": "\\partial",
+      "frequency": 0
+    },
+    {
+      "id": 149,
+      "type": "protected",
+      "token": "composer",
+      "text": "composer",
+      "frequency": 0
+    },
+    {
+      "id": 156,
+      "type": "protected",
+      "token": "\\repeat",
+      "text": "\\repeat",
+      "frequency": 0
+    },
+    {
+      "id": 157,
+      "type": "protected",
+      "token": "\\stemUp",
+      "text": "\\stemUp",
+      "frequency": 0
+    },
+    {
+      "id": 168,
+      "type": "protected",
+      "token": "\\minor",
+      "text": "\\minor",
+      "frequency": 0
+    },
+    {
+      "id": 172,
+      "type": "protected",
+      "token": "\\times",
+      "text": "\\times",
+      "frequency": 0
+    },
+    {
+      "id": 182,
+      "type": "protected",
+      "token": "\\rest",
+      "text": "\\rest",
+      "frequency": 0
+    },
+    {
+      "id": 184,
+      "type": "protected",
+      "token": "\\turn",
+      "text": "\\turn",
+      "frequency": 0
+    },
+    {
+      "id": 190,
+      "type": "protected",
+      "token": "genre",
+      "text": "genre",
+      "frequency": 0
+    },
+    {
+      "id": 206,
+      "type": "protected",
+      "token": "\\rfz",
+      "text": "\\rfz",
+      "frequency": 0
+    },
+    {
+      "id": 218,
+      "type": "protected",
+      "token": "sord",
+      "text": "sord",
+      "frequency": 0
+    },
+    {
+      "id": 225,
+      "type": "protected",
+      "token": "\"3\"",
+      "text": "\"3\"",
+      "frequency": 0
+    },
+    {
+      "id": 228,
+      "type": "protected",
+      "token": "\\fp",
+      "text": "\\fp",
+      "frequency": 0
+    },
+    {
+      "id": 230,
+      "type": "protected",
+      "token": "\\mp",
+      "text": "\\mp",
+      "frequency": 0
+    },
+    {
+      "id": 234,
+      "type": "protected",
+      "token": "div",
+      "text": "div",
+      "frequency": 0
+    },
+    {
+      "id": 235,
+      "type": "protected",
+      "token": "dol",
+      "text": "dol",
+      "frequency": 0
+    }
+  ],
+  "unknowns": {
+    "total": 0,
+    "unique": 0,
+    "hits": []
+  },
+  "stats": {
+    "files": 215,
+    "inputBytes": 2790068,
+    "seedVocabSize": 256,
+    "vocabSize": 256,
+    "merges": 0,
+    "seedTokens": 2106043,
+    "finalTokens": 2106043,
+    "compressionRatio": 1
+  }
+}

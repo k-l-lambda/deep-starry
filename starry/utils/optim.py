@@ -38,17 +38,18 @@ class BaseScheduler:
 class InvSqrtScheduler (BaseScheduler):
 	name = 'InvSqrt'
 
-	def __init__ (self, optimizer, lr_mul, d_model, n_warmup_steps, init_step=0):
+	def __init__ (self, optimizer, lr_mul, d_model, n_warmup_steps, init_step=0, step_scale=1):
 		super().__init__(optimizer, init_step)
 
 		self.lr_mul = lr_mul
 		self.d_model = d_model
 		self.n_warmup_steps = n_warmup_steps
+		self.step_scale = step_scale
 
 	# overload
 	def _get_lr (self):
 		d_model = self.d_model
-		n_steps, n_warmup_steps, lr_mul = self.n_steps, self.n_warmup_steps, self.lr_mul
+		n_steps, n_warmup_steps, lr_mul = (self.n_steps * self.step_scale), self.n_warmup_steps, self.lr_mul
 
 		return lr_mul * (d_model ** -0.5) * min(n_steps ** (-0.5), n_steps * n_warmup_steps ** (-1.5))
 

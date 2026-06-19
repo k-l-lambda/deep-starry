@@ -1,0 +1,19 @@
+id: lilylet/{date}-{filename}
+
+env: ~
+
+data:
+  type: LilyletPatchy
+  root: notagenx-from-abc-20260617.pt
+  splits: '*0..8/10:9/10'
+  batch_size: 2
+  args_variant: ~
+  args:
+    patch_size: 16
+    patch_length: 2048
+    patch_stream: true
+    tokenizer_path: assets/lilylet-tokenizer.json
+    prompt_dropout: 0.3
+  args_variant:
+    1:
+      prompt_dropout: 0

@@ -45,7 +45,8 @@ class EventCluster (IterableDataset):
 
 
 	def __init__ (self, package, entries, device, shuffle=False, stability_base=10, position_drift=0, stem_amplitude=None, grace_amplitude=None,
-		chaos_exp=-1, chaos_flip=False, batch_slice=None, use_cache=True, with_beading=False, time8th_drop=0, event_drop=0):
+		chaos_exp=-1, chaos_flip=False, batch_slice=None, use_cache=True, with_beading=False, time8th_drop=0, event_drop=0, sampling_by_weights=False,
+		weights_mapping=None):
 		self.package = package
 		self.entries = entries
 		self.shuffle = shuffle
@@ -61,6 +62,8 @@ class EventCluster (IterableDataset):
 		self.with_beading = with_beading
 		self.time8th_drop = time8th_drop
 		self.event_drop = event_drop
+		self.sampling_by_weights = sampling_by_weights
+		self.weights_mapping = weights_mapping
 
 		self.entry_cache = {} if use_cache else None
 
@@ -93,14 +96,25 @@ class EventCluster (IterableDataset):
 			torch.manual_seed(0)
 			np.random.seed(len(self.entries))
 
-		for entry in self.entries:
-			yield self.readEntry(entry['filename'])
+		if self.sampling_by_weights:
+			if self.weights_mapping:
+				mapping = {int(k): v for k, v in self.weights_mapping.items()}
+				entry_weights = torch.tensor([mapping.get(entry.get('weight', 1), entry.get('weight', 1)) for entry in self.entries], dtype=torch.float32)
+			else:
+				entry_weights = torch.tensor([entry['weight'] for entry in self.entries], dtype=torch.float32)
+			indices = torch.multinomial(entry_weights, len(self.entries), replacement=True).tolist()
+
+			for index in indices:
+				entry = self.entries[index]
+				#print('entry:', entry['weight'], entry['filename'])
+
+				yield self.readEntry(entry['filename'])
+		else:
+			for entry in self.entries:
+				yield self.readEntry(entry['filename'])
 
 
-	def collateBatch (self, batch):
-		assert len(batch) == 1
-
-		tensors = batch[0]
+	def _processSingleEntry (self, tensors):
 		if tensors.get('fake') is None:
 			tensors['fake'] = 1 - tensors['confidence']
 
@@ -118,8 +132,8 @@ class EventCluster (IterableDataset):
 		elem_type = tensors['type'].repeat(batch_size, 1).long()
 		staff = tensors['staff'].repeat(batch_size, 1).long()
 
-		# noise augment for feature
-		feature = tensors['feature'][:batch_size]
+		# noise augment for feature (clone to avoid mutating source entry)
+		feature = tensors['feature'][:batch_size].clone()
 		stability = np.random.power(self.stability_base)
 		error = torch.rand(*feature.shape, device=self.device) > stability
 		if self.chaos_flip:
@@ -143,11 +157,11 @@ class EventCluster (IterableDataset):
 			grace_error = torch.rand(*feature[:, :, 14].shape, device=self.device) < error_threshold
 			feature[:, :, 14][grace_error] = torch.randn_like(feature[:, :, 14][grace_error]).exp()
 
-		# augment for position
-		x = tensors['x'][:batch_size]
-		pivotX = tensors['pivotX'][:batch_size]
-		y1 = tensors['y1'][:batch_size]
-		y2 = tensors['y2'][:batch_size]
+		# augment for position (clone to avoid mutating source entry)
+		x = tensors['x'][:batch_size].clone()
+		pivotX = tensors['pivotX'][:batch_size].clone()
+		y1 = tensors['y1'][:batch_size].clone()
+		y2 = tensors['y2'][:batch_size].clone()
 		ox, oy = (torch.rand(batch_size, 1, device=self.device) - 0.2) * 24, (torch.rand(batch_size, 1, device=self.device) - 0.2) * 12
 		if self.position_drift > 0:
 			dx = torch.randn(batch_size, n_seq, device=self.device) * self.position_drift + ox
@@ -228,7 +242,7 @@ class EventCluster (IterableDataset):
 			}
 
 		result['time8th'] = tensors['time8th'].repeat(batch_size)
-		result['time8th'][torch.rand(result['time8th'].shape) < self.time8th_drop] = 0
+		result['time8th'][torch.rand(result['time8th'].shape, device=result['time8th'].device) < self.time8th_drop] = 0
 		result['time8th'] = result['time8th'].to(self.device)
 
 		for field in TARGET_FIELDS:
@@ -238,3 +252,55 @@ class EventCluster (IterableDataset):
 			result[field] = result[field].long()
 
 		return result
+
+
+	# Fields that are (B, seq, seq) — pad both seq dims
+	_SQUARE_SEQ_FIELDS = {'tickDiff', 'maskT'}
+	# Fields that are (B, flat) where flat = (n_seq-1)^2 — reshape, pad both dims, flatten
+	_FLAT_SQUARE_FIELDS = {'matrixH'}
+
+	def _padAndConcatenate (self, results):
+		assert len(results) > 0, 'Cannot concatenate empty results'
+
+		expected_keys = results[0].keys()
+		for i, r in enumerate(results[1:], 1):
+			assert r.keys() == expected_keys, f'Key mismatch in result {i}: {set(r.keys()) ^ set(expected_keys)}'
+
+		# Padded type uses EventElementType.PAD (0); downstream model masks all fields via type != PAD
+		max_seq = max(r['type'].shape[1] for r in results)
+
+		padded = {key: [] for key in expected_keys}
+		for r in results:
+			n_seq = r['type'].shape[1]
+			pad_seq = max_seq - n_seq
+			for key, val in r.items():
+				if val.dim() == 1:
+					# (B,) — no seq dim, e.g. time8th
+					padded[key].append(val)
+				elif key in self._FLAT_SQUARE_FIELDS:
+					# (B, flat) where flat = (n_seq-1)^2
+					s = n_seq - 1
+					mat = val.reshape(val.shape[0], s, s)
+					mat = F.pad(mat, (0, pad_seq, 0, pad_seq))
+					padded[key].append(mat.reshape(val.shape[0], -1))
+				elif key in self._SQUARE_SEQ_FIELDS:
+					# (B, seq, seq) — pad both seq dims
+					padded[key].append(F.pad(val, (0, pad_seq, 0, pad_seq)))
+				elif val.dim() == 2:
+					# (B, seq) — pad dim 1
+					padded[key].append(F.pad(val, (0, pad_seq)))
+				elif val.dim() == 3:
+					# (B, seq, feat) — pad seq dim only
+					padded[key].append(F.pad(val, (0, 0, 0, pad_seq)))
+				else:
+					raise ValueError(f'Unsupported tensor for key {key}: dim={val.dim()}, shape={val.shape}')
+
+		return {key: torch.cat(vals, dim=0) for key, vals in padded.items()}
+
+
+	def collateBatch (self, batch):
+		assert len(batch) > 0, 'Cannot collate empty batch'
+		results = [self._processSingleEntry(entry) for entry in batch]
+		if len(results) == 1:
+			return results[0]
+		return self._padAndConcatenate(results)

@@ -6,3 +6,6 @@ __pycache__/
 /training/
 /logs/
 /temp/
+/env/
+/tests/output/
+/tools/output/

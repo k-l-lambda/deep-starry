@@ -20,7 +20,7 @@ from .score import makeReader, listAllScoreNames, GRAPH, MASK, STAFF
 
 
 
-SemanticGroups = yaml.safe_load(open('assets/semanticGroups.yaml', 'r'))['Glyph']
+SemanticGroups = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), '../../../assets/semanticGroups.yaml'), 'r'))['Glyph']
 
 
 def normalizeName (name):

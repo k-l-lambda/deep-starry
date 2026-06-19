@@ -10,6 +10,98 @@ from .rectifyJointer import EncoderLayerStack, DEFAULT_ERROR_WEIGHTS
 from ...modules.classInt import Int2PClass
 
 
+def _build_causal_mask(stype, beading_pos, x, strict_causal=False):
+	"""Build a partial causal mask for fixed elements.
+
+	Non-fixed, non-PAD positions get full attention to all non-PAD keys.
+	Fixed positions (beading_pos < 0) get segmented causal attention:
+	sorted by beading_pos ascending, split into segments where x is
+	monotonically increasing; causal within segments, full across earlier segments.
+
+	Args:
+		stype: (batch, seq) int tensor of event types
+		beading_pos: (batch, seq) int tensor
+		x: (batch, seq) float tensor of x positions
+
+	Returns:
+		mask: (batch, seq, seq) bool tensor, True = allowed attention
+	"""
+	batch_size, seq_len = stype.shape
+	device = stype.device
+
+	# Base mask: each position can attend to all non-PAD keys
+	pad_mask = (stype != EventElementType.PAD)					# (batch, seq)
+	mask = pad_mask.unsqueeze(1).expand(-1, seq_len, -1).clone()	# (batch, seq, seq)
+
+	is_bos = (stype == EventElementType.BOS)	# (batch, seq)
+	is_eos = (stype == EventElementType.EOS)	# (batch, seq)
+	is_fixed = (beading_pos < 0) & ~is_bos		# (batch, seq) — exclude BOS from causal blocking
+
+	for b in range(batch_size):
+		fixed_indices = is_fixed[b].nonzero(as_tuple=False).squeeze(-1)		# (n_fixed,)
+		if fixed_indices.numel() < 2:
+			continue
+
+		# Sort fixed by beading_pos ascending (most negative first)
+		bp_vals = beading_pos[b, fixed_indices]
+		sorted_order = bp_vals.argsort()
+		sorted_fixed = fixed_indices[sorted_order]		# (n_fixed,) original indices, sorted by bp
+
+		# Get x values in sorted order
+		sorted_x = x[b, sorted_fixed]					# (n_fixed,)
+
+		# Vectorized segment computation
+		# new segment starts where x does not increase vs previous element
+		x_increases = sorted_x[1:] > sorted_x[:-1]		# (n_fixed-1,) bool
+		seg_id = torch.zeros(sorted_x.shape[0], dtype=torch.long, device=device)
+		seg_id[1:] = (~x_increases).cumsum(0)			# (n_fixed,) segment index
+
+		# seg_pos[k] = position of k within its segment = k - first_index_of_segment
+		# first index of segment s = index of the s-th segment boundary
+		seg_boundaries = torch.cat([
+			torch.zeros(1, dtype=torch.long, device=device),
+			(~x_increases).nonzero(as_tuple=False).squeeze(-1) + 1,
+		])												# (n_segs,) start indices of each segment
+		seg_first = seg_boundaries[seg_id]				# (n_fixed,) first index of each element's segment
+		arange = torch.arange(sorted_x.shape[0], device=device)
+		seg_pos = arange - seg_first					# (n_fixed,) position within segment
+
+		# Build attention mask for fixed queries
+		seg_id_q = seg_id.unsqueeze(1)					# (n_fixed, 1)
+		seg_id_k = seg_id.unsqueeze(0)					# (1, n_fixed)
+		seg_pos_q = seg_pos.unsqueeze(1)				# (n_fixed, 1)
+		seg_pos_k = seg_pos.unsqueeze(0)				# (1, n_fixed)
+
+		if strict_causal:
+			# Strict: fixed queries may only attend to fixed keys in the same segment (causal),
+			# plus BOS and EOS which are global context keys.
+			# Clear entire row for each fixed query, then re-open allowed cells.
+			mask[b, sorted_fixed, :] = False
+			allowed = (seg_id_q == seg_id_k) & (seg_pos_k <= seg_pos_q)	# (n_fixed, n_fixed)
+			q_idx = sorted_fixed.unsqueeze(1).expand_as(allowed)
+			k_idx = sorted_fixed.unsqueeze(0).expand_as(allowed)
+			mask[b, q_idx[allowed], k_idx[allowed]] = True
+			# BOS and EOS keys are always visible to fixed queries
+			global_pos = (is_bos[b] | is_eos[b]).nonzero(as_tuple=False).squeeze(-1)
+			if global_pos.numel() > 0:
+				mask[b, sorted_fixed.unsqueeze(1), global_pos.unsqueeze(0)] = True
+		else:
+			# Default: fixed queries see all non-PAD keys, restricted to causal within same segment.
+			# Block fixed→fixed cells that violate the causal-within-segment rule.
+			block = (seg_id_q != seg_id_k) | (seg_pos_k > seg_pos_q)	# (n_fixed, n_fixed)
+			block.fill_diagonal_(False)
+			q_idx = sorted_fixed.unsqueeze(1).expand_as(block)
+			k_idx = sorted_fixed.unsqueeze(0).expand_as(block)
+			mask[b, q_idx[block], k_idx[block]] = False
+
+	# BOS: visible to all (key), but sees only itself (query)
+	bos_mask = is_bos.unsqueeze(-1).expand_as(mask)		# (batch, seq, seq) — True for BOS query rows
+	eye = torch.eye(seq_len, dtype=torch.bool, device=device).unsqueeze(0)
+	mask[bos_mask] = eye.expand_as(mask)[bos_mask]
+
+	return mask
+
+
 
 RectifierParsers = {
 	'v2': RectifierParser2,
@@ -19,11 +111,13 @@ RectifierParsers = {
 
 class BeadPicker (nn.Module):
 	def __init__ (self, n_layers=1, angle_cycle=1000, d_position=512, feature_activation=None, zero_candidates=False,
-			with_time8th=False,
+			with_time8th=False, causal_mask=False, strict_causal=False,
 			d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64, dropout=0.1, rectifier_version='v2', **_):
 		super().__init__()
 
 		self.with_time8th = with_time8th
+		self.causal_mask = causal_mask
+		self.strict_causal = strict_causal
 
 		event_encoder_class = EventEncoderV4 if with_time8th else EventOrderedEncoder
 		self.event_encoder = event_encoder_class(d_model, angle_cycle=angle_cycle, d_position=d_position,
@@ -43,13 +137,18 @@ class BeadPicker (nn.Module):
 
 
 	def forward (self, stype, staff, feature, x, y1, y2, beading_pos, time8th: Optional[torch.Tensor] =None):
+		x_pos = x	# save positional x before encoder overwrites x
+
 		if time8th is not None:
 			x = self.event_encoder(stype, staff, feature, x, y1, y2, beading_pos, time8th)	# (n, seq, d_model)
 		else:
 			x = self.event_encoder(stype, staff, feature, x, y1, y2, beading_pos)	# (n, seq, d_model)
 
-		mask_pad = stype != self.PAD
-		mask = mask_pad.unsqueeze(-2)
+		if self.causal_mask:
+			mask = _build_causal_mask(stype, beading_pos, x_pos, strict_causal=self.strict_causal)
+		else:
+			mask_pad = stype != self.PAD
+			mask = mask_pad.unsqueeze(-2)
 
 		x = self.attention(x, mask)
 		x = self.out(x)
@@ -159,15 +258,15 @@ class BeadPickerLoss (nn.Module):
 		err_suc = 1 - ((pred_suc[is_candidate] > self.decisive_confidence).float() == batch['successor'][is_candidate]).float().mean()
 
 		if not self.use_vtick:
-			loss_tick = self.mse(rec['tick'], batch['tick'])
+			loss_tick = self.mse(rec['tick'][is_entity], batch['tick'][is_entity])
 			err_tick = torch.sqrt(loss_tick.detach())
 
 			loss_tick_fixed = self.mse(rec['tick'][is_fixed], batch['tick'][is_fixed])
 			err_tick_fixed = torch.sqrt(loss_tick_fixed.detach())
 		else:
 			target_vtick = self.tick2vec(batch['tick'])
-			loss_tick = self.bce_logits(rec['vtick'], target_vtick)
-			err_tick = torch.sqrt(self.mse(rec['tick'], batch['tick']).detach())
+			loss_tick = self.bce_logits(rec['vtick'][is_entity], target_vtick[is_entity])
+			err_tick = torch.sqrt(self.mse(rec['tick'][is_entity], batch['tick'][is_entity]).detach())
 
 			loss_tick_fixed = self.bce_logits(rec['vtick'][is_fixed], target_vtick[is_fixed])
 			err_tick_fixed = torch.sqrt(self.mse(rec['tick'][is_fixed], batch['tick'][is_fixed]).detach())

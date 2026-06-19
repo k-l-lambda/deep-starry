@@ -1,8 +1,216 @@
 
 TODO:
+	viewer for midiseq
 	ScoreSemanticValue: unified validation set
 	construct score topology data by semantic predictor
 
+
+
+2025.3.28
+
+	+	janus.py: method of merge_embeddings added.
+
+
+2025.3.27
+
+	>	janus.py: fix the bug of weights loading, freeze weights of aligner.
+
+	+	validateMeasure.py: added argv of checkpoint.
+
+
+2025.3.26
+
+	+	janus.py: fixed add_embedding loading & saving.
+
+
+2025.3.25
+
+	+	tools/makeIndexForParaffVL.py: enhanced file name parsing.
+
+
+2025.3.21
+
+	>	paraff/data/visionLanguage.py: fixed range bug of target_mask field.
+
+	+	tools/saveJanusLanguage.py created.
+
+
+2025.3.20
+
+	+	paraff/models/janus.py: added additional embedding.
+
+	+	paraff/models/janus.py: refactered JanusLanguage to a standalone model class.
+
+
+2025.3.17
+
+	+	paraff/models/janus.py: added state dict loading & saving method.
+
+	+	tests/paraffVisionUnderstand-test.ipynb created.
+
+	+	paraff/models/janus.py: added inspectRun.
+
+
+2025.3.13
+
+	+	paraff/models/janus.py: loss computaton implemneted.
+
+
+2025.3.12
+
+	+	paraff/models/janus.py: aligner added.
+
+
+2025.3.10
+
+	+	paraff/data/visionLanguage.py: concat input ids.
+
+
+2025.3.8
+
+	+	paraff/data/visionLanguage.py: added SFT template.
+
+	+	tests/janus_language_model.ipynb created.
+
+	+	paraff/data/visionLanguage.py: output tensors implemented.
+
+
+2025.3.4
+
+	+	paraff/data/visionLanguage.py created.
+
+
+2025.3.3
+
+	+	assets/paraffUndPrompt.jinja created.
+
+
+2025.2.27
+
+	+	tools/makeIndexForParaffVL.py created.
+
+
+2024.12.16
+
+	+	paraff/models/seqShareSE.py: added kld & jsd loss option.
+
+
+2024.12.12
+
+	+	paraff/data/midiseqEmbed.py: added option of drop_pedal_p.
+
+
+2024.12.3
+
+	+	paraff/model/seqShareSE: model class of SeqShareSEJitEnc added.
+
+
+2024.11.29
+
+	+	paraff/model/seqShareSE.py created.
+
+
+2024.11.28
+
+	+	paraff/data/midiseqEmbed.py: measure blending added.
+
+	+	paraff/data/midiseqEmbed.py: load measure summaries from .pt file.
+
+	+	paraff/preprocessMidiseq.py created.
+	+	paraff/midiseq.py created.
+
+
+2024.11.13
+
+	>	utils/trainer.py: fixed data iterator for finiteTraverse.
+
+	+	paraff/models/seqShareVAELlama.py created.
+
+
+2024.11.8
+
+	>	utils/trainer.py: fixed initial report_step.
+
+
+2024.11.6
+
+	+	utils/trainer.py: added support of epoch size.
+
+
+2024.9.12
+
+	>	scorePageLayout.py: fixed 2 numpy type errors.
+
+
+2024.1.17
+
+	+	paraff/data/midiseqEmbed.py created.
+
+
+2023.11.22
+
+	+	topology/data/events.py: load pkl files for append mode.
+
+
+2023.11.17
+
+	+	topology/data/eventCluster.py: option of sampling_by_weights added.
+
+
+2023.11.16
+
+	+	topology/data/events.py: append files in sub direcotries.
+	+	topology/data/events.py: added example weight for annotated clusters.
+
+
+2023.11.7
+
+	+	scoreMeasurewise.py: added option of head_measure_only.
+
+
+2023.11.3
+
+	+	paraff/models/modules.py: added module class of MidiEventEncoderV3.
+
+	+	midiTranslator.py: added metric of vocab_error.
+
+
+2023.11.2
+
+	+	scoreMeasurewise.py: added field of consumption.
+
+
+2023.10.31
+
+	+	midiTranslator.py: onnx model classes added.
+
+
+2023.10.31
+
+	+	scoreMeasurewise.py: added option of premier_drop.
+
+	+	validateParaffMidi.py created.
+
+	+	midiTranslator.py: added option of mask_measure.
+
+
+2023.10.30
+
+	+	paraff/viewerParaffMidi.py created.
+
+	+	midiTranslator.py: added midi mask output.
+
+
+2023.10.27
+
+	+	paraff/models/midiTranslator.py created.
+
+	+	scoreMeasurewise.py: midi fields added.
+
+
+2023.10.26
+
+	+	paraff/data/scoreMeasurewise.py created.
 
 
 2023.10.7

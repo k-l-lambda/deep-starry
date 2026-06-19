@@ -64,7 +64,7 @@ def preprocessGraph (paragraph_file, json_dir, n_seq_max=512):
 			semantic_files += [os.path.join(dir, file) for file in files]
 
 		group_to_semantic = dict()
-		for group in tqdm(meta['groups']):
+		for group in tqdm(meta['groups'], desc='Gathering semantic files'):
 			#logging.info(group)
 
 			captures = re.match('^\d+\.', group)

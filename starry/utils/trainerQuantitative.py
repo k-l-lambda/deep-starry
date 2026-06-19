@@ -2,6 +2,7 @@
 import os
 import sys
 import torch
+import contextlib
 from tensorboardX import SummaryWriter
 import time
 from tqdm import tqdm
@@ -13,7 +14,7 @@ from datetime import timedelta
 
 from .optim import optim
 from .model_factory import loadModel
-from .trainer import Moniter, print_metric, stat_average
+from .trainer import Moniter, print_metric, stat_average, infiniteTraverse, finiteTraverse
 from .dataset_factory import loadDataset
 
 
@@ -69,6 +70,17 @@ class Trainer:
 
 		self.start_epoch = 0
 
+		# autocast dtype: 'fp32' (default) or 'bf16'
+		dtype_name = (self.options.get('dtype') or 'fp32').lower()
+		self.autocast_dtype = {
+			'fp32': None,
+			'float32': None,
+			'bf16': torch.bfloat16,
+			'bfloat16': torch.bfloat16,
+		}.get(dtype_name, None)
+		if dtype_name not in ('fp32', 'float32') and self.autocast_dtype is None:
+			logging.warning('Unknown trainer.dtype "%s", falling back to fp32.', dtype_name)
+
 		self.model = loadModel(config['model'], postfix='Loss')
 		self.model.deducer.to(self.device)
 		self.model.to(self.device)
@@ -92,6 +104,29 @@ class Trainer:
 		logging.info(f'[{self.role}]	' + message, *args)
 
 
+	def autocast (self):
+		# autocast context for the configured dtype; no-op when fp32 or non-CUDA.
+		if self.autocast_dtype is None or self.device.type != 'cuda':
+			return contextlib.nullcontext()
+		return torch.autocast(device_type='cuda', dtype=self.autocast_dtype)
+
+
+	def cleanupSnapshots (self, keep=None):
+		# Remove all model_*.chkpt snapshots except `keep`. Used in save_mode='best'
+		# so the optim-bearing per-epoch snapshots don't accumulate and fill the disk;
+		# best.chkpt retains the model weights independently.
+		import glob
+		keep_path = self.config.localPath(keep) if keep else None
+		for path in glob.glob(self.config.localPath('model_*.chkpt')):
+			if keep_path and os.path.abspath(path) == os.path.abspath(keep_path):
+				continue
+			try:
+				os.remove(path)
+				self.log('Removed old snapshot: %s', os.path.basename(path))
+			except OSError as e:
+				self.log('Failed to remove snapshot %s: %s', os.path.basename(path), e)
+
+
 	def print_performances(self, loss, metric, start_time, lr=math.nan):
 		self.log('loss: {loss: .4e}, {metric}, lr: {lr:.4e}, elapse: {elapse:3.2f} min'
 			.format(loss=loss, metric=print_metric(metric), elapse=(time.time()-start_time)/60, lr=lr))
@@ -100,7 +135,6 @@ class Trainer:
 	def broadcastModule (self, module, src):
 		for param in module.parameters():
 			torch.distributed.broadcast(param, src=src)
-
 
 	def broadcastParam (self, parameters, src):
 		for param in parameters:
@@ -125,7 +159,7 @@ class Trainer:
 
 	@property
 	def exampleN (self):
-		return self.config['trainer.steps'] * self.config['data.batch_size']
+		return (self.config['trainer.steps'] or 0) * self.config['data.batch_size']
 
 
 	def train (self, data):
@@ -138,7 +172,7 @@ class Trainer:
 			#self.model.requires_grad_(False)
 			self.broadcastParam(self.model.training_parameters(), src=Trainer.TRAINER_RANK)
 
-		data_it = self.infiniteTraverse(data)
+		data_it = infiniteTraverse(data)
 
 		need_states = hasattr(self.model, 'need_states')
 
@@ -156,12 +190,14 @@ class Trainer:
 			self.model.train()
 			total_loss, n_batch = 0, 0
 			metric_data = {}
+			n_steps = self.options['epoch_size'] // self.config['data.batch_size']
 
-			for batch in tqdm(self.finiteTraverse(data_it, self.options['epoch_size']), mininterval=1, leave=False,
-				total=self.options['epoch_size'] // self.config['data.batch_size'], desc='  - (Training)   ', position=self.rank):
+			for batch in tqdm(finiteTraverse(data_it, n_steps), mininterval=1, leave=False,
+				total=n_steps, desc='  - (Training)   ', position=self.rank):
 				# forward
 				self.optimizer.zero_grad()
-				loss, metric = self.model(batch)
+				with self.autocast():
+					loss, metric = self.model(batch)
 
 				# backward and update parameters
 				loss.backward()
@@ -247,7 +283,8 @@ class Trainer:
 
 				for batch in tqdm(data, mininterval=1, desc='  - (Validation) ', leave=False, position=self.rank):
 					# forward
-					loss, metric = self.model(batch)
+					with self.autocast():
+						loss, metric = self.model(batch)
 
 					# note keeping
 					n_batch += 1
@@ -286,6 +323,11 @@ class Trainer:
 						}
 						torch.save(checkpoint, self.config.localPath('best.chkpt'))
 
+						# dynamic cleanup: keep only the newest model_*.chkpt snapshot
+						# (best.chkpt already holds the model weights), so the optim-bearing
+						# 6GB per-epoch snapshots don't accumulate and fill the disk.
+						self.cleanupSnapshots(keep=model_name)
+
 						self.log('The checkpoint file has been updated.')
 
 				self.config.load()
@@ -309,21 +351,6 @@ class Trainer:
 				report_step_unit = self.options.get('report_step_unit')
 				report_step = self.exampleN if report_step_unit == 'examples' else epoch_i
 				self.reportScalars(scalars, report_step)
-
-
-	def infiniteTraverse (self, dataset):
-		while True:
-			for batch in dataset:
-				yield batch
-
-
-	def finiteTraverse (self, iter, count):
-		i = 0
-		while i < count:
-			batch = next(iter)
-			i += self.config['data.batch_size']
-
-			yield batch
 
 
 	def loadCheckpoint (self, filename):

@@ -16,6 +16,7 @@ def registerModels ():
 	from ..topology.models import beadPicker as tb
 	from ..vision import models as vm
 	from ..paraff import models as pm
+	from ..lilylet import models as lm
 
 	classes = [
 		tj.TransformJointer, tj.TransformJointerLoss,
@@ -39,12 +40,17 @@ def registerModels ():
 		pm.SeqvaeLoss, pm.SeqvaeEncoderJit,
 		pm.SparseAE, pm.SparseAELoss,
 		pm.SeqShareVAE, pm.SeqShareVAELoss, pm.SeqShareVAEJitEnc, pm.SeqShareVAEJitDec,
+		pm.SeqShareVAELlama, pm.SeqShareVAELlamaLoss,
+		pm.SeqShareSE, pm.SeqShareSELoss, pm.SeqShareSEJitEnc,
 		pm.PhaseGen, pm.PhaseGenLoss, pm.PhaseGenDecoder, pm.PhaseGenDecoderLora,
 		pm.PhasePre, pm.PhasePreLoss,
 		pm.SeqDecoderBase, pm.SeqDecoderBaseLoss,
 		pm.GraphParaffEncoder, pm.GraphParaffEncoderLoss, pm.GraphParaffEncoderTail, pm.GraphParaffEncoderDecoder,
 		pm.GraphParaffSummaryEncoder, pm.GraphParaffSummaryEncoderLoss,
 		pm.GraphParaffTranslator, pm.GraphParaffTranslatorLoss, pm.GraphParaffTranslatorOnnx,
+		pm.MidiParaffTranslator, pm.MidiParaffTranslatorLoss, pm.MidiParaffTranslatorDecoder, pm.MidiParaffTranslatorConsumer,
+		pm.JanusLanguage, pm.JanusLanguageLoss,
+		lm.LilyletNotaGen, lm.LilyletNotaGenLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])

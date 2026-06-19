@@ -127,7 +127,7 @@ class ScorePageProcessor (Predictor):
 				imgs = images[i:i + BATCH_SIZE]
 				imgs_arr = [np.array(image) for image in imgs]
 
-				for j, result in enumerate(self.predictImages(imgs_arr, output_folder=None)):
+				for j, result in enumerate(self.predictImages(imgs_arr, output_folder=output_folder)):
 					gc.collect()
 
 					if result['page_info'] is not None:

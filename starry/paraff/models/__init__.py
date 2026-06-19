@@ -1,13 +1,40 @@
 
-from .tokenGen import TokenGen, TokenGenLoss
-from .seqVAE import SeqvaeEncoderMean, SeqvaeEncoderFinale, SeqvaeDecoderHead, SeqvaeLoss, SeqvaeEncoderJit
-from .sparseAE import SparseAE, SparseAELoss
-from .seqShareVAE import SeqShareVAE, SeqShareVAELoss, SeqShareVAEJitEnc, SeqShareVAEJitDec
-from .phaseGen import PhaseGen, PhaseGenLoss, PhaseGenDecoder, PhaseGenDecoderLora
-from .phasePre import PhasePre, PhasePreLoss
+from .tokenGen import *
+from .seqVAE import *
+from .sparseAE import *
+from .seqShareVAE import *
+from .seqShareVAELlama import *
+from .seqShareSE import *
+from .phaseGen import *
+from .phasePre import *
 from .seqDecoder import *
-from .graphTransformer import (
-	GraphParaffEncoder, GraphParaffEncoderLoss, GraphParaffEncoderTail, GraphParaffEncoderDecoder,
-	GraphParaffSummaryEncoder, GraphParaffSummaryEncoderLoss,
-	GraphParaffTranslator, GraphParaffTranslatorLoss, GraphParaffTranslatorOnnx,
-)
+from .graphTransformer import *
+from .midiTranslator import *
+from .janus import *
+
+
+
+__all__ = [
+	'TokenGen', 'TokenGenLoss',
+
+	'SeqvaeEncoderMean', 'SeqvaeEncoderFinale', 'SeqvaeDecoderHead', 'SeqvaeLoss', 'SeqvaeEncoderJit',
+
+	'SparseAE', 'SparseAELoss',
+
+	'SeqShareVAE', 'SeqShareVAELoss', 'SeqShareVAEJitEnc', 'SeqShareVAEJitDec',
+	'SeqShareVAELlama', 'SeqShareVAELlamaLoss',
+	'SeqShareSE', 'SeqShareSELoss', 'SeqShareSEJitEnc',
+
+	'PhaseGen', 'PhaseGenLoss', 'PhaseGenDecoder', 'PhaseGenDecoderLora',
+	'PhasePre', 'PhasePreLoss',
+
+	'SeqDecoderBase', 'SeqDecoderBaseLoss', 'SeqDecoderLora',
+
+	'GraphParaffEncoder', 'GraphParaffEncoderLoss', 'GraphParaffEncoderTail', 'GraphParaffEncoderDecoder',
+	'GraphParaffSummaryEncoder', 'GraphParaffSummaryEncoderLoss',
+	'GraphParaffTranslator', 'GraphParaffTranslatorLoss', 'GraphParaffTranslatorOnnx',
+
+	'MidiParaffTranslator', 'MidiParaffTranslatorLoss', 'MidiParaffTranslatorDecoder', 'MidiParaffTranslatorConsumer',
+
+	'JanusLanguage', 'JanusLanguageLoss',
+]

@@ -6,3 +6,5 @@ ID_EOS = 3
 ID_BOM = 4
 ID_EOM = 5
 ID_VB = 6
+
+ID_W = 88
