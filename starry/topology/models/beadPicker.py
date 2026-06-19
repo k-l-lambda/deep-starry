@@ -8,6 +8,7 @@ from ...utils.weightedValue import WeightedValue
 from .modules import EventOrderedEncoder, EventEncoderV4, CrossEntropy, RectifierParser2, RectifierParser3
 from .rectifyJointer import EncoderLayerStack, DEFAULT_ERROR_WEIGHTS
 from ...modules.classInt import Int2PClass
+from ...utils.registry import register_model
 
 
 def _build_causal_mask(stype, beading_pos, x, strict_causal=False):
@@ -109,6 +110,7 @@ RectifierParsers = {
 }
 
 
+@register_model
 class BeadPicker (nn.Module):
 	def __init__ (self, n_layers=1, angle_cycle=1000, d_position=512, feature_activation=None, zero_candidates=False,
 			with_time8th=False, causal_mask=False, strict_causal=False,
@@ -159,6 +161,7 @@ class BeadPicker (nn.Module):
 		return successor, rec
 
 
+@register_model
 class BeadPickerOnnx (BeadPicker):
 	def __init__ (self, out_temperature=1, **kw_args):
 		super().__init__(**kw_args)
@@ -178,6 +181,7 @@ class BeadPickerOnnx (BeadPicker):
 			['tick', 'division', 'dots', 'beam', 'stemDirection', 'grace', 'timeWarped', 'fullMeasure', 'fake']])
 
 
+@register_model
 class BeadPickerLoss (nn.Module):
 	def __init__ (self, decisive_confidence=0.5, error_weights=DEFAULT_ERROR_WEIGHTS, loss_weights=[10, 1e-6],
 		usePivotX=False, init_gain_n=2, freeze=None, **kw_args):

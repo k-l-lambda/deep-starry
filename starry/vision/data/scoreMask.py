@@ -4,9 +4,11 @@ import os
 from .slicedScore import SlicedScore
 from .score import MASK
 from .utils import loadSplittedDatasets
+from ...utils.registry import register_dataset
 
 
 
+@register_dataset
 class ScoreMask (SlicedScore):
 	@staticmethod
 	def load (root, args, splits, device='cpu', args_variant=None):

@@ -9,6 +9,7 @@ from ...transformer.models import get_subsequent_mask
 from ...modules.positionEncoder import SinusoidEncoder
 from .sparseAE import AttentionStack
 from ..vocab import ID_MSUM
+from ...utils.registry import register_model
 
 
 
@@ -16,6 +17,7 @@ def logical_not (x):
 	return (1 - x.int()).bool()
 
 
+@register_model
 class PhasePre (nn.Module):
 	def __init__ (self,
 			n_type, n_vocab, pad_id=0, sum_id=ID_MSUM, d_phase=128, d_token=128, d_summary=256,
@@ -93,6 +95,7 @@ class PhasePre (nn.Module):
 		return x[:, -n_word:]
 
 
+@register_model
 class PhasePreLoss (nn.Module):
 	def __init__ (self, **kw_args):
 		super().__init__()

@@ -29,6 +29,7 @@ from .m3 import (
 	M3PatchEncoder, build_m3_config, load_m3_encoder,
 	PATCH_SIZE, PATCH_LENGTH, M3_HIDDEN_SIZE, PATCH_NUM_LAYERS, NUM_CLASSES,
 )
+from ...utils.registry import register_model
 
 
 def _masked_mean (features, masks):
@@ -40,6 +41,7 @@ def _masked_mean (features, masks):
 	return summed / count
 
 
+@register_model
 class LilyletM3Encoder (nn.Module):
 	'''Student Lilylet M3 encoder.
 
@@ -125,6 +127,7 @@ class LilyletM3Encoder (nn.Module):
 		return pooled
 
 
+@register_model
 class LilyletM3EncoderLoss (nn.Module):
 	'''Training wrapper: cosine-regression distillation against the frozen teacher target.
 

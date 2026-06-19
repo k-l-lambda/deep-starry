@@ -9,9 +9,11 @@ from ...transformer.models import get_subsequent_mask, get_pad_mask
 from ..vocab import ID_PAD, ID_VB, ID_EOM
 from .modules import AttentionStack, DecoderWithPosition, MidiEventEncoderV2, MidiEventEncoderV3, InteractiveAttentionStack
 from ...utils.weightedValue import WeightedValue
+from ...utils.registry import register_model
 
 
 
+@register_model
 class MidiParaffTranslator (nn.Module):
 	def __init__(self, d_model, encoder_config, decoder_config, n_midi_dec_layer=2, d_midi_dec=1, n_head=8, d_k=32, d_v=32, d_inner=1024, dropout=0.1, with_pos=False, **_):
 		super().__init__()
@@ -57,6 +59,7 @@ class MidiParaffTranslator (nn.Module):
 		return paraff_out, midi_out
 
 
+@register_model
 class MidiParaffTranslatorDecoder (MidiParaffTranslator):
 	def forward (self, t, p, s, time, consumption, premier, position):	# -> (n, n_seq, n_vocab)
 		source_mask = (t != 0).unsqueeze(-2)	# bidirectional mask
@@ -75,6 +78,7 @@ class MidiParaffTranslatorDecoder (MidiParaffTranslator):
 		return paraff_out
 
 
+@register_model
 class MidiParaffTranslatorConsumer (MidiParaffTranslator):
 	def forward (self, t, p, s, time, consumption, premier, position):	# -> (n, n_seq, n_vocab)
 		source_mask = (t != 0).unsqueeze(-2)	# bidirectional mask
@@ -96,6 +100,7 @@ class MidiParaffTranslatorConsumer (MidiParaffTranslator):
 		return torch.softmax(paraff_out, dim=-1), torch.sigmoid(midi_out.squeeze(-1))
 
 
+@register_model
 class MidiParaffTranslatorLoss (nn.Module):
 	def __init__(self, word_weights=None, midi_weight=1, mask_measure=None, vocab=[], **kw_args):
 		super().__init__()

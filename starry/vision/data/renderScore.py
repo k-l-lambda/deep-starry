@@ -17,6 +17,7 @@ from .cacheData import CachedIterableDataset
 from .imageReader import CachedImageReader, _S
 from .augmentor import Augmentor
 from .score import makeReader, listAllScoreNames, GRAPH, MASK, STAFF
+from ...utils.registry import register_dataset
 
 
 
@@ -90,6 +91,7 @@ def renderTargetFromGraph (graph, labels, size, unit_size=16, point_radius=2 / 1
 	return np.stack(layers, axis=-1)
 
 
+@register_dataset
 class RenderScore (CachedIterableDataset):
 	@staticmethod
 	def load (root, args, splits, device='cpu', args_variant=None):

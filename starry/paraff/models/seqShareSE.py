@@ -8,6 +8,7 @@ from ...transformer.models import PositionalEncoding, get_pad_mask, get_subseque
 from ..midiseq import T2I, N_VOCAB
 from .seqShareVAE import SeqShareDecoderWithPosition as SeqShareSDecoder
 from .modules import AttentionStack
+from ...utils.registry import register_model
 
 
 
@@ -54,6 +55,7 @@ class SeqShareSEncoder (nn.Module):
 		return latent
 
 
+@register_model
 class SeqShareSE (nn.Module):
 	def __init__ (self, n_vocab=N_VOCAB, d_latent=256,
 		n_layers=6, d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64,
@@ -90,6 +92,7 @@ class SeqShareSE (nn.Module):
 			attention=self.attention, pad_id=self.pad_id)
 
 
+@register_model
 class SeqShareSEJitEnc (SeqShareSE):
 	def __init__ (self, **kw_args):
 		super().__init__(**kw_args)
@@ -115,6 +118,7 @@ class SeqShareSEJitEnc (SeqShareSE):
 		return latent
 
 
+@register_model
 class SeqShareSELoss (nn.Module):
 	def __init__ (self, n_layers, decode_weight=1., enc_loss='cos', **kw_args):
 		super().__init__()

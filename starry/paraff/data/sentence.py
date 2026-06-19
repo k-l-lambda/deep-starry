@@ -5,9 +5,11 @@ from torch.utils.data import IterableDataset
 
 from ...utils.parsers import parseFilterStr, mergeArgs
 from .paraffFile import ParaffFile
+from ...utils.registry import register_dataset
 
 
 
+@register_dataset
 class SentenceShift (IterableDataset):
 	@classmethod
 	def load (cls, root, args, splits, device='cpu', args_variant=None, **_):

@@ -79,7 +79,7 @@ class Trainer:
 
 		self.start_epoch = 0
 
-		self.model = loadModel(config['model'], postfix='Loss')
+		self.model = loadModel(config['model'], postfix='Loss', imports=config['imports'])
 		self.model.to(self.options['device'])
 
 		self.optimizer = optim(config['optim'], self.model.parameters(), init_step=self.options.get('steps', 0))

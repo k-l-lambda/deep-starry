@@ -6,6 +6,7 @@ from ...modules.positionEncoder import SinusoidEncoderXYY
 from ...transformer.layers import EncoderLayer
 from ...transformer.models import get_pad_mask
 from ..data.scoreFault import SEMANTIC_MAX, STAFF_MAX
+from ...utils.registry import register_model
 
 
 
@@ -93,11 +94,13 @@ class ScoreTransformer (nn.Module):
 		return self.output(code)	# (n, seq, out_channels)
 
 
+@register_model
 class ScoreSemanticValue (ScoreTransformer):
 	def __init__(self, **kwargs):
 		super().__init__(out_channels = 1, **kwargs)
 
 
+@register_model
 class ScoreSemanticValueLoss (nn.Module):
 	def __init__ (self, semantics, **kw_args):
 		super().__init__()

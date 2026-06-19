@@ -10,9 +10,11 @@ from ...modules.positionEncoder import SinusoidEncoder
 from .sparseAE import AttentionStack
 from .seqShareVAE import SeqShareVAE
 from .seqDecoder import SeqDecoderLora
+from ...utils.registry import register_model
 
 
 
+@register_model
 class PhaseGen (nn.Module):
 	def __init__ (self,
 			n_vocab, pad_id=0, d_model=256, d_inner=1024,
@@ -44,6 +46,7 @@ class PhaseGen (nn.Module):
 		return x[next]
 
 
+@register_model
 class PhaseGenDecoder (nn.Module):
 	def __init__ (self, d_model=256, word_decoder_config={}, **_):
 		super().__init__()
@@ -60,6 +63,7 @@ class PhaseGenDecoder (nn.Module):
 		return self.word_decoder(input_ids, position.float(), latent)
 
 
+@register_model
 class PhaseGenDecoderLora (nn.Module):
 	def __init__ (self, lora_decoder_config={}, **_):
 		super().__init__()
@@ -75,6 +79,7 @@ class PhaseGenDecoderLora (nn.Module):
 		return self.word_decoder(input_ids, position.float(), latent)
 
 
+@register_model
 class PhaseGenLoss (nn.Module):
 	need_states = True
 

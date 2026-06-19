@@ -6,6 +6,7 @@ import torch.nn as nn
 from ...unet import UNet
 from ..score_semantic import ScoreSemanticDual
 from ..contours import Compounder
+from ...utils.registry import register_model
 
 
 
@@ -43,6 +44,7 @@ class ScoreResidueBlockUnetRes (ScoreResidueBlockUnet):
 		return self.forwardRes(input, prev)
 
 
+@register_model
 class ScoreResidueU (nn.Module):
 	def __init__ (self, in_channels, out_channels, residue_blocks,
 		base_depth, base_init_width, residue_depth=4, residue_init_width=64,
@@ -102,6 +104,7 @@ class ScoreResidueU (nn.Module):
 					self.res_blocks[i].load_state_dict(res[-1])
 
 
+@register_model
 class ScoreResidueULoss (nn.Module):
 	def __init__(self, compounder, out_channels=3, channel_weights=None, freeze_base=False, frozen_res=0, **kw_args):
 		super().__init__()
@@ -168,6 +171,7 @@ class ScoreResidueULoss (nn.Module):
 		return result
 
 
+@register_model
 class ScoreResidueUInspection (ScoreResidueU):
 	def __init__ (self, **kw_args):
 		super().__init__(**kw_args)

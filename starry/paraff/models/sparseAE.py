@@ -9,6 +9,7 @@ import torch.nn.functional as F
 
 from ...transformer.models import PositionalEncoding, get_pad_mask, get_subsequent_mask
 from .modules import AttentionStack
+from ...utils.registry import register_model
 
 
 
@@ -86,6 +87,7 @@ class SaeDecoder (nn.Module):
 		return x
 
 
+@register_model
 class SparseAE (nn.Module):
 	def __init__ (self, n_vocab, d_latent=0x10000, pad_id=0, summary_id=1, finale_id=5, share_latent_prj=True,
 		n_layers=6, d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64,
@@ -123,6 +125,7 @@ class SparseAE (nn.Module):
 			position_enc=self.position_enc, dropout=self.dropout, mask_dropout=self.mask_dropout, attention=self.attention, pad_id=self.pad_id)
 
 
+@register_model
 class SparseAELoss (nn.Module):
 	need_states = True
 

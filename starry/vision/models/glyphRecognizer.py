@@ -5,9 +5,11 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 
 from .effNet import HeadlessEffNet
+from ...utils.registry import register_model
 
 
 
+@register_model
 class GlyphRecognizer (nn.Module):
 	def __init__ (self, n_classes=2, size=(32, 32),
 		backbones=['efficientnet_b0', 'efficientnet_b0', 'efficientnet_b0'],
@@ -41,6 +43,7 @@ class GlyphRecognizer (nn.Module):
 		return x
 
 
+@register_model
 class GlyphRecognizerLoss (nn.Module):
 	def __init__ (self, init_param=True, **kw_args):
 		super().__init__()

@@ -15,9 +15,11 @@ from ...melody.measurewiseMIDI import NOTE_MIN, NOTE_MAX
 from ...melody.data.measurewise import normalFactor
 from .paragraph import MeasureLibrary
 from ..vocab import ID_W
+from ...utils.registry import register_dataset
 
 
 
+@register_dataset
 class ScoreMeasurewise (IterableDataset):
 	measure_lib = {}
 

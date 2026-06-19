@@ -12,9 +12,11 @@ from .utils import collateBatch, loadSplittedDatasets
 from .score import makeReader, listAllScoreNames, PAGE, PAGE_LAYOUT
 from .cacheData import CachedIterableDataset
 from .augmentor import Augmentor
+from ...utils.registry import register_dataset
 
 
 
+@register_dataset
 class ScorePage (CachedIterableDataset):
 	@classmethod
 	def load (cls, root, args, splits, device='cpu', args_variant=None):
@@ -90,6 +92,7 @@ class ScorePage (CachedIterableDataset):
 		return len(self.names)
 
 
+@register_dataset
 class ScorePageRaw (ScorePage):
 	#def __init__ (self, root, **kwargs):
 	#	super().__init__(root, **kwargs)

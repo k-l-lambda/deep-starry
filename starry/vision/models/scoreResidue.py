@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 
 from ...flu_net import HeatMapOut, ConIn, ZoomInOutSeq
+from ...utils.registry import register_model
 
 
 
@@ -48,6 +49,7 @@ class ScoreResidueBlockRes (ScoreResidueBlock):
 		return self.forwardRes(input)
 
 
+@register_model
 class ScoreResidue (nn.Module):
 	def __init__ (self, in_channels, out_channels, residue_blocks,
 		base_depth, base_stack_filters, residue_depth=1, residue_stack_filters=[8, 16, 24],
@@ -120,6 +122,7 @@ class ScoreResidue (nn.Module):
 			block.train(mode and not frozen)
 
 
+@register_model
 class ScoreResidueInspection (ScoreResidue):
 	def __init__ (self, **kw_args):
 		super().__init__(**kw_args)

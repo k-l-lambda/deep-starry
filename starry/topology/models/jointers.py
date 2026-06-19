@@ -5,9 +5,11 @@ import logging
 from ...transformer.models import get_pad_mask, get_subsequent_mask
 from ..semantic_element import SemanticElementType, STAFF_MAX
 from .modules import Encoder, Encoder1, Decoder1, EncoderBranch2, Jointer, SieveJointer, JaggedLoss
+from ...utils.registry import register_model
 
 
 
+@register_model
 class TransformJointer (nn.Module):
 	def __init__ (self, d_model=512, d_inner=2048,
 			n_source_layers=6, n_target_layers=1,
@@ -54,6 +56,7 @@ class TransformJointer (nn.Module):
 		return results
 
 
+@register_model
 class TransformJointerLoss (nn.Module):
 	def __init__ (self, decisive_confidence=0.5, **kw_args):
 		super().__init__()
@@ -101,6 +104,7 @@ class TransformJointerLoss (nn.Module):
 
 
 
+@register_model
 class TransformJointerH (nn.Module):
 	def __init__ (self, d_model=512, d_inner=2048,
 			n_source_layers=6, n_target_layers=1,
@@ -132,6 +136,7 @@ class TransformJointerH (nn.Module):
 		return results
 
 
+@register_model
 class TransformJointerHLoss (nn.Module):
 	def __init__ (self, model_class=TransformJointerH, decisive_confidence=0.5, **kw_args):
 		super().__init__()
@@ -153,6 +158,7 @@ class TransformJointerHLoss (nn.Module):
 		return loss, {'acc_h': accuracy}
 
 
+@register_model
 class TransformJointerHV (nn.Module):
 	def __init__ (self, d_model=512, d_inner=2048,
 			n_source_layers=6, n_target_layers=(0, 1, 1),
@@ -182,6 +188,7 @@ class TransformJointerHV (nn.Module):
 		return h_results, v_results
 
 
+@register_model
 class TransformJointerHVLoss (nn.Module):
 	def __init__ (self, model_class=TransformJointerHV, decisive_confidence=0.5, **kw_args):
 		super().__init__()
@@ -212,6 +219,7 @@ class TransformJointerHVLoss (nn.Module):
 		return loss, accuracy
 
 
+@register_model
 class TransformJointerH_ED (nn.Module):
 	def __init__ (self, d_model=512, d_inner=2048,
 			n_source_layers=6, n_target_layers=1,
@@ -239,11 +247,13 @@ class TransformJointerH_ED (nn.Module):
 		return results
 
 
+@register_model
 class TransformJointerH_EDLoss (TransformJointerHLoss):
 	def __init__ (self, **kw_args):
 		super().__init__(TransformJointerH_ED, **kw_args)
 
 
+@register_model
 class TransformJointerHV_EDD (nn.Module):
 	def __init__ (self, d_model=512, d_inner=2048,
 			n_source_layers=6, n_target_layers=1, n_v_layers=1,
@@ -275,11 +285,13 @@ class TransformJointerHV_EDD (nn.Module):
 		return h_results, v_results
 
 
+@register_model
 class TransformJointerHV_EDDLoss (TransformJointerHVLoss):
 	def __init__ (self, **kw_args):
 		super().__init__(TransformJointerHV_EDD, **kw_args)
 
 
+@register_model
 class TransformSieveJointerH (nn.Module):
 	def __init__ (self, d_model=512, d_inner=2048,
 			n_source_layers=6, n_target_layers=1, n_sieve_layers=1,
@@ -309,11 +321,13 @@ class TransformSieveJointerH (nn.Module):
 		return results
 
 
+@register_model
 class TransformSieveJointerHLoss (TransformJointerHLoss):
 	def __init__ (self, **kw_args):
 		super().__init__(TransformSieveJointerH, **kw_args)
 
 
+@register_model
 class TransformSieveJointerHV (nn.Module):
 	def __init__ (self, d_model=512, d_inner=2048,
 			n_source_layers=6, n_target_layers=1, n_sieve_layers=1, n_v_layers=1,
@@ -347,6 +361,7 @@ class TransformSieveJointerHV (nn.Module):
 		return h_results, v_results
 
 
+@register_model
 class TransformSieveJointerHVLoss (TransformJointerHVLoss):
 	def __init__ (self, **kw_args):
 		super().__init__(TransformSieveJointerHV, **kw_args)

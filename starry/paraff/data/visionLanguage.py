@@ -10,9 +10,11 @@ from typing import List
 
 from ...utils.parsers import parseFilterStr, mergeArgs
 import pandas as pd
+from ...utils.registry import register_dataset
 
 
 
+@register_dataset
 class VisionLanguage (IterableDataset):
 	@classmethod
 	def load (cls, root, args, splits, device='cpu', args_variant=None, **_):

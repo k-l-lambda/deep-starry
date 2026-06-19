@@ -17,9 +17,11 @@ from attrdict import AttrDict
 
 from ...topology.models.modules import CrossEntropy
 from ...janus import MlpProjector
+from ...utils.registry import register_model
 
 
 
+@register_model
 class JanusLanguage (nn.Module):
 	def __init__ (self, trainable_parameters, model_path, dtype='float32', additional_embedding_dims=None, **_):
 		super().__init__()
@@ -100,6 +102,7 @@ class JanusLanguage (nn.Module):
 		self.janus.save_pretrained(path)
 
 
+@register_model
 class JanusLanguageLoss (nn.Module):
 	def __init__ (self, aligner_cfg: dict, aligner_weights_path: str, trainable_parameters: List[str], dtype='float32', **kwargs):
 		super().__init__()

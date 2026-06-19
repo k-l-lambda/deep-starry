@@ -4,9 +4,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ...transformer.models import Encoder, get_pad_mask, get_subsequent_mask
+from ...utils.registry import register_model
 
 
 
+@register_model
 class TokenGen (nn.Module):
 	def __init__ (self,
 			n_vocab, pad_id=0, d_model=512, d_inner=2048,
@@ -52,6 +54,7 @@ class TokenGen (nn.Module):
 		return seq_logit
 
 
+@register_model
 class TokenGenLoss (nn.Module):
 	def __init__ (self, **kw_args):
 		super().__init__()

@@ -26,6 +26,7 @@ import torch.nn.functional as F
 from transformers import GPT2Config, GPT2Model, GPT2LMHeadModel, PreTrainedModel
 from transformers import LlamaConfig, LlamaModel, LlamaForCausalLM
 from transformers import PretrainedConfig
+from ...utils.registry import register_model
 
 
 PAD_TOKEN_ID = 0
@@ -120,6 +121,7 @@ class TokenLevelDecoder (PreTrainedModel):
 		return self.base(inputs_embeds=inputs_embeds, attention_mask=target_masks, labels=labels)
 
 
+@register_model
 class LilyletNotaGen (nn.Module):
 	'''Inference model: hierarchical patch-level + token-level decoders.
 
@@ -240,6 +242,7 @@ class LilyletNotaGen (nn.Module):
 		return self.token_level_decoder(encoded_patches, target_patches), target_patches
 
 
+@register_model
 class LilyletNotaGenLoss (nn.Module):
 	'''Training wrapper: computes loss + metrics from a LilyletPatchy batch.'''
 

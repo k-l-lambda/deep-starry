@@ -10,10 +10,12 @@ from ..graphSemantics import SEMANTIC_MAX, STAFF_MAX, TG_EOS, TG_PAD
 from ..vocab import ID_PAD, ID_VB, ID_EOM
 from .modules import AttentionStack, TimewiseGraphEncoder, DecoderWithPosition
 from .seqShareVAE import SeqShareVAE
+from ...utils.registry import register_model
 
 
 
 # GraphParaffEncoder -------------------------------------------------------------------------------------------------------
+@register_model
 class GraphParaffEncoder (nn.Module):
 	def __init__(self, d_model=256, n_semantic=SEMANTIC_MAX, n_staff=STAFF_MAX, d_position=128, angle_cycle=1000,
 		d_inner=1024, n_layers=6, n_head=8, d_k=32, d_v=32, dropout=0.1, unidirectional=True):
@@ -39,6 +41,7 @@ class GraphParaffEncoder (nn.Module):
 		return h
 
 
+@register_model
 class GraphParaffEncoderTail (nn.Module):
 	def __init__(self, word_decoder_config, word_decoder_pretrain, **kw_args):
 		super().__init__()
@@ -60,6 +63,7 @@ class GraphParaffEncoderTail (nn.Module):
 		return h[ids == self.id_eos]
 
 
+@register_model
 class GraphParaffEncoderDecoder (nn.Module):
 	def __init__(self, d_model=256, word_decoder_config=None, **_):
 		super().__init__()
@@ -76,6 +80,7 @@ class GraphParaffEncoderDecoder (nn.Module):
 		return self.word_decoder(input_ids, position.float(), latent)
 
 
+@register_model
 class GraphParaffEncoderLoss (nn.Module):
 	need_states = True
 
@@ -177,6 +182,7 @@ class GraphParaffEncoderLoss (nn.Module):
 
 
 # GraphParaffSummaryEncoder -------------------------------------------------------------------------------------------------------
+@register_model
 class GraphParaffSummaryEncoder (nn.Module):
 	def __init__(self, d_model=256, n_semantic=SEMANTIC_MAX, n_staff=STAFF_MAX, d_position=128, angle_cycle=1000,
 		d_inner=1024, n_layers=6, n_head=8, d_k=32, d_v=32, dropout=0.1):
@@ -205,6 +211,7 @@ class GraphParaffSummaryEncoder (nn.Module):
 		return h
 
 
+@register_model
 class GraphParaffSummaryEncoderLoss (nn.Module):
 	def __init__(self, d_model=256, word_decoder_config=None, word_decoder_pretrain=None, **kw_args):
 		super().__init__()
@@ -283,6 +290,7 @@ class GraphParaffSummaryEncoderLoss (nn.Module):
 
 
 # GraphParaffTranslator ----------------------------------------------------------------------------------------------------
+@register_model
 class GraphParaffTranslator (nn.Module):
 	def __init__(self, d_model, encoder_config, decoder_config, with_pos=False, **_):
 		super().__init__()
@@ -315,6 +323,7 @@ class GraphParaffTranslator (nn.Module):
 		return result
 
 
+@register_model
 class GraphParaffTranslatorOnnx (GraphParaffTranslator):
 	pass
 	'''def forward(self, ids, staff, confidence, x, y, sy1, sy2, premier, position):
@@ -330,6 +339,7 @@ class GraphParaffTranslatorOnnx (GraphParaffTranslator):
 		return super().forward(ids, staff, confidence, x, y, sy1, sy2, premier, position)'''
 
 
+@register_model
 class GraphParaffTranslatorLoss (nn.Module):
 	def __init__(self, word_weights=None, vocab=[], **kw_args):
 		super().__init__()

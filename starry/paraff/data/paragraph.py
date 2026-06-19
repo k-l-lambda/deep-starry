@@ -11,6 +11,7 @@ import numpy as np
 from ...utils.parsers import parseFilterStr, mergeArgs
 from .paraffFile import ParaffFile
 from .timewiseGraph import TG_EOS
+from ...utils.registry import register_dataset
 
 
 
@@ -62,6 +63,7 @@ class MeasureLibrary:
 		semantic_file.close()
 
 
+@register_dataset
 class PhasedParagraph (IterableDataset):
 	measure_lib = {}
 

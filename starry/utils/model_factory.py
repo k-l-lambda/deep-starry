@@ -2,80 +2,54 @@
 import torch
 import logging
 
+from .registry import MODELS, import_modules, import_package_submodules
 
 
-model_dict = None
+# Modality packages whose submodules' import triggers @register_model on every class
+# they expose. Used as the fallback when a config declares no `imports:` (backward
+# compatible). Each submodule is imported independently so one modality's missing
+# optional dep (cv2, primesieve, ...) can't block the others.
+_MODALITY_MODELS = [
+	'starry.topology.models',
+	'starry.vision.models',
+	'starry.paraff.models',
+	'starry.lilylet.models',
+]
+
+
+def _ensure_registered (imports=None):
+	if imports:
+		import_modules(imports)
+	else:
+		for pkg in _MODALITY_MODELS:
+			import_package_submodules(pkg)
+
+
+# Backward-compat shims for callers predating the registry refactor (e.g. convertToOnnx.py
+# uses `registerModels()` then membership tests against `model_dict`). `model_dict` aliases
+# the live MODELS dict, so it reflects registrations performed in place.
+model_dict = MODELS
 
 
 def registerModels ():
-	global model_dict
-
-	from ..topology.models import jointers as tj
-	from ..topology.models import rectifyJointer as tr
-	from ..topology.models import rectifyJointer2 as tr2
-	from ..topology.models import beadPicker as tb
-	from ..vision import models as vm
-	from ..paraff import models as pm
-	from ..lilylet import models as lm
-
-	classes = [
-		tj.TransformJointer, tj.TransformJointerLoss,
-		tj.TransformJointerH, tj.TransformJointerHLoss,
-		tj.TransformJointerHV, tj.TransformJointerHVLoss,
-		tj.TransformJointerH_ED, tj.TransformJointerH_EDLoss,
-		tj.TransformJointerHV_EDD, tj.TransformJointerHV_EDDLoss,
-		tj.TransformSieveJointerH, tj.TransformSieveJointerHLoss,
-		tj.TransformSieveJointerHV, tj.TransformSieveJointerHVLoss,
-		tr.RectifySieveJointer, tr.RectifySieveJointerLoss,
-		tr2.RectifySieveJointer2, tr2.RectifySieveJointer2Loss,
-		tb.BeadPicker, tb.BeadPickerLoss, tb.BeadPickerOnnx,
-		vm.ScoreWidgets, vm.ScoreWidgetsInspection, vm.ScoreWidgetsLoss,
-		vm.ScoreWidgetsMask, vm.ScoreWidgetsMaskLoss,
-		vm.ScoreRegression, vm.ScoreRegressionLoss,
-		vm.ScoreResidue, vm.ScoreResidueInspection,
-		vm.ScoreResidueU, vm.ScoreResidueUInspection, vm.ScoreResidueULoss,
-		vm.ScoreSemanticValue, vm.ScoreSemanticValueLoss,
-		vm.GlyphRecognizer, vm.GlyphRecognizerLoss,
-		pm.TokenGen, pm.TokenGenLoss,
-		pm.SeqvaeLoss, pm.SeqvaeEncoderJit,
-		pm.SparseAE, pm.SparseAELoss,
-		pm.SeqShareVAE, pm.SeqShareVAELoss, pm.SeqShareVAEJitEnc, pm.SeqShareVAEJitDec,
-		pm.SeqShareVAELlama, pm.SeqShareVAELlamaLoss,
-		pm.SeqShareSE, pm.SeqShareSELoss, pm.SeqShareSEJitEnc,
-		pm.PhaseGen, pm.PhaseGenLoss, pm.PhaseGenDecoder, pm.PhaseGenDecoderLora,
-		pm.PhasePre, pm.PhasePreLoss,
-		pm.SeqDecoderBase, pm.SeqDecoderBaseLoss,
-		pm.GraphParaffEncoder, pm.GraphParaffEncoderLoss, pm.GraphParaffEncoderTail, pm.GraphParaffEncoderDecoder,
-		pm.GraphParaffSummaryEncoder, pm.GraphParaffSummaryEncoderLoss,
-		pm.GraphParaffTranslator, pm.GraphParaffTranslatorLoss, pm.GraphParaffTranslatorOnnx,
-		pm.MidiParaffTranslator, pm.MidiParaffTranslatorLoss, pm.MidiParaffTranslatorDecoder, pm.MidiParaffTranslatorConsumer,
-		pm.JanusLanguage, pm.JanusLanguageLoss,
-		lm.LilyletNotaGen, lm.LilyletNotaGenLoss,
-		lm.LilyletM3Encoder, lm.LilyletM3EncoderLoss,
-	]
-
-	model_dict = dict([(c.__name__, c) for c in classes])
+	_ensure_registered()
 
 
-
-def loadModel (config, postfix=''):
-	global model_dict
-	if model_dict is None:
-		registerModels()
+def loadModel (config, postfix='', imports=None):
+	_ensure_registered(imports)
 
 	model_type = config['type'] + postfix
 
-	if model_type not in model_dict:
+	if model_type not in MODELS:
 		raise RuntimeError("Model type %s not found" % model_type)
 
-	model_class = model_dict[model_type]
+	model_class = MODELS[model_type]
 
 	return model_class(**config['args'])
 
 
-
-def loadModelAndWeights (config, checkpoint_name=None, device='cpu', postfix=''):
-	model = loadModel(config['model'], postfix=postfix)
+def loadModelAndWeights (config, checkpoint_name=None, device='cpu', postfix='', imports=None):
+	model = loadModel(config['model'], postfix=postfix, imports=imports)
 
 	checkpoint = {}
 	if checkpoint_name is not None:

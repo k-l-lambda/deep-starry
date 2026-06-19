@@ -8,6 +8,7 @@ from transformers import LlamaConfig
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 
 from ...transformer.models import get_pad_mask, get_subsequent_mask
+from ...utils.registry import register_model
 
 
 
@@ -102,6 +103,7 @@ class SeqShareLlamaDecoder (nn.Module):
 		return x
 
 
+@register_model
 class SeqShareVAELlama (nn.Module):
 	def __init__ (self, n_vocab, d_latent=256, pad_id=0, finale_id=5,
 		n_layers=6, d_model=512, d_inner=2048, n_head=8,
@@ -141,6 +143,7 @@ class SeqShareVAELlama (nn.Module):
 			attention=self.attention, pad_id=self.pad_id)
 
 
+@register_model
 class SeqShareVAELlamaLoss (nn.Module):
 	def __init__ (self, n_layers, summary_id, kld_weight=0.001, **kw_args):
 		super().__init__()

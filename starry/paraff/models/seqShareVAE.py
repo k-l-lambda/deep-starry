@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from ...transformer.models import PositionalEncoding, get_pad_mask, get_subsequent_mask
 from ...modules.positionEncoder import SinusoidEncoder
 from .modules import AttentionStack
+from ...utils.registry import register_model
 
 
 
@@ -130,6 +131,7 @@ class SeqShareDecoderWithPosition (nn.Module):
 		return x
 
 
+@register_model
 class SeqShareVAE (nn.Module):
 	def __init__ (self, n_vocab, d_latent=256, pad_id=0, finale_id=5,
 		n_layers=6, d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64,
@@ -175,6 +177,7 @@ class SeqShareVAE (nn.Module):
 			attention=self.attention, pad_id=self.pad_id)
 
 
+@register_model
 class SeqShareVAEJitEnc (SeqShareVAE):
 	def __init__ (self, **kw_args):
 		super().__init__(**kw_args)
@@ -202,6 +205,7 @@ class SeqShareVAEJitEnc (SeqShareVAE):
 		return mu + eps * std * sigma
 
 
+@register_model
 class SeqShareVAEJitDec (SeqShareVAE):
 	def __init__ (self, **kw_args):
 		super().__init__(**kw_args)
@@ -230,6 +234,7 @@ class SeqShareVAEJitDec (SeqShareVAE):
 		return x[tip]
 
 
+@register_model
 class SeqShareVAELoss (nn.Module):
 	def __init__ (self, n_layers, summary_id, kld_weight=0.001, **kw_args):
 		super().__init__()

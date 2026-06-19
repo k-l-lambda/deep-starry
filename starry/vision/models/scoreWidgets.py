@@ -5,9 +5,11 @@ import torch.nn as nn
 
 from ...unet import UNet
 from ..score_semantic import ScoreSemanticDual
+from ...utils.registry import register_model
 
 
 
+@register_model
 class ScoreWidgets (nn.Module):
 	def __init__ (self, in_channels, out_channels, mask, backbone, mask_channels=2, wide_mask=False, **kw_args):
 		super().__init__()
@@ -56,6 +58,7 @@ class ScoreWidgets (nn.Module):
 			self.backbone.load_state_dict(state_dict['backbone'])
 
 
+@register_model
 class ScoreWidgetsLoss (nn.Module):
 	need_states = True
 
@@ -175,6 +178,7 @@ class ScoreWidgetsLoss (nn.Module):
 		return [self.channel_weights_target]
 
 
+@register_model
 class ScoreWidgetsMask (ScoreWidgets):
 	def __init__ (self, **kw_args):
 		super().__init__(out_channels=1, freeze_mask=False, **kw_args)
@@ -193,6 +197,7 @@ class ScoreWidgetsMask (ScoreWidgets):
 		return x
 
 
+@register_model
 class ScoreWidgetsMaskLoss (nn.Module):
 	def __init__(self, **kw_args):
 		super().__init__()
@@ -209,6 +214,7 @@ class ScoreWidgetsMaskLoss (nn.Module):
 		}
 
 
+@register_model
 class ScoreWidgetsInspection (ScoreWidgets):
 	def __init__ (self, **kw_args):
 		super().__init__(**kw_args)

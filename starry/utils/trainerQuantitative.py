@@ -81,7 +81,7 @@ class Trainer:
 		if dtype_name not in ('fp32', 'float32') and self.autocast_dtype is None:
 			logging.warning('Unknown trainer.dtype "%s", falling back to fp32.', dtype_name)
 
-		self.model = loadModel(config['model'], postfix='Loss')
+		self.model = loadModel(config['model'], postfix='Loss', imports=config['imports'])
 		self.model.deducer.to(self.device)
 		self.model.to(self.device)
 

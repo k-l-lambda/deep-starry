@@ -9,9 +9,11 @@ import torch.nn.functional as F
 
 from ...utils.parsers import parseFilterStr, mergeArgs
 from ..event_element import TARGET_FIELDS, EventElementType
+from ...utils.registry import register_dataset
 
 
 
+@register_dataset
 class EventCluster (IterableDataset):
 	@classmethod
 	def loadPackage (cls, url, args, splits='*0/1', device='cpu', args_variant=None):

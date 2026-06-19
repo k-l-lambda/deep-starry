@@ -2,52 +2,38 @@
 import os
 from torch.utils.data import DataLoader
 
+from .registry import DATASETS, import_modules, import_package_submodules
 
 
-type_dict = None
+# Modality packages whose submodules' import triggers @register_dataset on every class
+# they expose. Fallback when a config declares no `imports:` (backward compatible). Each
+# submodule is imported independently so one modality's missing optional dep can't block
+# the others.
+_MODALITY_DATA = [
+	'starry.vision.data',
+	'starry.topology.data',
+	'starry.paraff.data',
+	'starry.lilylet.data',
+]
 
 
-def registerTypes ():
-	global type_dict
-
-	from ..vision.data import RenderScore, ScoreMask, ScoreGauge, ScorePage, ScorePageRaw, ScoreFault, Stamp
-	from ..topology.data import EventCluster
-	from ..paraff.data import SentenceShift, PhasedParagraph, ScoreMeasurewise, MidiseqEmbed, VisionLanguage
-	from ..lilylet.data import LilyletPatchy, LilyletM3Distill
-
-	classes = [
-		RenderScore,
-		ScoreMask,
-		ScoreGauge,
-		ScorePage,
-		ScorePageRaw,
-		ScoreFault,
-		Stamp,
-		EventCluster,
-		SentenceShift,
-		PhasedParagraph,
-		ScoreMeasurewise,
-		MidiseqEmbed,
-		VisionLanguage,
-		LilyletPatchy,
-		LilyletM3Distill,
-	]
-
-	type_dict = dict([(c.__name__, c) for c in classes])
-
+def _ensure_registered (imports=None):
+	if imports:
+		import_modules(imports)
+	else:
+		for pkg in _MODALITY_DATA:
+			import_package_submodules(pkg)
 
 
 def loadDataset (config, data_dir='.', device='cpu', splits=None, batch_size=None):
-	global type_dict
-	if type_dict is None:
-		registerTypes()
+	_ensure_registered(config['imports'])
 
 	data_type = config['data.type']
 
-	if data_type not in type_dict:
+	if data_type not in DATASETS:
 		raise RuntimeError("Dataset type %s not found" % data_type)
 
-	dataset_class = type_dict[data_type]
+	dataset_class = DATASETS[data_type]
 
 	root = os.path.join(data_dir, config['data.root'])
 	datasets = dataset_class.load(root, config['data.args'], args_variant=config['data.args_variant'],

@@ -6,9 +6,11 @@ from torch.utils.data import IterableDataset
 
 from .utils import collateBatch, loadSplittedDatasets
 from .score import makeReader, listAllScoreNames
+from ...utils.registry import register_dataset
 
 
 
+@register_dataset
 class Stamp (IterableDataset):
 	@staticmethod
 	def load (root, args, splits, device='cpu', args_variant=None):

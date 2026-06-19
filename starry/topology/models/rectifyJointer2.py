@@ -6,9 +6,11 @@ from ..event_element import TARGET_DIM, EventElementType
 from ...utils.weightedValue import WeightedValue
 from .modules import EventArgsEncoder, SieveJointer2, RectifierParser2, JaggedLoss, CrossEntropy
 from .rectifyJointer import EncoderLayerStack, Encoder, Decoder
+from ...utils.registry import register_model
 
 
 
+@register_model
 class RectifySieveJointer2 (nn.Module):
 	def __init__ (self, n_trunk_layers=1, n_rectifier_layers=1, n_source_layers=2, n_target_layers=1, n_sieve_layers=1,
 			d_model=512, d_inner=2048, angle_cycle=1000, feature_activation=None, n_head=8, d_k=64, d_v=64,
@@ -71,6 +73,7 @@ DEFAULT_ERROR_WEIGHTS = [
 ]
 
 
+@register_model
 class RectifySieveJointer2Loss (nn.Module):
 	def __init__ (self, decisive_confidence=0.5, error_weights=DEFAULT_ERROR_WEIGHTS, loss_weights=[10, 1e-6],
 		init_gain_n=6, **kw_args):

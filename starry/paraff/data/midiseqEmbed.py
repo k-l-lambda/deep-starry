@@ -8,6 +8,7 @@ from torch.utils.data import IterableDataset
 from ...utils.parsers import parseFilterStr, mergeArgs
 from .paragraph import MeasureLibrary
 from ..midiseq import T2I, ID_PEDAL0
+from ...utils.registry import register_dataset
 
 
 
@@ -25,6 +26,7 @@ def wrapSentence (seq):
 	return wseq, decoding_mask
 
 
+@register_dataset
 class MidiseqEmbed (IterableDataset):
 	measure_lib = {}
 

@@ -6,6 +6,7 @@ from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
 from ...utils.parsers import parseFilterStr, mergeArgs
+from ...utils.registry import register_dataset
 
 
 # Cache stores across dataset instances built from the same root within a process,
@@ -46,6 +47,7 @@ def _get_store (root):
 	return store
 
 
+@register_dataset
 class LilyletM3Distill (Dataset):
 	'''Feeder for ABC→Lilylet M3 distillation.
 

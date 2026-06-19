@@ -4,6 +4,7 @@ import cv2
 
 from .slicedScore import SlicedScore
 from .utils import loadSplittedDatasets
+from ...utils.registry import register_dataset
 
 
 
@@ -14,6 +15,7 @@ def makeIndicesArray (shape):
 	return indices_y, indices_x
 
 
+@register_dataset
 class ScoreGauge (SlicedScore):
 	indices = makeIndicesArray((256, 4096))
 	dilate_kernel = np.ones((9, 9), np.uint8)

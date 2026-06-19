@@ -12,6 +12,7 @@ from torch.utils.data import IterableDataset
 import logging
 
 from .score import parseFilterStr
+from ...utils.registry import register_dataset
 
 
 
@@ -80,6 +81,7 @@ def segmentIntervals (indices, n, n_segment):
 	return list(map(lambda seg: (index_intervals[seg[0]][0], seg[1]), segments))
 
 
+@register_dataset
 class ScoreFault (IterableDataset):
 	@staticmethod
 	def loadPackage (url, splits='*0/1', device='cpu', **kwargs):

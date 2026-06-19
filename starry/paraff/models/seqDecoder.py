@@ -9,9 +9,11 @@ from ...transformer.models import get_pad_mask, get_subsequent_mask
 from ...modules.positionEncoder import SinusoidEncoder
 from ...lora.transformer import LoraEncoderLayer
 from .modules import AttentionStack
+from ...utils.registry import register_model
 
 
 
+@register_model
 class SeqDecoderBase (nn.Module):
 	def __init__(self, n_vocab, pad_id=0,
 		n_layers=6, d_model=512, d_inner=2048, n_head=8, d_k=64, d_v=64,
@@ -51,6 +53,7 @@ class SeqDecoderBase (nn.Module):
 		return x
 
 
+@register_model
 class SeqDecoderBaseLoss (nn.Module):
 	def __init__ (self, **kw_args):
 		super().__init__()

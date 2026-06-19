@@ -6,6 +6,7 @@ from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
 from ...utils.parsers import parseFilterStr, mergeArgs
+from ...utils.registry import register_dataset
 
 
 class _ItemStore:
@@ -74,6 +75,7 @@ def _get_store(root):
 	return store
 
 
+@register_dataset
 class LilyletPatchy(Dataset):
 	@classmethod
 	def load(cls, root, args, splits, device='cpu', args_variant=None, **_):

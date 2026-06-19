@@ -5,9 +5,11 @@ import torch.nn.functional as F
 
 from ...unet import UNet
 from ...unet_ddpm import UNetModel
+from ...utils.registry import register_model
 
 
 
+@register_model
 class ScoreRegression (nn.Module):
 	def __init__ (self, out_channels, backbone, in_channels=1, **_):
 		super().__init__()
@@ -26,6 +28,7 @@ class ScoreRegression (nn.Module):
 		return x
 
 
+@register_model
 class ScoreRegressionLoss (nn.Module):
 	def __init__ (self, with_mask=False, loss_gradient0=0, channel_weights=[1, 1], loss_func='mse_loss', init_param=True, **kw_args):
 		super().__init__()
