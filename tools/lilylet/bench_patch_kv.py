@@ -14,7 +14,7 @@ Both share the same token_int8.onnx token path, so any difference is purely the
 patch-level cache / its quantization.
 
 Usage:
-  python tools/bench_patch_kv.py --run <RUN> --measures 32 --max-patches 256
+  python tools/lilylet/bench_patch_kv.py --run <RUN> --measures 32 --max-patches 256
 """
 
 import os
@@ -22,9 +22,9 @@ import sys
 import time
 import argparse
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
-sys.path.insert(0, os.path.join(REPO_ROOT, 'tests'))
+sys.path.insert(0, os.path.join(REPO_ROOT, 'tests', 'lilylet'))
 
 import numpy as np
 import torch

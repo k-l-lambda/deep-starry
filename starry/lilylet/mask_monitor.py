@@ -1,6 +1,6 @@
 """Runtime syntax-blacklist mask for live generation.
 
-A lightweight, parse-free counterpart to tools/lilylet_blacklist_gen.py's
+A lightweight, parse-free counterpart to tools/lilylet/lilylet_blacklist_gen.py's
 BlacklistMonitor. It does NOT call any parser/oracle and has no Node dependency:
 it trusts a pre-discovered variable-length n-gram blacklist and masks the
 forbidden next tokens during sampling.

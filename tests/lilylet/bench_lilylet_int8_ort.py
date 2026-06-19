@@ -14,7 +14,7 @@ Pipeline:
        - end-to-end: greedy generation, diff the produced Lilylet text.
 
 Usage:
-  python tests/bench_lilylet_int8_ort.py --measures 8
+  python tests/lilylet/bench_lilylet_int8_ort.py --measures 8
 """
 
 import os
@@ -22,7 +22,7 @@ import sys
 import time
 import argparse
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import numpy as np
 import torch
@@ -38,7 +38,7 @@ class _StreamAborted(Exception):
 	generate loop catches it and ends the stream cleanly.'''
 
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RUN = '/home/camus/data/models/deep-starry-logs/lilylet/20260617-lilylet-notagenx-1m0617-llama-l4+10-lr0.2'
 CKPT = os.path.join(RUN, 'best.chkpt')
 ONNX_DIR = os.path.join(RUN, 'onnx')

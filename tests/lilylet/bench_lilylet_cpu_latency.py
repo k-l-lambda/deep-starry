@@ -13,14 +13,14 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import torch
 
 from starry.utils.config import Configuration
 from starry.lilylet.patchyGenerator import LilyletPatchyGenerator
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RUN = '/home/camus/data/models/deep-starry-logs/lilylet/20260609-lilylet-notagenx-large-llama-lr0.2'
 CKPT = os.path.join(RUN, 'best.chkpt')
 

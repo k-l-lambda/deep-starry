@@ -16,8 +16,8 @@ has `%` comments and no markers. Both reduce to the same content tokens here, so
 sequences are directly comparable.
 
 CLI:
-  python tools/lilylet_corpus_ngrams.py --build         # build + persist the index
-  python tools/lilylet_corpus_ngrams.py --probe "]\\n["  # test a literal string
+  python tools/lilylet/lilylet_corpus_ngrams.py --build         # build + persist the index
+  python tools/lilylet/lilylet_corpus_ngrams.py --probe "]\\n["  # test a literal string
 """
 
 import os

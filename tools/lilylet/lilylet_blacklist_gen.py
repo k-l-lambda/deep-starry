@@ -23,7 +23,7 @@ The oracle is a persistent Node process: lilylet/tools/parseOracleServer.ts run
 via tsx, speaking line-delimited JSON over stdin/stdout.
 
 Run on system python (onnxruntime + numpy; torch-free):
-  /usr/local/bin/python tools/lilylet_blacklist_gen.py --max-tokens 4000
+  /usr/local/bin/python tools/lilylet/lilylet_blacklist_gen.py --max-tokens 4000
 """
 
 import os

@@ -21,7 +21,7 @@ weights. Uses the PatchNet/TokenNet transformer wrappers from
 starry.lilylet.models.notagen (TokenNet wraps model.token_level_decoder).
 
 Usage:
-  python tools/export_lilylet_int8_ort.py \
+  python tools/lilylet/export_lilylet_int8_ort.py \
     --run /home/camus/data/models/deep-starry-logs/lilylet/20260611-lilylet-notagenx-1m0611-llama
 """
 
@@ -29,7 +29,7 @@ import os
 import sys
 import argparse
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
 import torch

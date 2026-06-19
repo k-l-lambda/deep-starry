@@ -9,15 +9,15 @@ loads it — so the script never hardcodes hyperparameters and works for any
 backbone (gpt2 / llama / GQA) without extra flags.
 
 Usage:
-	python tests/test_lilylet_patchy_generator.py
-	python tests/test_lilylet_patchy_generator.py --checkpoint <run>/best.chkpt --measures 8 --postprocess
+	python tests/lilylet/test_lilylet_patchy_generator.py
+	python tests/lilylet/test_lilylet_patchy_generator.py --checkpoint <run>/best.chkpt --measures 8 --postprocess
 """
 
 import os
 import sys
 import argparse
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import torch
 
@@ -25,7 +25,7 @@ from starry.utils.config import Configuration
 from starry.lilylet.patchyGenerator import LilyletPatchyGenerator
 
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Checkpoint sync has stopped; this lr0.2 best.chkpt is currently stable and usable.
 CKPT = '/home/camus/data/models/deep-starry-logs/lilylet/20260606-lilylet-notagenx-large-lr0.2/best.chkpt'
