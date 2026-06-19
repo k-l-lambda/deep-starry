@@ -51,6 +51,7 @@ def registerModels ():
 		pm.MidiParaffTranslator, pm.MidiParaffTranslatorLoss, pm.MidiParaffTranslatorDecoder, pm.MidiParaffTranslatorConsumer,
 		pm.JanusLanguage, pm.JanusLanguageLoss,
 		lm.LilyletNotaGen, lm.LilyletNotaGenLoss,
+		lm.LilyletM3Encoder, lm.LilyletM3EncoderLoss,
 	]
 
 	model_dict = dict([(c.__name__, c) for c in classes])
