@@ -4,8 +4,10 @@ For every `.lyl` file under `lilylet_dir`, this pairs it (by basename) with the
 matching `.abc` file under `abc_dir` and emits, per sample:
   - `patches`: Lilylet tokenize + patchize at the M3 patch size (default 64),
     via starry.lilylet.data.patchifier.patchify_text (uint8 [P, patch_size]).
-  - `m3_embedding`: the un-pooled CLaMP 3 M3 symbolic embedding of the ABC file
-    (float16 [num_patches, 768]) from starry.lilylet.m3.encode_abc.
+  - `m3_embedding`: the mean-pooled CLaMP 3 M3 symbolic embedding of the ABC
+    file (float16 [768]) — `encode_abc`'s un-pooled per-patch output averaged
+    over real patches (masked mean, matching CLaMP's avg_pooling). `m3_patches`
+    records the original (pre-pooling) patch count.
 
 Output is a single `.pt` artifact (version 1), mirroring the single-file layout of
 tools/lilylet/preprocessLilylet.py's pack_lilylet_notagen.
@@ -79,18 +81,29 @@ def main ():
 
 		with open(lyl_path, 'r', encoding='utf-8') as f:
 			lyl_text = f.read()
+		# Drop the leading `%<style>` prompt lines (period/composer/instrumentation):
+		# these Lilylet patches are paired with the ABC M3 embedding, which encodes
+		# real musical content (ABC's M3 preprocessing strips `%` comments too). The
+		# style prompt is user-facing conditioning, not music, so excluding it keeps
+		# both sides of the pair semantically aligned.
 		patches, unknowns = patchify_text(
 			lyl_text, tokenizer, file=rel,
 			patch_size=patch_size, patch_length=patch_length, patch_stream=patch_stream,
+			drop_style_comments=True,
 		)
 
-		m3 = encode_abc(abc_path, encoder, patchilizer, device=device).to('cpu', torch.float16)
+		# encode_abc returns un-pooled [num_patches, 768] with padding already
+		# stripped, so mean over dim 0 is the masked average pooling (matches
+		# CLaMP's avg_pooling over real patches). Store the [768] global vector.
+		m3 = encode_abc(abc_path, encoder, patchilizer, device=device)
+		m3_patches = int(m3.shape[0])
+		m3 = m3.mean(dim=0).to('cpu', torch.float16)
 
 		items.append(dict(
 			path=rel,
 			patches=patches,
 			m3_embedding=m3,
-			m3_patches=int(m3.shape[0]),
+			m3_patches=m3_patches,
 			unknowns=unknowns,
 		))
 		unknown_total += sum(hit['count'] for hit in unknowns)
@@ -98,13 +111,13 @@ def main ():
 	os.makedirs(os.path.dirname(args.output_path) or '.', exist_ok=True)
 	artifact = dict(
 		version=1,
-		format='lilylet-m3-abc',
+		format='lilylet-m3-abc-pooled',
 		tokenizer=dict(path=tokenizer_path, vocab_size=vocab_size),
 		config=dict(
 			patch_size=patch_size,
 			patch_length=patch_length,
 			patch_stream=patch_stream,
-			m3=dict(weights=encoder._m3_weights_path, hidden=M3_HIDDEN_SIZE, patch_size=M3_PATCH_SIZE),
+			m3=dict(weights=encoder._m3_weights_path, hidden=M3_HIDDEN_SIZE, patch_size=M3_PATCH_SIZE, pooling='mean'),
 		),
 		items=items,
 		stats=dict(files=len(lyl_files), paired=len(items), missing_abc=missing_abc, unknown_total=unknown_total),

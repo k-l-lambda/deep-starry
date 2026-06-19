@@ -99,19 +99,28 @@ def normalize_text(text: str) -> str:
 	return '\n'.join(line.split('%', 1)[0].rstrip() for line in text.split('\n'))
 
 
-def split_lilylet_document(text: str) -> Tuple[List[str], List[str]]:
+def split_lilylet_document(text: str, drop_style_comments: bool = False) -> Tuple[List[str], List[str]]:
 	# Scan the RAW (un-normalized) lines for the leading metadata block first: it can
 	# hold both `[field "..."]` lines and leading `%<style>` comment lines (the
 	# `--styles-in-comments` format). Those style comments must survive — normalize_text
 	# strips every `%`, so normalizing before this scan would drop them. The body (after
 	# the block) is normalized to remove inline / measure-end `%` comments as before.
+	#
+	# `drop_style_comments=True` consumes the leading `%<style>` lines as part of the
+	# metadata block (so they don't leak into the body) but omits them from the returned
+	# metadata. Use this for M3 encoding, which — like CLaMP's ABC preprocessing — drops
+	# `%` comment lines; the default (False) keeps them, as NotaGen prompt conditioning needs.
 	raw_lines = [line for line in text.replace('\r\n', '\n').replace('\r', '\n').split('\n') if line.strip()]
 	metadata: List[str] = []
 	body_start = 0
 	for i, line in enumerate(raw_lines):
 		stripped = line.strip()
-		if METADATA_RE.match(stripped) or STYLE_COMMENT_RE.match(stripped):
+		if METADATA_RE.match(stripped):
 			metadata.append(stripped + '\n')
+			body_start = i + 1
+		elif STYLE_COMMENT_RE.match(stripped):
+			if not drop_style_comments:
+				metadata.append(stripped + '\n')
 			body_start = i + 1
 		else:
 			break
@@ -173,9 +182,10 @@ def patchify_text(
 	patch_length: int = 2048,
 	patch_stream: bool = True,
 	add_special_patches: bool = True,
+	drop_style_comments: bool = False,
 ) -> Tuple[torch.Tensor, List[Dict[str, Any]]]:
 	unknowns: Dict[Tuple[str, str], UnknownHit] = {}
-	metadata_lines, body_lines = split_lilylet_document(text)
+	metadata_lines, body_lines = split_lilylet_document(text, drop_style_comments=drop_style_comments)
 	measures = split_measures(body_lines)
 
 	if patch_stream:

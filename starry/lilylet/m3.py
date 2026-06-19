@@ -54,8 +54,12 @@ class M3Patchilizer:
 		if syntax not in SYNTAXES:
 			raise ValueError('M3Patchilizer syntax must be one of %s, got %r' % (SYNTAXES, syntax))
 		self.syntax = syntax
-		self.delimiters = ["|:", "::", ":|", "[|", "||", "|]", "|"]
-		self.regexPattern = '(' + '|'.join(map(re.escape, self.delimiters)) + ')'
+		# ABC barline delimiters — only used by `_segment_abc` / `split_bars`. The
+		# 'lilylet' path segments via data.patchifier (its own MEASURE_END_RE /
+		# VOICE_SEP_RE) and never touches these, so don't set them for lilylet.
+		if syntax == 'abc':
+			self.delimiters = ["|:", "::", ":|", "[|", "||", "|]", "|"]
+			self.regexPattern = '(' + '|'.join(map(re.escape, self.delimiters)) + ')'
 		self.pad_token_id = PAD_TOKEN_ID
 		self.bos_token_id = BOS_TOKEN_ID
 		self.eos_token_id = EOS_TOKEN_ID
@@ -108,10 +112,12 @@ class M3Patchilizer:
 		return patches
 
 	def _segment_lilylet (self, item):
-		'''Lilylet segmentation. Leading metadata/style lines become patches; the
-		body is split into measures, then each measure into voice/part segments
-		(reusing the deep-starry Lilylet splitters). Returns string patches.'''
-		metadata_lines, body_lines = split_lilylet_document(item)
+		'''Lilylet segmentation. Leading metadata lines become patches; the body is
+		split into measures, then each measure into voice/part segments (reusing the
+		deep-starry Lilylet splitters). Leading `%<style>` comment lines are dropped
+		to match ABC's M3 preprocessing (which strips `%` comments) — see
+		`encode_abc` / extract_clamp2.py:74-78. Returns string patches.'''
+		metadata_lines, body_lines = split_lilylet_document(item, drop_style_comments=True)
 		patches = list(metadata_lines)  # each already carries a trailing '\n'
 		for measure in split_measures(body_lines):
 			segments = split_voice_segments(measure)
