@@ -84,6 +84,8 @@ scheduler_dict = dict(map(lambda cls: (cls.name, cls), [
 def createOptimizer (config, parameters):
 	if config['type'] == 'Adam':
 		return torch.optim.Adam(parameters, **config['args'])
+	elif config['type'] == 'AdamW':
+		return torch.optim.AdamW(parameters, **config['args'])
 	else:
 		raise RuntimeError("Unexpected optimizer type '%s'" % config['type'])
 
