@@ -141,6 +141,15 @@ class LilyletM3EncoderLoss (nn.Module):
 		self.deducer = LilyletM3Encoder(**kw_args)
 		self.mse_weight = mse_weight
 
+	def training_parameters (self):
+		# all student params are trained; distributed trainer broadcasts these from the
+		# trainer rank. (cf. LilyletNotaGenLoss / ScoreRegressionLoss)
+		return list(self.deducer.parameters()) + list(self.deducer.buffers())
+
+	def validation_parameters (self):
+		# no validation-only parameters to broadcast back from the validator rank
+		return []
+
 	def forward (self, batch):
 		pred = self.deducer(batch['input_patches'], batch['input_masks'])   # [B, hidden]
 		target = batch['target_embedding']                                 # [B, hidden]
