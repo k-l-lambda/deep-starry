@@ -1,4 +1,5 @@
 import os
+import random
 
 import torch
 from torch.utils.data import Dataset
@@ -67,11 +68,18 @@ class LilyletM3Distill (Dataset):
 			for i, split in enumerate(splits)
 		)
 
-	def __init__ (self, root, split, device='cpu', shuffle=False, pad_id=0, **_):
+	def __init__ (self, root, split, device='cpu', shuffle=False, pad_id=0,
+		max_patches=2048, random_truncate=None, **_):
 		super().__init__()
 		self.device = device
 		self.shuffle = shuffle
 		self.pad_id = pad_id
+		# Cap the Lilylet patch sequence length. Over-long pieces are truncated with a
+		# random head/tail/middle window (mirroring CLaMP's M3Patchilizer truncation) when
+		# random_truncate is on, else a deterministic head cut. random_truncate defaults to
+		# the split's shuffle flag (train shuffles → random aug; val is deterministic head).
+		self.max_patches = max_patches
+		self.random_truncate = shuffle if random_truncate is None else random_truncate
 		self.store = _get_store(root)
 
 		phases, cycle = parseFilterStr(split)
@@ -80,9 +88,26 @@ class LilyletM3Distill (Dataset):
 	def __len__ (self):
 		return len(self.indices)
 
+	def _truncate (self, patches):
+		'''Cap to max_patches with a head/tail/middle window (CLaMP-style). Random window
+		when self.random_truncate, else head. Returns the (possibly unchanged) patches.'''
+		n = patches.shape[0]
+		cap = self.max_patches
+		if not cap or n <= cap:
+			return patches
+		if not self.random_truncate:
+			return patches[:cap]
+		choice = random.choice(('head', 'tail', 'middle'))
+		if choice == 'head':
+			return patches[:cap]
+		if choice == 'tail':
+			return patches[-cap:]
+		start = random.randint(1, n - cap)
+		return patches[start:start + cap]
+
 	def _item (self, index):
 		item = self.store.get(index)
-		patches = item['patches'].long()                       # [P, patch_size]
+		patches = self._truncate(item['patches'].long())      # [P', patch_size], P' <= max_patches
 		target = item['m3_embedding'].float()                  # [hidden]
 		mask = torch.ones(patches.shape[0], dtype=torch.long)  # 1 per real patch
 		return patches, mask, target

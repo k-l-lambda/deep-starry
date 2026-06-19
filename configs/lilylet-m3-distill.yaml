@@ -12,6 +12,11 @@
 #
 # This 215-sample artifact is for a SMOKE TEST only; real training needs a much
 # larger abc2lilylet-generated corpus (the teacher produces targets for free).
+#
+# NOTE on max_patches truncation: the teacher target was pooled over the WHOLE ABC
+# piece, but a truncated Lilylet input only covers a window — a mild train/target
+# mismatch for the few over-cap pieces (3/215 exceed 2048). Acceptable as CLaMP-style
+# length capping; if exactness matters, regenerate targets from the same window.
 
 id: lilylet-m3-distill/{date}-{filename}
 
@@ -22,9 +27,13 @@ data:
   root:                     /home/camus/data/lilylet/m3/notagenx-from-abc.pt
   splits:                   '*0..8/10:9/10'      # '*' shuffles the train split; mod-10 phases 0-7 train, 9 val
   batch_size:               4
-  args_variant: ~
+  args_variant:
+    1:
+      random_truncate: false   # val: deterministic head cut (reproducible)
   args:
     pad_id:                 0
+    max_patches:            2048   # cap Lilylet patch length; over-long → CLaMP-style window
+    random_truncate: ~             # default: follows split shuffle (train random, val head)
 
 model:
   type:                     LilyletM3Encoder     # 'Loss' suffix is appended at train time
