@@ -157,10 +157,15 @@ class LilyletM3EncoderLoss (nn.Module):
 		cos = F.cosine_similarity(pred, target, dim=-1)                    # [B]
 		cos_loss = (1.0 - cos).mean()
 		loss = cos_loss
+		mse = F.mse_loss(pred, target)
 		if self.mse_weight > 0:
-			loss = loss + self.mse_weight * F.mse_loss(pred, target)
+			loss = loss + self.mse_weight * mse
 
 		with torch.no_grad():
-			metric = {'cos': cos.mean().item()}
+			# expose all loss components so the trainer logs / TB-plots them: 'cos' is the
+			# primary alignment metric; 'cos_loss' (=1-cos) lets a +MSE run be compared on
+			# the same scale as a pure-cosine run; 'mse' shows the raw magnitude term so the
+			# mse_weight can be judged (not drowned out / not dominating).
+			metric = {'cos': cos.mean().item(), 'cos_loss': cos_loss.item(), 'mse': mse.item()}
 		return loss, metric
 
