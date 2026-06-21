@@ -47,6 +47,37 @@ STUDENT_ARGS = dict(num_classes=256, hidden_size=768, patch_size=64, patch_lengt
 M3_PATCH_SIZE = 64
 
 
+class _TorchGen:
+	'''Wrap LilyletPatchyGenerator (torch checkpoint). Seeds via torch.manual_seed and
+	returns the raw (non-postprocessed) Lilylet text — same surface the ORT path returns.'''
+	backend = 'torch'
+
+	def __init__ (self, gen):
+		self.gen = gen
+
+	def generate (self, prompt_text, seed, temperature, top_k, top_p, max_patches, measures):
+		torch.manual_seed(seed)
+		return self.gen.generate(prompt_text=prompt_text, max_patches=max_patches,
+			temperature=temperature, top_k=top_k, top_p=top_p, measures=measures)
+
+
+class _OrtGen:
+	'''Wrap the in-repo ORTGeneratorKV (tests/lilylet/bench_lilylet_int8_ort.py): the patch +
+	token decoders run incrementally through the INT8 KV-cache onnx sessions
+	(patch_kv_int8.onnx / token_kv_int8.onnx) — the deployment inference path — while
+	seed/decode/postprocess reuse a torch LilyletPatchyGenerator's helpers. `.generate(...)`
+	returns the full Lilylet text, matching the torch generator's surface.'''
+	backend = 'ort'
+
+	def __init__ (self, ort_gen):
+		self.gen = ort_gen
+
+	def generate (self, prompt_text, seed, temperature, top_k, top_p, max_patches, measures):
+		torch.manual_seed(seed)
+		return self.gen.generate(prompt_text=prompt_text, max_patches=max_patches,
+			temperature=temperature, top_k=top_k, top_p=top_p, measures=measures, postprocess=False)
+
+
 def _seed_text (period, composer, instrumentation):
 	'''The corpus prompt: three leading `%<style>` lines (period/composer/instrumentation),
 	matching the .lyl source layout. The generator continues header + body from this.'''
@@ -96,11 +127,9 @@ def _gen_and_score (gen, deducer, tokenizer, ref_vec, seed_txt, n, base_seed,
 	max_attempts = n * max_attempts_factor
 	seed = base_seed
 	while len(scores) < n and attempts < max_attempts:
-		torch.manual_seed(seed)
 		seed += 1
 		attempts += 1
-		text = gen.generate(prompt_text=seed_txt, max_patches=max_patches,
-			temperature=temperature, top_k=top_k, top_p=top_p, measures=measures)
+		text = gen.generate(seed_txt, seed, temperature, top_k, top_p, max_patches, measures)
 		z, info = _encode_student(deducer, tokenizer, text, device,
 			min_patches=min_patches, max_unknown_ratio=max_unknown_ratio)
 		if z is None:
@@ -138,13 +167,38 @@ def _load_all (args):
 	ref = torch.load(args.ref, map_location='cpu', weights_only=False)
 	groups = {(p['period'], p['composer'], p['instrumentation']): p for p in ref['prompts']}
 
-	logging.info('Loading LilyNota generator from %s ...', args.lilynota)
-	config = Configuration.createOrLoad(args.lilynota_config or os.path.dirname(args.lilynota), volatile=True)
-	tok_path = config['data.args.tokenizer_path']
-	if not os.path.isabs(tok_path):
-		repo = next(p for p in [os.getcwd()] if os.path.isdir(os.path.join(p, 'starry')))
-		tok_path = os.path.join(repo, tok_path)
-	gen = LilyletPatchyGenerator.from_config(config, args.lilynota, tokenizer_path=tok_path, device=args.device)
+	repo = next(p for p in [os.getcwd()] if os.path.isdir(os.path.join(p, 'starry')))
+	if args.backend == 'torch':
+		logging.info('Loading TORCH LilyNota generator from %s ...', args.lilynota)
+		config = Configuration.createOrLoad(args.lilynota_config or os.path.dirname(args.lilynota), volatile=True)
+		tok_path = config['data.args.tokenizer_path']
+		if not os.path.isabs(tok_path):
+			tok_path = os.path.join(repo, tok_path)
+		gen = _TorchGen(LilyletPatchyGenerator.from_config(config, args.lilynota, tokenizer_path=tok_path, device=args.device))
+	else:
+		# ORT INT8 KV path: ORTGeneratorKV runs the patch + token decoders incrementally
+		# through the KV-cache onnx sessions (patch_kv_int8.onnx / token_kv_int8.onnx) — the
+		# deployment inference path. A torch LilyletPatchyGenerator (CPU) still provides the
+		# seed/decode/postprocess helpers + embedding table, as in bench_lilylet_int8_ort.py.
+		sys.path.insert(0, os.path.join(repo, 'tests', 'lilylet'))
+		from bench_lilylet_int8_ort import ORTGeneratorKV
+		run_dir = args.lilynota_config or os.path.dirname(os.path.abspath(args.onnx_dir))
+		logging.info('Loading ORT INT8 KV generator: onnx_dir=%s (run=%s)', args.onnx_dir, run_dir)
+		config = Configuration.createOrLoad(run_dir, volatile=True)
+		tok_path = config['data.args.tokenizer_path']
+		if not os.path.isabs(tok_path):
+			tok_path = os.path.join(repo, tok_path)
+		ckpt = os.path.join(run_dir, 'best.chkpt')
+		torch.set_num_threads(args.threads)
+		tgen = LilyletPatchyGenerator.from_config(config, ckpt, tokenizer_path=tok_path, device='cpu')
+		patch_kv = os.path.join(args.onnx_dir, 'patch_kv_int8.onnx')
+		token_kv = os.path.join(args.onnx_dir, 'token_kv_int8.onnx')
+		token_full = os.path.join(args.onnx_dir, 'token_int8.onnx')
+		assert os.path.isfile(patch_kv) and os.path.isfile(token_kv), \
+			'missing patch_kv_int8.onnx/token_kv_int8.onnx in %s (run export_lilylet_int8_ort.py)' % args.onnx_dir
+		# token_onnx (positional, full-recompute fallback) — use token_int8 if present else token_kv
+		token_fallback = token_full if os.path.isfile(token_full) else token_kv
+		gen = _OrtGen(ORTGeneratorKV(tgen, patch_kv, token_fallback, threads=args.threads, token_kv_onnx=token_kv))
 
 	logging.info('Loading student LilyletM3Encoder from %s ...', args.student)
 	deducer = loadModel({'type': 'LilyletM3Encoder', 'args': STUDENT_ARGS},
@@ -154,7 +208,7 @@ def _load_all (args):
 	deducer.to(args.device).eval()
 
 	tokenizer = LilyletTokenizer(tok_path)
-	logging.info('All loaded (student epoch %s) on %s', ck.get('epoch'), args.device)
+	logging.info('All loaded (student epoch %s, gen backend=%s) on %s', ck.get('epoch'), gen.backend, args.device)
 	return groups, gen, deducer, tokenizer
 
 
@@ -164,6 +218,9 @@ def main ():
 		help='prompt-avg artifact with per-group lyl_avg (and abc_avg) reference vectors')
 	parser.add_argument('--lilynota', default='/home/camus/data/models/LilyNota/best.chkpt')
 	parser.add_argument('--lilynota-config', default=None, help='config/dir for model.args (default: checkpoint dir .state.yaml)')
+	parser.add_argument('--backend', choices=['torch', 'ort'], default='torch', help='generation backend: torch checkpoint or in-repo INT8 ONNX (ORTGenerator)')
+	parser.add_argument('--onnx-dir', default=None, help='ort backend: dir with patch_kv_int8.onnx/token_kv_int8.onnx (+ run dir parent holds .state.yaml/best.chkpt)')
+	parser.add_argument('--threads', type=int, default=14, help='ort backend: onnxruntime intra-op threads (and torch CPU threads)')
 	parser.add_argument('--student', default='/home/camus/data/models/deep-starry-logs/lilylet/20260620-lilylet-m3-distill-0619-lr0.06-wu1000/best.chkpt')
 	parser.add_argument('--ref-side', choices=['lyl', 'abc'], default='lyl', help='which group-average to score against (lyl_avg = same student space, recommended)')
 	parser.add_argument('--mode', choices=['sweep', 'final'], required=True)
@@ -243,6 +300,9 @@ def main ():
 			groups=group_results, overall=overall)
 
 	out_path = args.out or ('/home/camus/data/lilylet/m3/lilynota-clamp-score-%s.pt' % args.mode)
+	out['backend'] = args.backend
+	out['onnx_dir'] = args.onnx_dir if args.backend == 'ort' else None
+	out['lilynota'] = args.lilynota if args.backend == 'torch' else None
 	os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
 	torch.save(out, out_path)
 	logging.info('Wrote %s', out_path)
