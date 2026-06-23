@@ -21,104 +21,19 @@ Batch contract (from LilyletPatchy.collateBatch):
 from typing import Optional
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-from transformers import GPT2Config, GPT2Model, GPT2LMHeadModel, PreTrainedModel
-from transformers import LlamaConfig, LlamaModel, LlamaForCausalLM
-from transformers import PretrainedConfig
+from transformers import GPT2Config, LlamaConfig
 from ...utils.registry import register_model
 
-
-PAD_TOKEN_ID = 0
-BOS_TOKEN_ID = 1
-EOS_TOKEN_ID = 2
-
-
-def token_embedding_weight (base):
-	'''Return the input token-embedding weight of a HF base model, regardless of
-	architecture: GPT2 stores it at `transformer.wte`, Llama at `model.embed_tokens`.'''
-	if hasattr(base, 'transformer'):			# GPT2Model / GPT2LMHeadModel
-		return base.transformer.wte.weight
-	if hasattr(base, 'model'):				# LlamaForCausalLM
-		return base.model.embed_tokens.weight
-	if hasattr(base, 'embed_tokens'):			# LlamaModel
-		return base.embed_tokens.weight
-	raise AttributeError(f'cannot locate token embedding on {type(base).__name__}')
-
-
-class PatchLevelDecoder (PreTrainedModel):
-	'''Encodes patches into per-patch hidden states (auto-regressive over patches).'''
-
-	config_class = PretrainedConfig
-
-	def __init__ (self, config, patch_size, token_vocab_size):
-		super().__init__(config)
-
-		self.patch_size = patch_size
-		self.token_vocab_size = token_vocab_size
-
-		hidden = getattr(config, 'n_embd', None) or config.hidden_size
-		self.patch_embedding = nn.Linear(patch_size * token_vocab_size, hidden)
-		nn.init.normal_(self.patch_embedding.weight, std=0.02)
-
-		self.base = LlamaModel(config) if isinstance(config, LlamaConfig) else GPT2Model(config)
-
-	def forward (self, patches: torch.Tensor, masks: Optional[torch.Tensor] = None):
-		'''
-		patches: LongTensor [B, T, patch_size]   token ids in [0, token_vocab_size)
-		masks:   LongTensor [B, T] or None       1 for real patch, 0 for padding
-		                                         (None = attend all positions)
-		Returns: the HF base model output; `.last_hidden_state` is [B, T, hidden].
-		'''
-		# patches: [B, T, patch_size] -> one-hot [B, T, patch_size, token_vocab_size]
-		patches = F.one_hot(patches.long(), num_classes=self.token_vocab_size).to(self.patch_embedding.weight.dtype)
-		# flatten each patch's one-hot into a single vector -> [B, T, patch_size * token_vocab_size]
-		patches = patches.reshape(len(patches), -1, self.patch_size * self.token_vocab_size)
-		# project to per-patch embeddings -> [B, T, hidden]
-		patches = self.patch_embedding(patches)
-
-		if masks is None:
-			return self.base(inputs_embeds=patches)
-		return self.base(inputs_embeds=patches, attention_mask=masks)
-
-
-class TokenLevelDecoder (PreTrainedModel):
-	'''Generates the tokens within a patch, conditioned on the patch hidden state.'''
-
-	config_class = PretrainedConfig
-
-	def __init__ (self, config):
-		super().__init__(config)
-
-		self.special_token_id = PAD_TOKEN_ID
-		self.bos_token_id = BOS_TOKEN_ID
-		self.base = LlamaForCausalLM(config) if isinstance(config, LlamaConfig) else GPT2LMHeadModel(config)
-
-	def forward (self, encoded_patches: torch.Tensor, target_patches: torch.Tensor):
-		'''
-		encoded_patches: FloatTensor [N, hidden]        per-patch hidden state (1 per target patch)
-		target_patches:  LongTensor  [N, patch_size]    the token ids to teacher-force
-		Returns: HF CausalLM output over [N, patch_size + 1] positions, with
-			.loss   scalar cross-entropy (padding positions masked via -100 labels)
-			.logits FloatTensor [N, patch_size + 1, token_vocab_size]
-		'''
-		# target_patches: [N, patch_size]; prepend BOS -> [N, patch_size + 1]
-		target_patches = torch.cat(
-			(torch.ones_like(target_patches[:, 0:1]) * self.bos_token_id, target_patches), dim=1)
-
-		# labels: mask padding positions with -100
-		labels = target_patches.clone()
-		labels = labels.masked_fill(labels == self.special_token_id, -100)
-
-		# attention mask over tokens: 1 where label is valid, 0 where -100
-		target_masks = torch.ones_like(labels)
-		target_masks = target_masks.masked_fill(labels == -100, 0)
-
-		# token embeddings, replace first position with the encoded patch state
-		inputs_embeds = F.embedding(target_patches, token_embedding_weight(self.base))
-		inputs_embeds = torch.cat((encoded_patches.unsqueeze(1), inputs_embeds[:, 1:, :]), dim=1)
-
-		return self.base(inputs_embeds=inputs_embeds, attention_mask=target_masks, labels=labels)
+# Generic bGPT two-level decoder building blocks now live in starry.bgpt. They are
+# re-exported here so existing references (patchyGenerator, the ORT export tool, the
+# benchmarks) keep importing them from this module unchanged.
+from ...bgpt.decoders import (
+	PAD_TOKEN_ID, BOS_TOKEN_ID, EOS_TOKEN_ID,
+	token_embedding_weight,
+	PatchLevelDecoder, TokenLevelDecoder,
+)
+from ...bgpt.kv_net import PatchNet, TokenNet, PatchNetKV, TokenNetKV
 
 
 @register_model
@@ -305,124 +220,3 @@ class LilyletNotaGenLoss (nn.Module):
 			'target_patches': target,
 			'n_patches': int(target.shape[0]),
 		}
-
-
-# ---- thin tensor-in/tensor-out wrappers around the two transformer forwards,
-# used for ONNX export (the cheap one-hot / embedding-lookup / patch-state splice
-# stay outside, done in numpy/torch by the caller). ----
-
-class PatchNet (nn.Module):
-	'''patch ids [1,T,patch_size] -> patch hidden states [1,T,hidden].'''
-	def __init__ (self, model):
-		super().__init__()
-		self.dec = model.patch_level_decoder
-		self.token_vocab_size = model.token_vocab_size
-		self.patch_size = model.patch_size
-
-	def forward (self, patches):
-		'''patches: LongTensor [1, T, patch_size] -> last_hidden FloatTensor [1, T, hidden].'''
-		oh = F.one_hot(patches.long(), num_classes=self.token_vocab_size).to(self.dec.patch_embedding.weight.dtype)
-		oh = oh.reshape(1, -1, self.patch_size * self.token_vocab_size)
-		emb = self.dec.patch_embedding(oh)
-		return self.dec.base(inputs_embeds=emb).last_hidden_state
-
-
-class TokenNet (nn.Module):
-	'''token inputs_embeds [1,L,hidden] -> logits [1,L,vocab]. Embedding lookup +
-	the position-0 patch-state splice stay outside (cheap, done in numpy/torch).'''
-	def __init__ (self, model):
-		super().__init__()
-		self.base = model.token_level_decoder.base
-
-	def forward (self, inputs_embeds):
-		'''inputs_embeds: FloatTensor [1, L, hidden] -> logits FloatTensor [1, L, token_vocab_size].'''
-		return self.base(inputs_embeds=inputs_embeds).logits
-
-
-class PatchNetKV (nn.Module):
-	'''KV-cache variant of PatchNet for incremental patch-level decoding.
-
-	Input:  patches [1, L, patch_size]  (the L new patches, usually L=1 in the loop,
-	            L>1 only for the initial prefill of the seed patches)
-	        past:   list of 2*num_layers tensors  [k0, v0, k1, v1, ...], each
-	            [1, num_kv_heads, P, head_dim] (P = cached patch length, 0 at prefill)
-	Output: (last_hidden [1, L, hidden], new_k0, new_v0, new_k1, new_v1, ...)
-	        where each new_k/new_v is [1, num_kv_heads, P+L, head_dim].
-
-	The one-hot + patch_embedding stay inside the graph (so they get quantized);
-	the caller keeps only the per-layer K/V tensors between steps.
-	'''
-	def __init__ (self, model):
-		super().__init__()
-		self.dec = model.patch_level_decoder
-		self.token_vocab_size = model.token_vocab_size
-		self.patch_size = model.patch_size
-		self.num_layers = self.dec.base.config.num_hidden_layers
-
-	def forward (self, patches, past):
-		'''
-		patches: LongTensor [1, L, patch_size]   the L new patches (L=1 in the loop)
-		past:    list of 2*num_layers tensors [k0, v0, ...], each [1, num_kv_heads, P, head_dim]
-		Returns: tuple (last_hidden [1, L, hidden], new_k0, new_v0, ...) with each
-		         new_k/new_v of shape [1, num_kv_heads, P+L, head_dim].
-		'''
-		from transformers import DynamicCache
-		oh = F.one_hot(patches.long(), num_classes=self.token_vocab_size).to(self.dec.patch_embedding.weight.dtype)
-		oh = oh.reshape(1, -1, self.patch_size * self.token_vocab_size)
-		emb = self.dec.patch_embedding(oh)
-
-		cache = DynamicCache()
-		past_len = past[0].shape[2]
-		for i in range(self.num_layers):
-			cache.update(past[2 * i], past[2 * i + 1], i)
-
-		cache_position = torch.arange(past_len, past_len + emb.shape[1])
-		out = self.dec.base(inputs_embeds=emb, past_key_values=cache, use_cache=True,
-			cache_position=cache_position)
-
-		outs = [out.last_hidden_state]
-		for i in range(self.num_layers):
-			outs.append(cache.layers[i].keys)
-			outs.append(cache.layers[i].values)
-		return tuple(outs)
-
-
-class TokenNetKV (nn.Module):
-	'''KV-cache variant of TokenNet for incremental token-level decoding.
-
-	Input:  inputs_embeds [1, L, hidden]  (the L new token embeddings; L=1 in the
-	            loop, the first step's position 0 holds the patch hidden state)
-	        past:   list of 2*num_layers tensors [k0, v0, k1, v1, ...], each
-	            [1, num_kv_heads, P, head_dim] (P = cached token length, 0 at prefill)
-	Output: (logits [1, L, vocab], new_k0, new_v0, ...)  each new_k/v [1,NKV,P+L,HD].
-
-	The embedding lookup + the position-0 patch-state splice stay outside (done in
-	numpy/torch by the caller), exactly like TokenNet.
-	'''
-	def __init__ (self, model):
-		super().__init__()
-		self.base = model.token_level_decoder.base
-		self.num_layers = self.base.config.num_hidden_layers
-
-	def forward (self, inputs_embeds, past):
-		'''
-		inputs_embeds: FloatTensor [1, L, hidden]   the L new token embeddings (L=1 in the loop)
-		past:          list of 2*num_layers tensors [k0, v0, ...], each [1, num_kv_heads, P, head_dim]
-		Returns: tuple (logits [1, L, token_vocab_size], new_k0, new_v0, ...) with each
-		         new_k/new_v of shape [1, num_kv_heads, P+L, head_dim].
-		'''
-		from transformers import DynamicCache
-		cache = DynamicCache()
-		past_len = past[0].shape[2]
-		for i in range(self.num_layers):
-			cache.update(past[2 * i], past[2 * i + 1], i)
-
-		cache_position = torch.arange(past_len, past_len + inputs_embeds.shape[1])
-		out = self.base(inputs_embeds=inputs_embeds, past_key_values=cache, use_cache=True,
-			cache_position=cache_position)
-
-		outs = [out.logits]
-		for i in range(self.num_layers):
-			outs.append(cache.layers[i].keys)
-			outs.append(cache.layers[i].values)
-		return tuple(outs)
