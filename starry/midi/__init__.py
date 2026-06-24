@@ -6,6 +6,7 @@ patch artifacts for the shared two-level decoder (starry.bgpt).
 
   - tokenizer.py : MidiTokenizer (one event = one fixed-size patch)
   - data/        : MidiPatchifier (pack .txt -> .pt) + MidiPatchy (Dataset feeder)
+  - models/      : MidiBGPT / MidiBGPTLoss (two-level bGPT generation model)
 '''
 
 from .tokenizer import MidiTokenizer

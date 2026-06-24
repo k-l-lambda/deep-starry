@@ -1,0 +1,58 @@
+
+id:     midi/{date}-{filename}
+
+
+# Explicit imports trigger @register_model / @register_dataset for just the MIDI bGPT
+# model and the MidiPatchy dataset, skipping the factories' fallback scan of every modality.
+imports:
+  - starry.midi.models.bgpt
+  - starry.midi.data.patchy
+
+
+data:
+  type:                     MidiPatchy
+  root:                     midi-test202606.midi-notagen.pt
+  splits:                   '*0..8/10:9/10'
+  batch_size:               2
+  args_variant: ~
+  args:
+    patch_size:             16
+    patch_length:           2048
+
+
+model:
+  type:                     MidiBGPT
+  args:
+    token_vocab_size:       37
+    patch_size:             16
+    patch_length:           2048
+    hidden_size:            256
+    patch_num_layers:       4
+    token_num_layers:       2
+    n_head:                 4
+    base_type:              gpt2
+
+
+trainer:
+  env: ~
+  device:                   cpu
+  save_mode:                best
+  epoch:                    2
+  epoch_size:               16
+  report_step_unit:         examples
+  moniter:
+    field:                  loss
+    mode:                   min
+  dtype:                    bf16
+
+optim:
+  type:                     AdamW
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               0.2
+      n_warmup_steps:       100
+      d_model:              256

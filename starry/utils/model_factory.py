@@ -14,6 +14,7 @@ _MODALITY_MODELS = [
 	'starry.vision.models',
 	'starry.paraff.models',
 	'starry.lilylet.models',
+	'starry.midi.models',
 ]
 
 
