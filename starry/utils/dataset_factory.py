@@ -14,6 +14,7 @@ _MODALITY_DATA = [
 	'starry.topology.data',
 	'starry.paraff.data',
 	'starry.lilylet.data',
+	'starry.midi.data',
 ]
 
 

@@ -1,0 +1,20 @@
+
+id:     midi/{date}-{filename}
+
+
+# Only the dataset module defining MidiPatchy needs importing to trigger its
+# @register_dataset. Declaring it explicitly skips the factory's fallback scan of
+# every modality data package.
+imports:
+  - starry.midi.data.patchy
+
+
+data:
+  type:                     MidiPatchy
+  root:                     midi-test202606.midi-notagen.pt
+  splits:                   '*0..8/10:9/10'
+  batch_size:               2
+  args_variant: ~
+  args:
+    patch_size:             16
+    patch_length:           2048
