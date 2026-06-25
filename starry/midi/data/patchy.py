@@ -151,20 +151,23 @@ class MidiPatchy (Dataset):
 		else:
 			start = 0					# deterministic head window for val
 		cropped = patches[start:start + win]
-		return cropped, 0
+		return cropped, start
 
 	def _item (self, index):
 		item = self.store.get(index)
 		patches = item['patches'].long()
-		patches, _ = self._crop(patches)
-		# Supervision boundary: the <bos> patch (token[0] == bos_id) sits at the front.
-		# Everything up to and INCLUDING <bos> is context; supervision begins after it.
+		patches, start = self._crop(patches)
+		positions = torch.arange(start, start + patches.shape[0], dtype=torch.long)
+		# Supervision boundary: if this window contains the real <bos> patch, everything up
+		# to and including it is context. A middle continuation window has no <bos>; in that
+		# case boundary falls back to 0, making the first patch attended-only context and
+		# supervision start at the second patch.
 		bos = (patches[:, 0] == self.bos_id).nonzero()
 		boundary = int(bos[0].item()) if bos.numel() > 0 else 0
 		# Attention mask: 1 for every real patch. Real padding (and its 0s) is only
 		# introduced at batch time by collateBatch.
 		mask = torch.ones(patches.shape[0], dtype=torch.long)
-		return patches, mask, boundary
+		return patches, mask, boundary, positions
 
 	def __getitem__ (self, index):
 		return self._item(self.indices[index])
@@ -180,19 +183,22 @@ class MidiPatchy (Dataset):
 	def collateBatch (self, batch):
 		input_patches = [ex[0] for ex in batch]
 		input_masks = [ex[1] for ex in batch]
+		input_positions = [ex[3] for ex in batch]
 		# Supervision mask: copy the attention mask, then zero the first boundary+1 patches
-		# (the <bos> boundary) so they are attended but never prediction targets. Padding
-		# stays 0 after pad_sequence.
+		# (the <bos> boundary, or the first context patch of a continuation window) so they
+		# are attended but never prediction targets. Padding stays 0 after pad_sequence.
 		input_targets = []
-		for (_, m, boundary) in batch:
+		for (_, m, boundary, _) in batch:
 			t = m.clone()
 			t[:boundary + 1] = 0
 			input_targets.append(t)
 		input_patches = pad_sequence(input_patches, batch_first=True, padding_value=self.pad_id)
 		input_masks = pad_sequence(input_masks, batch_first=True, padding_value=0)
 		input_targets = pad_sequence(input_targets, batch_first=True, padding_value=0)
+		input_positions = pad_sequence(input_positions, batch_first=True, padding_value=0)
 		return dict(
 			input_patches=input_patches.to(self.device),
 			input_masks=input_masks.to(self.device),
 			input_targets=input_targets.to(self.device),
+			input_positions=input_positions.to(self.device),
 		)

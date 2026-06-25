@@ -60,11 +60,15 @@ class PatchLevelDecoder (PreTrainedModel):
 
 		self.base = LlamaModel(config) if isinstance(config, LlamaConfig) else GPT2Model(config)
 
-	def forward (self, patches: torch.Tensor, masks: Optional[torch.Tensor] = None):
+	def forward (self, patches: torch.Tensor, masks: Optional[torch.Tensor] = None,
+		position_ids: Optional[torch.Tensor] = None):
 		'''
 		patches: LongTensor [B, T, patch_size]   token ids in [0, token_vocab_size)
 		masks:   LongTensor [B, T] or None       1 for real patch, 0 for padding
 		                                         (None = attend all positions)
+		position_ids: LongTensor [B, T] or None  optional explicit patch positions. When
+		                                         None, the HF base model uses its default
+		                                         local 0..T-1 positions.
 		Returns: the HF base model output; `.last_hidden_state` is [B, T, hidden].
 		'''
 		# patches: [B, T, patch_size] -> one-hot [B, T, patch_size, token_vocab_size]
@@ -75,8 +79,8 @@ class PatchLevelDecoder (PreTrainedModel):
 		patches = self.patch_embedding(patches)
 
 		if masks is None:
-			return self.base(inputs_embeds=patches)
-		return self.base(inputs_embeds=patches, attention_mask=masks)
+			return self.base(inputs_embeds=patches, position_ids=position_ids)
+		return self.base(inputs_embeds=patches, attention_mask=masks, position_ids=position_ids)
 
 
 class TokenLevelDecoder (PreTrainedModel):

@@ -128,21 +128,22 @@ class MidiBGPT (nn.Module):
 		self.patch_level_decoder = PatchLevelDecoder(patch_config, patch_size, token_vocab_size)
 		self.token_level_decoder = TokenLevelDecoder(token_config)
 
-	def forward (self, patches: torch.Tensor, masks: torch.Tensor, target_masks: Optional[torch.Tensor] = None):
+	def forward (self, patches: torch.Tensor, masks: torch.Tensor, target_masks: Optional[torch.Tensor] = None,
+		positions: Optional[torch.Tensor] = None):
 		'''
 		patches: LongTensor [B, T, patch_size] token ids
 		masks:   LongTensor [B, T] 1 for real patch, 0 for padding (the patch-level ATTENTION
 		         mask; prompt patches stay 1 here so the model conditions on them).
-		target_masks: LongTensor [B, T] or None. 1 where the patch is a supervised prediction
-		         TARGET, 0 over the prompt + <bos> boundary + padding. When None, falls back to
-		         the legacy behavior (supervise every real patch except the first).
+		positions: LongTensor [B, T] or None. Absolute patch indices in the original song;
+		         when present, these are passed as patch-level position_ids so random-cropped
+		         continuation windows keep their original position instead of restarting at 0.
 		Returns (output, target_patches), where N = number of target patches across the batch:
 			output: token-level decoder output (has .loss scalar and
 			        .logits [N, patch_size + 1, token_vocab_size]) for next-patch prediction
 			target_patches: LongTensor [N, patch_size] the target tokens aligned to each prediction
 		'''
 		patches = patches.reshape(len(patches), -1, self.patch_size)
-		encoded_patches = self.patch_level_decoder(patches, masks)['last_hidden_state']
+		encoded_patches = self.patch_level_decoder(patches, masks, position_ids=positions)['last_hidden_state']
 
 		# Next-patch prediction: encoded patch i predicts patch i+1. A patch is a target iff
 		# target_masks==1; an encoded position is a supervised INPUT iff its next patch is a
@@ -254,7 +255,8 @@ class MidiBGPTLoss (nn.Module):
 			         trainer runs validation under model.eval(), so time_err is computed on
 			         the val set only and never slows the training step.
 		'''
-		output, target = self.deducer(batch['input_patches'], batch['input_masks'], batch.get('input_targets'))
+		output, target = self.deducer(
+			batch['input_patches'], batch['input_masks'], batch.get('input_targets'), batch.get('input_positions'))
 
 		with torch.no_grad():
 			acc = self._token_accuracy(output, target)
@@ -265,7 +267,8 @@ class MidiBGPTLoss (nn.Module):
 		return output.loss, metrics
 
 	def inspectRun (self, batch):
-		output, target = self.deducer(batch['input_patches'], batch['input_masks'], batch.get('input_targets'))
+		output, target = self.deducer(
+			batch['input_patches'], batch['input_masks'], batch.get('input_targets'), batch.get('input_positions'))
 
 		acc = self._token_accuracy(output, target)
 		return {
