@@ -228,10 +228,16 @@ class MidiTokenizer:
 	# --- patch-level (one event = one patch) --------------------------------
 
 	def pad_patch(self, ids: List[int]) -> List[int]:
-		'''Pad/truncate one event's token-ids to exactly patch_size (right-pad <pad>).
-		Over-long events (rare; e.g. a long smpte_offset) are truncated to patch_size.'''
+		'''Pad/truncate one event's token-ids to exactly patch_size.
+
+		Mirror lilylet.data.patchifier.split_patches(): when a patch is not already full,
+		insert <eos> before right-padding with <pad>. For MIDI, one event = one patch, so
+		this in-patch <eos> is the supervised event-boundary marker; without it the
+		token-level LM never learns where the event's argument list ends.
+		'''
 		if len(ids) >= self.patch_size:
 			return ids[:self.patch_size]
+		ids = ids + [self.eos_id]
 		return ids + [self.pad_id] * (self.patch_size - len(ids))
 
 	def special_patch(self, kind: str) -> List[int]:
