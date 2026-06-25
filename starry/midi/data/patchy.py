@@ -132,25 +132,25 @@ class MidiPatchy (Dataset):
 		return len(self.indices)
 
 	def _crop (self, patches):
-		'''Crop `patches` to a patch_length window, keeping the <bos> patch at the front.
+		'''Crop `patches` to a patch_length contiguous window.
 
-		patches[0] is the <bos> boundary marker (the packer always prepends it). For a
-		random window starting at `s > 1`, we prepend patches[0] so the decoder still
-		sees its boundary marker, then fill the rest with patches[s : s + patch_length-1].
-		Shorter-than-window songs are returned whole.
+		For MIDI, a crop from the middle of a long song is a continuation window, not a
+		new document. Therefore the leading <bos> patch is kept ONLY when the crop starts
+		at the real beginning; a random middle crop drops <bos> together with the skipped
+		header/body patches. The first patch of every cropped window remains attended-only
+		(context) via collateBatch's boundary fallback, so the first supervised target is
+		the following patch.
 		'''
 		T = patches.shape[0]
 		if self.patch_length <= 0 or T <= self.patch_length:
 			return patches, 0
 
-		body = T - 1					# patches after the leading <bos>
-		win = self.patch_length - 1		# room for body after we re-prepend <bos>
+		win = self.patch_length
 		if self.shuffle:
-			start = 1 + int(torch.randint(0, body - win + 1, ()).item())
+			start = int(torch.randint(0, T - win + 1, ()).item())
 		else:
-			start = 1					# deterministic head window for val
-		window = patches[start:start + win]
-		cropped = torch.cat((patches[0:1], window), dim=0)
+			start = 0					# deterministic head window for val
+		cropped = patches[start:start + win]
 		return cropped, 0
 
 	def _item (self, index):
