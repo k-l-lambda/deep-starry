@@ -1,0 +1,88 @@
+# Conditioned-MIDI bGPT (TRANSLATOR variant) — generate MIDI conditioned on a lilylet score.
+# Same CondMidiPatchy joint sequence + windowed/block measure coupling as midi-measurewise.yaml,
+# but the two modalities are TWO INDEPENDENT weight towers (no shared backbone):
+#   - lyl_encoder: a PatchLevelDecoder identical in arch to LilyletNotaGen.patch_level_decoder,
+#     so it can be initialised from a pretrained LilyletNotaGen checkpoint (lyl_encoder_weights)
+#     and optionally frozen (freeze_lyl_encoder).
+#   - midi decoder: own midi patch-embedding + causal windowed DecoderLayers with cross-attention
+#     into the lyl memory + a single midi token-level head.
+# Still autoregressive: next-patch = input ids shifted right by one, ONLY the midi segment supervised.
+#
+# IMPORTANT: the lyl encoder arch args below (lyl_base_type/lyl_hidden_size/lyl_patch_num_layers/
+# lyl_n_head/...) MUST match the pretrained LilyletNotaGen they load from, or the state_dict keys
+# won't align. The values here mirror configs/lilylet-notagen-llama.yaml.
+#
+# NOTE: batch_size / epoch_size are PLACEHOLDERS — measure on the target GPU (tune-train-config:
+# measure-first). Corpus is NOT cropped (measure coupling forbids it). val≈11 (215×5%) → noisy.
+
+id:     midi/{date}-{filename}
+
+
+imports:
+  - starry.midi.models.midiBgptTrans
+  - starry.midi.data.condPatchy
+
+
+data:
+  type:                     CondMidiPatchy
+  root:                     lilylet/midi-measurewise/test20260629/cond-midi.lmmw.pt
+  # 215 samples, single shard. cycle 20, phase 19 -> ~11 val / ~204 train.
+  splits:                   '*0..18/20:19/20'
+  batch_size:               1
+  args_variant: ~
+  args:
+    patch_size:             16
+    patch_length:           0          # 0 = no crop (measure coupling must stay intact)
+    w_midi:                 2          # midi->midi attention window, in MEASURES
+    w_cross:                2          # midi->lilylet cross window, in MEASURES
+
+
+model:
+  type:                     MidiBgptTrans
+  args:
+    lyl_vocab_size:         256
+    midi_vocab_size:        41
+    patch_size:             16
+    # --- lyl encoder (match the pretrained LilyletNotaGen patch tower; see lilylet-notagen-llama.yaml) ---
+    lyl_base_type:          llama
+    lyl_hidden_size:        512
+    lyl_patch_num_layers:   8
+    lyl_patch_length:       1024
+    lyl_n_head:             8
+    lyl_num_key_value_heads: 8
+    lyl_intermediate_size:  2048
+    lyl_encoder_weights:    ~          # path to a LilyletNotaGen .chkpt to init the encoder (optional)
+    freeze_lyl_encoder:     false      # true = freeze the encoder (no grad, kept in eval)
+    # --- midi decoder ---
+    d_model:                768
+    n_dec_layer:            6          # causal windowed midi decoder (self + cross attention)
+    token_num_layers:       3          # token-level (Llama) head
+    n_head:                 12
+    d_inner:                3072
+    dropout:                0.1
+
+
+trainer:
+  env: ~
+  device:                   cuda
+  save_mode:                best
+  epochs:                   10000
+  epoch_size:               204        # placeholder: ~one pass over train; measure & balance
+  report_step_unit:         examples
+  epoch_duration:           30
+  moniter:
+    field:                  loss
+    mode:                   min
+  dtype:                    bf16
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               0.2
+      n_warmup_steps:       1000
+      d_model:              768
