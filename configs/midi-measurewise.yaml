@@ -27,7 +27,7 @@ data:
   args:
     patch_size:             16
     patch_length:           0          # 0 = no crop (measure coupling must stay intact)
-    w_midi:                 4          # midi->midi attention window, in MEASURES
+    w_midi:                 2          # midi->midi attention window, in MEASURES
     w_cross:                2          # midi->lilylet cross window, in MEASURES
 
 

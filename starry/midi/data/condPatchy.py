@@ -152,7 +152,7 @@ class CondMidiPatchy (Dataset):
 		)
 
 	def __init__ (self, root, split, device='cpu', shuffle=False, pad_id=0,
-		w_midi=4, w_cross=2, patch_length=0, **_):
+		w_midi=2, w_cross=2, patch_length=0, **_):
 		super().__init__()
 		self.device = device
 		self.shuffle = shuffle
@@ -208,7 +208,11 @@ class CondMidiPatchy (Dataset):
 			T = patches.shape[0]
 			input_masks[b, :T] = 1
 			modality[b, :T] = mod
-			input_positions[b, :T] = torch.arange(T, dtype=torch.long)
+			# Positions restart per modality: lilylet patches 0..L-1, midi patches 0..Mp-1.
+			# Each segment is its own RoPE coordinate frame (the midi sequence does not inherit
+			# the lilylet length as an offset), matching the dual-embedding split.
+			input_positions[b, :lyl_count] = torch.arange(lyl_count, dtype=torch.long)
+			input_positions[b, lyl_count:T] = torch.arange(T - lyl_count, dtype=torch.long)
 			lyl_counts[b] = lyl_count
 
 			# Supervision: ONLY the midi segment is a prediction target. The very first midi

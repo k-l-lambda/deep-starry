@@ -134,17 +134,20 @@ def patchify_midi (text: str, measures_meta: List[Dict[str, Any]], tokenizer: Mi
 		mm.append(own_measure)
 		src.append(src_of.get(own_measure, 0) if own_measure > 0 else 0)
 
+	# --- pass 1: parse events, accumulating each FIELD event's ABSOLUTE tick ---
+	# Header events (no deltaTime) are emitted up front as measure-0 patches. FIELD events
+	# are collected with their absolute tick + original content fields (after deltaTime), so
+	# pass 2 can reorder and re-time them.
+	header_lines: List[str] = []
+	events = []		# list of (abst, is_off, head, rest_fields[list[str]])
 	abst = 0
-	cur_measure = 0			# measure of the patches emitted so far (0 = header region)
 	for raw in text.split('\n'):
 		line = raw.strip()
 		if not line:
 			continue
 		head = line.split(' ', 1)[0]
 		if head in _HEADER_EVENTS:
-			ids = tokenizer.encode_event(line)
-			if ids is not None:
-				emit(pad_patch(ids, patch_size, tokenizer.pad_id), 0)
+			header_lines.append(line)
 			continue
 		if head not in _FIELD_EVENTS:
 			# excluded / unrecognized: still advance time so later ticks stay correct.
@@ -155,20 +158,46 @@ def patchify_midi (text: str, measures_meta: List[Dict[str, Any]], tokenizer: Mi
 				except ValueError:
 					pass
 			continue
-		# FIELD event: its tick is the current absolute tick (before adding its own delta).
+		# FIELD event: deltaTime (parts[1]) is the gap BEFORE this event, so the absolute tick
+		# is the running tick + this event's own delta.
 		parts = line.split(' ')
 		delta = int(parts[1], 16) if len(parts) > 1 else 0
-		event_tick = abst
-		m = measure_of(event_tick, is_off=(head == 'note_off'))
+		abst += delta
+		events.append((abst, head == 'note_off', head, parts[2:]))
+
+	# --- reorder so patch index -> measure index is STRICTLY monotonic ---
+	# A note that sustains until a bar line ends exactly on the next measure's start tick; its
+	# note_off carries the "ending belongs to the previous measure" rule. But in time order that
+	# note_off is serialized AFTER the next measure's note_ons (same tick), which would make the
+	# measure index dip by 1. Stable-sort each absolute-tick cluster with note_off FIRST: a
+	# boundary note_off then precedes the next measure's onsets, so measure index never goes
+	# backward. (Stable keeps original order within equal (tick, off-ness).)
+	order = sorted(range(len(events)), key=lambda k: (events[k][0], 0 if events[k][1] else 1))
+	events = [events[k] for k in order]
+
+	# emit header patches first (measure 0).
+	for line in header_lines:
+		ids = tokenizer.encode_event(line)
+		if ids is not None:
+			emit(pad_patch(ids, patch_size, tokenizer.pad_id), 0)
+
+	# --- pass 2: re-time (delta = gap from the previous event in the NEW order) + bucket ---
+	cur_measure = 0			# measure of the patches emitted so far (0 = header region)
+	prev_tick = 0
+	for tick, is_off, head, rest in events:
+		new_delta = tick - prev_tick
+		prev_tick = tick
+		m = measure_of(tick, is_off=is_off)
 		# advancing into a new measure: close the measure(s) just left with <eom>.
 		while cur_measure < m:
 			if cur_measure >= 1:
 				emit(eom_patch, cur_measure)
 			cur_measure += 1
+		line = ' '.join([head, format(new_delta, 'x')] + rest)
 		ids = tokenizer.encode_event(line)
 		if ids is not None:
 			emit(pad_patch(ids, patch_size, tokenizer.pad_id), m)
-		abst += delta
+
 
 	# close any remaining measures up to the last with <eom>.
 	while cur_measure < n_measures:
