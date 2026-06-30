@@ -8,7 +8,10 @@ of the rest of the line (hex digits + spaces), padded with <pad> to `patch_size`
 
 Vocabulary
 ----------
-- Special tokens : <pad> <bos> <eos> <unknown>            (ids 0..3)
+- Special tokens : a RESERVED block of ids 0..7 — named slots <pad> <bos> <eos>
+                   <unknown> <eom> (ids 0..4) then <reserved_5..7> fillers. <eom> marks a
+                   measure (bar) boundary; the reserved fillers leave room to add future
+                   control tokens without shifting event/content ids of trained checkpoints.
 - Event tokens   : the reserved event-name tokens, one per MidiText token name
                    (note_on / note_off / control_change / set_tempo / ... plus the
                    header tokens ticks_per_beat / format_type / track). These are
@@ -133,6 +136,18 @@ CONTENT_CHARS: List[str] = list('0123456789abcdef') + [' ', '-']
 
 SPECIAL_TOKENS: List[str] = ['<pad>', '<bos>', '<eos>', '<unknown>']
 
+# Special tokens occupy a RESERVED id block (0..7) so future control tokens can be added
+# without shifting the event/content ids of an already-trained checkpoint. Named slots come
+# first (in fixed order), then <reserved_N> fillers pad the block to SPECIAL_RESERVED.
+#   0 <pad>  1 <bos>  2 <eos>  3 <unknown>  4 <eom>  5..7 <reserved_*>
+# <eom> marks a measure (bar) boundary — inserted at measure boundaries during data prep so
+# the model can learn bar structure. Event tokens therefore start at id 8.
+SPECIAL_RESERVED = 8
+NAMED_SPECIAL_TOKENS: List[str] = ['<pad>', '<bos>', '<eos>', '<unknown>', '<eom>']
+RESERVED_SPECIAL_TOKENS: List[str] = [f'<reserved_{i}>' for i in range(len(NAMED_SPECIAL_TOKENS), SPECIAL_RESERVED)]
+SPECIAL_TOKENS = NAMED_SPECIAL_TOKENS + RESERVED_SPECIAL_TOKENS
+assert len(SPECIAL_TOKENS) == SPECIAL_RESERVED
+
 
 @dataclass
 class UnknownHit:
@@ -144,8 +159,8 @@ class MidiTokenizer:
 	'''SkyTNT-style event-patch tokenizer for MidiText output.
 
 	Vocab layout (ids are stable / contiguous):
-	  0..3            special : <pad> <bos> <eos> <unknown>
-	  4..             event   : FIELD_EVENT_TOKENS + HEADER_EVENT_TOKENS (whole-token)
+	  0..7            special : <pad> <bos> <eos> <unknown> <eom> + <reserved_5..7>
+	  8..             event   : FIELD_EVENT_TOKENS + HEADER_EVENT_TOKENS (whole-token)
 	  ...             content : '0'-'9' 'a'-'f' ' ' '-'  (char-level)
 	'''
 
@@ -156,7 +171,7 @@ class MidiTokenizer:
 		# Pass an explicit int to override (smaller = may truncate; larger = extra padding).
 		self.patch_size = patch_size if patch_size is not None else DEFAULT_PATCH_SIZE
 
-		# Deterministic vocab: special (0..3), then event tokens, then content chars.
+		# Deterministic vocab: special block (0..7), then event tokens, then content chars.
 		tokens: List[str] = list(SPECIAL_TOKENS)
 		self.event_tokens: List[str] = list(FIELD_EVENT_TOKENS) + list(HEADER_EVENT_TOKENS)
 		tokens += self.event_tokens
@@ -179,6 +194,7 @@ class MidiTokenizer:
 		self.bos_id = self.id_by_token['<bos>']
 		self.eos_id = self.id_by_token['<eos>']
 		self.unknown_id = self.id_by_token['<unknown>']
+		self.eom_id = self.id_by_token.get('<eom>')   # measure-boundary marker (None if absent)
 
 		self.event_id_set = {self.id_by_token[t] for t in self.event_tokens}
 		self.excluded = set(EXCLUDED_EVENT_TOKENS)
