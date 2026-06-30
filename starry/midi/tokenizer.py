@@ -30,6 +30,7 @@ is built deterministically in code) and feeds a two-level patch/token model the 
 way `starry/lilylet/data/patchifier.py` does.
 '''
 
+import json
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -155,14 +156,24 @@ class MidiTokenizer:
 		# Pass an explicit int to override (smaller = may truncate; larger = extra padding).
 		self.patch_size = patch_size if patch_size is not None else DEFAULT_PATCH_SIZE
 
+		# Deterministic vocab: special (0..3), then event tokens, then content chars.
 		tokens: List[str] = list(SPECIAL_TOKENS)
 		self.event_tokens: List[str] = list(FIELD_EVENT_TOKENS) + list(HEADER_EVENT_TOKENS)
 		tokens += self.event_tokens
 		tokens += CONTENT_CHARS
 
-		self.id_by_token: Dict[str, int] = {tok: i for i, tok in enumerate(tokens)}
+		id_by_token = {tok: i for i, tok in enumerate(tokens)}
+		self._init_vocab(id_by_token, self.event_tokens)
+
+	def _init_vocab(self, id_by_token: Dict[str, int], event_tokens: List[str]):
+		'''Wire up the lookup tables / special ids from a token->id map.
+
+		Shared by the deterministic code path (__init__) and the JSON path (from_json),
+		so both produce an identical tokenizer regardless of how the vocab was sourced.'''
+		self.event_tokens = list(event_tokens)
+		self.id_by_token: Dict[str, int] = dict(id_by_token)
 		self.token_by_id: Dict[int, str] = {i: tok for tok, i in self.id_by_token.items()}
-		self.vocab_size = len(tokens)
+		self.vocab_size = max(self.id_by_token.values()) + 1 if self.id_by_token else 0
 
 		self.pad_id = self.id_by_token['<pad>']
 		self.bos_id = self.id_by_token['<bos>']
@@ -171,6 +182,61 @@ class MidiTokenizer:
 
 		self.event_id_set = {self.id_by_token[t] for t in self.event_tokens}
 		self.excluded = set(EXCLUDED_EVENT_TOKENS)
+
+	# --- JSON artifact (token<->id), mirroring LilyletTokenizer's {vocab:[{token,id,type}]} --
+
+	def to_artifact(self) -> dict:
+		'''Serialize the vocab to the repo-standard artifact dict.
+
+		Layout matches starry.lilylet.data.patchifier.LilyletTokenizer: a `vocab` list of
+		{token, id, type} entries (types: special / event / content), plus `patch_size` and
+		`excluded_events` so a JSON-loaded tokenizer reproduces this one exactly. `type` is
+		informational; ids are the source of truth.'''
+		special = set(SPECIAL_TOKENS)
+		event = set(self.event_tokens)
+		vocab = []
+		for tok, tid in sorted(self.id_by_token.items(), key=lambda kv: kv[1]):
+			if tok in special:
+				ttype = 'special'
+			elif tok in event:
+				ttype = 'event'
+			else:
+				ttype = 'content'
+			vocab.append({'token': tok, 'id': tid, 'type': ttype})
+		return {
+			'model_type': 'midi',
+			'patch_size': self.patch_size,
+			'vocab_size': self.vocab_size,
+			'excluded_events': sorted(EXCLUDED_EVENT_TOKENS),
+			'vocab': vocab,
+		}
+
+	def save_json(self, path: str):
+		'''Write the vocab artifact to a tokenizer.json file.'''
+		with open(path, 'w', encoding='utf-8') as f:
+			json.dump(self.to_artifact(), f, ensure_ascii=False, indent='\t')
+
+	@classmethod
+	def from_json(cls, path: str) -> 'MidiTokenizer':
+		'''Build a MidiTokenizer from a tokenizer.json artifact (no code-side vocab build).
+
+		The artifact's id assignment is taken verbatim, so a tokenizer pinned at training
+		time stays stable even if the in-code vocab construction later changes.'''
+		with open(path, 'r', encoding='utf-8') as f:
+			artifact = json.load(f)
+		self = cls.__new__(cls)
+		self.patch_size = int(artifact.get('patch_size', DEFAULT_PATCH_SIZE))
+		vocab = artifact['vocab']
+		id_by_token = {entry['token']: int(entry['id']) for entry in vocab}
+		event_tokens = [entry['token'] for entry in vocab if entry.get('type') == 'event']
+		if not event_tokens:
+			# fall back to the in-code event list if the artifact omitted types
+			event_tokens = list(FIELD_EVENT_TOKENS) + list(HEADER_EVENT_TOKENS)
+		self._init_vocab(id_by_token, event_tokens)
+		if 'excluded_events' in artifact:
+			self.excluded = set(artifact['excluded_events'])
+		return self
+
 
 	# --- single-line (one event) encode / decode ----------------------------
 

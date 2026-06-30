@@ -335,6 +335,7 @@ def main ():
 	ap.add_argument('--run', required=True, help='training run dir (holds best.chkpt + .state.yaml)')
 	ap.add_argument('--checkpoint', default=None, help='checkpoint path (default: <run>/best.chkpt)')
 	ap.add_argument('--output-dir', default=None, help='onnx output dir (default: <run>/onnx_midi)')
+	ap.add_argument('--tokenizer', default=None, help='tokenizer.json path (default: <run>/tokenizer.json, else in-code build)')
 	ap.add_argument('--prompt-file', default=None, help='optional MidiText header lines as seed prefix')
 	ap.add_argument('--max-patches', type=int, default=512)
 	ap.add_argument('--temperature', type=float, default=1.0)
@@ -358,7 +359,19 @@ def main ():
 	config, model = load_model(run, ckpt)
 	hidden = config['model.args.hidden_size']
 	patch_size = config['model.args.patch_size']
-	tokenizer = MidiTokenizer(patch_size)
+	# Prefer a pinned tokenizer.json (run dir or --tokenizer) so the inference vocab is
+	# exactly the one frozen at training time; fall back to the in-code deterministic build.
+	tok_path = args.tokenizer or os.path.join(run, 'tokenizer.json')
+	if os.path.exists(tok_path):
+		tokenizer = MidiTokenizer.from_json(tok_path)
+		print('[tokenizer] loaded', tok_path, '| vocab:', tokenizer.vocab_size)
+		if tokenizer.patch_size != patch_size:
+			print('[tokenizer] WARN patch_size %d != config %d; using config'
+				% (tokenizer.patch_size, patch_size))
+			tokenizer.patch_size = patch_size
+	else:
+		tokenizer = MidiTokenizer(patch_size)
+		print('[tokenizer] built in-code (no tokenizer.json at %s)' % tok_path)
 	vocab = config['model.args.token_vocab_size']
 	n_params = sum(p.numel() for p in model.parameters())
 	print('params: %.2fM | base: %s | hidden: %d | patch_size: %d | vocab: %d'
