@@ -28,7 +28,11 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 sys.path.insert(0, REPO_ROOT)
 
 from starry.midi.data.condPatchy import _get_store
-from starry.midi.tokenizer import MidiTokenizer
+from starry.midi.tokenizer import MidiTokenizer, FIELD_EVENT_TOKENS
+
+# FIELD events carry deltaTime as their first value; HEADER events (ticks_per_beat / format_type
+# / track) carry a single value and NO deltaTime, so they must be excluded from tick accumulation.
+_FIELD_EVENTS = set(FIELD_EVENT_TOKENS)
 
 
 def build_lyl_index (lyl_root):
@@ -69,6 +73,12 @@ def midi_onsets_by_measure (item, mt):
 			continue
 		parts = line.split()
 		if len(parts) < 2:
+			continue
+		# Header events (ticks_per_beat / format_type / track) carry a SINGLE value and NO
+		# deltaTime — their parts[1] is that value, not a time gap. Adding it corrupts the
+		# running tick (e.g. "ticks_per_beat 1e0" would inject +480). Only FIELD events carry
+		# deltaTime as parts[1], so skip anything not in the field-event set for accumulation.
+		if parts[0] not in _FIELD_EVENTS:
 			continue
 		try:
 			abst += int(parts[1], 16)
