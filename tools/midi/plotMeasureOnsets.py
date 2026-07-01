@@ -104,9 +104,26 @@ def main ():
 	ap.add_argument('--n', type=int, default=100, help='number of measures to sample')
 	ap.add_argument('--server', default='http://127.0.0.1:8788', help='lilylet AST server base url')
 	ap.add_argument('--seed', type=int, default=20260701)
+	ap.add_argument('--dataset', default=None,
+		help='dataset.yaml with authoritative per-measure start_tick (recommended; the '
+		     'reconstructed first-event tick can miss the true bar line by a note). If omitted, '
+		     'measure spans are derived from event ticks.')
 	args = ap.parse_args()
 
 	os.makedirs(args.out_dir, exist_ok=True)
+	# authoritative measure start_tick per sample id (from dataset.yaml), if provided.
+	start_ticks = {}
+	if args.dataset:
+		import yaml
+		try:
+			Loader = yaml.CSafeLoader
+		except AttributeError:
+			Loader = yaml.SafeLoader
+		print('loading measure start_ticks from', args.dataset, '(this may take a minute)...')
+		d = yaml.load(open(args.dataset, encoding='utf-8'), Loader=Loader)
+		for s in d['samples']:
+			start_ticks[s['id']] = {int(m['index']): int(m['start_tick']) for m in s.get('measures', [])}
+		print('start_tick maps for', len(start_ticks), 'samples')
 	store = _get_store(args.root)
 	mt = MidiTokenizer()
 	rng = random.Random(args.seed)
@@ -163,10 +180,18 @@ def main ():
 
 		# midi played measures aligned to this lyl measure (src_measure == MEAS)
 		midi_own = sorted(set(int(own[i]) for i in range(L, T) if int(src[i]) == MEAS))
-		sorted_measures = sorted(first_tick)
+		# Prefer the authoritative per-measure start_tick from dataset.yaml: the true bar line,
+		# which the reconstructed first-event tick can miss by a note (a bar opening with a rest,
+		# or a boundary note_off attributed to the previous measure). Fall back to first_tick.
+		st_map = start_ticks.get(item['id'])
 		def span (mi):
+			if st_map and mi in st_map:
+				start = st_map[mi]
+				nxts = [st_map[m] for m in st_map if st_map[m] > start]
+				end = min(nxts) if nxts else start + max((t for pts in per_measure.values() for t, _ in pts), default=start + 1)
+				return start, max(end, start + 1)
 			start = first_tick[mi]
-			nxts = [first_tick[m] for m in sorted_measures if first_tick[m] > start]
+			nxts = [first_tick[m] for m in first_tick if first_tick[m] > start]
 			end = min(nxts) if nxts else max((t for pts in per_measure.values() for t, _ in pts), default=start + 1)
 			return start, max(end, start + 1)
 		midi_points = []
