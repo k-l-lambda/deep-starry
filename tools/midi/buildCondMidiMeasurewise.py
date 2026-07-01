@@ -49,7 +49,10 @@ def main ():
 	out_path = os.path.expanduser(args.out)
 
 	with open(dataset, encoding='utf-8') as f:
-		d = yaml.safe_load(f)
+		# CSafeLoader is ~10x faster than the pure-python loader; a large corpus dataset.yaml
+		# (tens of MB) takes minutes under safe_load but ~1 min with the C loader.
+		Loader = getattr(yaml, 'CSafeLoader', yaml.SafeLoader)
+		d = yaml.load(f, Loader=Loader)
 	samples = d['samples']
 	if args.limit and args.limit > 0:
 		samples = samples[:args.limit]
