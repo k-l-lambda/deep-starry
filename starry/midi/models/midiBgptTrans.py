@@ -273,15 +273,21 @@ class MidiBgptTrans (nn.Module):
 
 		# Degenerate guard: if a batch ends up with NO supervised target (e.g. a tiny sample whose
 		# only midi content is the unsupervised header, or every body target dropped by the crop),
-		# `dec_sel`/`target_patches` would be zero-length and crash TokenLevelDecoder's HF LM. Fall
-		# back to the last adjacent real-midi (context, target) pair so the loss stays finite; this
-		# fires only on pathological samples (normal crops keep >=1 whole body measure).
+		# `dec_sel`/`target_patches` would be zero-length and crash TokenLevelDecoder's HF LM. Rebuild
+		# a single (context, target) pair from the LAST real-midi patch(es) so the loss stays finite;
+		# this fires only on pathological samples (normal crops keep >=1 whole body measure).
+		#
+		# The target MUST be a real MIDI patch: token ids there are in the midi vocab, whereas a lyl
+		# patch (ids 0..255) would overflow TokenLevelDecoder's midi-vocab embedding and crash. Prefer
+		# the last two real-midi patches as (context, target) — the midi tail is <eom> then <eos>, i.e.
+		# genuinely adjacent — and degrade to a single-patch self-pair if only one real-midi exists, so
+		# we ALWAYS yield N>=1 (never a 0-size batch) as long as the batch has any real midi content.
 		if int(left_shift.sum()) == 0 or int(target_masks.sum()) == 0:
 			real_midi = (modality == 1) & (masks == 1)					# [B,T]
-			flat = real_midi.reshape(-1)
-			pos = torch.nonzero(flat, as_tuple=False).flatten()
-			if pos.numel() >= 2 and int(pos[-1]) - int(pos[-2]) == 1:	# adjacent in the flat layout
-				tgt_flat = int(pos[-1]); ctx_flat = int(pos[-2])
+			pos = torch.nonzero(real_midi.reshape(-1), as_tuple=False).flatten()
+			if pos.numel() >= 1:
+				tgt_flat = int(pos[-1])
+				ctx_flat = int(pos[-2]) if pos.numel() >= 2 else tgt_flat
 				left_shift = torch.zeros_like(masks); target_masks = torch.zeros_like(masks)
 				left_shift.reshape(-1)[ctx_flat] = 1
 				target_masks.reshape(-1)[tgt_flat] = 1
