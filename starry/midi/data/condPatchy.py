@@ -152,16 +152,23 @@ class CondMidiPatchy (Dataset):
 		)
 
 	def __init__ (self, root, split, device='cpu', shuffle=False, pad_id=0,
-		w_midi=2, w_cross=2, patch_length=0, **_):
+		w_midi=2, w_cross=2, patch_length=0, max_patches=0, random_crop=True, **_):
 		super().__init__()
 		self.device = device
 		self.shuffle = shuffle
 		self.pad_id = pad_id
 		self.w_midi = w_midi
 		self.w_cross = w_cross
-		# patch_length kept for API parity; per-song coupling forbids cropping, so 0 (no crop)
-		# is the only supported value — a crop would sever the measure alignment.
+		# patch_length kept for API parity; per-song coupling forbids cropping the JOINT
+		# sequence, so 0 (no crop) is the only supported value there.
 		self.patch_length = patch_length
+		# max_patches: cap the joint length T by cropping ONLY the midi body to whole measures
+		# (the lilylet condition + midi header are always kept in full). 0 = no cap. The O(T^2)
+		# decoder self-attention memory is driven by the midi segment (L is ~9% of T), so this
+		# keeps the full score condition while bounding the memory-dominant midi window. On the
+		# train split a random measure window is taken (augmentation); otherwise the head window.
+		self.max_patches = max_patches
+		self.random_crop = random_crop
 		self.store = _get_store(root)
 
 		phases, cycle = parseFilterStr(split)
@@ -177,7 +184,73 @@ class CondMidiPatchy (Dataset):
 		own_meas = item['measures'].long()				# [T]
 		src_meas = item['src_measures'].long()			# [T]
 		lyl_count = int(item['lyl_count'])
+		if self.max_patches and patches.shape[0] > self.max_patches:
+			patches, modality, own_meas, src_meas, lyl_count = self._crop_midi(
+				patches, modality, own_meas, src_meas, lyl_count)
 		return patches, modality, own_meas, src_meas, lyl_count
+
+	def _crop_midi (self, patches, modality, own_meas, src_meas, lyl_count):
+		'''Crop the MIDI body to a contiguous run of whole measures so the joint length fits
+		max_patches, keeping the full lilylet condition and the midi header (own_meas==0) intact.
+
+		The midi self-attention (window w_midi measures) and the midi->lyl cross window only need
+		a local measure neighbourhood, so a contiguous measure window is a valid training example;
+		per-patch own/src measure ids are preserved, so build_vis couples it to the lilylet score
+		exactly as in the uncropped song. A random window start (train) augments; head otherwise.
+		'''
+		T = patches.shape[0]
+		is_midi = modality == 1
+		midi_pos = torch.nonzero(is_midi, as_tuple=False).flatten()
+		if midi_pos.numel() == 0:
+			return patches, modality, own_meas, src_meas, lyl_count
+		m0 = int(midi_pos[0])								# first midi position (== lyl_count)
+		# midi header patches (own_meas == 0) sit at the midi segment head; always keep them.
+		midi_own = own_meas[m0:]
+		header_len = int((midi_own == 0).sum())
+		body_start = m0 + header_len						# first real (measured) midi patch
+		# budget for the midi BODY after keeping lyl + midi header.
+		fixed = body_start									# lyl_count + header_len
+		budget = self.max_patches - fixed
+		if budget <= 0:
+			# pathological (huge lyl+header); fall back to a hard head cut at max_patches.
+			keep = slice(0, self.max_patches)
+			return (patches[keep], modality[keep], own_meas[keep], src_meas[keep],
+				min(lyl_count, self.max_patches))
+		body_own = own_meas[body_start:]					# measure id per body patch
+		measures = torch.unique(body_own).tolist()			# ascending distinct played measures
+		# greedily assemble the largest contiguous measure window (from a chosen start) <= budget.
+		# precompute per-measure patch counts and their start offsets within the body.
+		counts = {int(mm): int((body_own == mm).sum()) for mm in measures}
+		# choose a start measure: random (train) or first (val/head).
+		if self.random_crop and len(measures) > 1:
+			start_i = int(torch.randint(0, len(measures), (1,)))
+		else:
+			start_i = 0
+		# extend the window forward from start_i while it fits; if the very first measure alone
+		# exceeds budget, take just that measure (a single measure is the atomic unit).
+		chosen, acc = [], 0
+		for mm in measures[start_i:]:
+			c = counts[mm]
+			if chosen and acc + c > budget:
+				break
+			chosen.append(mm); acc += c
+			if acc >= budget:
+				break
+		chosen_set = set(chosen)
+		body_keep = torch.tensor([mm in chosen_set for mm in body_own.tolist()], dtype=torch.bool)
+		# assemble the kept index mask: all lyl + midi header + chosen body measures.
+		keep_mask = torch.zeros(T, dtype=torch.bool)
+		keep_mask[:body_start] = True						# lyl + midi header
+		keep_mask[body_start:] = body_keep
+		keep_idx = torch.nonzero(keep_mask, as_tuple=False).flatten()
+		# Hard safety clamp: a single measure larger than the budget (dense/sustained bars do
+		# occur) would still overflow, so cap the total length at max_patches by dropping the
+		# TAIL midi patches. lyl + header sit at the front and are preserved; the truncated tail
+		# just ends the midi window early (still a causal-valid partial measure).
+		if keep_idx.numel() > self.max_patches:
+			keep_idx = keep_idx[:self.max_patches]
+		return (patches[keep_idx], modality[keep_idx], own_meas[keep_idx],
+			src_meas[keep_idx], lyl_count)
 
 	def __getitem__ (self, index):
 		return self._item(self.indices[index])

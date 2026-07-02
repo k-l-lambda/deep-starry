@@ -172,8 +172,16 @@ class MidiBgptTrans (nn.Module):
 		return self
 
 	def parameters_trainable (self):
-		'''Parameters excluding a frozen lyl encoder (for the optimizer / training_parameters).'''
-		return [p for p in self.parameters() if p.requires_grad]
+		'''Parameters excluding a frozen lyl encoder, selected by MODULE IDENTITY (not the live
+		`requires_grad` flag). The distributed validator calls `model.requires_grad_(False)` before
+		the per-epoch param broadcast, which would zero a flag-based filter and desync the two ranks
+		(the trainer keeps grads on) -> a gloo/NCCL collective size mismatch. Selecting by identity
+		yields the SAME tensor list in the SAME order on both ranks, so broadcastParam stays aligned.
+		'''
+		if not self.freeze_lyl_encoder:
+			return list(self.parameters())
+		frozen_ids = {id(p) for p in self.lyl_encoder.parameters()}
+		return [p for p in self.parameters() if id(p) not in frozen_ids]
 
 	def _midi_embed (self, patches):
 		dtype = self.midi_embedding.weight.dtype
