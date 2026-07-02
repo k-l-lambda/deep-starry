@@ -199,12 +199,20 @@ class CondMidiPatchy (Dataset):
 
 	def _crop_midi (self, patches, modality, own_meas, src_meas, lyl_count):
 		'''Crop the MIDI body to a contiguous run of whole measures so the joint length fits
-		max_patches, keeping the full lilylet condition and the midi header (own_meas==0) intact.
+		max_patches, keeping the lilylet prefix + the measures the kept midi window needs, and the
+		midi header (own_meas==0) intact.
 
 		The midi self-attention (window w_midi measures) and the midi->lyl cross window only need
 		a local measure neighbourhood, so a contiguous measure window is a valid training example;
 		per-patch own/src measure ids are preserved, so build_vis couples it to the lilylet score
 		exactly as in the uncropped song. A random window start (train) augments; head otherwise.
+
+		The lilylet TAIL is trimmed too: a midi query at source measure src_q cross-attends only
+		lyl keys with src_meas in (src_q - w_cross, src_q] plus the global prefix (src_meas == 0).
+		Since lyl->lyl is causal and lyl is never supervised, any lyl patch whose measure exceeds
+		the highest kept-midi source measure is attended by nobody -> drop it. lyl src_meas is
+		monotonic non-decreasing, so the survivors are the contiguous prefix and their RoPE
+		positions 0..new_lyl_count-1 are unchanged (only a suffix is removed).
 
 		Returns the kept tensors plus `drop_targets`: cropped-coord positions whose next-patch
 		supervision must be dropped because the crop broke their causal context:
@@ -265,11 +273,26 @@ class CondMidiPatchy (Dataset):
 				break
 		chosen_set = set(chosen)
 		body_keep = torch.tensor([mm in chosen_set for mm in body_own.tolist()], dtype=torch.bool)
-		# assemble the kept index mask: all lyl + midi header + chosen body measures.
+		# Trim the lilylet TAIL: the kept midi patches (header + chosen body) reach up to source
+		# measure `max_kept_src`; any lyl patch with a higher measure is cross-attended by nobody
+		# (lyl->lyl is causal, lyl is unsupervised). lyl src_meas is monotonic non-decreasing, so
+		# the survivors are the prefix [0, new_lyl_count) and their RoPE positions are unchanged.
+		midi_keep_rel = torch.cat((torch.ones(header_len, dtype=torch.bool), body_keep))	# over [m0:]
+		max_kept_src = int(src_meas[m0:][midi_keep_rel].max())
+		lyl_src = src_meas[:m0]
+		assert lyl_src.numel() == 0 or bool((lyl_src[1:] >= lyl_src[:-1]).all()), \
+			'non-monotonic lilylet src_meas (tail trim assumes a non-decreasing prefix)'
+		new_lyl_count = int((lyl_src <= max_kept_src).sum())	# contiguous prefix (monotonic)
+		# assemble the kept index mask: lyl prefix + midi header + chosen body measures. The lyl
+		# tail (new_lyl_count..m0) is dropped; the midi header at [m0, body_start) is always kept.
 		keep_mask = torch.zeros(T, dtype=torch.bool)
-		keep_mask[:body_start] = True						# lyl + midi header
+		keep_mask[:new_lyl_count] = True					# kept lilylet prefix
+		keep_mask[m0:body_start] = True						# midi header
 		keep_mask[body_start:] = body_keep
 		keep_idx = torch.nonzero(keep_mask, as_tuple=False).flatten()
+		# cropped-coord position of the first kept BODY patch: kept lyl prefix + midi header sit at
+		# the front (budget>0 guarantees they fit), so it lands at new_lyl_count + header_len.
+		cropped_body_start = new_lyl_count + header_len
 		# Hard safety clamp: a single measure larger than the budget (dense/sustained bars do
 		# occur) would still overflow, so cap the total length at max_patches by dropping the
 		# TAIL midi patches. lyl + header sit at the front and are preserved; the truncated tail
@@ -277,15 +300,14 @@ class CondMidiPatchy (Dataset):
 		clamped = keep_idx.numel() > self.max_patches
 		if clamped:
 			keep_idx = keep_idx[:self.max_patches]
-		# drop targets broken by the crop (see docstring). body_start is retained unchanged at the
-		# front (budget>0 guarantees lyl+header fit), so its cropped-coord position == body_start.
+		# drop targets broken by the crop (see docstring), in cropped coordinates.
 		drop_targets = []
 		if start_i > 0:
-			drop_targets.append(body_start)					# first kept body patch: cross-boundary predict
+			drop_targets.append(cropped_body_start)			# first kept body patch: cross-boundary predict
 		if clamped:
 			drop_targets.append(int(keep_idx.numel()) - 1)	# partial-measure tail: no natural <eom>
 		return (patches[keep_idx], modality[keep_idx], own_meas[keep_idx],
-			src_meas[keep_idx], lyl_count, drop_targets)
+			src_meas[keep_idx], new_lyl_count, drop_targets)
 
 	def __getitem__ (self, index):
 		return self._item(self.indices[index])
