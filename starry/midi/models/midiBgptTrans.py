@@ -247,8 +247,21 @@ class MidiBgptTrans (nn.Module):
 			dec, _, _ = layer(dec, memory, slf_attn_mask=dec_self, dec_enc_attn_mask=cross)
 
 		if target_masks is None:
+			# Fallback (direct forward / inspect / inference): supervise the midi segment but drop
+			# the FIRST midi patch per row. That patch sits at lyl_count (NOT index 0 — index 0 is
+			# lilylet), so mirror CondMidiPatchy: never train the lilylet hidden state to emit the
+			# first midi patch across the modality boundary.
 			target_masks = (modality == 1).long() * masks
-			target_masks[:, 0] = 0
+			if lyl_counts is not None:
+				rows = torch.arange(B, device=patches.device)
+				has_midi = lyl_counts < T
+				target_masks[rows[has_midi], lyl_counts[has_midi]] = 0
+			else:
+				# no lyl_counts: fall back to dropping the first real midi patch of each row.
+				first_midi = (target_masks == 1).float().argmax(dim=1)		# 0 if a row has none
+				has_midi = target_masks.sum(dim=1) > 0
+				rows = torch.arange(B, device=patches.device)
+				target_masks[rows[has_midi], first_midi[has_midi]] = 0
 		else:
 			target_masks = target_masks.clone()
 
@@ -257,6 +270,21 @@ class MidiBgptTrans (nn.Module):
 		left_shift = torch.zeros_like(masks)
 		left_shift[:, :-1] = target_masks[:, 1:]
 		left_shift = left_shift * masks
+
+		# Degenerate guard: if a batch ends up with NO supervised target (e.g. a tiny sample whose
+		# only midi content is the unsupervised header, or every body target dropped by the crop),
+		# `dec_sel`/`target_patches` would be zero-length and crash TokenLevelDecoder's HF LM. Fall
+		# back to the last adjacent real-midi (context, target) pair so the loss stays finite; this
+		# fires only on pathological samples (normal crops keep >=1 whole body measure).
+		if int(left_shift.sum()) == 0 or int(target_masks.sum()) == 0:
+			real_midi = (modality == 1) & (masks == 1)					# [B,T]
+			flat = real_midi.reshape(-1)
+			pos = torch.nonzero(flat, as_tuple=False).flatten()
+			if pos.numel() >= 2 and int(pos[-1]) - int(pos[-2]) == 1:	# adjacent in the flat layout
+				tgt_flat = int(pos[-1]); ctx_flat = int(pos[-2])
+				left_shift = torch.zeros_like(masks); target_masks = torch.zeros_like(masks)
+				left_shift.reshape(-1)[ctx_flat] = 1
+				target_masks.reshape(-1)[tgt_flat] = 1
 
 		dec_sel = dec[left_shift == 1]					# [N, d_model]
 		target_patches = patches[target_masks == 1]		# [N, patch_size]

@@ -115,8 +115,22 @@ def patchify_midi (text: str, measures_meta: List[Dict[str, Any]], tokenizer: Mi
 	'''
 	boundaries = [m['start_tick'] for m in measures_meta]		# ascending, boundaries[0] == 0
 	n_measures = len(measures_meta)
+	# Validate measure metadata: build_vis treats src_measure==0 as the midi HEADER (no lilylet
+	# body visibility), so a real measure with a missing/invalid source_measure would silently
+	# train/generate with NO score conditioning. Fail loud here instead.
+	assert n_measures >= 1, 'empty measures_meta'
+	assert boundaries[0] == 0, f'first measure start_tick must be 0, got {boundaries[0]}'
+	assert all(boundaries[i] <= boundaries[i + 1] for i in range(n_measures - 1)), \
+		'measure start_ticks must be non-decreasing'
+	indices = [int(m['index']) for m in measures_meta]
+	assert indices == list(range(1, n_measures + 1)), \
+		f'measure indices must be 1..{n_measures}, got {indices[:8]}...'
+	for m in measures_meta:
+		sm = m.get('source_measure')
+		assert sm is not None and int(sm) >= 1, \
+			f'measure {m.get("index")} has invalid source_measure {sm!r} (needed for cross-attention)'
 	# midi measure index (1-based) -> source (lilylet-aligned) measure
-	src_of = {int(m['index']): int(m['source_measure']) for m in measures_meta if m.get('source_measure') is not None}
+	src_of = {int(m['index']): int(m['source_measure']) for m in measures_meta}
 
 	def measure_of (tick: int, is_off: bool) -> int:
 		t = tick - 1 if is_off else tick
