@@ -74,6 +74,7 @@
     "\\partial",
     "composer",
     "grazioso",
+    "measures",
     "Menuetto",
     "moderato",
     "Moderato",
@@ -394,10 +395,9 @@
     },
     {
       "id": 29,
-      "type": "byte",
-      "token": "\u001d",
-      "text": "\u001d",
-      "value": 29
+      "type": "protected",
+      "token": "measures",
+      "text": "measures"
     },
     {
       "id": 30,
@@ -3349,9 +3349,9 @@
     },
     {
       "id": 29,
-      "type": "byte",
-      "token": "\u001d",
-      "text": "\u001d",
+      "type": "protected",
+      "token": "measures",
+      "text": "measures",
       "frequency": 0
     },
     {
