@@ -137,7 +137,14 @@ def patchify_midi (text: str, measures_meta: List[Dict[str, Any]], tokenizer: Mi
 		i = bisect.bisect_right(boundaries, t)		# 1-based measure (boundaries[0]=0 -> >=1)
 		return min(max(i, 1), n_measures)
 
-	eom_patch = pad_patch([tokenizer.eom_id], patch_size, tokenizer.pad_id)
+	# Use MidiTokenizer.pad_patch (NOT the lilylet module-level pad_patch) for every midi
+	# event/eom patch: it inserts a supervised <eos> tail token before padding, so the patch
+	# is [content..., <eos>, <pad>...] rather than [content..., <pad>...]. TokenLevelDecoder
+	# masks <pad> (== PAD_TOKEN_ID) to -100 in the loss, so a pad-only tail leaves the event
+	# terminator UNSUPERVISED and the token decoder never learns where an event ends (it emits
+	# maximal 16-token blobs at inference). The <eos> tail (id 2, not masked) is the supervised
+	# stop signal, matching the unconditional midi pipeline (MidiTokenizer.encode_patches).
+	eom_patch = tokenizer.pad_patch([tokenizer.eom_id])
 
 	patches: List[List[int]] = []
 	mm: List[int] = []		# own midi measure
@@ -193,7 +200,7 @@ def patchify_midi (text: str, measures_meta: List[Dict[str, Any]], tokenizer: Mi
 	for line in header_lines:
 		ids = tokenizer.encode_event(line)
 		if ids is not None:
-			emit(pad_patch(ids, patch_size, tokenizer.pad_id), 0)
+			emit(tokenizer.pad_patch(ids), 0)
 
 	# --- pass 2: re-time (delta = gap from the previous event in the NEW order) + bucket ---
 	cur_measure = 0			# measure of the patches emitted so far (0 = header region)
@@ -210,7 +217,7 @@ def patchify_midi (text: str, measures_meta: List[Dict[str, Any]], tokenizer: Mi
 		line = ' '.join([head, format(new_delta, 'x')] + rest)
 		ids = tokenizer.encode_event(line)
 		if ids is not None:
-			emit(pad_patch(ids, patch_size, tokenizer.pad_id), m)
+			emit(tokenizer.pad_patch(ids), m)
 
 
 	# close any remaining measures up to the last with <eom>.
