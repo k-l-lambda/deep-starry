@@ -216,9 +216,11 @@ class Trainer:
 				loss.backward()
 				# Gradient clipping (trainer.grad_clip): bounds the update norm so a single spiky
 				# batch can't knock the model into a bad basin (the InvSqrt-decayed LR can't climb
-				# back out). Clip the SAME trainable params the optimizer sees.
-				if grad_clip:
-					torch.nn.utils.clip_grad_norm_(self._trainable_params(), grad_clip)
+				# back out). Clip the SAME trainable params the optimizer sees. clip_grad_norm_
+				# returns the PRE-clip total norm even when grad_clip is None (max_norm=inf) — a
+				# system-level metric (like loss) so we can see the norm distribution / spikes.
+				grad_norm = torch.nn.utils.clip_grad_norm_(self._trainable_params(),
+					grad_clip if grad_clip else float('inf'))
 				self.optimizer.step()
 
 				# note keeping
@@ -226,6 +228,7 @@ class Trainer:
 				total_loss += loss.item()
 
 				metric = metric if type(metric) == dict else {'acc': metric}
+				metric = {**metric, 'grad_norm': float(grad_norm)}
 				for k, v in metric.items():
 					metric_data[k] = metric_data[k] + v if k in metric_data else v
 
@@ -242,6 +245,7 @@ class Trainer:
 
 			checkpoint = {
 				'epoch': epoch_i,
+				'steps': self.optimizer.n_steps,		# LR-scheduler step count, so resume restores the exact LR
 				'model': self.model.deducer.state_dict(),
 				'optim': self.optimizer._optimizer.state_dict(),
 				'extra': self.model.state_dict() if need_states else None,
@@ -382,4 +386,15 @@ class Trainer:
 		if 'optim' in checkpoint and self.optimizer is not None:
 			self.optimizer._optimizer.load_state_dict(checkpoint['optim'])
 
-		self.log('Checkpoint loaded: %s', self.config.localPath(filename))
+		# Restore the LR-scheduler step count. Prefer the value saved IN the checkpoint (it always
+		# matches these exact weights) over config['trainer.steps'] (a separate .state.yaml field
+		# that can drift out of sync — e.g. after a checkpoint swap). Fall back to config for old
+		# checkpoints saved before `steps` was persisted.
+		if self.optimizer is not None:
+			steps = checkpoint.get('steps')
+			if steps is None:
+				steps = self.config['trainer.steps'] or 0
+			self.optimizer.n_steps = steps
+
+		self.log('Checkpoint loaded: %s (steps=%s)', self.config.localPath(filename),
+			self.optimizer.n_steps if self.optimizer is not None else 'n/a')

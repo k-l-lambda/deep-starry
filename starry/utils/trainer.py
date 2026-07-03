@@ -176,6 +176,7 @@ class Trainer:
 
 			checkpoint = {
 				'epoch': epoch_i,
+				'steps': self.optimizer.n_steps,		# LR-scheduler step count, so resume restores the exact LR
 				'model': self.model.deducer.state_dict(),
 				'optim': self.optimizer._optimizer.state_dict(),
 			}
@@ -213,8 +214,9 @@ class Trainer:
 			loss.backward()
 			# gradient clipping (trainer.grad_clip): bound the update norm so a spiky batch can't
 			# derail training (see trainerQuantitative for the self-attn divergence that motivated this).
-			if grad_clip:
-				torch.nn.utils.clip_grad_norm_([p for p in self.model.parameters() if p.requires_grad], grad_clip)
+			# clip_grad_norm_ returns the PRE-clip norm even with max_norm=inf → a system-level metric.
+			grad_norm = torch.nn.utils.clip_grad_norm_(
+				[p for p in self.model.parameters() if p.requires_grad], grad_clip if grad_clip else float('inf'))
 			self.optimizer.step()
 
 			# note keeping
@@ -222,6 +224,7 @@ class Trainer:
 			total_loss += loss.item()
 
 			metric = metric if type(metric) == dict else {'acc': metric}
+			metric = {**metric, 'grad_norm': float(grad_norm)}
 			for k, v in metric.items():
 				metric_data[k] = metric_data[k] + v if k in metric_data else v
 
@@ -266,4 +269,12 @@ class Trainer:
 		if 'optim' in checkpoint:
 			self.optimizer._optimizer.load_state_dict(checkpoint['optim'])
 
-		logging.info('Checkpoint loaded: %s', self.config.localPath(filename))
+		# Restore the LR-scheduler step count: prefer the value saved IN the checkpoint (always
+		# matches these weights) over config['trainer.steps'] (a drift-prone separate field); fall
+		# back to config for old checkpoints saved before `steps` was persisted.
+		steps = checkpoint.get('steps')
+		if steps is None:
+			steps = self.options.get('steps', 0)
+		self.optimizer.n_steps = steps
+
+		logging.info('Checkpoint loaded: %s (steps=%s)', self.config.localPath(filename), self.optimizer.n_steps)
