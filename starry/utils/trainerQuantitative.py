@@ -110,6 +110,11 @@ class Trainer:
 			return contextlib.nullcontext()
 		return torch.autocast(device_type='cuda', dtype=self.autocast_dtype)
 
+	def _trainable_params (self):
+		# params that actually receive grads (excludes a frozen encoder); matches what the
+		# optimizer steps, so grad-clip norm is computed over the same set.
+		return [p for p in self.model.parameters() if p.requires_grad]
+
 
 	def cleanupSnapshots (self, keep=None):
 		# Remove all model_*.chkpt snapshots except `keep`. Used in save_mode='best'
@@ -192,6 +197,8 @@ class Trainer:
 			metric_data = {}
 			n_steps = self.options['epoch_size'] // self.config['data.batch_size']
 
+			grad_clip = self.options.get('grad_clip')
+
 			for batch in tqdm(finiteTraverse(data_it, n_steps), mininterval=1, leave=False,
 				total=n_steps, desc='  - (Training)   ', position=self.rank):
 				# forward
@@ -199,8 +206,19 @@ class Trainer:
 				with self.autocast():
 					loss, metric = self.model(batch)
 
+				# Skip a pathological batch: a non-finite loss would poison every weight through
+				# backward+step. Drop it (no grad applied) rather than corrupt the model.
+				if not torch.isfinite(loss):
+					logging.warning('non-finite loss (%s) at epoch %d; skipping batch', loss.item(), epoch_i)
+					continue
+
 				# backward and update parameters
 				loss.backward()
+				# Gradient clipping (trainer.grad_clip): bounds the update norm so a single spiky
+				# batch can't knock the model into a bad basin (the InvSqrt-decayed LR can't climb
+				# back out). Clip the SAME trainable params the optimizer sees.
+				if grad_clip:
+					torch.nn.utils.clip_grad_norm_(self._trainable_params(), grad_clip)
 				self.optimizer.step()
 
 				# note keeping

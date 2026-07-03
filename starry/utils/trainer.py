@@ -197,13 +197,24 @@ class Trainer:
 		total_loss, n_batch = 0, 0
 		metric_data = {}
 
+		grad_clip = self.options.get('grad_clip')
+
 		for batch in tqdm(dataset, total=n_steps, mininterval=2, desc='  - (Training)   ', leave=False):
 			# forward
 			self.optimizer.zero_grad()
 			loss, metric = self.model(batch)
 
+			# skip a pathological batch rather than let a non-finite loss poison the weights.
+			if not torch.isfinite(loss):
+				logging.warning('non-finite loss (%s); skipping batch', loss.item())
+				continue
+
 			# backward and update parameters
 			loss.backward()
+			# gradient clipping (trainer.grad_clip): bound the update norm so a spiky batch can't
+			# derail training (see trainerQuantitative for the self-attn divergence that motivated this).
+			if grad_clip:
+				torch.nn.utils.clip_grad_norm_([p for p in self.model.parameters() if p.requires_grad], grad_clip)
 			self.optimizer.step()
 
 			# note keeping
