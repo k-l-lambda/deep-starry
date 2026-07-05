@@ -265,6 +265,23 @@ class MidiBgptTransSelfAttnLoss (nn.Module):
 			return 0.0
 		return (shift_logits.argmax(dim=-1)[valid] == shift_labels[valid]).float().mean().item()
 
+	def _type_err (self, output, target_patches):
+		'''Error rate of the FIRST token of each patch (the event-type / <eom> / <eos>
+		structural token), predicted from the patch hidden state (the <bos> slot at position 0).
+
+		This is the measure-/event-structure signal: it is a tiny fraction of all tokens (~1
+		per patch vs patch_size within-event tokens), so it barely moves the aggregate token err
+		even when structure prediction is weak. Tracking it separately exposes how well the model
+		places event boundaries (esp. <eom> measure-closing), which governs free-running structure.
+		'''
+		# logits[:, 0] (from the <bos>/hidden-state slot) predict the first target token.
+		first_logits = output.logits[:, 0, :]
+		first_labels = target_patches[:, 0]
+		valid = first_labels != self.deducer.special_token_id		# first token is never pad in practice
+		if not valid.any():
+			return 0.0
+		return 1.0 - (first_logits.argmax(dim=-1)[valid] == first_labels[valid]).float().mean().item()
+
 	def _time_err (self, output, target_patches):
 		'''Error rate over deltaTime tokens only (positions 1 .. first-space-1 of each patch).'''
 		space_id = _space_token_id()
@@ -293,6 +310,7 @@ class MidiBgptTransSelfAttnLoss (nn.Module):
 			metrics = {'acc': acc, 'err': 1 - acc}
 			if not self.training:
 				metrics['time_err'] = self._time_err(output, target)
+				metrics['type_err'] = self._type_err(output, target)
 
 		return output.loss, metrics
 
@@ -306,6 +324,7 @@ class MidiBgptTransSelfAttnLoss (nn.Module):
 			'acc': acc,
 			'err': 1 - acc,
 			'time_err': self._time_err(output, target),
+			'type_err': self._type_err(output, target),
 			'logits': output.logits,
 			'target_patches': target,
 			'n_patches': int(target.shape[0]),

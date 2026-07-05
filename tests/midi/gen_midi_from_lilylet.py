@@ -115,11 +115,16 @@ class MidiFromLilyletGenerator:
 		return self.model.enc_proj(memory)											# [1,L,d_model]
 
 	@torch.no_grad()
-	def _decode_patch (self, hidden, temperature, top_k, top_p):
+	def _decode_patch (self, hidden, temperature, top_k, top_p, rep_penalty=1.0, rep_context=None,
+		type_penalty=1.0, type_counts=None):
 		'''Token-level decode of one midi event patch from its patch hidden state.
 
 		Position 0 is the patch hidden state (not an embedding); positions 1.. are the
 		embeddings of the tokens sampled so far.
+
+		rep_penalty / rep_context: optional CTRL-style repetition penalty. rep_context is the
+		set of token ids recently emitted (in the current measure); their logits are damped by
+		rep_penalty (>1) at every within-patch step. 1.0 (default) disables it.
 
 		TERMINATOR = <pad> (id 0), NOT <eos>. condPatchifier builds midi event patches with
 		the lilylet `pad_patch` (content then <pad>, NO in-patch <eos>) — unlike the
@@ -141,6 +146,26 @@ class MidiFromLilyletGenerator:
 		emb = enc
 		while len(generated) < self.patch_size:
 			logits = dec(inputs_embeds=emb).logits[0, -1]
+			# Repetition penalty (CTRL-style): divide the logit of any token seen in the recent
+			# measure history by `rep_penalty` (>1) — positive logits shrink, negatives grow more
+			# negative, so recently-emitted tokens are discouraged. This counters the free-running
+			# collapse (see gen diagnosis): under the windowed mask the model loses the long-range
+			# context that would otherwise damp repetition, so greedy locks onto one event.
+			if rep_penalty and rep_penalty != 1.0 and rep_context:
+				logits = logits.clone()
+				ids = torch.tensor(sorted(rep_context), device=self.device)
+				sel = logits[ids]
+				logits[ids] = torch.where(sel > 0, sel / rep_penalty, sel * rep_penalty)
+			# FIRST-TOKEN (event-type) penalty, applied ONLY at position 0: the collapse locks on
+			# an event TYPE (e.g. control_change 63% of patches) and dodges the content-level penalty
+			# by varying only the value byte. `type_counts` maps event-type token id -> how many of
+			# the recent patches started with it; penalise proportionally so a type that keeps
+			# recurring is pushed down (freeing <eom> and other event types to win).
+			if len(generated) == 0 and type_penalty and type_penalty > 1.0 and type_counts:
+				logits = logits.clone()
+				for tid, c in type_counts.items():
+					pen = type_penalty ** c						# compounding with recurrence count
+					logits[tid] = logits[tid] / pen if logits[tid] > 0 else logits[tid] * pen
 			nxt = sample_next(logits, temperature=temperature, top_k=top_k, top_p=top_p)
 			# first <pad> ends the event; right-pad the rest (matches the training layout).
 			if nxt == self.m_pad and generated:
@@ -155,11 +180,17 @@ class MidiFromLilyletGenerator:
 
 	@torch.no_grad()
 	def generate (self, lyl_text, header=None, max_midi_patches=2048, max_measures=0,
-		temperature=1.0, top_k=0, top_p=0.9, verbose=False):
+		temperature=1.0, top_k=0, top_p=0.9, rep_penalty=1.0, rep_window=8,
+		type_penalty=1.0, verbose=False):
 		'''Generate a whole-song MidiText string conditioned on `lyl_text`.
 
 		header: list of MidiText header lines (measure 0). max_measures: stop after this
 		many <eom>-closed measures (0 = only stop on <eos> / max_midi_patches).
+		rep_penalty: CTRL-style repetition penalty (>1 discourages recently-emitted content
+		tokens); 1.0 disables. rep_window: how many recent PATCHES contribute to the penalised
+		token set. type_penalty: separate penalty on the patch FIRST TOKEN (event type),
+		compounding with how many recent patches shared that type — targets the event-type lock
+		(e.g. control_change) that the content-level penalty can't reach.
 		'''
 		header = DEFAULT_HEADER if header is None else header
 
@@ -197,7 +228,27 @@ class MidiFromLilyletGenerator:
 			embeds[:, :L] = memory.to(wte_dtype)
 			dec = self.model.decoder(inputs_embeds=embeds, attention_mask=attn_mask,
 				position_ids=positions)['last_hidden_state']
-			patch_ids = self._decode_patch(dec[0, -1], temperature, top_k, top_p)
+			# recent-token set for the content repetition penalty: content tokens of the last
+			# rep_window generated patches (drop pad/bos/eos so structural markers aren't penalised).
+			recent = midi_patches[-rep_window:]
+			rep_context = None
+			if rep_penalty and rep_penalty != 1.0:
+				rep_context = {t for p in recent for t in p
+					if t not in (self.m_pad, self.m_bos, self.m_eos)}
+			# event-type counts over the same window: first token of each recent patch -> count.
+			# Drives the first-token penalty against the dominant event-type lock (never counts
+			# <eom>/<eos>, so the structural markers are free to fire).
+			type_counts = None
+			if type_penalty and type_penalty > 1.0:
+				type_counts = {}
+				for p in recent:
+					t0 = p[0]
+					if t0 in (self.m_eom, self.m_eos, self.m_bos, self.m_pad):
+						continue
+					type_counts[t0] = type_counts.get(t0, 0) + 1
+			patch_ids = self._decode_patch(dec[0, -1], temperature, top_k, top_p,
+				rep_penalty=rep_penalty, rep_context=rep_context,
+				type_penalty=type_penalty, type_counts=type_counts)
 			steps += 1
 
 			# <eos> patch [bos, eos, ...] -> stop
@@ -256,6 +307,13 @@ def main ():
 	ap.add_argument('--temperature', type=float, default=1.0)
 	ap.add_argument('--top-k', type=int, default=0)
 	ap.add_argument('--top-p', type=float, default=0.9)
+	ap.add_argument('--rep-penalty', type=float, default=1.0,
+		help='CTRL-style repetition penalty (>1 discourages recently-emitted tokens; 1.0 = off)')
+	ap.add_argument('--rep-window', type=int, default=8,
+		help='number of recent patches contributing to the repetition-penalty token set')
+	ap.add_argument('--type-penalty', type=float, default=1.0,
+		help='event-type (patch first-token) penalty, compounding with recurrence count in the '
+		'rep-window; >1 breaks the dominant-event-type lock (e.g. control_change). 1.0 = off')
 	ap.add_argument('--seed', type=int, default=0)
 	ap.add_argument('--threads', type=int, default=14)
 	ap.add_argument('--device', default='cpu')
@@ -297,7 +355,9 @@ def main ():
 		t0 = time.perf_counter()
 		text, info = gen.generate(lyl_text, max_midi_patches=args.max_midi_patches,
 			max_measures=args.max_measures, temperature=args.temperature,
-			top_k=args.top_k, top_p=args.top_p, verbose=args.verbose)
+			top_k=args.top_k, top_p=args.top_p,
+			rep_penalty=args.rep_penalty, rep_window=args.rep_window,
+			type_penalty=args.type_penalty, verbose=args.verbose)
 		dt = time.perf_counter() - t0
 		out = os.path.join(args.out_dir, name + '.midi.txt')
 		with open(out, 'w', encoding='utf-8') as f:
