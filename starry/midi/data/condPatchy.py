@@ -152,13 +152,21 @@ class CondMidiPatchy (Dataset):
 		)
 
 	def __init__ (self, root, split, device='cpu', shuffle=False, pad_id=0,
-		w_midi=2, w_cross=2, patch_length=0, max_patches=0, random_crop=True, **_):
+		w_midi=2, w_cross=2, w_midi_choices=None, w_cross_choices=None,
+		patch_length=0, max_patches=0, random_crop=True, **_):
 		super().__init__()
 		self.device = device
 		self.shuffle = shuffle
 		self.pad_id = pad_id
 		self.w_midi = w_midi
 		self.w_cross = w_cross
+		# Random-window augmentation: when *_choices is set AND this is a shuffled (train) split,
+		# each sample draws its own window size from the list at batch time, so the model must
+		# stay robust to how much measure-history is visible (a regularizer against over-relying on
+		# the immediate neighbour — the free-running repetition-attractor cause; see 0705 diagnosis).
+		# Val (shuffle=False) always uses the fixed w_midi/w_cross for reproducible, comparable eval.
+		self.w_midi_choices = list(w_midi_choices) if w_midi_choices else None
+		self.w_cross_choices = list(w_cross_choices) if w_cross_choices else None
 		# patch_length is UNSUPPORTED here: per-song measure coupling forbids cropping the JOINT
 		# sequence, and silently ignoring a nonzero value is a footgun (other feeders use
 		# patch_length as the length bound, so a config that sets it but forgets max_patches would
@@ -360,7 +368,15 @@ class CondMidiPatchy (Dataset):
 					tgt[pos] = 0
 			input_targets[b, :T] = tgt
 
-			vis = build_vis(mod, own_meas, src_meas, self.w_midi, self.w_cross)
+			# Per-sample window: random augmentation on the train split (if *_choices given),
+			# else the fixed w_midi/w_cross. torch.randint keeps it reproducible under the global
+			# seed and independent of python's RNG.
+			wm, wc = self.w_midi, self.w_cross
+			if self.shuffle and self.w_midi_choices:
+				wm = self.w_midi_choices[int(torch.randint(len(self.w_midi_choices), (1,)))]
+			if self.shuffle and self.w_cross_choices:
+				wc = self.w_cross_choices[int(torch.randint(len(self.w_cross_choices), (1,)))]
+			vis = build_vis(mod, own_meas, src_meas, wm, wc)
 			attn_mask[b, 0, :T, :T] = vis
 			# pad query rows attend self so SDPA softmax stays finite (outputs discarded).
 			if T < Tmax:
