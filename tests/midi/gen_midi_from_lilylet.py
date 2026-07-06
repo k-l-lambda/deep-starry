@@ -259,6 +259,11 @@ class MidiFromLilyletGenerator:
 			if patch_ids[0] == self.m_eom:
 				midi_patches.append(patch_ids)
 				midi_own.append(cur_measure)
+				# Emit a measure-boundary comment so downstream tools (onset viz) can recover
+				# measure boundaries — decode_event renders <eom> as an empty line, so without this
+				# the saved text loses all bar structure. `%`-prefixed so MidiTokenizer.encode_patches
+				# drops it cleanly on re-encode (unrecognized event -> dropped, no id corruption).
+				gen_lines.append('%% eom %d' % cur_measure)
 				cur_measure += 1
 				if verbose:
 					print('  [eom -> measure %d]' % cur_measure)
