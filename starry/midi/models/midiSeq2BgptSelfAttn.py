@@ -225,16 +225,6 @@ class MidiSeq2BgptSelfAttnLoss (nn.Module):
 			return 0.0
 		return (shift_logits.argmax(dim=-1)[valid] == shift_labels[valid]).float().mean().item()
 
-	def _type_err (self, output, target_patches):
-		'''Error rate of the FIRST token of each patch (structural token: event keyword / <eom> /
-		<eos>), predicted from the patch hidden state (position 0). Still meaningful for midiseq2.'''
-		first_logits = output.logits[:, 0, :]
-		first_labels = target_patches[:, 0]
-		valid = first_labels != self.deducer.special_token_id
-		if not valid.any():
-			return 0.0
-		return 1.0 - (first_logits.argmax(dim=-1)[valid] == first_labels[valid]).float().mean().item()
-
 	def _grouped_error (self, output, target_patches):
 		'''Per-token-type next-token ERROR rate -> {name: WeightedValue(err_rate, count)}.
 
@@ -261,17 +251,23 @@ class MidiSeq2BgptSelfAttnLoss (nn.Module):
 		return out
 
 	def stat (self, metric_data, n_batch):
-		'''Aggregate accumulated metrics: plain scalars averaged by n_batch; WeightedValue groups
-		expanded to their weighted .value (nan-safe). Auto-detected by the trainer.'''
+		'''Aggregate accumulated metrics. Headline scalars (acc / err) stay top-level; every
+		per-token-type ERROR (the WeightedValue groups) is folded into a single `error`
+		dict so the trainer's reportScalars renders them as ONE `error/*` TensorBoard panel instead
+		of a panel each — same grouping convention as topology.RectifySieveJointer2Loss.stat's
+		`accuracy` dict. Auto-detected by the trainer.'''
 		out = {}
+		error = {}
 		for k, v in metric_data.items():
 			if isinstance(v, WeightedValue):
 				# skip a class absent from the whole epoch (weight 0 -> value is inf); logging it
 				# would pollute the metric stream (e.g. channel is always C0/omitted in this corpus).
 				if v.weight != 0:
-					out[k] = v.value
+					error[k[4:] if k.startswith('err_') else k] = v.value	# strip 'err_' -> error/<type>
 			else:
 				out[k] = v / n_batch
+		if error:
+			out['error'] = error
 		return out
 
 	def forward (self, batch):
@@ -283,7 +279,6 @@ class MidiSeq2BgptSelfAttnLoss (nn.Module):
 			acc = self._token_accuracy(output, target)
 			metrics = {'acc': acc, 'err': 1 - acc}
 			if not self.training:
-				metrics['type_err'] = self._type_err(output, target)
 				metrics.update(self._grouped_error(output, target))
 
 		return output.loss, metrics
@@ -297,7 +292,6 @@ class MidiSeq2BgptSelfAttnLoss (nn.Module):
 			'loss': output.loss.item(),
 			'acc': acc,
 			'err': 1 - acc,
-			'type_err': self._type_err(output, target),
 			'logits': output.logits,
 			'target_patches': target,
 			'n_patches': int(target.shape[0]),
