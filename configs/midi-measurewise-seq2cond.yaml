@@ -13,10 +13,9 @@
 # CondMidiPatchy, but int16 patches in a patch_size=64 frame (lilylet ids in cols<16, midiseq2 ids
 # full width). See starry/midi/data/seq2CondPachifier.py for the layout.
 #
-# NOTE: no joint DECODER MODEL is wired for the midiseq2 (vocab 838, patch_size 64) format yet —
-# MidiBgptTransSelfAttn is vocab-41 / patch_size-16. This config pins the DATA half (feeder + tokenizer)
-# for the visualization notebook and as the template once a seq2 model lands. `model` is left as a
-# placeholder mirroring the selfattn sibling; update its vocab/patch_size when the model exists.
+# Model: MidiSeq2BgptSelfAttn — a subclass of MidiBgptTransSelfAttn with an independent lilylet
+# encoder width (lyl_patch_size=16) for the dual-width midiseq2 joint layout (midi vocab 838,
+# patch_size 64). The base class (vocab-41 / patch_size-16) stays untouched for the basic-MIDI path.
 #
 # Test corpus: test20260629 (215 paired lilylet/midi samples from ~/data/abc/notagenx-samples).
 
@@ -24,7 +23,7 @@ id:     midi/{date}-{filename}
 
 
 imports:
-  - starry.midi.models.midiBgptTransSelfAttn
+  - starry.midi.models.midiSeq2BgptSelfAttn
   - starry.midi.data.seq2CondPatchy
 
 
@@ -44,14 +43,12 @@ data:
     max_patches:            0          # 0 = no crop (small corpus); bound T for large corpora
 
 model:
-  # PLACEHOLDER — mirrors midi-measurewise-trans-selfattn.yaml. Not runnable as-is against the
-  # midiseq2 data (midi_vocab_size/patch_size differ). Kept so the config is model-complete for
-  # when a midiseq2 joint decoder is added.
-  type:                     MidiBgptTransSelfAttn
+  type:                     MidiSeq2BgptSelfAttn
   args:
     lyl_vocab_size:         256
     midi_vocab_size:        838        # midiseq2 vocab (assets/midiseq2Vocab.yaml)
-    patch_size:             64         # midiseq2 measure-patch width
+    patch_size:             64         # midiseq2 measure-patch width (midi side)
+    lyl_patch_size:         16         # lilylet encoder-slice width (cols [0,16) of each patch)
     # --- lyl encoder (match the pretrained LilyletNotaGen patch tower; lilylet-notagen-llama.yaml) ---
     lyl_base_type:          llama
     lyl_hidden_size:        512
