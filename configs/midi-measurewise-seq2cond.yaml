@@ -1,0 +1,99 @@
+# Conditioned-MIDI MEASUREWISE (midiseq2 variant) — generate MIDI conditioned on a lilylet score,
+# with the MIDI side represented in the midiseq2 self-describing token language and patches cut on
+# MEASURE boundaries (one measure = a variable-length midiseq2 token run chunked to patch_size-wide
+# patches, terminated by an <eom> TOKEN; NO standalone <eom> patch).
+#
+# Pipeline to produce the artifact this config consumes:
+#   1. intelli-piano: midi-txt/*.txt --tools/midiTxtToSeq2.ts--> midi-seq2/*.midiseq2.txt  (basic -> midiseq2)
+#   2. deep-starry:   tools/midi/buildCondMidiseq2Measurewise.py --dataset dataset.yaml
+#                     -> cond-midiseq2.lmmw.pt  (starry.midi.data.seq2CondPachifier.pack)
+#
+# Feeder: starry.midi.data.seq2CondPatchy.Seq2CondMidiPatchy — same joint-sequence [lilylet ; midi]
+# + windowed/block measure-coupling attention mask (build_vis, reused from condPatchy) as
+# CondMidiPatchy, but int16 patches in a patch_size=64 frame (lilylet ids in cols<16, midiseq2 ids
+# full width). See starry/midi/data/seq2CondPachifier.py for the layout.
+#
+# NOTE: no joint DECODER MODEL is wired for the midiseq2 (vocab 838, patch_size 64) format yet —
+# MidiBgptTransSelfAttn is vocab-41 / patch_size-16. This config pins the DATA half (feeder + tokenizer)
+# for the visualization notebook and as the template once a seq2 model lands. `model` is left as a
+# placeholder mirroring the selfattn sibling; update its vocab/patch_size when the model exists.
+#
+# Test corpus: test20260629 (215 paired lilylet/midi samples from ~/data/abc/notagenx-samples).
+
+id:     midi/{date}-{filename}
+
+
+imports:
+  - starry.midi.models.midiBgptTransSelfAttn
+  - starry.midi.data.seq2CondPatchy
+
+
+data:
+  type:                     Seq2CondMidiPatchy
+  root:                     lilylet/midi-measurewise/test20260629/cond-midiseq2.lmmw.pt
+  # 215 samples, single shard. cycle 20, phase 19 -> ~10 val / ~205 train.
+  splits:                   '*0..18/20:19/20'
+  batch_size:               1
+  args_variant: ~
+  args:
+    # patch_size / lyl_patch_size are baked into the artifact; the feeder reads them from the
+    # index. w_midi / w_cross are the measure-coupling attention windows (in MEASURES).
+    w_midi:                 2          # midi->midi attention window, in MEASURES
+    w_cross:                2          # midi->lilylet cross window, in MEASURES
+    patch_length:           0          # unsupported here (measure coupling); use max_patches
+    max_patches:            0          # 0 = no crop (small corpus); bound T for large corpora
+
+model:
+  # PLACEHOLDER — mirrors midi-measurewise-trans-selfattn.yaml. Not runnable as-is against the
+  # midiseq2 data (midi_vocab_size/patch_size differ). Kept so the config is model-complete for
+  # when a midiseq2 joint decoder is added.
+  type:                     MidiBgptTransSelfAttn
+  args:
+    lyl_vocab_size:         256
+    midi_vocab_size:        838        # midiseq2 vocab (assets/midiseq2Vocab.yaml)
+    patch_size:             64         # midiseq2 measure-patch width
+    # --- lyl encoder (match the pretrained LilyletNotaGen patch tower; lilylet-notagen-llama.yaml) ---
+    lyl_base_type:          llama
+    lyl_hidden_size:        512
+    lyl_patch_num_layers:   8
+    lyl_patch_length:       1024
+    lyl_n_head:             8
+    lyl_num_key_value_heads: 8
+    lyl_intermediate_size:  2048
+    lyl_encoder_weights:    ~
+    freeze_lyl_encoder:     false
+    # --- joint self-attention decoder (HF Llama backbone) ---
+    d_model:                768
+    n_dec_layer:            6
+    token_num_layers:       3
+    n_head:                 12
+    dec_num_key_value_heads: 12
+    num_key_value_heads:    12
+    d_inner:                3072
+    dropout:                0.1
+
+
+trainer:
+  env: ~
+  device:                   cuda
+  save_mode:                best
+  epochs:                   10000
+  epoch_size:               205        # placeholder: ~one pass over train; measure & balance
+  report_step_unit:         examples
+  epoch_duration:           30
+  moniter:
+    field:                  loss
+    mode:                   min
+  dtype:                    bf16
+
+optim:
+  type:                     Adam
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               0.2
+      n_warmup_steps:       1000
+      d_model:              768
