@@ -20,6 +20,7 @@ channel / nibble; special & sep omitted), aggregated nan-safe via WeightedValue 
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from ...utils.registry import register_model
 from ...utils.weightedValue import WeightedValue
@@ -165,6 +166,20 @@ _TYPE_NAMES = {
 }
 # class codes assigned but deliberately not reported: 0 = special (<...>), 7 = sep (_/-).
 
+# token-type NAME -> class code, for config-facing loss weights (loss_type_weights below). Names
+# match the _TYPE_NAMES stems (drop the 'err_' prefix) plus 'special'/'sep' so every class can be
+# weighted. Unknown names in a config raise (typo guard).
+_TYPE_CODES = {
+	'special': 0,
+	'type': 1,		# event-type keywords (the "prefix" token of each event)
+	'elapse': 2,
+	'channel': 3,
+	'pitch': 4,
+	'vel': 5,
+	'nibble': 6,
+	'sep': 7,
+}
+
 
 def _build_type_map (tokenizer):
 	'''Classify each vocab id by its token string -> a [vocab] long tensor of class codes.'''
@@ -199,7 +214,12 @@ class MidiSeq2BgptSelfAttnLoss (nn.Module):
 	is nan-safe (an empty class contributes weight 0 and is skipped) — see stat().
 	'''
 
-	def __init__ (self, **kw_args):
+	def __init__ (self, loss_type_weights=None, **kw_args):
+		'''loss_type_weights: optional {token-type-name: float} overriding the per-type cross-entropy
+		weight (default weight 1 for every type). Names are the _TYPE_CODES keys (special / type /
+		elapse / channel / pitch / vel / nibble / sep). When all weights are 1 (the default) the loss
+		is byte-identical to the token decoder's built-in uniform cross-entropy, so it is a strict
+		generalization. Unknown names raise (typo guard).'''
 		super().__init__()
 		self.deducer = MidiSeq2BgptSelfAttn(**kw_args)
 		# token-type map, derived once from the SAME vocab asset the feeder consumes.
@@ -207,11 +227,45 @@ class MidiSeq2BgptSelfAttnLoss (nn.Module):
 		self.register_buffer('type_of_id', type_map, persistent=False)
 		self.type_names = dict(_TYPE_NAMES)
 
+		# --- per-vocab-id cross-entropy weight vector, built from the type -> weight config ---
+		# start uniform (weight 1 everywhere -> reproduces the built-in CE), then scale each type's
+		# ids by its configured weight. weight_of_id[id] is the CE weight of that token id; the -100
+		# (pad) label is excluded from the loss regardless, so pad ids' weights never matter.
+		self.loss_type_weights = dict(loss_type_weights) if loss_type_weights else {}
+		type_weight = torch.ones(len(_TYPE_CODES))				# indexed by class CODE
+		for name, w in self.loss_type_weights.items():
+			if name not in _TYPE_CODES:
+				raise ValueError(f'unknown loss_type_weights key {name!r}; valid: {sorted(_TYPE_CODES)}')
+			type_weight[_TYPE_CODES[name]] = float(w)
+		weight_of_id = type_weight[type_map]					# [vocab], gather code-weight per id
+		self.register_buffer('ce_weight_of_id', weight_of_id, persistent=False)
+		# only build a weighted CE path when some weight actually deviates from 1 (else reuse the
+		# decoder's own loss for exact parity + zero overhead).
+		self.weighted_loss = any(float(w) != 1.0 for w in self.loss_type_weights.values())
+
 	def training_parameters (self):
 		return self.deducer.parameters_trainable() + list(self.deducer.buffers())
 
 	def validation_parameters (self):
 		return []
+
+	def _weighted_loss (self, output, target_patches):
+		'''Per-token-type-weighted cross-entropy over the token-decoder logits.
+
+		Reconstructs the SAME labels the token decoder used (BOS-prepend, causal shift, <pad> -> -100)
+		and reweights each position's CE by ce_weight_of_id[target token]. With all weights 1 this
+		equals output.loss (HF's default mean CE); with non-unit weights it is a per-token-weighted
+		mean, i.e. sum_i w_i * ce_i / sum_i w_i over valid positions — the standard F.cross_entropy
+		semantics under a class `weight` vector. Keeps the -100 padding exclusion intact.
+		'''
+		token_targets = torch.cat(
+			(torch.ones_like(target_patches[:, 0:1]) * self.deducer.bos_token_id, target_patches), dim=1)
+		labels = token_targets.masked_fill(token_targets == self.deducer.special_token_id, -100)
+		shift_logits = output.logits[:, :-1, :].contiguous()			# [N, patch_size, vocab]
+		shift_labels = labels[:, 1:].contiguous()						# [N, patch_size]
+		return F.cross_entropy(
+			shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1),
+			weight=self.ce_weight_of_id.to(shift_logits.dtype), ignore_index=-100)
 
 	def _token_accuracy (self, output, target_patches):
 		'''Next-token accuracy over valid (non-pad) midi token positions (same as the base).'''
@@ -275,21 +329,25 @@ class MidiSeq2BgptSelfAttnLoss (nn.Module):
 			batch['input_patches'], batch['input_masks'], batch['modality'], batch['attn_mask'],
 			batch.get('input_targets'), batch.get('input_positions'), batch.get('lyl_counts'))
 
+		# per-token-type-weighted CE when configured; else the decoder's own uniform loss (exact parity).
+		loss = self._weighted_loss(output, target) if self.weighted_loss else output.loss
+
 		with torch.no_grad():
 			acc = self._token_accuracy(output, target)
 			metrics = {'acc': acc, 'err': 1 - acc}
 			if not self.training:
 				metrics.update(self._grouped_error(output, target))
 
-		return output.loss, metrics
+		return loss, metrics
 
 	def inspectRun (self, batch):
 		output, target = self.deducer(
 			batch['input_patches'], batch['input_masks'], batch['modality'], batch['attn_mask'],
 			batch.get('input_targets'), batch.get('input_positions'), batch.get('lyl_counts'))
 		acc = self._token_accuracy(output, target)
+		loss = self._weighted_loss(output, target) if self.weighted_loss else output.loss
 		metrics = {
-			'loss': output.loss.item(),
+			'loss': loss.item(),
 			'acc': acc,
 			'err': 1 - acc,
 			'logits': output.logits,
