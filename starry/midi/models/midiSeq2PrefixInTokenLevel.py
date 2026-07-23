@@ -63,8 +63,8 @@ class PrefixTokenLevelDecoder (TokenLevelDecoder):
 		# BOS-prepend then build token embeddings; slot 0's embedding is overwritten by encoded below.
 		bos_tokens = torch.cat(
 			(torch.ones_like(target_patches[:, 0:1]) * self.bos_token_id, target_patches), dim=1)	# [N,P+1]
-		labels = bos_tokens.masked_fill(bos_tokens == self.special_token_id, -100)					# [N,P+1]
-		token_masks = (labels != -100).long()														# [N,P+1]
+		labels = bos_tokens.masked_fill(bos_tokens == self.special_token_id, -100)
+		token_masks = (labels != -100).long()														# [N,P+1]														# [N,P+1]
 
 		tok_embeds = F.embedding(bos_tokens, token_embedding_weight(self.base))						# [N,P+1,h]
 		midi_embeds = torch.cat((encoded_patches.unsqueeze(1), tok_embeds[:, 1:, :]), dim=1)			# [N,P+1,h]
@@ -78,6 +78,12 @@ class PrefixTokenLevelDecoder (TokenLevelDecoder):
 			# and HF-added causal mask (byte-identical to TokenLevelDecoder.forward).
 			return self.base(inputs_embeds=midi_embeds, attention_mask=token_masks, labels=labels)
 
+		# The encoded patch at position 0 is an input context, not a supervised output.
+		# With a prefix, leaving labels[:, 0] as BOS would train the final prefix logit
+		# to predict BOS after HF's causal shift.
+		labels[:, 0] = -100
+		token_masks = (labels != -100).long()
+
 		inputs_embeds = torch.cat((prefix_embeds.to(midi_embeds.dtype), midi_embeds), dim=1)			# [N,K+P+1,h]
 		pmask = prefix_mask.long() if prefix_mask is not None else torch.ones(N, Kmax, dtype=torch.long, device=device)
 		key_valid = torch.cat((pmask, token_masks), dim=1).bool()									# [N,K+P+1]
@@ -90,10 +96,14 @@ class PrefixTokenLevelDecoder (TokenLevelDecoder):
 		# every REAL query, so the self-diagonal only well-defines the (discarded) padded-row outputs.
 		S = key_valid.shape[1]
 		idx = torch.arange(S, device=device)
-		causal = idx.unsqueeze(0) >= idx.unsqueeze(1)												# [S,S] key<=query
+		causal = idx.unsqueeze(0) <= idx.unsqueeze(1)												# [S,S] key<=query
 		mask4d = (causal.unsqueeze(0) & key_valid.unsqueeze(1))										# [N,S,S]
 		mask4d = mask4d | torch.eye(S, dtype=torch.bool, device=device).unsqueeze(0)
-		mask4d = mask4d.unsqueeze(1)																# [N,1,S,S]
+		mask4d = mask4d.unsqueeze(1)
+		# Use additive form: HF eager attention adds 4D masks to scores, while SDPA
+		# interprets bool masks differently. Additive masking is backend-independent.
+		mask4d = torch.zeros_like(mask4d, dtype=midi_embeds.dtype).masked_fill(
+			~mask4d, torch.finfo(midi_embeds.dtype).min)
 
 		# positions: prefixes -Kmax..-1 (minus, increasing, most-recent lyl at -1), encoded 0, tokens 1..P.
 		prefix_pos = torch.arange(-Kmax, 0, device=device)											# [-Kmax..-1]
