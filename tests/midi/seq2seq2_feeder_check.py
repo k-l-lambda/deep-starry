@@ -11,7 +11,8 @@ tensor plumbing:
   1. vocab layout   — <sep> is id 5, vocab_size 838, no other special moved
   2. round-trip     — decoding the source half reproduces the cropped source lines exactly
   3. no <unknown>   — the corpus is fully in-vocabulary, so a miss means an encoder bug
-  4. boundaries     — ranges land on marks; <bos>/<eos> iff the crop reaches an edge; <eom> count
+  4. boundaries     — ranges land on marks; <bos> iff the crop starts at the piece start; <eos> ends
+                      every target exactly once and never appears in the source; <eom> count
   5. alignment      — boundary keys exist in both files; outward-walk distance reported
   6. head/tail rate — the configured p_head/p_tail actually come out
   7. determinism    — random_crop=False repeats exactly; splits are disjoint and stable
@@ -168,16 +169,22 @@ def check_crops (dataset, samples, rng):
 		src_tokens, tgt_tokens = tokens[:sep], tokens[sep + 1:]
 		head, tail = a <= 0, z >= len(source.marks)
 
-		# 2. the source half must decode back to exactly the cropped lines.
+		# 2. the source half must decode back to exactly the cropped lines. The source carries no <eos>,
+		# so only a leading <bos> has to be stripped before comparing.
 		expect = _content(source.lines[s_start:s_end])
-		got = src_tokens[1 if head else 0:len(src_tokens) - (1 if tail else 0)]
+		got = src_tokens[1 if head else 0:]
 		if got != expect:
 			bad['roundtrip'] += 1
 
-		# 4. wrappers appear on both halves iff the crop reached that edge.
+		# 4. <bos> is conditional and symmetric: both halves iff the crop reached the piece start.
 		if (src_tokens[:1] == ['<bos>']) != head or (tgt_tokens[:1] == ['<bos>']) != head:
 			bad['bos'] += 1
-		if (src_tokens[-1:] == ['<eos>']) != tail or (tgt_tokens[-1:] == ['<eos>']) != tail:
+		# <eos> is unconditional and target-only — it terminates the generated half, so it must be there
+		# for EVERY crop (mid-piece ones included) and must never appear in the source.
+		if tgt_tokens[-1:] != ['<eos>'] or '<eos>' in src_tokens:
+			bad['eos'] += 1
+		# ...and exactly once, at the very end: a stray one inside would be a premature stop signal.
+		if tgt_tokens.count('<eos>') != 1:
 			bad['eos'] += 1
 
 		# 4. one <eom> per target @measure in range, except @measure 1.
@@ -195,7 +202,8 @@ def check_crops (dataset, samples, rng):
 	check('walk stays put when the key is already shared', bad['walk'] == 0, f"{bad['walk']} walks")
 	check('target window covers the source window', bad['cover'] == 0, f"{bad['cover']} crops")
 	check('<bos> iff crop starts at the piece start', bad['bos'] == 0, f"{bad['bos']} crops")
-	check('<eos> iff crop ends at the piece end', bad['eos'] == 0, f"{bad['eos']} crops")
+	check('<eos> ends every target exactly once, never in the source', bad['eos'] == 0,
+		f"{bad['eos']} crops")
 	check('<eom> count matches target @measure count', bad['eom'] == 0, f"{bad['eom']} crops")
 	check('source stays within the line cap', bad['lines'] == 0, f"{bad['lines']} crops")
 	if walks:

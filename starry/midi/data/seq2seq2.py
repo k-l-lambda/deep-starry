@@ -6,11 +6,16 @@ MuseScore) and `midi-seq2-irregular/` (regular + pianistMockerMIDI perturbation)
 a supervised translation task. This feeder crops a random window out of the SOURCE file, locates the
 window covering the same music in the TARGET file, and emits ONE flat id sequence:
 
-    <bos>? source... <eos>?  <sep>  <bos>? target... <eos>?
+    <bos>? source...  <sep>  <bos>? target... <eos>
 
-with a mask over the target half. `<bos>`/`<eos>` appear only when the crop actually reaches the
-start / end of the piece, and each half wraps itself, so the model can learn where a piece begins
-and ends rather than only ever seeing interior fragments.
+with a mask over the target half. The two wrappers do NOT play the same role:
+
+    <bos>  conditional and symmetric — on both halves iff the crop reaches the START of the piece,
+           so the model can tell an opening from an interior fragment.
+    <eos>  unconditional, target only — it terminates the GENERATED half and nothing else. The source
+           is a read-only condition whose extent is plain to see, so an <eos> there marks nothing new;
+           and on the target it has to mean "this crop is finished" rather than "the piece ended",
+           since most crops are mid-piece and a model whose stop token is rare does not learn to stop.
 
 Alignment is by MARK IDENTITY, never by line number or tick arithmetic. A mark is a midiseq2
 directive naming a score position, and `mark_mode` picks which kind counts:
@@ -230,8 +235,9 @@ class Seq2Seq2 (Dataset):
 	#														  mark but the header, so take it)
 	#	end_line   = len(lines) if z == len(marks) else marks[z].line
 	#
-	# a == 0 therefore MEANS start-of-piece and z == len(marks) means end-of-piece, which is what
-	# drives <bos>/<eos>. In 'measure' mode a == 0 is the `@measure 1` mark, so the "ignore the
+	# a == 0 therefore MEANS start-of-piece (which is what drives <bos>) and z == len(marks) means
+	# end-of-piece (reported as `tail`, but no longer a wrapper condition — see _assemble's <eos> note).
+	# In 'measure' mode a == 0 is the `@measure 1` mark, so the "ignore the
 	# opening @measure 1 and set the boundary to the beginning" rule falls out of the same arithmetic
 	# rather than needing a special case; in 'tick' mode it generalizes to the first @tick.
 
@@ -377,19 +383,24 @@ class Seq2Seq2 (Dataset):
 		'''Build the joined id sequence and the index of its <sep>.'''
 		s_start, s_end = self._bounds(source, a, z)
 		t_start, t_end = align
-		# <bos>/<eos> reflect the SOURCE crop reaching the edge of the piece; both halves get them,
-		# and the target range is clamped to the same edges by _align, so the two agree.
+		# <bos> reflects the SOURCE crop reaching the START of the piece, and appears on both halves —
+		# _align clamps the target range to the same edge, so the two agree.
 		head = a <= 0
-		tail = z >= len(source.marks)
-
+		# <eos> is NOT conditional and NOT symmetric: the target half always ends with it, the source
+		# half never carries it. The source is a read-only condition whose extent the model can simply
+		# see, so an <eos> there marks nothing it does not already know. On the target, <eos> is the only
+		# way generation can stop — and it has to mean "this crop is finished", not "the piece ended",
+		# because a mid-piece crop is the common case (0.7 of them by p_head/p_tail). Making it
+		# conditional on reaching the end of the piece would leave most targets unterminated and teach
+		# the model that stopping is rare.
+		#
+		# `tail` therefore no longer affects the wrappers; it still decides <bos> placement upstream and
+		# is reported by describe().
 		def wrap (ids: List[int]) -> List[int]:
-			out = ([self.tokenizer.bos_id] if head else []) + ids
-			if tail:
-				out.append(self.tokenizer.eos_id)
-			return out
+			return ([self.tokenizer.bos_id] if head else []) + ids
 
 		source_ids = wrap(self._encode(source.lines[s_start:s_end], self.source_eom))
-		target_ids = wrap(self._encode(target.lines[t_start:t_end], True))
+		target_ids = wrap(self._encode(target.lines[t_start:t_end], True)) + [self.tokenizer.eos_id]
 		return source_ids + [self.tokenizer.sep_id] + target_ids, len(source_ids)
 
 	# --- item -----------------------------------------------------------------------------
