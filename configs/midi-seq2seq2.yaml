@@ -15,7 +15,8 @@
 # runtime, so there is no packing step and a change of crop policy costs nothing.
 #
 # Test corpus: test202608 (100 samples; the score arm has 99 — one sample's measure mapping was not
-# trustworthy and was skipped, so a score pairing feeds 99).
+# trustworthy and was skipped, so a score pairing feeds 99). The two performance arms were regenerated
+# 2026-08-11 with control_change dedup on; see max_lines below.
 
 id:     midi/{date}-{filename}
 
@@ -41,9 +42,16 @@ data:
     # the feeder covers by walking outward to the nearest shared mark — correct, but the window grows.
     mark_mode:              tick
     # Bounds the SOURCE crop in lines. The target length follows from mark alignment and is
-    # direction-dependent, so watch the assembled T: at max_lines=128 the median is ~680 and the p99
-    # ~2700 for this pairing (attention is O(T^2), so size the run on the p99, not the median).
+    # direction-dependent, so watch the assembled T: at max_lines=128 the median is ~400 and the p99
+    # ~560 for this pairing (attention is O(T^2), so size the run on the p99, not the median).
     # tests/midi/seq2seq2_feeder_check.py prints the full table.
+    #
+    # Those numbers are post-dedup. The corpus was regenerated 2026-08-11 with CC dedup on
+    # (intelli-piano fd579518): MuseScore's breath-controller (CC #2) automation was 98% of every
+    # control_change and a quarter of all tokens, in runs of 40+ identical lines. Collapsing it cut
+    # tokens 21.7% (regular) / 25.7% (irregular) and the p99 T here 1032 -> 561, max 2632 -> 880. Since
+    # max_lines counts LINES, the same budget now carries more music rather than fewer tokens — the
+    # median barely moved. Regenerating with --no-dedup restores the old text byte for byte.
     max_lines:              128
     # Probability of a crop pinned to the start / end of the piece, so boundary behaviour is learned
     # rather than only ever seen mid-piece. The remaining 0.7 lands in the middle.
