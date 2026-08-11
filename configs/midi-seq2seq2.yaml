@@ -41,18 +41,26 @@ data:
     # gives finer boundaries but its keys go missing (0.12% regular->irregular, 3.08% ->score), which
     # the feeder covers by walking outward to the nearest shared mark — correct, but the window grows.
     mark_mode:              tick
-    # Bounds the SOURCE crop in lines. The target length follows from mark alignment and is
-    # direction-dependent, so watch the assembled T: at max_lines=128 the median is ~400 and the p99
-    # ~560 for this pairing (attention is O(T^2), so size the run on the p99, not the median).
-    # tests/midi/seq2seq2_feeder_check.py prints the full table.
+    # Bounds the SOURCE crop in lines: [lo, hi] draws the cap UNIFORMLY per crop (a scalar means a
+    # fixed cap). Growth is greedy up to whatever cap it gets, so a FIXED value makes nearly every
+    # window maximal — measured at 0.95 of the cap, p10 0.83 — and the model would never see a short
+    # one. Sampling puts the whole length range in the training distribution: with [20, 256] the crop
+    # comes out min 11 / median 128 / p95 239 lines.
     #
-    # Those numbers are post-dedup. The corpus was regenerated 2026-08-11 with CC dedup on
+    # The target length follows from mark alignment and is direction-dependent, so watch the assembled
+    # T: for this pairing the median is ~690 and the p99 ~2000 (attention is O(T^2), so size the run on
+    # the p99, not the median). tests/midi/seq2seq2_feeder_check.py prints the full table.
+    #
+    # A mark is the smallest unit, so a single measure whose own span exceeds hi still comes through
+    # whole — 18 of 7750 measures here, 0.5% of crops in measure mode and none in tick mode. Splitting
+    # it would break the alignment; max_tokens below is the guard for that case.
+    #
+    # Those T numbers are post-dedup. The corpus was regenerated 2026-08-11 with CC dedup on
     # (intelli-piano fd579518): MuseScore's breath-controller (CC #2) automation was 98% of every
     # control_change and a quarter of all tokens, in runs of 40+ identical lines. Collapsing it cut
-    # tokens 21.7% (regular) / 25.7% (irregular) and the p99 T here 1032 -> 561, max 2632 -> 880. Since
-    # max_lines counts LINES, the same budget now carries more music rather than fewer tokens — the
-    # median barely moved. Regenerating with --no-dedup restores the old text byte for byte.
-    max_lines:              128
+    # tokens 21.7% (regular) / 25.7% (irregular). Since the cap counts LINES, the same budget now
+    # carries more music rather than fewer tokens. --no-dedup restores the old text byte for byte.
+    line_range:             [20, 256]
     # Probability of a crop pinned to the start / end of the piece, so boundary behaviour is learned
     # rather than only ever seen mid-piece. The remaining 0.7 lands in the middle.
     p_head:                 0.15

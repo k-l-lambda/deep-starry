@@ -118,6 +118,23 @@ def _is_directive (line: str) -> bool:
 	return line.startswith('@measure') or line.startswith('@tick')
 
 
+def _line_range (line_range: Any) -> Tuple[int, int]:
+	'''Normalize the `line_range` option to an inclusive (lo, hi) pair.
+
+	A [lo, hi] sequence draws the cap per crop; a scalar means a fixed cap, i.e. (n, n). Written as one
+	place so the config can say either and everything downstream sees a pair.
+	'''
+	if isinstance(line_range, (list, tuple)):
+		if len(line_range) != 2:
+			raise ValueError(f'line_range must be [lo, hi], got {line_range!r}')
+		lo, hi = int(line_range[0]), int(line_range[1])
+	else:
+		lo = hi = int(line_range)
+	if lo < 1 or hi < lo:
+		raise ValueError(f'line_range must satisfy 1 <= lo <= hi, got {line_range!r}')
+	return lo, hi
+
+
 def _measures_in (file: _File, start: int, end: int) -> List[Tuple[int, int]]:
 	'''[(line_index, measure_number)] for the @measure lines in [start, end).
 
@@ -153,7 +170,7 @@ class Seq2Seq2 (Dataset):
 
 	def __init__ (self, root, split, device='cpu', shuffle=False,
 		source_dir='midi-seq2-score', target_dir='midi-seq2', mark_mode='measure',
-		max_lines=128, p_head=0.15, p_tail=0.15, source_eom=False,
+		line_range=(20, 256), p_head=0.15, p_tail=0.15, source_eom=False,
 		max_tokens=0, resample_tries=8, align_retries=4,
 		random_crop=None, seed=0, vocab_path=None, **_):
 		super().__init__()
@@ -164,11 +181,19 @@ class Seq2Seq2 (Dataset):
 		self.mark_mode = mark_mode
 		self.source_root = os.path.join(root, source_dir)
 		self.target_root = os.path.join(root, target_dir)
-		# max_lines bounds the SOURCE crop only; the target length follows from mark alignment and is
+		# line_range bounds the SOURCE crop only; the target length follows from mark alignment and is
 		# direction-dependent (score->regular targets run ~2x the source, regular->irregular ~1.3x).
 		# max_tokens, if set, bounds the ASSEMBLED sequence by RESAMPLING — truncating would cut a
 		# boundary off its mark and break the very alignment this feeder exists to provide.
-		self.max_lines = max_lines
+		#
+		# The cap is drawn UNIFORMLY from [lo, hi] per crop. Growth is greedy up to whatever cap it gets,
+		# so a single fixed value would make every crop as long as it can be — measured on this corpus
+		# the crop lands at 0.95 of the cap (p10 0.83) in tick mode, meaning the model would only ever
+		# see near-max windows and would have to extrapolate to short ones. A scalar is accepted and
+		# means a fixed cap, i.e. [n, n].
+		self.line_range = _line_range(line_range)
+		# The upper bound, which is what a length assertion means by "within the cap".
+		self.max_lines = self.line_range[1]
 		self.p_head = p_head
 		self.p_tail = p_tail
 		self.source_eom = source_eom
@@ -217,11 +242,20 @@ class Seq2Seq2 (Dataset):
 
 	def _pick_crop (self, source: _File, rng: random.Random) -> Tuple[int, int]:
 		'''Choose (a, z) — the source mark range. Grows by WHOLE marks, so a boundary can never land
-		mid-measure; that is what makes the target lookup a key lookup instead of a search.'''
+		mid-measure; that is what makes the target lookup a key lookup instead of a search.
+
+		The line cap is drawn per crop from `line_range` (a fixed value collapses to itself), off the
+		SAME rng as the mode and the start so a deterministic crop stays deterministic.
+		'''
 		count = len(source.marks)
 		if count == 0:
 			# a file with no marks at all: the only honest crop is the whole thing.
 			return 0, 0
+		lo, hi = self.line_range
+		# Uniform over lines, not over marks: the cap is what the caller reasons about, and marks vary
+		# wildly in span (a measure is ~104 lines, a tick mark ~15), so sampling marks would make the
+		# realized length distribution depend on the mark mode.
+		limit = lo if lo == hi else rng.randint(lo, hi)
 		roll = rng.random()
 		if roll < self.p_head:
 			mode = 'head'
@@ -236,7 +270,7 @@ class Seq2Seq2 (Dataset):
 			a = count - 1
 			while a > 0:
 				start, end = self._bounds(source, a - 1, z)
-				if end - start > self.max_lines:
+				if end - start > limit:
 					break
 				a -= 1
 			return a, z
@@ -245,7 +279,7 @@ class Seq2Seq2 (Dataset):
 		z = a + 1
 		while z < count:
 			start, end = self._bounds(source, a, z + 1)
-			if end - start > self.max_lines:
+			if end - start > limit:
 				break
 			z += 1
 		return a, z

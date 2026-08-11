@@ -17,7 +17,8 @@ tensor plumbing:
   7. determinism    — random_crop=False repeats exactly; splits are disjoint and stable
   8. collateBatch   — shapes, padding, target_mask covering exactly the post-<sep> region
   8b. describe()    — same crop as __getitem__; one <eom> per measure it names (the vis relies on it)
-  9. length table   — median/p95/p99/max of T per pairing, so a config can be sized
+  9. length table   — median/p95/p99/max of T per pairing and line cap, so a config can be sized
+ 10. line_range    — the per-crop cap varies, honours both ends, and stays deterministic
 '''
 
 import argparse
@@ -52,7 +53,9 @@ def check (name, condition, detail=''):
 
 
 def feeder (root, source_dir, target_dir, split='*0/1', **args):
-	options = dict(source_dir=source_dir, target_dir=target_dir, max_lines=128)
+	# A FIXED cap by default, so a length assertion has one number to check against; the sampled range
+	# gets its own group (check 10).
+	options = dict(source_dir=source_dir, target_dir=target_dir, line_range=128)
 	options.update(args)
 	(dataset,) = Seq2Seq2.load(root, options, splits=split)
 	return dataset
@@ -121,7 +124,7 @@ def check_crops (dataset, samples, rng):
 		if t_end <= t_start:
 			bad['inverted'] += 1
 		if s_end - s_start > dataset.max_lines and z - a > 1:
-			# a single mark whose own span exceeds max_lines is unavoidable; more than one is a bug.
+			# a single mark whose own span exceeds the cap is unavoidable; more than one is a bug.
 			bad['lines'] += 1
 
 		# A boundary must sit on a mark line, or on an edge of the file.
@@ -194,7 +197,7 @@ def check_crops (dataset, samples, rng):
 	check('<bos> iff crop starts at the piece start', bad['bos'] == 0, f"{bad['bos']} crops")
 	check('<eos> iff crop ends at the piece end', bad['eos'] == 0, f"{bad['eos']} crops")
 	check('<eom> count matches target @measure count', bad['eom'] == 0, f"{bad['eom']} crops")
-	check('source stays within max_lines', bad['lines'] == 0, f"{bad['lines']} crops")
+	check('source stays within the line cap', bad['lines'] == 0, f"{bad['lines']} crops")
 	if walks:
 		nonzero = [w for w in walks if w]
 		print(f'  outward walk: {len(nonzero)}/{len(walks)} boundaries needed one; '
@@ -320,19 +323,75 @@ def check_collate (dataset):
 	check('sep_index points at <sep>', ok_sep)
 
 
+def check_line_range (root, source_dir, target_dir, samples, rng):
+	'''10. The sampled line cap: it must actually vary, respect both ends, and stay deterministic.
+
+	A greedy crop fills whatever cap it is given, so with a FIXED cap nearly every window comes out
+	near-maximal (measured: 0.95 of the cap, p10 0.83). Drawing the cap per crop is what puts short
+	windows in the training distribution, so what is checked is the spread, not just the bound.
+	'''
+	print('\n== 10. sampled line range')
+	lo, hi = 20, 256
+	dataset = feeder(root, source_dir, target_dir, mark_mode='tick', line_range=[lo, hi])
+	check('line_range parsed', dataset.line_range == (lo, hi), str(dataset.line_range))
+	check('max_lines is the upper bound', dataset.max_lines == hi, str(dataset.max_lines))
+
+	spans = []
+	over = 0
+	for _ in range(samples):
+		index = dataset.indices[len(spans) % len(dataset.indices)]
+		source = _get_file(os.path.join(dataset.source_root, dataset.names[index]), dataset.mark_mode)
+		a, z = dataset._pick_crop(source, rng)
+		start, end = dataset._bounds(source, a, z)
+		spans.append(end - start)
+		# One mark whose own span exceeds the cap is unavoidable; a MULTI-mark crop overshooting is not.
+		if end - start > hi and z - a > 1:
+			over += 1
+	spans.sort()
+	check('no multi-mark crop exceeds hi', over == 0, f'{over} crops')
+	# The whole point: lengths must spread across the range rather than pile up at the top. With a fixed
+	# cap the median sits at ~0.95 of it, so a median below 0.75 of hi is the observable difference.
+	median = statistics.median(spans)
+	check('lengths spread below the cap', median < hi * 0.75, f'median {median:.0f} of hi {hi}')
+	check('short crops actually occur', spans[0] <= lo * 2, f'shortest {spans[0]}')
+	print(f'  crop lines: min {spans[0]} median {median:.0f} '
+		f'p95 {spans[int(len(spans) * .95)]} max {spans[-1]}')
+
+	# A drawn cap must not cost determinism: the draw comes off the same rng as the mode and the start.
+	a = feeder(root, source_dir, target_dir, line_range=[lo, hi], split='19/20', random_crop=False)
+	b = feeder(root, source_dir, target_dir, line_range=[lo, hi], split='19/20', random_crop=False)
+	same = all(torch.equal(a[i][0], b[i][0]) for i in range(len(a)))
+	check('a sampled cap stays deterministic under random_crop=False', same)
+	varies = len({len(a[i][0]) for i in range(len(a))}) > 1
+	check('deterministic crops still differ in length', varies)
+
+	# A scalar must still mean a fixed cap.
+	fixed = feeder(root, source_dir, target_dir, line_range=128)
+	check('a scalar means a fixed cap', fixed.line_range == (128, 128), str(fixed.line_range))
+	for bad in ([0, 10], [200, 100], [1, 2, 3], 0):
+		try:
+			feeder(root, source_dir, target_dir, line_range=bad)
+			check(f'rejects line_range={bad!r}', False, 'accepted')
+		except ValueError:
+			check(f'rejects line_range={bad!r}', True)
+
+
 def length_table (root, samples, rng):
-	'''9. What T actually comes out at, per pairing and max_lines — attention is O(T^2), so the p99
-	is what sizes a run, not the median.'''
-	print('\n== 9. sequence length by pairing and max_lines')
-	print(f'  {"pairing":38s} {"max_lines":>9s} {"median":>7s} {"p95":>7s} {"p99":>7s} {"max":>7s}')
+	'''9. What T actually comes out at, per pairing and line cap — attention is O(T^2), so the p99
+	is what sizes a run, not the median. The last row of each block is the sampled range, which is what
+	a config normally uses: its p99 sits near the fixed cap at the range's TOP, while its median falls
+	well below, because the cap is drawn per crop.'''
+	print('\n== 9. sequence length by pairing and line cap')
+	print(f'  {"pairing":38s} {"line_range":>12s} {"median":>7s} {"p95":>7s} {"p99":>7s} {"max":>7s}')
 	for source_dir, target_dir in PAIRINGS:
-		for max_lines in (128, 256, 512):
-			dataset = feeder(root, source_dir, target_dir, max_lines=max_lines)
+		for line_range in (128, 256, 512, (20, 256)):
+			dataset = feeder(root, source_dir, target_dir, line_range=line_range)
 			lengths = [len(case['ids']) for case in crops(dataset, samples, rng)
 				if not case['degenerate']]
 			lengths.sort()
 			label = f'{source_dir} -> {target_dir}'
-			print(f'  {label:38s} {max_lines:9d} {statistics.median(lengths):7.0f} '
+			shown = f'{line_range[0]}..{line_range[1]}' if isinstance(line_range, tuple) else str(line_range)
+			print(f'  {label:38s} {shown:>12s} {statistics.median(lengths):7.0f} '
 				f'{lengths[int(len(lengths) * .95)]:7d} {lengths[int(len(lengths) * .99)]:7d} '
 				f'{lengths[-1]:7d}')
 
@@ -357,6 +416,7 @@ def main ():
 			check_describe(dataset)
 
 	check_determinism(args.root, *PAIRINGS[0])
+	check_line_range(args.root, *PAIRINGS[2], args.samples, rng)
 	length_table(args.root, 200, rng)
 
 	print(f'\n{"=" * 78}')
