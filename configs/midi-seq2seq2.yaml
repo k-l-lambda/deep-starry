@@ -1,0 +1,96 @@
+# midiseq2 -> midiseq2 translation: one rendering of a piece in, another out.
+#
+# The three-arm corpus holds the same pieces rendered three ways, all carrying @measure/@tick
+# directives that name the score position of each event:
+#   midi-seq2-score/      from the lilylet AST — one MIDI note per NOTATED note, no expression
+#   midi-seq2/            abc -> MusicXML -> MuseScore — a regular, quantized performance
+#   midi-seq2-irregular/  regular + pianistMockerMIDI — humanized timing and velocity
+#
+# Any pairing is therefore a supervised task; source_dir/target_dir below pick which. The default
+# (score -> regular) is the "render a score into a performance" direction.
+#
+# Feeder: starry.midi.data.seq2seq2.Seq2Seq2 — crops a mark-aligned window from the source, finds the
+# window covering the same music in the target by mark KEY (not by tick arithmetic), and emits one
+# flat id sequence `source <sep> target` with a mask over the target half. Reads the two text dirs at
+# runtime, so there is no packing step and a change of crop policy costs nothing.
+#
+# Test corpus: test202608 (100 samples; the score arm has 99 — one sample's measure mapping was not
+# trustworthy and was skipped, so a score pairing feeds 99).
+
+id:     midi/{date}-{filename}
+
+
+imports:
+  - starry.midi.data.seq2seq2
+
+
+data:
+  type:                     Seq2Seq2
+  # Absolute, so this does not depend on DATA_DIR (which currently points at lilylet/patches/).
+  # os.path.join keeps an absolute second argument, so an absolute root wins over data_dir.
+  root:                     /home/camus/data/midi/test202608
+  # 99 shared samples. cycle 20, phase 19 -> ~4 val / ~95 train.
+  splits:                   '*0..18/20:19/20'
+  batch_size:               4
+  args:
+    source_dir:             midi-seq2-irregular
+    target_dir:             midi-seq2-score
+    # Which directive defines a crop boundary. 'measure' is the safe default: every @measure key is
+    # present in both arms across the whole corpus (0 missing of 8097), so alignment is exact. 'tick'
+    # gives finer boundaries but its keys go missing (0.12% regular->irregular, 3.08% ->score), which
+    # the feeder covers by walking outward to the nearest shared mark — correct, but the window grows.
+    mark_mode:              tick
+    # Bounds the SOURCE crop in lines. The target length follows from mark alignment and is
+    # direction-dependent, so watch the assembled T: at max_lines=128 the median is ~680 and the p99
+    # ~2700 for this pairing (attention is O(T^2), so size the run on the p99, not the median).
+    # tests/midi/seq2seq2_feeder_check.py prints the full table.
+    max_lines:              128
+    # Probability of a crop pinned to the start / end of the piece, so boundary behaviour is learned
+    # rather than only ever seen mid-piece. The remaining 0.7 lands in the middle.
+    p_head:                 0.15
+    p_tail:                 0.15
+    # Emit <eom> at bar lines on the source half too. Off by default: the source is a read-only
+    # condition, and its measure structure is already implied by the content.
+    source_eom:             false
+    # Hard cap on the assembled sequence, enforced by RESAMPLING the crop (truncating would cut a
+    # boundary off its mark and destroy the alignment). 0 = off.
+    max_tokens:             0
+    resample_tries:         8
+  args_variant:
+    # Val takes a deterministic crop per sample — still a mix of head/tail/middle, but the same one
+    # every epoch, so the metric moves only when the model does.
+    1:
+      random_crop:          false
+
+
+# TODO: no model consumes this batch yet. The contract a model must accept:
+#   input_ids   LongTensor [B, T]   source ++ <sep> ++ target, right-padded with <pad>
+#   masks       LongTensor [B, T]   1 = real token
+#   target_mask LongTensor [B, T]   1 = supervised position (strictly after <sep>)
+#   sep_index   LongTensor [B]      position of <sep>
+# Loss: compare logits[:, i - 1] against input_ids[:, i] wherever target_mask is 1, which makes <sep>
+# the last context position before the first supervised token. Vocab is the midiseq2 838 (shared with
+# the seq2* models), so a decoder-only stack over a single embedding table fits directly.
+#model:
+#  type:                    ~
+#  args:
+#    vocab_size:            838
+
+
+trainer:
+  device:                   cuda
+  epochs:                   1000
+  epoch_size:               1024
+  report_step_unit:         examples
+  save_mode:                best
+  moniter:
+    field:                  loss
+    mode:                   min
+
+
+optim:
+  type:                     Adam
+  args:
+    lr:                     1.e-4
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9

@@ -58,6 +58,9 @@ BOS_ID = 1
 EOS_ID = 2
 UNKNOWN_ID = 3
 EOM_ID = 4
+# <sep> occupies what was <reserved_5>, so adding it shifted no content id and vocab_size is
+# unchanged (838). Used by starry.midi.data.seq2seq2 to join a source and target sequence.
+SEP_ID = 5
 
 _ASSET_VOCAB = os.path.join(
 	os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
@@ -117,10 +120,15 @@ class Midiseq2Tokenizer:
 		self.id_by_token = {t: i for i, t in enumerate(self.tokens)}
 		self.vocab_size = len(self.tokens)
 		self.pad_id, self.bos_id, self.eos_id = PAD_ID, BOS_ID, EOS_ID
-		self.unknown_id, self.eom_id = UNKNOWN_ID, EOM_ID
-		# sanity: the special block must be where the module constants say it is.
-		assert self.id_by_token.get('<pad>') == PAD_ID and self.id_by_token.get('<eom>') == EOM_ID, \
-			'midiseq2 vocab special-token layout mismatch'
+		self.unknown_id, self.eom_id, self.sep_id = UNKNOWN_ID, EOM_ID, SEP_ID
+		# sanity: the special block must be where the module constants say it is. Checked over the
+		# whole named block, not just its ends — every packed artifact and trained checkpoint reads
+		# these ids positionally, so a reordered vocab file has to fail here rather than silently
+		# retrain against shifted ids.
+		expected = {'<pad>': PAD_ID, '<bos>': BOS_ID, '<eos>': EOS_ID, '<unknown>': UNKNOWN_ID,
+			'<eom>': EOM_ID, '<sep>': SEP_ID}
+		actual = {name: self.id_by_token.get(name) for name in expected}
+		assert actual == expected, f'midiseq2 vocab special-token layout mismatch: {actual} != {expected}'
 
 	# --- elapse (delta) run encoding — the only rendering the Python side still does: it
 	# regenerates each measure's leading E… run after re-timing from the bar start. The rest of

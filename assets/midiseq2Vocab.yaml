@@ -1,11 +1,14 @@
 [
-  # Special control tokens: padding, sequence boundaries, measure boundary, and reserved slots.
+  # Special control tokens: padding, sequence boundaries, measure boundary, the source/target
+  # separator, and reserved slots. <sep> took the <reserved_5> slot (id 5) so the block stays 8
+  # wide and no content id shifted — vocab_size is still 838 and trained checkpoints stay valid.
+  # That is what the reserved fillers are for; spend the remaining two the same way.
   <pad>,
   <bos>,
   <eos>,
   <unknown>,
   <eom>,
-  <reserved_5>,
+  <sep>,
   <reserved_6>,
   <reserved_7>,
 
