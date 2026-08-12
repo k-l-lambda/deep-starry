@@ -41,6 +41,22 @@ class Trainer:
 
 		gpus = config['trainer.gpus'] or Trainer.PROC_COUNT
 		device = torch.device(config['trainer.device'], rank % gpus)
+		# Pin the process's CURRENT device, not just the tensors'. `.to(device)` moves a module
+		# without setting the process's current device, so a rank can reach a CUDA collective with
+		# none established. This is a DIAGNOSTIC fix, not a correctness one: when the card is out of
+		# memory the validator fails to build its context, the current device resolves to -1, and
+		# gloo aborts inside SetDevice (c10/cuda/CUDAFunctions.cpp) with
+		#     device id must be non-negative!-1
+		# which says nothing about the real cause. Setting it here makes the same situation report
+		# `CUDA error: out of memory` instead -- observed directly: adding this line turned the -1
+		# abort into a plain OOM on an occupied card. The usual occupant is a PREVIOUS run whose
+		# spawn children outlived a Ctrl-C on the parent; check
+		#     pgrep -af 'trainDis[t].py'
+		#     nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader
+		# before relaunching, and prefer SIGTERM over kill -9 (a -9 during a libcuda call leaves an
+		# orphaned context holding the card, invisible as a live PID).
+		if device.type == 'cuda':
+			torch.cuda.set_device(device)
 		trainer = Trainer(config, device=device, rank=rank)
 
 		trainer.log('*	Loading data.')
