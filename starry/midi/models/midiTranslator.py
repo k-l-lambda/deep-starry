@@ -81,7 +81,16 @@ class MidiTranslator (nn.Module):
 			nn.init.normal_(self.lm_head.weight, std=0.02)
 
 	def parameters_trainable (self):
-		return [p for p in self.parameters() if p.requires_grad]
+		'''Every parameter — this model has no frozen submodule, so there is nothing to exclude.
+
+		Deliberately NOT filtered on the live `requires_grad` flag. The distributed validator calls
+		`model.requires_grad_(False)` (trainerQuantitative.py) before the per-epoch param broadcast,
+		so a flag-based filter returns an empty list on the validator while the trainer returns all
+		77 tensors — broadcastParam then pairs mismatched sizes and gloo aborts the process
+		("op.preamble.length <= op.nbytes. 1716224 vs 128"). Enumerating all parameters yields the
+		SAME list in the SAME order on both ranks. See MidiBgptTrans.parameters_trainable.
+		'''
+		return list(self.parameters())
 
 	def forward (self, input_ids, masks=None, position_ids=None):
 		'''
