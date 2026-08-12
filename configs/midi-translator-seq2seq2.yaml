@@ -1,0 +1,149 @@
+# MidiTranslator over the seq2seq2 paired corpus: a decoder-only stack that reads one rendering of a
+# piece and writes another.
+#
+# Data (starry.midi.data.seq2seq2.Seq2Seq2) crops a mark-aligned window from the source arm, finds the
+# window covering the same music in the target arm by mark KEY, and emits ONE flat id sequence
+#
+#     <bos>? source...  <sep>  <bos>? target... <eos>
+#
+# with target_mask over the target half. Model (starry.midi.models.midiTranslator) is a single causal
+# stack over the shared midiseq2 vocabulary (838); the source half is context only, never a target, so
+# <sep> is the last context position before the first supervised token.
+#
+# Corpus: test202608, 99 shared samples (the score arm skips one whose measure mapping was not
+# trustworthy). This is a SMOKE corpus — see "val is tiny" under trainer below before reading its
+# curves as anything but a sanity check.
+
+id:     midi/{date}-{filename}
+
+
+imports:
+  - starry.midi.data.seq2seq2
+  - starry.midi.models.midiTranslator
+
+
+data:
+  type:                     Seq2Seq2
+  # Absolute, so this does not depend on DATA_DIR (which currently points at lilylet/patches/).
+  root:                     /home/camus/data/midi/test202608
+  # 99 shared samples. cycle 10, phase 9 -> 9 val / 90 train.
+  splits:                   '*0..8/10:9/10'
+  # Measured on one RTX 3090 (24GB) at the model size below, worst-case T for THIS pairing (1088,
+  # above the observed max of 1031): bs 24 -> 11.3GB (47%), bs 32 -> 14.8GB (62%). Throughput is flat
+  # at 8.3-8.4 samples/s from bs 12 up, so a larger batch buys no speed, only OOM headroom spent.
+  # bs 24 leaves room for the p99 and for a second process on the card.
+  #
+  # The ceiling is T, not batch count: at bs 24 the memory wall is T ~ 2048 (20.8GB, 87%) and T 2560
+  # OOMs. That is comfortable in `tick` mode (p99 934) but NOT in `measure` mode, whose tail reaches
+  # T 4699-8050 depending on pairing — see mark_mode and max_tokens below.
+  batch_size:               24
+  args:
+    # Direction: humanized performance -> notated score, i.e. transcription. Swap the two for the
+    # rendering direction (score -> performance); midi-seq2 is the third arm (regular performance).
+    source_dir:             midi-seq2-irregular
+    target_dir:             midi-seq2-score
+    # 'tick' keeps the length tail bounded, which is what makes bs 24 safe here. Measured T over 800
+    # random crops at line_range [20, 256]:
+    #
+    #   pairing                          mode      median   p95    p99    max
+    #   irregular -> score               tick         449    853    939   1008
+    #   score     -> midi-seq2           tick         830   1871   2414   3604
+    #   midi-seq2 -> irregular           tick         689   1361   1611   2211
+    #   irregular -> score               measure      414   1026   1640   4699
+    #   score     -> midi-seq2           measure      793   1667   2554   4911
+    #   midi-seq2 -> irregular           measure      628   1443   2734   8050
+    #
+    # Attention is O(T^2), so the p99 and max size the run, not the median. 'measure' mode or either
+    # of the other two pairings needs a lower batch_size and a max_tokens guard.
+    mark_mode:              tick
+    # Bounds the SOURCE crop in lines; the cap is drawn UNIFORMLY per crop from [lo, hi], so the whole
+    # length range is in the training distribution (a scalar would make nearly every window maximal).
+    # The TARGET length follows from mark alignment and is direction-dependent.
+    line_range:             [20, 256]
+    # Probability of a crop pinned to the start / end of the piece, so boundary behaviour is learned
+    # rather than only ever seen mid-piece. The remaining 0.7 lands in the middle.
+    p_head:                 0.15
+    p_tail:                 0.15
+    # Emit <eom> at bar lines on the source half too. Off: the source is a read-only condition and its
+    # measure structure is already implied by its content.
+    source_eom:             false
+    # Hard cap on the assembled sequence, enforced by RESAMPLING the crop (truncating would cut a
+    # boundary off its mark and destroy the alignment). 0 = off, which is safe here because tick-mode
+    # max is 1008 against a memory wall at ~2048. Turn this on (e.g. 2048) for measure mode or the
+    # other pairings, whose tails reach 4700-8050.
+    max_tokens:             0
+    resample_tries:         8
+  args_variant:
+    # Val takes a deterministic crop per sample — still a mix of head/tail/middle, but the same one
+    # every epoch, so the metric moves only when the model does.
+    1:
+      random_crop:          false
+
+
+model:
+  type:                     MidiTranslator
+  args:
+    # The midiseq2 vocabulary, shared by both halves (assets/midiseq2Vocab.yaml, order == id).
+    vocab_size:             838
+    # Only 'llama' is wired up. The option exists so a second stack can be added without touching the
+    # config schema or the metrics.
+    backbone:               llama
+    d_model:                512
+    n_layer:                8
+    n_head:                 8
+    # None -> d_model * 4 (2048) for the MLP, and n_head for the KV heads (no GQA).
+    d_inner:                ~
+    num_key_value_heads:    ~
+    # Rotary position budget. 4096 covers this pairing's max (1008) with room for measure mode's
+    # mid-tail; going higher costs nothing at rest but a longer T will OOM before it runs out of
+    # positions, so max_tokens is the real guard.
+    max_seq_len:            4096
+    dropout:                0.1
+    # Untied: a 838 x 512 head is 0.4M params, cheap enough that sharing it with the input embedding
+    # buys little and constrains both roles.
+    tie_embedding:          false
+    # Optional {token-type: weight} per-type cross-entropy weight (special / type / elapse / channel /
+    # pitch / vel / nibble / sep). Omitted = uniform, which is plain cross-entropy. Worth revisiting
+    # once the error/* panels show which type dominates the residual.
+    #loss_type_weights:
+    #  elapse:              2.0
+# 34.4M params at this size.
+
+
+trainer:
+  device:                   cuda
+  # SINGULAR — this is train.py (starry/utils/trainer.py). trainDist.py reads `epochs` (plural), so
+  # porting this config to the distributed trainer means renaming this key or it KeyErrors.
+  epoch:                    1000
+  # Measured: a real train step is 2.85s at bs 24 (T 810 that batch), and a full val pass is 0.38s
+  # over the 9 val files. Balancing train-epoch against val-epoch the usual way would give
+  # epoch_size 3 — the degenerate case, because val here is 9 samples, not a proper split. So this is
+  # set by checkpoint cadence instead: 1200 samples = 50 steps = ~2.4min per epoch, and the 0.38s val
+  # pass is free at that ratio.
+  #
+  # val is tiny: 9 samples is a smoke check, not a metric to tune against. Enlarge the corpus before
+  # trusting val curves or comparing runs.
+  epoch_size:               1200
+  # x-axis in cumulative samples, so curves stay comparable after epoch_size / batch_size changes.
+  report_step_unit:         examples
+  save_mode:                best
+  moniter:
+    field:                  loss
+    mode:                   min
+
+
+optim:
+  # No `lr` here on purpose: the scheduler sets param_group['lr'] every step, so an `lr` in args would
+  # be silently overwritten. Peak lr = lr_mul * d_model^-0.5 * n_warmup^-0.5 = 0.1 * 512^-0.5 *
+  # 400^-0.5 = 2.2e-4, reached at step 400 (~8 epochs at 50 steps/epoch), then inverse-sqrt decay.
+  type:                     AdamW
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+    weight_decay:           0.01
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               0.1
+      n_warmup_steps:       400
+      d_model:              512       # == model d_model
