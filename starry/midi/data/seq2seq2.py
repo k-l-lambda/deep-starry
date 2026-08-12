@@ -33,6 +33,12 @@ exception is the target's `@measure`, which becomes a single `<eom>` so the deco
 boundaries (skipped for `@measure 1`, which marks the start of the piece rather than a boundary
 within it). `source_eom` mirrors that on the source half if wanted.
 
+`start_jitter` (default 0 = off) is an augmentation: for crops that do NOT begin at the piece's start, it
+offsets the source crop's first line by round(gauss(0, start_jitter)). Every crop otherwise begins exactly
+ON a mark line, which inference cannot reproduce — a sliding window over a production file has no
+@measure/@tick to land on and starts mid-measure (see tools/midi/translateMidiseq2.py). The target stays
+mark-aligned; only the source's leading context moves.
+
 Unlike its siblings in this package (seq2CondPatchy, seq2CondSplitPatchy) this feeder reads TEXT at
 runtime instead of a packed `.pt`, so a change of crop policy needs no re-pack. Note the consequence
 for `splits`: the filter is POSITIONAL (`i % cycle in phases`), so the file list must be sorted
@@ -209,7 +215,7 @@ class Seq2Seq2 (Dataset):
 	def __init__ (self, root, split, device='cpu', shuffle=False,
 		source_dir='midi-seq2-score', target_dir='midi-seq2', mark_mode='measure',
 		line_range=(20, 256), p_head=0.15, p_tail=0.15, source_eom=False,
-		max_tokens=0, resample_tries=8, align_retries=4,
+		max_tokens=0, resample_tries=8, align_retries=4, start_jitter=0.0,
 		random_crop=None, seed=0, vocab_path=None, pos_style='flat', **_):
 		super().__init__()
 		self.device = device
@@ -241,6 +247,22 @@ class Seq2Seq2 (Dataset):
 		self.max_tokens = max_tokens
 		self.resample_tries = resample_tries
 		self.align_retries = align_retries
+		# Augmentation: std dev (in LINES) of a normal offset applied to the source crop's start, for
+		# crops that do NOT begin at the piece's start. 0 = off.
+		#
+		# Why it exists: every crop this feeder builds starts exactly ON a mark line, because growth
+		# steps whole marks. Inference cannot do that — a sliding window over a production file has no
+		# @measure/@tick to land on (tools/midi/translateMidiseq2.py advances the source cursor by
+		# matching note_on counts instead), so its windows start mid-measure at an arbitrary line. The
+		# model therefore meets an input distribution at inference that training never showed it.
+		# Jittering the start teaches it that the source may begin anywhere.
+		#
+		# Head crops are excluded: a == 0 IS the <bos> condition, and moving that start would either
+		# claim start-of-piece while skipping the header or contradict the <bos> the assembler emits.
+		# The target is NOT jittered — it stays mark-aligned, which is the supervision signal.
+		if start_jitter < 0:
+			raise ValueError(f'start_jitter must be >= 0, got {start_jitter!r}')
+		self.start_jitter = float(start_jitter)
 		# Deterministic crops for val: default follows the split's shuffle flag (as m3distill does),
 		# so train augments and val is reproducible epoch to epoch.
 		self.random_crop = shuffle if random_crop is None else random_crop
@@ -277,10 +299,31 @@ class Seq2Seq2 (Dataset):
 	# opening @measure 1 and set the boundary to the beginning" rule falls out of the same arithmetic
 	# rather than needing a special case; in 'tick' mode it generalizes to the first @tick.
 
-	def _bounds (self, source: _File, a: int, z: int) -> Tuple[int, int]:
+	def _bounds (self, source: _File, a: int, z: int, jitter: int = 0) -> Tuple[int, int]:
+		'''Mark range -> source line range. `jitter` shifts the START only (see _pick_jitter).
+
+		The default 0 is what _pick_crop's growth loop uses: it measures candidate spans, and a jittered
+		measurement would make the realized length depend on an offset drawn for a different purpose.
+		'''
 		start = 0 if a == 0 else source.marks[a][0]
 		end = len(source.lines) if z >= len(source.marks) else source.marks[z][0]
+		if jitter and a != 0:
+			# Clamp inside the file and keep at least one line: a start at or past `end` would encode an
+			# empty source half, and a negative one would index from the tail.
+			start = max(0, min(start + jitter, end - 1))
 		return start, end
+
+	def _pick_jitter (self, a: int, rng: random.Random) -> int:
+		'''Normal offset (in lines) for the source crop's start. 0 for head crops and when disabled.
+
+		Symmetric about the mark, so the start can fall either side of it — the point is that the model
+		stops being able to assume the first line it sees opens a measure. `_align` deliberately keeps
+		using the UNJITTERED mark `a` to place the target, so the target window still covers the same
+		music and only the source's leading context is perturbed.
+		'''
+		if not self.start_jitter or a == 0:
+			return 0
+		return round(rng.gauss(0, self.start_jitter))
 
 	def _pick_crop (self, source: _File, rng: random.Random) -> Tuple[int, int]:
 		'''Choose (a, z) — the source mark range. Grows by WHOLE marks, so a boundary can never land
@@ -487,9 +530,9 @@ class Seq2Seq2 (Dataset):
 		return src_pos + [-1] + tgt_pos
 
 	def _assemble (self, source: _File, target: _File, a: int, z: int,
-		align: Tuple[int, int]) -> Tuple[List[int], int, List[int]]:
+		align: Tuple[int, int], jitter: int = 0) -> Tuple[List[int], int, List[int]]:
 		'''Build the joined id sequence, the index of its <sep>, and the position ids.'''
-		s_start, s_end = self._bounds(source, a, z)
+		s_start, s_end = self._bounds(source, a, z, jitter)
 		t_start, t_end = align
 		# <bos> reflects the SOURCE crop reaching the START of the piece, and appears on both halves —
 		# _align clamps the target range to the same edge, so the two agree.
@@ -527,10 +570,13 @@ class Seq2Seq2 (Dataset):
 		NUMBERS, since _encode turns @measure N into a bare <eom>. Returning it from the feeder rather
 		than re-deriving it outside keeps the two from drifting apart.
 
-		Keys: name, source, target (_File), a, z (source mark range), source_range, target_range
-		(line slices), ids, sep, head, tail, source_measures, target_measures — the latter two being
-		[(line_index, measure_number)] for every @measure line inside that half's range, @measure 1
-		included (it is a real bar number even though it emits no <eom>).
+		Keys: name, source, target (_File), a, z (source mark range), jitter (the start offset in lines,
+		0 unless start_jitter is on), source_range, target_range (line slices), ids, sep, head, tail,
+		source_measures, target_measures — the latter two being [(line_index, measure_number)] for every
+		@measure line inside that half's range, @measure 1 included (it is a real bar number even though
+		it emits no <eom>).
+
+		`source_range` already has the jitter applied, so it is the range the ids were built from.
 		'''
 		name = self.names[index]
 		source = _get_file(os.path.join(self.source_root, name), self.mark_mode)
@@ -541,9 +587,12 @@ class Seq2Seq2 (Dataset):
 
 		# The crop that wins is kept WHOLE — ids together with the (a, z, align) that produced them.
 		# Keeping only the ids would leave the ranges describing whichever attempt happened to be last.
-		best: Optional[Tuple[List[int], int, List[int], int, int, Tuple[int, int]]] = None
+		best: Optional[Tuple[List[int], int, List[int], int, int, Tuple[int, int], int]] = None
 		for attempt in range(max(1, self.resample_tries)):
 			a, z = self._pick_crop(source, rng)
+			# Drawn per attempt and carried with the crop, so the reported source_range is the one the
+			# ids were actually built from rather than a re-draw.
+			jitter = self._pick_jitter(a, rng)
 			align = self._align(source, target, a, z)
 			if align is None:
 				# Widen by a mark on each side and retry; a wider window has more chance of hitting a
@@ -558,19 +607,23 @@ class Seq2Seq2 (Dataset):
 				# Last resort: the whole piece. Both files always have line 0 and EOF.
 				align = (0, len(target.lines))
 				a, z = 0, len(source.marks)
-			ids, sep, positions = self._assemble(source, target, a, z, align)
+			# Both fallbacks above can move `a` to 0, which IS the head condition; re-derive so a jitter
+			# drawn for an interior crop cannot survive onto a head one and shift <bos> off line 0.
+			if a == 0:
+				jitter = 0
+			ids, sep, positions = self._assemble(source, target, a, z, align, jitter)
 			if best is None or len(ids) < len(best[0]):
-				best = (ids, sep, positions, a, z, align)
+				best = (ids, sep, positions, a, z, align, jitter)
 			if not self.max_tokens or len(ids) <= self.max_tokens:
 				break
 		# If every attempt overshot max_tokens we keep the SHORTEST one rather than truncating: a
 		# truncated tail would leave the target unterminated and unaligned with its final mark.
-		ids, sep, positions, a, z, align = best
-		s_start, s_end = self._bounds(source, a, z)
+		ids, sep, positions, a, z, align, jitter = best
+		s_start, s_end = self._bounds(source, a, z, jitter)
 		t_start, t_end = align
 		# <bos> can share <sep>'s position id under 'absolute' (see _positions); reported rather than
 		# hidden, since it is the one place two tokens coincide.
-		return dict(name=name, source=source, target=target, a=a, z=z,
+		return dict(name=name, source=source, target=target, a=a, z=z, jitter=jitter,
 			source_range=(s_start, s_end), target_range=(t_start, t_end),
 			ids=ids, sep=sep, positions=positions, head=a <= 0, tail=z >= len(source.marks),
 			pos_bos_on_sep=self.pos_style == 'absolute' and a <= 0 and positions[sep + 1] == -1,

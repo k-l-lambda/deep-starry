@@ -73,6 +73,16 @@ data:
     # other pairings, whose tails reach 4700-8050.
     max_tokens:             0
     resample_tries:         8
+    # Augmentation: std dev IN LINES of a normal offset on the source crop's start, for crops that do
+    # not begin at the piece's start (head crops are exempt -- a == 0 is the <bos> condition). 0 = off.
+    #
+    # Closes a train/inference mismatch. Every crop here starts exactly ON a mark line because growth
+    # steps whole marks, but a sliding window over a production file has no @measure/@tick to land on
+    # (tools/midi/translateMidiseq2.py matches note_on counts instead) and so starts mid-measure. With
+    # this off the model never sees that. The target stays mark-aligned either way -- only the source's
+    # leading context moves. A measure is ~104 lines and a tick mark ~15, so single digits is a
+    # fraction of a bar; 8 gives offsets in [-20, 20] with 88% nonzero.
+    start_jitter:           0
     # RoPE position convention:
     #   flat      0, 1, 2, ... T-1
     #   sep       source ends at -2, <sep> = -1, target starts at 0

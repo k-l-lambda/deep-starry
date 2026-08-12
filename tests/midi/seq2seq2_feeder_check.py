@@ -386,6 +386,82 @@ def check_line_range (root, source_dir, target_dir, samples, rng):
 			check(f'rejects line_range={bad!r}', True)
 
 
+def check_start_jitter (root, source_dir, target_dir):
+	'''12. start_jitter: the source crop's start moves, the target's does not, and head crops are exempt.
+
+	The augmentation exists because every crop otherwise begins exactly ON a mark line, which inference
+	cannot reproduce — a sliding window over a production file starts mid-measure. So what is checked is
+	that the offset is actually applied off-mark, that it leaves the TARGET window alone (that alignment
+	is the supervision signal), and that a == 0 crops are untouched, since a == 0 IS the <bos> condition.
+	'''
+	print('\n== 12. start_jitter augmentation')
+	kw = dict(mark_mode='tick', line_range=[20, 256], split='0/1', random_crop=False)
+	off = feeder(root, source_dir, target_dir, **kw)
+	check('default is off', off.start_jitter == 0.0, str(off.start_jitter))
+
+	explicit = feeder(root, source_dir, target_dir, start_jitter=0.0, **kw)
+	same = all(off.describe(i)['ids'] == explicit.describe(i)['ids'] for i in off.indices)
+	check('start_jitter=0 is bit-identical to the default', same)
+
+	# with it off, a non-head crop must start exactly on a mark line
+	marks_hit = total = 0
+	for index in off.indices:
+		case = off.describe(index)
+		if case['head']:
+			continue
+		total += 1
+		if case['source_range'][0] in {line for line, _ in case['source'].marks}:
+			marks_hit += 1
+	check('off: every non-head crop starts on a mark', marks_hit == total, f'{marks_hit}/{total}')
+
+	std = 8.0
+	on = feeder(root, source_dir, target_dir, start_jitter=std, **kw)
+	offsets, head_bad, range_bad, empty = [], 0, 0, 0
+	for index in on.indices:
+		case = on.describe(index)
+		start, end = case['source_range']
+		if case['head']:
+			# a jitter drawn for an interior crop must not survive onto a head one
+			if case['jitter'] != 0 or start != 0:
+				head_bad += 1
+			continue
+		offsets.append(case['jitter'])
+		if start < 0 or start >= end:
+			range_bad += 1
+		if case['sep'] == 0:
+			empty += 1
+	check('head crops keep jitter 0 and start 0', head_bad == 0, f'{head_bad} bad')
+	check('the source range stays valid', range_bad == 0, f'{range_bad} bad')
+	check('no crop gets an empty source half', empty == 0, f'{empty} empty')
+	check('offsets are actually applied', sum(1 for j in offsets if j) > len(offsets) * 0.5,
+		f'{sum(1 for j in offsets if j)}/{len(offsets)} nonzero')
+	# a normal draw: mean near 0 and sample std near the requested one. Loose bounds — this asserts the
+	# distribution is the right shape, not that a finite sample matches it exactly.
+	mean, sigma = statistics.mean(offsets), statistics.pstdev(offsets)
+	check('offsets center on the mark', abs(mean) < std * 0.5, f'mean {mean:+.2f}')
+	check('offset spread matches the requested std', abs(sigma - std) < std * 0.5,
+		f'std {sigma:.2f} vs {std}')
+	print(f'  offsets: n {len(offsets)} mean {mean:+.2f} std {sigma:.2f} '
+		f'range [{min(offsets)}, {max(offsets)}]')
+
+	# the target window is alignment-derived and must not move with the source's start
+	unchanged = sum(1 for i in on.indices
+		if on.describe(i)['target_range'] == off.describe(i)['target_range'])
+	check('the target range is unaffected', unchanged == len(on.indices),
+		f'{unchanged}/{len(on.indices)}')
+
+	twin = feeder(root, source_dir, target_dir, start_jitter=std, **kw)
+	stable = all(on.describe(i)['ids'] == twin.describe(i)['ids'] for i in on.indices)
+	check('jittered crops stay deterministic under random_crop=False', stable)
+
+	for bad in (-1.0, -0.5):
+		try:
+			feeder(root, source_dir, target_dir, start_jitter=bad, **kw)
+			check(f'rejects start_jitter={bad!r}', False, 'accepted')
+		except ValueError:
+			check(f'rejects start_jitter={bad!r}', True)
+
+
 def length_table (root, samples, rng):
 	'''9. What T actually comes out at, per pairing and line cap — attention is O(T^2), so the p99
 	is what sizes a run, not the median. The last row of each block is the sampled range, which is what
@@ -525,6 +601,7 @@ def main ():
 	check_determinism(args.root, *PAIRINGS[0])
 	check_line_range(args.root, *PAIRINGS[2], args.samples, rng)
 	check_pos_style(args.root, *PAIRINGS[0], args.samples)
+	check_start_jitter(args.root, *PAIRINGS[2])
 	length_table(args.root, 200, rng)
 
 	print(f'\n{"=" * 78}')
