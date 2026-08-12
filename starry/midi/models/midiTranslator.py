@@ -83,31 +83,45 @@ class MidiTranslator (nn.Module):
 	def parameters_trainable (self):
 		return [p for p in self.parameters() if p.requires_grad]
 
-	def forward (self, input_ids, masks=None):
+	def forward (self, input_ids, masks=None, position_ids=None):
 		'''
-		input_ids: LongTensor [B, T]
-		masks:     LongTensor [B, T] or None — 1 = real token. Padding is right-side only, and the
-		           stack is causal, so a padded tail cannot leak into a real position either way;
-		           the mask is still passed so padding contributes nothing to the attention softmax.
+		input_ids:    LongTensor [B, T]
+		masks:        LongTensor [B, T] or None — 1 = real token. Padding is right-side only, and the
+		              stack is causal, so a padded tail cannot leak into a real position either way;
+		              the mask is still passed so padding contributes nothing to the attention softmax.
+		position_ids: LongTensor [B, T] or None — explicit RoPE positions from the feeder's `pos_style`.
+		              None lets the backbone use its default 0..T-1, which is exactly `pos_style: flat`.
+		              Values may be NEGATIVE and may exceed max_seq_len: RoPE computes sin/cos from the
+		              value itself, so nothing indexes a table and neither case is out of range.
 		Returns: FloatTensor [B, T, vocab] — logits[:, i] predicts position i + 1.
 		'''
-		out = self.backbone(input_ids=input_ids, attention_mask=masks)
+		out = self.backbone(input_ids=input_ids, attention_mask=masks, position_ids=position_ids)
 		return self.lm_head(out.last_hidden_state)
 
 	@torch.no_grad()
-	def generate (self, prefix_ids, max_new_tokens=512, eos_id=2, temperature=0.0, masks=None):
+	def generate (self, prefix_ids, max_new_tokens=512, eos_id=2, temperature=0.0, masks=None,
+		position_ids=None):
 		'''Free-run continuation of ONE prefix (the source half ++ <sep>, optionally ++ <bos>).
 
 		prefix_ids: LongTensor [T] or [1, T]. temperature 0 = greedy, else sample from the softmax.
 		Returns the generated ids only (the prefix is NOT included), stopping at eos_id.
 
+		position_ids: the prefix's positions ([T] or [1, T]), for a feeder using a non-'flat' pos_style.
+		Each generated token CONTINUES that run (+1 per step), which is what the target half does under
+		every style. Passing None uses the backbone's default 0..T-1, i.e. 'flat'.
+
 		No KV cache: this recomputes the whole prefix every step, which is O(T^2) per token and is
 		meant for notebook-scale inspection, not for bulk decoding.
 		'''
 		ids = prefix_ids if prefix_ids.dim() == 2 else prefix_ids.unsqueeze(0)
+		pos = None
+		if position_ids is not None:
+			pos = position_ids if position_ids.dim() == 2 else position_ids.unsqueeze(0)
 		out = []
 		for _ in range(max_new_tokens):
-			logits = self.forward(ids[:, -self.max_seq_len:], masks)[:, -1, :]
+			window = ids[:, -self.max_seq_len:]
+			pos_window = pos[:, -self.max_seq_len:] if pos is not None else None
+			logits = self.forward(window, masks, pos_window)[:, -1, :]
 			if temperature and temperature > 0:
 				nxt = torch.multinomial(F.softmax(logits / temperature, dim=-1), 1)
 			else:
@@ -115,6 +129,8 @@ class MidiTranslator (nn.Module):
 			token = int(nxt.item())
 			out.append(token)
 			ids = torch.cat((ids, nxt), dim=1)
+			if pos is not None:
+				pos = torch.cat((pos, pos[:, -1:] + 1), dim=1)
 			if token == eos_id:
 				break
 		return torch.tensor(out, dtype=torch.long, device=ids.device)
@@ -223,7 +239,7 @@ class MidiTranslatorLoss (nn.Module):
 		return out
 
 	def forward (self, batch):
-		logits = self.deducer(batch['input_ids'], batch['masks'])
+		logits = self.deducer(batch['input_ids'], batch['masks'], batch.get('position_ids'))
 		pred, labels = self._shift(batch, logits)
 		loss = self._loss(pred, labels)
 
@@ -240,7 +256,7 @@ class MidiTranslatorLoss (nn.Module):
 
 	def inspectRun (self, batch):
 		'''Notebook entry point: the metrics plus the raw tensors needed to look at a prediction.'''
-		logits = self.deducer(batch['input_ids'], batch['masks'])
+		logits = self.deducer(batch['input_ids'], batch['masks'], batch.get('position_ids'))
 		pred, labels = self._shift(batch, logits)
 		loss = self._loss(pred, labels)
 		acc = (pred.argmax(dim=-1) == labels).float().mean().item() if labels.numel() else 0.0

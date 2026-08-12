@@ -38,11 +38,26 @@ runtime instead of a packed `.pt`, so a change of crop policy needs no re-pack. 
 for `splits`: the filter is POSITIONAL (`i % cycle in phases`), so the file list must be sorted
 deterministically or val silently leaks into train.
 
+`pos_style` picks the RoPE position convention (see `_positions`):
+
+    'flat'      0, 1, 2, ... T-1                       the plain default
+    'sep'       source ends at -2, <sep> = -1, target starts at 0
+    'absolute'  <sep> = -1 as above, but each half sits on its OWN FILE's token axis: the target
+                file's first token is 0 counting up, the source file's last token is -2 counting
+                down, so a crop carries WHERE in the piece it came from.
+
+'flat' and 'sep' emit different numbers but are equivalent to the model — both are one arithmetic run,
+and RoPE reads only relative distance, so a uniform shift changes nothing. 'sep' buys readability (a
+position's sign says which half it is in). Only 'absolute' changes what the model sees.
+
 Batch contract:
-	input_ids   LongTensor [B, T]   source ++ <sep> ++ target, right-padded with <pad>
-	masks       LongTensor [B, T]   1 = real token
-	target_mask LongTensor [B, T]   1 = a supervised target position (strictly after <sep>)
-	sep_index   LongTensor [B]      position of <sep> in each row
+	input_ids    LongTensor [B, T]   source ++ <sep> ++ target, right-padded with <pad>
+	masks        LongTensor [B, T]   1 = real token
+	target_mask  LongTensor [B, T]   1 = a supervised target position (strictly after <sep>)
+	sep_index    LongTensor [B]      position of <sep> in each row
+	position_ids LongTensor [B, T]   RoPE positions per pos_style; the pad tail CONTINUES each row's
+	                                 run rather than taking a constant, so a padded row stays
+	                                 numerically identical to its unpadded self
 
 Loss convention: for a next-token model, compare `logits[:, i - 1]` against `input_ids[:, i]` at
 every `i` where target_mask is 1. `<sep>` is therefore the last context position before the first
@@ -62,6 +77,10 @@ from ...utils.registry import register_dataset
 from .seq2CondPachifier import Midiseq2Tokenizer
 
 
+# Position-id conventions, see Seq2Seq2._positions. 'flat' and 'sep' are equivalent to the model
+# (RoPE is relative); only 'absolute' carries where the crop was taken from.
+_POS_STYLES = ('flat', 'sep', 'absolute')
+
 # A mark key is either a measure number ('measure' mode) or a (measure, tick) pair ('tick' mode).
 MarkKey = Any
 # (line_index, key) — the line the directive sits on, and what identifies it across files.
@@ -74,6 +93,12 @@ class _File:
 	`marks` is in file order. `lines_of` maps a key to EVERY line carrying it, because the key is not
 	unique in general: the irregular arm has 730 duplicate (measure, tick) keys across 15 files (the
 	perturbation can move two events onto the same score tick). `_align` relies on that list.
+
+	`token_before[k]` is how many CONTENT tokens precede line k in the whole file — the prefix sum
+	`pos_style='absolute'` needs to place a crop on the file's own token axis. Directive lines
+	contribute 0, matching _encode, so this counts exactly the tokens _encode would emit for the whole
+	file. It is a prefix sum rather than a per-crop rescan because describe() is called once per sample
+	per epoch, and files run to 76k tokens.
 	'''
 
 	def __init__ (self, path: str, mark_mode: str):
@@ -81,6 +106,8 @@ class _File:
 			self.lines: List[str] = f.read().splitlines()
 		self.marks: List[Mark] = []
 		self.lines_of: Dict[MarkKey, List[int]] = {}
+		# len(lines) + 1 entries, so token_before[len(lines)] is the file's total token count.
+		self.token_before: List[int] = [0] * (len(self.lines) + 1)
 		# The measure number is tracked as parse state in BOTH modes: in 'tick' mode an @measure line
 		# is not itself a mark, but it still tells us which measure the following @tick values are in
 		# (a bare tick repeats every bar and would collide across the piece).
@@ -89,14 +116,20 @@ class _File:
 			if line.startswith('@measure'):
 				measure = int(line.split()[1])
 				if mark_mode != 'measure':
+					self.token_before[index + 1] = self.token_before[index]
 					continue
 				key: MarkKey = measure
 			elif line.startswith('@tick'):
 				if mark_mode != 'tick':
+					self.token_before[index + 1] = self.token_before[index]
 					continue
 				key = (measure, int(line.split()[1]))
 			else:
+				# Content: every whitespace-separated token becomes one id in _encode.
+				self.token_before[index + 1] = self.token_before[index] + len(line.split())
 				continue
+			# A mark line is a directive, so it contributes no content token either.
+			self.token_before[index + 1] = self.token_before[index]
 			self.marks.append((index, key))
 			self.lines_of.setdefault(key, []).append(index)
 
@@ -177,13 +210,16 @@ class Seq2Seq2 (Dataset):
 		source_dir='midi-seq2-score', target_dir='midi-seq2', mark_mode='measure',
 		line_range=(20, 256), p_head=0.15, p_tail=0.15, source_eom=False,
 		max_tokens=0, resample_tries=8, align_retries=4,
-		random_crop=None, seed=0, vocab_path=None, **_):
+		random_crop=None, seed=0, vocab_path=None, pos_style='flat', **_):
 		super().__init__()
 		self.device = device
 		self.shuffle = shuffle
 		if mark_mode not in ('measure', 'tick'):
 			raise ValueError(f'mark_mode must be "measure" or "tick", got {mark_mode!r}')
 		self.mark_mode = mark_mode
+		if pos_style not in _POS_STYLES:
+			raise ValueError(f'pos_style must be one of {sorted(_POS_STYLES)}, got {pos_style!r}')
+		self.pos_style = pos_style
 		self.source_root = os.path.join(root, source_dir)
 		self.target_root = os.path.join(root, target_dir)
 		# line_range bounds the SOURCE crop only; the target length follows from mark alignment and is
@@ -360,27 +396,99 @@ class Seq2Seq2 (Dataset):
 
 	# --- token assembly -------------------------------------------------------------------
 
-	def _encode (self, lines: Sequence[str], eom: bool) -> List[int]:
-		'''Lines -> ids. Directives never become content tokens; with `eom` on, an @measure line
-		contributes one <eom> instead. @measure 1 is skipped: it opens the piece rather than closing a
-		bar, and <bos> already carries that.'''
+	def _encode (self, lines: Sequence[str], eom: bool, base: int = 0) -> Tuple[List[int], List[int]]:
+		'''Lines -> (ids, token_index).
+
+		Directives never become content tokens; with `eom` on, an @measure line contributes one <eom>
+		instead. @measure 1 is skipped: it opens the piece rather than closing a bar, and <bos> already
+		carries that.
+
+		`token_index[i]` is the running token index of ids[i] on the FILE's own axis, starting from
+		`base` (pass the crop's `token_before[start]` to get file-absolute indices). Content tokens
+		advance it; an <eom> takes the next index too, since it occupies a slot in the sequence and must
+		therefore occupy a position. Returning it from here rather than deriving it from `token_before`
+		is what keeps positions and ids the same length — `token_before` counts content only, so it
+		undercounts a target half by exactly its <eom> count.
+		'''
 		ids: List[int] = []
+		index: List[int] = []
+		cursor = base
 		lookup = self.tokenizer.id_by_token
 		unknown = self.tokenizer.unknown_id
 		for line in lines:
 			if line.startswith('@measure'):
 				if eom and line.split()[1] != '1':
 					ids.append(self.tokenizer.eom_id)
+					index.append(cursor)
+					cursor += 1
 				continue
 			if line.startswith('@tick'):
 				continue
 			for token in line.split():
 				ids.append(lookup.get(token, unknown))
-		return ids
+				index.append(cursor)
+				cursor += 1
+		return ids, index
+
+	def _positions (self, source: _File, target: _File, src_index: Sequence[int],
+		tgt_index: Sequence[int], head: bool, n_source: int, n_target: int) -> List[int]:
+		'''Position ids for the assembled sequence, per `pos_style`. Length is n_source + 1 + n_target
+		(the +1 being <sep>), so it lines up with the ids one-for-one.
+
+		  'flat'      0, 1, 2, ... T-1                             the plain default
+		  'sep'       source ends at -2, <sep> = -1, target starts at 0
+		  'absolute'  <sep> = -1 as above, but each half is placed on its OWN FILE's token axis:
+		              the target FILE's first token is 0 and counts up, the source FILE's last token
+		              is -2 and counts down. A crop therefore carries WHERE it was taken from.
+
+		RoPE reads only relative distance, so 'flat' and 'sep' produce byte-identical model output —
+		both are one arithmetic run, and a uniform shift is invisible to RoPE. 'sep' buys readability
+		(a position's sign says which half it is in), not behaviour. Only 'absolute' changes what the
+		model sees, because the gap between the halves then varies per crop.
+
+		Two properties make 'absolute' safe, and they are the reason it is preferred over adding a fixed
+		constant offset to the source: the source is always <= -2 and the target always >= 0, so the
+		halves can never collide on a position id, and can never invert their order. A fixed offset
+		cannot promise either once a file is longer than the offset (measured on this corpus, a -N/2
+		offset put 0.4% of crops in collision and 1.25% inverted).
+		'''
+		if self.pos_style == 'flat':
+			return list(range(n_source + 1 + n_target))
+
+		if self.pos_style == 'sep':
+			# One contiguous run through -2, -1, 0: 'flat' shifted by -(n_source + 1), nothing more.
+			return list(range(-(n_source + 1), n_target))
+
+		# --- 'absolute' ---------------------------------------------------------------------
+		# Each content token keeps its own file's token index; only the structural wrappers are placed
+		# relative to them, taking the slot just outside the content they wrap.
+		#
+		# target: the file's FIRST token is 0, so a crop's index is used as-is and a later crop sits
+		#         further right.
+		# source: the file's LAST token is -2, so an index p maps to p - L - 1 (L = the file's total
+		#         token count) and an earlier crop sits further left.
+		total_src = source.token_before[len(source.lines)]
+		src_pos = [p - total_src - 1 for p in src_index]
+		tgt_pos = list(tgt_index)
+
+		# <bos> precedes its half's content, <eos> follows the target's. Both are derived from the
+		# neighbouring content position rather than assumed, so an empty half cannot produce a gap.
+		if head:
+			src_pos = [(src_pos[0] if src_pos else -2) - 1] + src_pos
+			tgt_pos = [(tgt_pos[0] if tgt_pos else 0) - 1] + tgt_pos
+		tgt_pos = tgt_pos + [(tgt_pos[-1] if tgt_pos else -1) + 1]
+
+		# A head crop has t_start == 0 (true of every head crop in this corpus), so the target's content
+		# starts at 0 and its <bos> takes -1 — the same position as <sep>. Both are structural markers
+		# on the same boundary and their embeddings still tell them apart; what matters is that no two
+		# CONTENT tokens ever share a position. describe() reports this as `pos_bos_on_sep`.
+		assert len(src_pos) == n_source and len(tgt_pos) == n_target, (
+			f'position/id length mismatch: {len(src_pos)} vs {n_source}, {len(tgt_pos)} vs {n_target}')
+		return src_pos + [-1] + tgt_pos
 
 	def _assemble (self, source: _File, target: _File, a: int, z: int,
-		align: Tuple[int, int]) -> Tuple[List[int], int]:
-		'''Build the joined id sequence and the index of its <sep>.'''
+		align: Tuple[int, int]) -> Tuple[List[int], int, List[int]]:
+		'''Build the joined id sequence, the index of its <sep>, and the position ids.'''
 		s_start, s_end = self._bounds(source, a, z)
 		t_start, t_end = align
 		# <bos> reflects the SOURCE crop reaching the START of the piece, and appears on both halves —
@@ -399,9 +507,15 @@ class Seq2Seq2 (Dataset):
 		def wrap (ids: List[int]) -> List[int]:
 			return ([self.tokenizer.bos_id] if head else []) + ids
 
-		source_ids = wrap(self._encode(source.lines[s_start:s_end], self.source_eom))
-		target_ids = wrap(self._encode(target.lines[t_start:t_end], True)) + [self.tokenizer.eos_id]
-		return source_ids + [self.tokenizer.sep_id] + target_ids, len(source_ids)
+		src_body, src_index = self._encode(
+			source.lines[s_start:s_end], self.source_eom, source.token_before[s_start])
+		tgt_body, tgt_index = self._encode(
+			target.lines[t_start:t_end], True, target.token_before[t_start])
+		source_ids = wrap(src_body)
+		target_ids = wrap(tgt_body) + [self.tokenizer.eos_id]
+		positions = self._positions(source, target, src_index, tgt_index, head,
+			len(source_ids), len(target_ids))
+		return source_ids + [self.tokenizer.sep_id] + target_ids, len(source_ids), positions
 
 	# --- item -----------------------------------------------------------------------------
 
@@ -427,7 +541,7 @@ class Seq2Seq2 (Dataset):
 
 		# The crop that wins is kept WHOLE — ids together with the (a, z, align) that produced them.
 		# Keeping only the ids would leave the ranges describing whichever attempt happened to be last.
-		best: Optional[Tuple[List[int], int, int, int, Tuple[int, int]]] = None
+		best: Optional[Tuple[List[int], int, List[int], int, int, Tuple[int, int]]] = None
 		for attempt in range(max(1, self.resample_tries)):
 			a, z = self._pick_crop(source, rng)
 			align = self._align(source, target, a, z)
@@ -444,25 +558,29 @@ class Seq2Seq2 (Dataset):
 				# Last resort: the whole piece. Both files always have line 0 and EOF.
 				align = (0, len(target.lines))
 				a, z = 0, len(source.marks)
-			ids, sep = self._assemble(source, target, a, z, align)
+			ids, sep, positions = self._assemble(source, target, a, z, align)
 			if best is None or len(ids) < len(best[0]):
-				best = (ids, sep, a, z, align)
+				best = (ids, sep, positions, a, z, align)
 			if not self.max_tokens or len(ids) <= self.max_tokens:
 				break
 		# If every attempt overshot max_tokens we keep the SHORTEST one rather than truncating: a
 		# truncated tail would leave the target unterminated and unaligned with its final mark.
-		ids, sep, a, z, align = best
+		ids, sep, positions, a, z, align = best
 		s_start, s_end = self._bounds(source, a, z)
 		t_start, t_end = align
+		# <bos> can share <sep>'s position id under 'absolute' (see _positions); reported rather than
+		# hidden, since it is the one place two tokens coincide.
 		return dict(name=name, source=source, target=target, a=a, z=z,
 			source_range=(s_start, s_end), target_range=(t_start, t_end),
-			ids=ids, sep=sep, head=a <= 0, tail=z >= len(source.marks),
+			ids=ids, sep=sep, positions=positions, head=a <= 0, tail=z >= len(source.marks),
+			pos_bos_on_sep=self.pos_style == 'absolute' and a <= 0 and positions[sep + 1] == -1,
 			source_measures=_measures_in(source, s_start, s_end),
 			target_measures=_measures_in(target, t_start, t_end))
 
-	def _item (self, index: int) -> Tuple[torch.Tensor, int]:
+	def _item (self, index: int) -> Tuple[torch.Tensor, int, torch.Tensor]:
 		case = self.describe(index)
-		return torch.tensor(case['ids'], dtype=torch.long), case['sep']
+		return (torch.tensor(case['ids'], dtype=torch.long), case['sep'],
+			torch.tensor(case['positions'], dtype=torch.long))
 
 	def __getitem__ (self, index):
 		return self._item(self.indices[index])
@@ -484,14 +602,26 @@ class Seq2Seq2 (Dataset):
 		# recorded sep index rather than by searching for the id, so a <sep> that ever appeared inside
 		# a half could not be mistaken for the boundary.
 		target_mask = torch.zeros_like(input_ids)
-		for row, (ids, sep) in enumerate(batch):
+		for row, (ids, sep, _) in enumerate(batch):
 			target_mask[row, sep + 1:len(ids)] = 1
 		sep_index = torch.tensor([ex[1] for ex in batch], dtype=torch.long)
+		# Padded slots CONTINUE each row's run rather than taking a constant fill. A constant would put
+		# a real position (e.g. 0, which every style uses) on a pad slot and break the arithmetic run,
+		# which is measurable: RoPE rotates every position before the attention mask drops it, so a
+		# padded 'flat' batch stopped matching its unpadded self by 4e-2 until this continued instead.
+		# The mask still excludes these slots from attention; this only keeps the geometry consistent.
+		width = input_ids.shape[1]
+		position_ids = torch.stack([
+			torch.cat([ex[2], torch.arange(1, width - len(ex[2]) + 1) + ex[2][-1]])
+			if len(ex[2]) < width else ex[2]
+			for ex in batch
+		])
 
 		return dict(
 			input_ids=input_ids.to(self.device),
 			masks=masks.to(self.device),
 			target_mask=target_mask.to(self.device),
 			sep_index=sep_index.to(self.device),
+			position_ids=position_ids.to(self.device),
 		)
 

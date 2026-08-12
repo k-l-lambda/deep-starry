@@ -73,6 +73,22 @@ data:
     # other pairings, whose tails reach 4700-8050.
     max_tokens:             0
     resample_tries:         8
+    # RoPE position convention:
+    #   flat      0, 1, 2, ... T-1
+    #   sep       source ends at -2, <sep> = -1, target starts at 0
+    #   absolute  <sep> = -1 as in 'sep', but each half sits on its OWN FILE's token axis -- target
+    #             file's first token is 0 counting up, source file's last token is -2 counting down,
+    #             so the positions carry WHERE in the piece the crop came from.
+    #
+    # flat and sep are equivalent to the model (one arithmetic run; RoPE reads relative distance only,
+    # so a uniform shift is invisible -- measured 1.3e-6 on the hidden states). sep is the readable
+    # form of the same thing: a position's sign says which half it is in. Only 'absolute' changes
+    # behaviour, and it is the one that stays collision-free: source <= -2 and target >= -1 by
+    # construction, so the halves can never share a position id nor invert their order however long
+    # the files get. A fixed source offset cannot promise that -- at -N/2 (half the slowest RoPE
+    # period, 23559 here) 0.4% of crops collided and 1.25% inverted, because the irregular arm reaches
+    # 76567 tokens while the score arm caps at 41416.
+    pos_style:              absolute
   args_variant:
     # Val takes a deterministic crop per sample — still a mix of head/tail/middle, but the same one
     # every epoch, so the metric moves only when the model does.

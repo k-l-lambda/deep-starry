@@ -20,6 +20,7 @@ tensor plumbing:
   8b. describe()    — same crop as __getitem__; one <eom> per measure it names (the vis relies on it)
   9. length table   — median/p95/p99/max of T per pairing and line cap, so a config can be sized
  10. line_range    — the per-crop cap varies, honours both ends, and stays deterministic
+ 11. pos_style     — flat/sep/absolute: ids unchanged, <sep> anchoring, sign separation, pad run
 '''
 
 import argparse
@@ -97,9 +98,9 @@ def crops (dataset, samples, rng):
 		if align is None:
 			yield dict(name=name, degenerate=True)
 			continue
-		ids, sep = dataset._assemble(source, target, a, z, align)
+		ids, sep, positions = dataset._assemble(source, target, a, z, align)
 		yield dict(name=name, degenerate=False, source=source, target=target, a=a, z=z,
-			align=align, ids=ids, sep=sep)
+			align=align, ids=ids, sep=sep, positions=positions)
 
 
 def check_crops (dataset, samples, rng):
@@ -272,7 +273,7 @@ def check_describe (dataset):
 	for i in range(min(8, len(dataset))):
 		index = dataset.indices[i]
 		case = dataset.describe(index)
-		ids, sep = dataset[i]
+		ids, sep, positions = dataset[i]
 		# describe() re-runs the crop; a deterministic feeder must land on the same one.
 		if ids.tolist() != case['ids'] or sep != case['sep']:
 			ok_same = False
@@ -306,13 +307,14 @@ def check_collate (dataset):
 	items = [dataset[i] for i in range(min(4, len(dataset)))]
 	batch = dataset.collateBatch(items)
 	t = dataset.tokenizer
-	width = max(len(ids) for ids, _ in items)
-	check('keys', set(batch) == {'input_ids', 'masks', 'target_mask', 'sep_index'}, str(set(batch)))
+	width = max(len(ids) for ids, _, _ in items)
+	check('keys', set(batch) == {'input_ids', 'masks', 'target_mask', 'sep_index', 'position_ids'},
+		str(set(batch)))
 	check('input_ids shape', tuple(batch['input_ids'].shape) == (len(items), width),
 		str(tuple(batch['input_ids'].shape)))
 	check('all long dtype', all(v.dtype == torch.long for v in batch.values()))
 	ok_pad = ok_mask = ok_target = ok_sep = True
-	for row, (ids, sep) in enumerate(items):
+	for row, (ids, sep, positions) in enumerate(items):
 		length = len(ids)
 		if length < width and not (batch['input_ids'][row, length:] == t.pad_id).all():
 			ok_pad = False
@@ -404,6 +406,103 @@ def length_table (root, samples, rng):
 				f'{lengths[-1]:7d}')
 
 
+def check_pos_style (root, source_dir, target_dir, samples):
+	'''11. The three pos_style conventions.
+
+	'flat' and 'sep' must produce IDENTICAL ids and be equivalent to a RoPE model (one arithmetic run,
+	and a uniform shift is invisible to RoPE) — 'sep' buys readability, not behaviour. 'absolute' must
+	place the source at <= -2 and the target at >= -1, which is the property that makes it collision-
+	free and order-preserving no matter how long the files are.
+	'''
+	print('\n== 11. pos_style')
+	sets = {}
+	for style in ('flat', 'sep', 'absolute'):
+		sets[style] = feeder(root, source_dir, target_dir, mark_mode='tick',
+			pos_style=style, random_crop=False)
+
+	check('bad pos_style raises', _raises(lambda: feeder(root, source_dir, target_dir,
+		pos_style='bogus')), 'a typo must not fall through to a default')
+
+	ok_len = ok_ids = ok_flat = ok_sep = ok_abs_sign = ok_abs_sep = ok_cross = True
+	seen_head = seen_tail = seen_mid = 0
+	for i in range(min(samples, len(sets['flat']))):
+		index = sets['flat'].indices[i % len(sets['flat'])]
+		cases = {style: ds.describe(index) for style, ds in sets.items()}
+		for style, case in cases.items():
+			if len(case['positions']) != len(case['ids']):
+				ok_len = False
+		# the ids must not depend on the position convention at all
+		if not (cases['flat']['ids'] == cases['sep']['ids'] == cases['absolute']['ids']):
+			ok_ids = False
+
+		flat, sep_c, absol = cases['flat'], cases['sep'], cases['absolute']
+		n, s = len(flat['ids']), flat['sep']
+		if flat['positions'] != list(range(n)):
+			ok_flat = False
+		# 'sep': one run through -2, -1, 0 -- i.e. flat shifted so <sep> lands on -1
+		if sep_c['positions'] != list(range(-(s + 1), n - s - 1)):
+			ok_sep = False
+		if sep_c['positions'][s] != -1:
+			ok_sep = False
+
+		pos = absol['positions']
+		s = absol['sep']
+		if max(pos[:s]) > -2 or pos[s] != -1 or min(pos[s + 1:]) < -1:
+			ok_abs_sign = False
+		# no CONTENT token of one half may share a position with the other's
+		if max(pos[:s]) >= min(x for x in pos[s + 1:] if x >= 0):
+			ok_cross = False
+		# a tail crop ends the source at exactly -2; a head crop starts the target's content at 0
+		if absol['tail']:
+			seen_tail += 1
+			if pos[s - 1] != -2:
+				ok_abs_sep = False
+		elif absol['head']:
+			seen_head += 1
+		else:
+			seen_mid += 1
+
+	check('positions length == ids length (all styles)', ok_len)
+	check('ids independent of pos_style', ok_ids)
+	check("'flat' == 0..T-1", ok_flat)
+	check("'sep' is one run with <sep> at -1", ok_sep)
+	check("'absolute' source <= -2, <sep> == -1, target >= -1", ok_abs_sign)
+	check("'absolute' tail crop ends source at -2", ok_abs_sep, f'{seen_tail} tail crops seen')
+	check("'absolute' halves never share a content position", ok_cross)
+	check('head/tail/middle all covered', seen_head and seen_tail and seen_mid,
+		f'head {seen_head} tail {seen_tail} middle {seen_mid}')
+
+	# 'absolute' must actually MOVE with the crop -- otherwise it is just 'sep' under another name.
+	spans = set()
+	for i in range(min(40, len(sets['absolute']))):
+		case = sets['absolute'].describe(sets['absolute'].indices[i])
+		spans.add(case['positions'][case['sep'] + 1])
+	check("'absolute' target start varies by crop", len(spans) > 1, f'{len(spans)} distinct starts')
+
+	# collateBatch must carry positions and continue each row's run into the padding, or a padded row
+	# stops matching its unpadded self (measured 4e-2 on the hidden states before this was fixed).
+	ds = sets['absolute']
+	items = [ds[i] for i in range(min(4, len(ds)))]
+	batch = ds.collateBatch(items)
+	width = batch['input_ids'].shape[1]
+	ok_pad_pos = True
+	for row, (ids, _, positions) in enumerate(items):
+		if not torch.equal(batch['position_ids'][row, :len(ids)], positions):
+			ok_pad_pos = False
+		for k in range(len(ids), width):		# the pad tail continues the run, +1 per slot
+			if int(batch['position_ids'][row, k]) != int(positions[-1]) + (k - len(ids) + 1):
+				ok_pad_pos = False
+	check('collateBatch position_ids: real slots verbatim, pad continues the run', ok_pad_pos)
+
+
+def _raises (fn):
+	try:
+		fn()
+		return False
+	except ValueError:
+		return True
+
+
 def main ():
 	parser = argparse.ArgumentParser(description=__doc__)
 	parser.add_argument('--root', default=DEFAULT_ROOT)
@@ -425,6 +524,7 @@ def main ():
 
 	check_determinism(args.root, *PAIRINGS[0])
 	check_line_range(args.root, *PAIRINGS[2], args.samples, rng)
+	check_pos_style(args.root, *PAIRINGS[0], args.samples)
 	length_table(args.root, 200, rng)
 
 	print(f'\n{"=" * 78}')
