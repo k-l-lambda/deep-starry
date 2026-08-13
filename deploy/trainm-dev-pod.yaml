@@ -1,0 +1,159 @@
+# Interactive deep-starry dev/training pod for the Maiyi cluster (maiyi-9 / host-172-16-2-140).
+#
+# Ported from the jiuzhang.51 `trainl-dev-51` design (diary 2026/0606, 0630): a MINIMAL image with
+# every python package MOUNTED FROM THE HOST at runtime, rather than a fat training image. Maiyi is
+# air-gapped, so building or pulling a torch image is not an option — but the host already carries
+# python 3.10.12 + torch 2.12.0+cu130 that sees all 8 B300s, and `lm-mining:cuda13` is Ubuntu 22.04
+# with the SAME python 3.10.12. An exact minor-version match is what makes the mount trick legal:
+# C extensions in dist-packages are built against 3.10's ABI.
+#
+# GPUs: `nvidia.com/gpu` is deliberately NOT requested. Every GPU node in this cluster is 8/8
+# allocated by serving/training workloads that are not ours, so a pod asking for cards would sit
+# Pending forever. This mirrors trainl-dev-51, which also held no GPU limit and instead took cards
+# ad-hoc via CUDA_VISIBLE_DEVICES against the bare host. Nothing here competes with the live vLLM
+# TP8 serve holding 263 GB on each of maiyi-9's cards — check `nvidia-smi` for free memory BEFORE
+# launching any training, and pick the free indices explicitly.
+#
+# Apply (from maiyi-9, root is needed for kubectl — the `linux` account has no kubeconfig):
+#   rsync -a --partial deploy/trainm-dev-pod.yaml maiyi-9:/home/linux/work/
+#   ssh -tt maiyi-9 'sudo su -c "kubectl apply -f /home/linux/work/trainm-dev-pod.yaml"'
+#   ssh -tt maiyi-9 'sudo su -c "kubectl exec -it trainm-dev-9 -- bash -l"'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: trainm-dev-9
+  labels:
+    app: trainm-dev
+spec:
+  # Pinned rather than scheduled: the host site-packages and the dataset only exist on this node,
+  # and the whole design depends on that specific host's python/torch build.
+  nodeName: host-172-16-2-140
+  restartPolicy: Never
+  hostNetwork: false
+  containers:
+    - name: dev
+      image: docker.io/library/lm-mining:cuda13
+      imagePullPolicy: IfNotPresent
+      workingDir: /workspace/deep-starry
+      # `site.py` reads .pth files on EVERY interpreter start, unlike PYTHONPATH which a fresh
+      # sshd/Jupyter session does not inherit. Diary 0606 hit exactly that: `import torch` failed
+      # over ssh even though kubectl exec worked. Writing the .pth in the bootstrap makes the
+      # mounted packages importable from any entry point, and survives pod recreation.
+      command:
+        - bash
+        - -lc
+        - |
+          set -e
+          printf '/opt/sys-packages\n/opt/dist-packages\n/opt/apt-packages\n' \
+            > /usr/local/lib/python3.10/dist-packages/zzz_mounted_packages.pth
+          # Put the host driver libs on the loader path. ldconfig (not LD_LIBRARY_PATH) so that
+          # every process gets them, including ones started from a fresh shell or by torch's own
+          # subprocess spawns.
+          echo /opt/nvidia-libs > /etc/ld.so.conf.d/zz-nvidia-host.conf
+          ldconfig
+          echo 'export PYTHONPATH=/opt/sys-packages:/opt/dist-packages:/opt/apt-packages:/workspace/deep-starry' \
+            > /etc/profile.d/trainm-env.sh
+          echo 'export PATH=$PATH:/opt/sys-packages/../../../bin' >> /etc/profile.d/trainm-env.sh
+          exec sleep infinity
+      env:
+        # Needed by kubectl exec (which does not read /etc/profile.d) as well as the login shell.
+        - name: PYTHONPATH
+          value: /opt/sys-packages:/opt/dist-packages:/opt/apt-packages:/workspace/deep-starry
+        - name: MPLBACKEND
+          value: Agg
+        # The cluster's internal CONNECT proxy — the only egress. Large wheels need a long
+        # read timeout through it (diary: files.pythonhosted.org read-timeouts otherwise).
+        - name: HTTP_PROXY
+          value: http://172.16.1.35:7890
+        - name: HTTPS_PROXY
+          value: http://172.16.1.35:7890
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,172.16.0.0/12,10.0.0.0/8,.svc,.cluster.local,sealos.hub
+      # GPU access WITHOUT holding k8s quota. Every GPU pod in this cluster requests
+      # `nvidia.com/gpu` and runs privileged, but all 6 GPU nodes are 8/8 allocated, so a request
+      # would never schedule. Instead the driver devices are bind-mounted and the container runs
+      # privileged, which is the same shape as trainl-dev-51's ad-hoc `CUDA_VISIBLE_DEVICES` model:
+      # k8s does not account for these cards, so ALWAYS check `nvidia-smi` for free memory and pick
+      # idle indices explicitly — the node's 8 B300s are currently held by a vLLM TP8 serve at
+      # 263/275 GB each, which must not be disturbed.
+      securityContext:
+        privileged: true
+      resources:
+        limits:
+          memory: 200Gi
+          cpu: "32"
+        requests:
+          memory: 32Gi
+          cpu: "4"
+      volumeMounts:
+        - { name: repo,          mountPath: /workspace/deep-starry }
+        - { name: sys-packages,  mountPath: /opt/sys-packages,  readOnly: true }
+        - { name: dist-packages, mountPath: /opt/dist-packages, readOnly: true }
+        - { name: apt-packages,  mountPath: /opt/apt-packages,  readOnly: true }
+        - { name: tz,            mountPath: /usr/share/zoneinfo, readOnly: true }
+        - { name: nvidia-libs,   mountPath: /opt/nvidia-libs, readOnly: true }
+        - { name: nvidia-smi,    mountPath: /usr/bin/nvidia-smi, readOnly: true }
+        - { name: nvidiactl,     mountPath: /dev/nvidiactl }
+        - { name: nvidia-uvm,    mountPath: /dev/nvidia-uvm }
+        - { name: nvidia-uvm-t,  mountPath: /dev/nvidia-uvm-tools }
+        - { name: nvidia0, mountPath: /dev/nvidia0 }
+        - { name: nvidia1, mountPath: /dev/nvidia1 }
+        - { name: nvidia2, mountPath: /dev/nvidia2 }
+        - { name: nvidia3, mountPath: /dev/nvidia3 }
+        - { name: nvidia4, mountPath: /dev/nvidia4 }
+        - { name: nvidia5, mountPath: /dev/nvidia5 }
+        - { name: nvidia6, mountPath: /dev/nvidia6 }
+        - { name: nvidia7, mountPath: /dev/nvidia7 }
+        - { name: datasets,      mountPath: /data/midi }
+        - { name: training,      mountPath: /data/training }
+        - { name: dshm,          mountPath: /dev/shm }
+  volumes:
+    # The repo lives on the HOST and is bind-mounted, so `git pull` on the host updates the pod's
+    # code with no rebuild (diary 0630). The container FS is ephemeral; never edit code inside it.
+    - name: repo
+      hostPath: { path: /home/linux/work/deep-starry, type: Directory }
+    # Three package roots, in the order the host's own sys.path lists them.
+    - name: sys-packages
+      hostPath: { path: /home/linux/.local/lib/python3.10/site-packages, type: Directory }
+    - name: dist-packages
+      hostPath: { path: /usr/local/lib/python3.10/dist-packages, type: Directory }
+    - name: apt-packages
+      hostPath: { path: /usr/lib/python3/dist-packages, type: Directory }
+    # tzdata. The minimal image ships none, and `pandas` resolves timezones AT IMPORT — so without
+    # this, `import pandas` (and anything pulling it, e.g. `datasets`) dies with
+    # `FileNotFoundError: /usr/share/zoneinfo/tzdata.zi`, which reads like a missing package rather
+    # than a missing OS file. The .51 manifest mounted this for the same reason (diary 0606).
+    - name: tz
+      hostPath: { path: /usr/share/zoneinfo, type: Directory }
+    # The driver character devices, mounted individually (`type: CharDevice`) rather than as a
+    # /dev tree, so the manifest states exactly which cards the pod can see. torch needs the
+    # control + UVM nodes as well as the per-GPU nodes; without nvidia-uvm, CUDA init fails with an
+    # unhelpful "no CUDA-capable device is detected".
+    # The USERSPACE driver. This is the piece that is easy to miss: `libcuda.so` is shipped by the
+    # HOST DRIVER (595.58.03 here), not by torch's bundled CUDA runtime, and the minimal image has
+    # no NVIDIA libs at all. With the device nodes present but libcuda absent, torch reports plain
+    # `cuda unavailable` — indistinguishable from a missing device. Mounted as a whole directory
+    # (62 libs: libcuda, libnvidia-ml, libnvidia-nvvm, ptxjitcompiler, …) and put on the loader path
+    # in the bootstrap. A GPU-plugin pod gets this injected by the nvidia container runtime; this
+    # pod is deliberately not one, so it mounts it itself.
+    - name: nvidia-libs
+      hostPath: { path: /usr/lib/x86_64-linux-gnu, type: Directory }
+    - name: nvidia-smi
+      hostPath: { path: /usr/bin/nvidia-smi, type: File }
+    - { name: nvidiactl,    hostPath: { path: /dev/nvidiactl,         type: CharDevice } }
+    - { name: nvidia-uvm,   hostPath: { path: /dev/nvidia-uvm,        type: CharDevice } }
+    - { name: nvidia-uvm-t, hostPath: { path: /dev/nvidia-uvm-tools,  type: CharDevice } }
+    - { name: nvidia0, hostPath: { path: /dev/nvidia0, type: CharDevice } }
+    - { name: nvidia1, hostPath: { path: /dev/nvidia1, type: CharDevice } }
+    - { name: nvidia2, hostPath: { path: /dev/nvidia2, type: CharDevice } }
+    - { name: nvidia3, hostPath: { path: /dev/nvidia3, type: CharDevice } }
+    - { name: nvidia4, hostPath: { path: /dev/nvidia4, type: CharDevice } }
+    - { name: nvidia5, hostPath: { path: /dev/nvidia5, type: CharDevice } }
+    - { name: nvidia6, hostPath: { path: /dev/nvidia6, type: CharDevice } }
+    - { name: nvidia7, hostPath: { path: /dev/nvidia7, type: CharDevice } }
+    - name: datasets
+      hostPath: { path: /home/linux/work/datasets/midi, type: DirectoryOrCreate }
+    - name: training
+      hostPath: { path: /home/linux/work/training, type: DirectoryOrCreate }
+    - name: dshm
+      emptyDir: { medium: Memory, sizeLimit: 16Gi }
