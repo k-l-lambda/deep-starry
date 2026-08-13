@@ -273,7 +273,7 @@ def check_describe (dataset):
 	for i in range(min(8, len(dataset))):
 		index = dataset.indices[i]
 		case = dataset.describe(index)
-		ids, sep, positions = dataset[i]
+		ids, sep, positions, skip = dataset[i]
 		# describe() re-runs the crop; a deterministic feeder must land on the same one.
 		if ids.tolist() != case['ids'] or sep != case['sep']:
 			ok_same = False
@@ -307,23 +307,25 @@ def check_collate (dataset):
 	items = [dataset[i] for i in range(min(4, len(dataset)))]
 	batch = dataset.collateBatch(items)
 	t = dataset.tokenizer
-	width = max(len(ids) for ids, _, _ in items)
+	width = max(len(ids) for ids, *_ in items)
 	check('keys', set(batch) == {'input_ids', 'masks', 'target_mask', 'sep_index', 'position_ids'},
 		str(set(batch)))
 	check('input_ids shape', tuple(batch['input_ids'].shape) == (len(items), width),
 		str(tuple(batch['input_ids'].shape)))
 	check('all long dtype', all(v.dtype == torch.long for v in batch.values()))
 	ok_pad = ok_mask = ok_target = ok_sep = True
-	for row, (ids, sep, positions) in enumerate(items):
+	ok_skip = all(skip == 0 for *_, skip in items)
+	for row, (ids, sep, positions, skip) in enumerate(items):
 		length = len(ids)
 		if length < width and not (batch['input_ids'][row, length:] == t.pad_id).all():
 			ok_pad = False
 		if batch['masks'][row].sum().item() != length:
 			ok_mask = False
-		# the supervised region is exactly (sep, length)
-		if batch['target_mask'][row].sum().item() != length - sep - 1:
+		# the supervised region is exactly (sep + skip, length); skip is 0 unless start_jitter drew a
+		# nonzero offset for this crop, which this feeder does not enable — see section 12.
+		if batch['target_mask'][row].sum().item() != length - sep - 1 - skip:
 			ok_target = False
-		if batch['target_mask'][row, :sep + 1].any():
+		if batch['target_mask'][row, :sep + 1 + skip].any():
 			ok_target = False
 		if batch['input_ids'][row, sep].item() != t.sep_id or batch['sep_index'][row].item() != sep:
 			ok_sep = False
@@ -331,6 +333,7 @@ def check_collate (dataset):
 	check('masks count real tokens', ok_mask)
 	check('target_mask covers exactly the post-<sep> region', ok_target)
 	check('sep_index points at <sep>', ok_sep)
+	check('skip is 0 without start_jitter', ok_skip)
 
 
 def check_line_range (root, source_dir, target_dir, samples, rng):
@@ -461,6 +464,67 @@ def check_start_jitter (root, source_dir, target_dir):
 		except ValueError:
 			check(f'rejects start_jitter={bad!r}', True)
 
+	check_jitter_supervision(on, off)
+
+
+def check_jitter_supervision (on, off):
+	'''12b. The unsupervised head: an offset crop cannot be asked to produce its first bar.
+
+	A crop whose source start moved is missing the head of its first bar, so that bar's target tokens
+	are not derivable from the context — supervising them teaches invention. `skip` drops them, up to
+	and including the first <eom>. What must hold: skip is keyed on the SAMPLED offset (a crop that drew
+	exactly 0 keeps full supervision), it lands just past the first <eom>, it never empties the mask,
+	and collateBatch honours it.
+	'''
+	print('\n== 12b. jitter drops the target\'s first bar from supervision')
+	t = on.tokenizer
+	ok_key = ok_pos = ok_nonempty = True
+	skips, jittered = [], 0
+	for index in on.indices:
+		case = on.describe(index)
+		target_ids, skip, jitter = case['ids'][case['sep'] + 1:], case['skip'], case['jitter']
+		# keyed on the sampled offset, not on the start_jitter setting
+		if bool(skip) != bool(jitter):
+			ok_key = False
+		if jitter:
+			jittered += 1
+			skips.append(skip)
+			# exactly one past the first <eom>, so the boundary token itself is unsupervised too
+			if skip != target_ids.index(t.eom_id) + 1:
+				ok_pos = False
+			# describe() cancels the jitter when the half has no <eom>, so a nonzero skip can never
+			# consume the whole target half
+			if skip >= len(target_ids):
+				ok_nonempty = False
+	check('skip is nonzero exactly when the sampled offset is', ok_key)
+	check('skip lands one past the first <eom>', ok_pos)
+	check('skip never consumes the whole target half', ok_nonempty)
+	check('an offset crop is present to check', jittered > 0, f'{jittered} jittered')
+	if skips:
+		print(f'  skip: n {len(skips)} median {statistics.median(skips):.0f} '
+			f'range [{min(skips)}, {max(skips)}]')
+
+	# every jittered crop keeps an <eom> in its target half, because describe() drops the jitter rather
+	# than the supervision when it does not. Measured 26% of halves on this corpus carry no <eom>.
+	cancelled = sum(1 for i in on.indices
+		if not on.describe(i)['jitter'] and not off.describe(i)['head'])
+	print(f'  {cancelled} interior crops ended at offset 0 (drew 0, or the jitter was cancelled '
+		'for want of an <eom>)')
+
+	# and the mask the model actually sees
+	items = [on._item(i) for i in on.indices[:8]]
+	batch = on.collateBatch(items)
+	ok_mask = True
+	for row, (ids, sep, _, skip) in enumerate(items):
+		mask = batch['target_mask'][row]
+		if int(mask.sum()) != len(ids) - sep - 1 - skip or mask[:sep + 1 + skip].any() \
+				or not mask[sep + 1 + skip:len(ids)].all():
+			ok_mask = False
+	check('collateBatch starts the mask at sep + 1 + skip', ok_mask)
+	print(f'  supervised fractions: ' + ' '.join(
+		f'{int(batch["target_mask"][r].sum()) / (len(i[0]) - i[1] - 1):.2f}'
+		for r, i in enumerate(items)))
+
 
 def length_table (root, samples, rng):
 	'''9. What T actually comes out at, per pairing and line cap — attention is O(T^2), so the p99
@@ -562,7 +626,7 @@ def check_pos_style (root, source_dir, target_dir, samples):
 	batch = ds.collateBatch(items)
 	width = batch['input_ids'].shape[1]
 	ok_pad_pos = True
-	for row, (ids, _, positions) in enumerate(items):
+	for row, (ids, _, positions, _) in enumerate(items):
 		if not torch.equal(batch['position_ids'][row, :len(ids)], positions):
 			ok_pad_pos = False
 		for k in range(len(ids), width):		# the pad tail continues the run, +1 per slot

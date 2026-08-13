@@ -59,7 +59,11 @@ position's sign says which half it is in). Only 'absolute' changes what the mode
 Batch contract:
 	input_ids    LongTensor [B, T]   source ++ <sep> ++ target, right-padded with <pad>
 	masks        LongTensor [B, T]   1 = real token
-	target_mask  LongTensor [B, T]   1 = a supervised target position (strictly after <sep>)
+	target_mask  LongTensor [B, T]   1 = a supervised target position (strictly after <sep>). A crop
+	                                 whose sampled start offset was nonzero (start_jitter) also drops
+	                                 the target's first bar, up to and including its first <eom>: the
+	                                 source is missing the head of that bar, so it is not derivable
+	                                 from the context. 0 offset -> the whole target half is supervised
 	sep_index    LongTensor [B]      position of <sep> in each row
 	position_ids LongTensor [B, T]   RoPE positions per pos_style; the pad tail CONTINUES each row's
 	                                 run rather than taking a constant, so a padded row stays
@@ -312,6 +316,31 @@ class Seq2Seq2 (Dataset):
 			# empty source half, and a negative one would index from the tail.
 			start = max(0, min(start + jitter, end - 1))
 		return start, end
+
+	def _supervise_from (self, target_ids: List[int], jitter: int) -> int:
+		'''Index into the TARGET half where supervision starts. 0 = supervise all of it.
+
+		A jittered source loses the head of its first measure, so the target's first bar is no longer
+		derivable from what the model can see — supervising it would train the model to invent the part
+		that was cropped away. Everything from the first <eom> on is still fully covered, so that is
+		where supervision begins.
+
+		Keyed on the SAMPLED offset, not on the `start_jitter` setting: the draw is normal about 0, so a
+		crop can come out at exactly 0 even with jitter enabled (~27% of them at std 8, since the offset
+		is rounded to a whole line). Those crops are still mark-aligned and lose nothing, so they keep
+		full supervision.
+
+		Returns 0 when the offset is 0 (nothing was lost) and when the target holds no <eom> (there is no
+		bar boundary to skip to). The latter cannot arise from an offset crop: describe() cancels the
+		offset for exactly those crops, because excluding "up to the first <eom>" would otherwise exclude
+		the entire target and leave the sample with an empty mask.
+		'''
+		if not jitter:
+			return 0
+		try:
+			return target_ids.index(self.tokenizer.eom_id) + 1
+		except ValueError:
+			return 0
 
 	def _pick_jitter (self, a: int, rng: random.Random) -> int:
 		'''Normal offset (in lines) for the source crop's start. 0 for head crops and when disabled.
@@ -612,6 +641,14 @@ class Seq2Seq2 (Dataset):
 			if a == 0:
 				jitter = 0
 			ids, sep, positions = self._assemble(source, target, a, z, align, jitter)
+			# A jittered crop drops its first bar from supervision (see _supervise_from), which needs an
+			# <eom> to mark where the bar ends. 26% of target halves have none — a crop can sit inside a
+			# single bar — and excluding "up to the first <eom>" would then exclude everything and leave
+			# the sample with an empty mask (a nan loss). Drop the JITTER instead of the supervision: the
+			# crop reverts to mark-aligned, which is always a valid sample.
+			if jitter and self.tokenizer.eom_id not in ids[sep + 1:]:
+				jitter = 0
+				ids, sep, positions = self._assemble(source, target, a, z, align, jitter)
 			if best is None or len(ids) < len(best[0]):
 				best = (ids, sep, positions, a, z, align, jitter)
 			if not self.max_tokens or len(ids) <= self.max_tokens:
@@ -623,17 +660,22 @@ class Seq2Seq2 (Dataset):
 		t_start, t_end = align
 		# <bos> can share <sep>'s position id under 'absolute' (see _positions); reported rather than
 		# hidden, since it is the one place two tokens coincide.
-		return dict(name=name, source=source, target=target, a=a, z=z, jitter=jitter,
+		# Where supervision starts INSIDE the target half (0 = all of it). Nonzero only when this crop's
+		# SAMPLED offset is nonzero — a crop that drew 0 is mark-aligned and keeps full supervision.
+		skip = self._supervise_from(ids[sep + 1:], jitter)
+		return dict(name=name, source=source, target=target, a=a, z=z, jitter=jitter, skip=skip,
 			source_range=(s_start, s_end), target_range=(t_start, t_end),
 			ids=ids, sep=sep, positions=positions, head=a <= 0, tail=z >= len(source.marks),
 			pos_bos_on_sep=self.pos_style == 'absolute' and a <= 0 and positions[sep + 1] == -1,
 			source_measures=_measures_in(source, s_start, s_end),
 			target_measures=_measures_in(target, t_start, t_end))
 
-	def _item (self, index: int) -> Tuple[torch.Tensor, int, torch.Tensor]:
+	def _item (self, index: int) -> Tuple[torch.Tensor, int, torch.Tensor, int]:
+		'''(ids, sep, positions, skip). `skip` is how many leading TARGET tokens go unsupervised —
+		0 for every unjittered crop, so the tuple's first three elements are unchanged.'''
 		case = self.describe(index)
 		return (torch.tensor(case['ids'], dtype=torch.long), case['sep'],
-			torch.tensor(case['positions'], dtype=torch.long))
+			torch.tensor(case['positions'], dtype=torch.long), case['skip'])
 
 	def __getitem__ (self, index):
 		return self._item(self.indices[index])
@@ -654,9 +696,14 @@ class Seq2Seq2 (Dataset):
 		# The supervised region is everything strictly after <sep>, padding excluded. Built from the
 		# recorded sep index rather than by searching for the id, so a <sep> that ever appeared inside
 		# a half could not be mistaken for the boundary.
+		#
+		# `skip` moves that start further right for a crop whose sampled start offset was nonzero: its
+		# source is missing the head of its first bar, so the target's first bar is not derivable from
+		# what the model sees and supervising it would teach invention. It is 0 for every mark-aligned
+		# crop, which is all of them when start_jitter is off.
 		target_mask = torch.zeros_like(input_ids)
-		for row, (ids, sep, _) in enumerate(batch):
-			target_mask[row, sep + 1:len(ids)] = 1
+		for row, (ids, sep, _, skip) in enumerate(batch):
+			target_mask[row, sep + 1 + skip:len(ids)] = 1
 		sep_index = torch.tensor([ex[1] for ex in batch], dtype=torch.long)
 		# Padded slots CONTINUE each row's run rather than taking a constant fill. A constant would put
 		# a real position (e.g. 0, which every style uses) on a pad slot and break the arithmetic run,
