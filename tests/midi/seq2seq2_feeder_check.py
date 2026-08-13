@@ -91,8 +91,8 @@ def crops (dataset, samples, rng):
 	for k in range(samples):
 		index = dataset.indices[k % len(dataset.indices)]
 		name = dataset.names[index]
-		source = _get_file(os.path.join(dataset.source_root, name), dataset.mark_mode)
-		target = _get_file(os.path.join(dataset.target_root, name), dataset.mark_mode)
+		source = _get_file(dataset.source, dataset.arm_source, name, dataset.mark_mode)
+		target = _get_file(dataset.source, dataset.arm_target, name, dataset.mark_mode)
 		a, z = dataset._pick_crop(source, rng)
 		align = dataset._align(source, target, a, z)
 		if align is None:
@@ -219,7 +219,7 @@ def check_head_tail (dataset, samples, rng):
 	print(f'\n== 6. head/tail frequency ({samples} draws, configured '
 		f'{dataset.p_head:.2f}/{dataset.p_tail:.2f})')
 	index = dataset.indices[0]
-	source = _get_file(os.path.join(dataset.source_root, dataset.names[index]), dataset.mark_mode)
+	source = _get_file(dataset.source, dataset.arm_source, dataset.names[index], dataset.mark_mode)
 	head = tail = 0
 	for _ in range(samples):
 		a, z = dataset._pick_crop(source, rng)
@@ -353,7 +353,7 @@ def check_line_range (root, source_dir, target_dir, samples, rng):
 	over = 0
 	for _ in range(samples):
 		index = dataset.indices[len(spans) % len(dataset.indices)]
-		source = _get_file(os.path.join(dataset.source_root, dataset.names[index]), dataset.mark_mode)
+		source = _get_file(dataset.source, dataset.arm_source, dataset.names[index], dataset.mark_mode)
 		a, z = dataset._pick_crop(source, rng)
 		start, end = dataset._bounds(source, a, z)
 		spans.append(end - start)

@@ -44,6 +44,19 @@ runtime instead of a packed `.pt`, so a change of crop policy needs no re-pack. 
 for `splits`: the filter is POSITIONAL (`i % cycle in phases`), so the file list must be sorted
 deterministically or val silently leaks into train.
 
+Two on-disk layouts, chosen by `packed` (None = auto-detect, so existing configs are unaffected):
+
+    loose    <root>/<arm>/<name>          one file per sample per arm — what the corpus is built as
+    packed   <root>/<XX>.zip              one archive per SHARD, holding <arm>/<name> for both arms,
+                                          where XX is the first two characters of the name
+
+The packed form exists because midiseq2 is repetitive text: measured compression is 0.067 (score arm)
+and 0.144 (irregular), taking nota1m's 124 G of loose files to ~15 G, and it replaces ~1.5M inodes with
+~256 archives. It costs nothing at training time — parsing is 99% of the per-file cost (5.6 ms) and a
+decompressed read is 0.1-0.4 ms of it. `tools/midi/packMidiseq2Shards.py` builds one, including the
+`index.json` manifest it enumerates from. Both layouts produce byte-identical batches; that is what
+tests/midi/seq2seq2_archive_check.py asserts.
+
 `pos_style` picks the RoPE position convention (see `_positions`):
 
     'flat'      0, 1, 2, ... T-1                       the plain default
@@ -74,8 +87,11 @@ every `i` where target_mask is 1. `<sep>` is therefore the last context position
 supervised token, and nothing in the source half is ever a target.
 '''
 
+import json
 import os
 import random
+import zipfile
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
@@ -97,6 +113,147 @@ MarkKey = Any
 Mark = Tuple[int, MarkKey]
 
 
+class _DirSource:
+	'''The loose-file layout: `<root>/<arm>/<name>`, one file per sample per arm.
+
+	`key` identifies the backing store in the parse cache. It is the absolute root, so two datasets
+	built from the same directory share parsed files while two different corpora never collide.
+	'''
+
+	def __init__ (self, root: str):
+		self.root = os.path.abspath(root)
+		self.key = ('dir', self.root)
+
+	def names (self, arm: str) -> List[str]:
+		return [n for n in os.listdir(os.path.join(self.root, arm)) if n.endswith('.txt')]
+
+	def read (self, arm: str, name: str) -> str:
+		with open(os.path.join(self.root, arm, name), 'r', encoding='utf-8') as f:
+			return f.read()
+
+	def describe (self) -> str:
+		return self.root
+
+
+class _ZipSource:
+	'''The sharded-archive layout: `<root>/<XX>.zip`, each holding `<arm>/<name>` for one shard.
+
+	A shard is the first `SHARD_CHARS` characters of the name, so a sample's archive is computable from
+	its name alone — no index is needed to route a read, only to enumerate.
+
+	Both arms live in the SAME shard archive. That keeps a pair in one file (one open handle serves
+	both halves of a sample) at the cost of having to rewrite a shard to regenerate one arm.
+
+	Handles are opened lazily and held: measured 0.11 ms/read with the handle held against 5.42 ms
+	reopening per read, a 50x difference, because reopening re-reads the central directory every time.
+	They are keyed by PID so a forked DataLoader worker opens its own rather than inheriting a shared
+	file offset — `dataset_factory` currently passes no `num_workers`, but a silently corrupt read is
+	not the failure mode to leave armed.
+	'''
+
+	SHARD_CHARS = 2
+	MANIFEST = 'index.json'
+	# Open archives held per source instance — see _zip. 128 keeps two datasets (train + val) inside a
+	# 1024 fd limit with room for torch's own descriptors, while still covering half a 256-shard corpus.
+	MAX_HANDLES = 128
+
+	def __init__ (self, root: str):
+		self.root = os.path.abspath(root)
+		self.key = ('zip', self.root)
+		self._handles: 'OrderedDict[Tuple[int, str], zipfile.ZipFile]' = OrderedDict()
+		self._manifest = self._load_manifest()
+
+	@classmethod
+	def detect (cls, root: str) -> bool:
+		'''True when `root` looks like a packed corpus: a manifest, or at least one `<XX>.zip`.'''
+		if not os.path.isdir(root):
+			return False
+		if os.path.isfile(os.path.join(root, cls.MANIFEST)):
+			return True
+		return any(n.endswith('.zip') and len(n) == cls.SHARD_CHARS + 4 for n in os.listdir(root))
+
+	def shard_of (self, name: str) -> str:
+		return name[:self.SHARD_CHARS]
+
+	def _load_manifest (self) -> Optional[Dict[str, Any]]:
+		'''The manifest is JSON, not YAML, and deliberately so.
+
+		Every other packed dataset in this repo ships `index.yaml` (events.py, semantics.py,
+		scoreFault.py). That does not scale to this corpus: `yaml.safe_load` of a 200k-name index took
+		16.4 s against 50 ms for the same data as JSON, a 330x difference. At ~1.5M names the YAML
+		convention would cost minutes per process start.
+
+		Absent, enumeration falls back to reading every shard's central directory (measured 10.3 s over
+		256 shards) — correct but slower, so a packed corpus should carry one.
+		'''
+		path = os.path.join(self.root, self.MANIFEST)
+		if not os.path.isfile(path):
+			return None
+		with open(path, 'r', encoding='utf-8') as f:
+			return json.load(f)
+
+	def _zip (self, shard: str) -> zipfile.ZipFile:
+		'''An open handle for `shard`, LRU-bounded because handles are file descriptors.
+
+		One ZipFile holds one fd. A 256-shard corpus read by both the train and val datasets wants 512,
+		against a soft `ulimit -n` of 1024 on the training box — plus torch's and CUDA's own fds. Rather
+		than leave that to chance, the least-recently-used archive is closed once the bound is reached.
+
+		The bound is per source instance, so it is a per-dataset budget. It trades a reopen (measured
+		5.4 ms, against 0.11 ms for a held handle) for an fd, and only on a shard that has not been
+		touched in the last MAX_HANDLES reads — with a shuffled sampler over a large corpus that is rare
+		enough not to matter, and the alternative is EMFILE mid-epoch.
+		'''
+		key = (os.getpid(), shard)
+		handle = self._handles.get(key)
+		if handle is None:
+			handle = zipfile.ZipFile(os.path.join(self.root, f'{shard}.zip'), 'r')
+			self._handles[key] = handle
+			while len(self._handles) > self.MAX_HANDLES:
+				_, stale = self._handles.popitem(last=False)
+				stale.close()
+		else:
+			self._handles.move_to_end(key)
+		return handle
+
+	def names (self, arm: str) -> List[str]:
+		'''Every name present for `arm`, from the manifest when there is one.
+
+		The manifest's per-shard lists are the pair intersection the packer wrote, so both arms return
+		the same set and the caller's intersection is a no-op. Without a manifest each archive's central
+		directory is read instead, which is where the two arms can legitimately differ.
+		'''
+		if self._manifest is not None:
+			out: List[str] = []
+			for names in self._manifest['shards'].values():
+				out.extend(names)
+			return out
+		prefix = f'{arm}/'
+		out = []
+		for entry in sorted(os.listdir(self.root)):
+			if not entry.endswith('.zip'):
+				continue
+			shard = entry[:-4]
+			out.extend(n[len(prefix):] for n in self._zip(shard).namelist()
+				if n.startswith(prefix) and n.endswith('.txt'))
+		return out
+
+	def read (self, arm: str, name: str) -> str:
+		with self._zip(self.shard_of(name)).open(f'{arm}/{name}', 'r') as f:
+			return f.read().decode('utf-8')
+
+	def describe (self) -> str:
+		shards = len(self._manifest['shards']) if self._manifest else '?'
+		return f'{self.root} ({shards} shards, manifest={self._manifest is not None})'
+
+
+def _make_source (root: str, packed: Optional[bool] = None):
+	'''Pick the layout. `packed=None` auto-detects, which is what keeps existing configs untouched.'''
+	if packed is None:
+		packed = _ZipSource.detect(root)
+	return _ZipSource(root) if packed else _DirSource(root)
+
+
 class _File:
 	'''One parsed midiseq2 file: its lines, its marks, and a key -> line-numbers index.
 
@@ -111,9 +268,8 @@ class _File:
 	per epoch, and files run to 76k tokens.
 	'''
 
-	def __init__ (self, path: str, mark_mode: str):
-		with open(path, 'r', encoding='utf-8') as f:
-			self.lines: List[str] = f.read().splitlines()
+	def __init__ (self, text: str, mark_mode: str):
+		self.lines: List[str] = text.splitlines()
 		self.marks: List[Mark] = []
 		self.lines_of: Dict[MarkKey, List[int]] = {}
 		# len(lines) + 1 entries, so token_before[len(lines)] is the file's total token count.
@@ -147,18 +303,45 @@ class _File:
 		return len(self.lines)
 
 
-# Parsed files are shared across dataset instances built from the same paths within a process, so the
-# train and val splits of one config do not each hold their own copy. Keyed by (path, mark_mode)
-# because the marks depend on the mode.
-_FILE_CACHE: Dict[Tuple[str, str], _File] = {}
+# Parsed files are shared across dataset instances built from the same source within a process, so the
+# train and val splits of one config do not each hold their own copy. Keyed by
+# (source_key, arm, name, mark_mode) — the marks depend on the mode, and the source key keeps two
+# corpora with colliding basenames apart.
+#
+# BOUNDED, and it has to be. A parsed _File costs ~11.6x its on-disk size (lines, marks, lines_of and
+# the token_before prefix sum are all Python objects), so caching a full nota1m arm — 736k files — would
+# want ~400 GB of RAM. Unbounded was fine only while every run used one 3.5k-sample shard.
+#
+# The bound costs little because the cache's value falls away with corpus size: at epoch_size 1200 a
+# given file is revisited every ~3 epochs at shard-00 scale but only every ~509 epochs over the full
+# corpus, so beyond a few thousand entries an unbounded cache mostly holds files it will not see again.
+# Re-reading is cheap next to re-parsing anyway — parsing is 99% of the 5.6 ms per-file cost, and a
+# decompressed read is 0.1-0.4 ms of it.
+_FILE_CACHE: 'OrderedDict[Tuple[Any, str, str, str], _File]' = OrderedDict()
+
+# Entries, not bytes. Datasets raise it via `max_cached_files`; the default holds a shard-sized working
+# set (~2 arms x 3.6k names) without approaching the memory wall.
+_CACHE_LIMIT = 8192
 
 
-def _get_file (path: str, mark_mode: str) -> _File:
-	key = (path, mark_mode)
+def _set_cache_limit (limit: int) -> None:
+	'''Raise the shared bound. Never lowers it: two datasets share this cache, and the one asking for
+	less would otherwise evict the other's working set.'''
+	global _CACHE_LIMIT
+	if limit > 0:
+		_CACHE_LIMIT = max(_CACHE_LIMIT, limit)
+
+
+def _get_file (source, arm: str, name: str, mark_mode: str) -> _File:
+	key = (source.key, arm, name, mark_mode)
 	parsed = _FILE_CACHE.get(key)
 	if parsed is None:
-		parsed = _File(path, mark_mode)
+		parsed = _File(source.read(arm, name), mark_mode)
 		_FILE_CACHE[key] = parsed
+		while len(_FILE_CACHE) > _CACHE_LIMIT:
+			_FILE_CACHE.popitem(last=False)		# evict least-recently-used
+	else:
+		_FILE_CACHE.move_to_end(key)
 	return parsed
 
 
@@ -220,7 +403,8 @@ class Seq2Seq2 (Dataset):
 		source_dir='midi-seq2-score', target_dir='midi-seq2', mark_mode='measure',
 		line_range=(20, 256), p_head=0.15, p_tail=0.15, source_eom=False,
 		max_tokens=0, resample_tries=8, align_retries=4, start_jitter=0.0,
-		random_crop=None, seed=0, vocab_path=None, pos_style='flat', **_):
+		random_crop=None, seed=0, vocab_path=None, pos_style='flat',
+		packed=None, max_cached_files=0, **_):
 		super().__init__()
 		self.device = device
 		self.shuffle = shuffle
@@ -230,8 +414,17 @@ class Seq2Seq2 (Dataset):
 		if pos_style not in _POS_STYLES:
 			raise ValueError(f'pos_style must be one of {sorted(_POS_STYLES)}, got {pos_style!r}')
 		self.pos_style = pos_style
+		# The backing store. A directory root and a packed root differ only here: `packed=None`
+		# auto-detects, so an existing config keeps reading loose files with no change.
+		self.source = _make_source(root, packed)
+		self.arm_source = source_dir
+		self.arm_target = target_dir
+		# Retained because callers reach for them (the check suite and the notebook build a sibling
+		# dataset out of them). Under a packed root they name a path that does not exist on disk, so
+		# they are for display and for `os.path.basename` only — read through `self.source`.
 		self.source_root = os.path.join(root, source_dir)
 		self.target_root = os.path.join(root, target_dir)
+		_set_cache_limit(max_cached_files)
 		# line_range bounds the SOURCE crop only; the target length follows from mark alignment and is
 		# direction-dependent (score->regular targets run ~2x the source, regular->irregular ~1.3x).
 		# max_tokens, if set, bounds the ASSEMBLED sequence by RESAMPLING — truncating would cut a
@@ -276,12 +469,12 @@ class Seq2Seq2 (Dataset):
 		# The split filter is positional, so the file list MUST be deterministically ordered or the
 		# train/val partition shifts with directory iteration order.
 		names = sorted(
-			set(os.listdir(self.source_root)) & set(os.listdir(self.target_root))
+			set(self.source.names(self.arm_source)) & set(self.source.names(self.arm_target))
 		)
 		self.names = [name for name in names if name.endswith('.txt')]
 		if not self.names:
-			raise RuntimeError(
-				f'no shared .txt basenames between {self.source_root} and {self.target_root}')
+			raise RuntimeError(f'no shared .txt basenames between {self.arm_source!r} and '
+				f'{self.arm_target!r} in {self.source.describe()}')
 
 		phases, cycle = parseFilterStr(split)
 		self.indices = [i for i in range(len(self.names)) if i % cycle in phases]
@@ -608,8 +801,8 @@ class Seq2Seq2 (Dataset):
 		`source_range` already has the jitter applied, so it is the range the ids were built from.
 		'''
 		name = self.names[index]
-		source = _get_file(os.path.join(self.source_root, name), self.mark_mode)
-		target = _get_file(os.path.join(self.target_root, name), self.mark_mode)
+		source = _get_file(self.source, self.arm_source, name, self.mark_mode)
+		target = _get_file(self.source, self.arm_target, name, self.mark_mode)
 		# A deterministic crop still varies BY SAMPLE (so val covers head/tail/middle) but not by
 		# epoch; seeding on the index is what gives both.
 		rng = random if self.random_crop else random.Random(self.seed ^ (index * 2654435761))
