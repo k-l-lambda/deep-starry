@@ -60,7 +60,7 @@ data:
     # control_change and a quarter of all tokens, in runs of 40+ identical lines. Collapsing it cut
     # tokens 21.7% (regular) / 25.7% (irregular). Since the cap counts LINES, the same budget now
     # carries more music rather than fewer tokens. --no-dedup restores the old text byte for byte.
-    line_range:             [20, 256]
+    line_range:             [128, 256]
     # Probability of a crop pinned to the start / end of the piece, so boundary behaviour is learned
     # rather than only ever seen mid-piece. The remaining 0.7 lands in the middle.
     p_head:                 0.15
@@ -72,6 +72,7 @@ data:
     # boundary off its mark and destroy the alignment). 0 = off.
     max_tokens:             0
     resample_tries:         8
+    start_jitter:           2
   args_variant:
     # Val takes a deterministic crop per sample — still a mix of head/tail/middle, but the same one
     # every epoch, so the metric moves only when the model does.
