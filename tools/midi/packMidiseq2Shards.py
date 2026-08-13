@@ -107,6 +107,10 @@ def write_manifest (out, arms, shards):
 
 	Rebuilt from the archives actually on disk rather than from the scan, so it can never promise a
 	shard that a partial run did not write.
+
+	`shards` must be the FULL scan, not the subset this run packed: an incremental run passing only its
+	own batch would emit a manifest describing that batch alone, dropping every previously packed shard
+	from the feeder's view while their archives sit on disk unreferenced.
 	'''
 	present = {}
 	for entry in sorted(os.listdir(out)):
@@ -147,6 +151,9 @@ def main ():
 		if only:
 			print(f'  {arm}-only (not packed): {only}')
 
+	# Kept whole for the manifest: `shards` below may be narrowed to this run's batch, but the manifest
+	# must describe every archive on disk (see write_manifest).
+	all_shards = shards
 	if args.only:
 		missing = [s for s in args.only if s not in shards]
 		if missing:
@@ -177,7 +184,7 @@ def main ():
 					f'{r["entries"]} entries {r["size"]/1e6:.1f} MB '
 					f'ratio {r["size"]/max(1, r["raw"]):.3f} {r["seconds"]:.0f}s'))
 
-	manifest, path = write_manifest(args.out, args.arms, shards)
+	manifest, path = write_manifest(args.out, args.arms, all_shards)
 	raw = sum(r['raw'] for r in results)
 	size = sum(r['size'] for r in results)
 	packed = sum(1 for r in results if not r['skipped'])
