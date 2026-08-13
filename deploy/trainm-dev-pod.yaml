@@ -34,7 +34,7 @@ spec:
     - name: dev
       image: docker.io/library/lm-mining:cuda13
       imagePullPolicy: IfNotPresent
-      workingDir: /workspace/deep-starry
+      workingDir: /workspace/deeps
       # `site.py` reads .pth files on EVERY interpreter start, unlike PYTHONPATH which a fresh
       # sshd/Jupyter session does not inherit. Diary 0606 hit exactly that: `import torch` failed
       # over ssh even though kubectl exec worked. Writing the .pth in the bootstrap makes the
@@ -51,14 +51,14 @@ spec:
           # subprocess spawns.
           echo /opt/nvidia-libs > /etc/ld.so.conf.d/zz-nvidia-host.conf
           ldconfig
-          echo 'export PYTHONPATH=/opt/sys-packages:/opt/dist-packages:/opt/apt-packages:/workspace/deep-starry' \
+          echo 'export PYTHONPATH=/opt/sys-packages:/opt/dist-packages:/opt/apt-packages:/workspace/deeps' \
             > /etc/profile.d/trainm-env.sh
           echo 'export PATH=$PATH:/opt/sys-packages/../../../bin' >> /etc/profile.d/trainm-env.sh
           exec sleep infinity
       env:
         # Needed by kubectl exec (which does not read /etc/profile.d) as well as the login shell.
         - name: PYTHONPATH
-          value: /opt/sys-packages:/opt/dist-packages:/opt/apt-packages:/workspace/deep-starry
+          value: /opt/sys-packages:/opt/dist-packages:/opt/apt-packages:/workspace/deeps
         - name: MPLBACKEND
           value: Agg
         # The cluster's internal CONNECT proxy — the only egress. Large wheels need a long
@@ -86,7 +86,7 @@ spec:
           memory: 32Gi
           cpu: "4"
       volumeMounts:
-        - { name: repo,          mountPath: /workspace/deep-starry }
+        - { name: repo,          mountPath: /workspace/deeps }
         - { name: sys-packages,  mountPath: /opt/sys-packages,  readOnly: true }
         - { name: dist-packages, mountPath: /opt/dist-packages, readOnly: true }
         - { name: apt-packages,  mountPath: /opt/apt-packages,  readOnly: true }
@@ -105,13 +105,14 @@ spec:
         - { name: nvidia6, mountPath: /dev/nvidia6 }
         - { name: nvidia7, mountPath: /dev/nvidia7 }
         - { name: datasets,      mountPath: /data/midi }
+        - { name: datasets-nota1m, mountPath: /data/midi/nota1m, readOnly: true }
         - { name: training,      mountPath: /data/training }
         - { name: dshm,          mountPath: /dev/shm }
   volumes:
     # The repo lives on the HOST and is bind-mounted, so `git pull` on the host updates the pod's
     # code with no rebuild (diary 0630). The container FS is ephemeral; never edit code inside it.
     - name: repo
-      hostPath: { path: /home/linux/work/deep-starry, type: Directory }
+      hostPath: { path: /home/linux/work/deeps, type: Directory }
     # Three package roots, in the order the host's own sys.path lists them.
     - name: sys-packages
       hostPath: { path: /home/linux/.local/lib/python3.10/site-packages, type: Directory }
@@ -153,6 +154,17 @@ spec:
     - { name: nvidia7, hostPath: { path: /dev/nvidia7, type: CharDevice } }
     - name: datasets
       hostPath: { path: /home/linux/work/datasets/midi, type: DirectoryOrCreate }
+    # The full packed nota1m corpus (233 shards, 809,568 pairs, 14 G) lives on the containerd NVMe
+    # volume, which has the room for it — `/home` is the 1.7 T root disk while this is a 7 T XFS with
+    # 6.6 T free. Mounted read-only: a training run only ever reads the corpus, and the archives are
+    # expensive to rebuild.
+    #
+    # Note `/var/lib/containerd` itself is 0700 root, so the `linux` account cannot traverse to this
+    # path over ssh even though the corpus dirs are linux-owned. That is not a problem for the pod —
+    # the kubelet resolves hostPath as root — but it does mean corpus inspection from a shell needs
+    # `sudo`, and rsync as `linux` into this path will fail.
+    - name: datasets-nota1m
+      hostPath: { path: /var/lib/containerd/datasets/nota1m, type: Directory }
     - name: training
       hostPath: { path: /home/linux/work/training, type: DirectoryOrCreate }
     - name: dshm

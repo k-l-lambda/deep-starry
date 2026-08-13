@@ -7,7 +7,7 @@
 # silently loses PYTHONPATH (diary 0606). So each assumption gets its own named check.
 #
 # Run:
-#   ssh -tt maiyi-9 'sudo su -c "kubectl exec trainm-dev-9 -- bash /workspace/deep-starry/deploy/trainm_env_check.sh"'
+#   ssh -tt maiyi-9 'sudo su -c "kubectl exec trainm-dev-9 -- bash /workspace/deeps/deploy/trainm_env_check.sh"'
 #
 # Checks
 #   1. interpreter matches the host build the mounts were made for
@@ -96,7 +96,7 @@ echo "== 5. model registration"
 # fail on a vision dep that no midi run needs.
 python3 - <<'PY'
 import sys
-sys.path.insert(0, '/workspace/deep-starry')
+sys.path.insert(0, '/workspace/deeps')
 try:
     from starry.utils.model_factory import registerModels, model_dict
     registerModels()
@@ -112,7 +112,7 @@ PY
 echo "== 6. midi feeder"
 python3 - <<'PY'
 import sys, os
-sys.path.insert(0, '/workspace/deep-starry')
+sys.path.insert(0, '/workspace/deeps')
 try:
     from starry.midi.data.seq2seq2 import Seq2Seq2, _make_source, _ZipSource, _DirSource
     print("  ok   Seq2Seq2 imports")

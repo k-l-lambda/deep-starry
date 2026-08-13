@@ -13,7 +13,7 @@ GPU choice is explicit and defensive. maiyi-9's cards are held by a vLLM TP8 ser
 each, so this picks the card with the MOST free memory and refuses to run if that is under a floor —
 better to fail with a clear message than to OOM into someone else's serving workload.
 
-    kubectl exec trainm-dev-9 -- python3 /workspace/deep-starry/deploy/trainm_step_smoke.py \
+    kubectl exec trainm-dev-9 -- python3 /workspace/deeps/deploy/trainm_step_smoke.py \
         --config configs/midi-translator-nota1m00-maiyi.local.yaml --steps 3
 '''
 
@@ -22,7 +22,7 @@ import os
 import sys
 import time
 
-REPO = '/workspace/deep-starry'
+REPO = '/workspace/deeps'
 if REPO not in sys.path:
 	sys.path.insert(0, REPO)
 
