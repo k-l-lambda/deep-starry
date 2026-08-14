@@ -478,6 +478,9 @@ class Seq2Seq2 (Dataset):
 		# see near-max windows and would have to extrapolate to short ones. A scalar is accepted and
 		# means a fixed cap, i.e. [n, n].
 		self.line_range = _line_range(line_range)
+		# Mixed alignment cannot cut a modality arm by raw text lines without splitting a measure.
+		# In mixed mode this same range therefore counts SOURCE measures; max_tokens remains the
+		# assembled-token safety bound and oversized aligned samples are resampled, never truncated.
 		# The upper bound, which is what a length assertion means by "within the cap".
 		self.max_lines = self.line_range[1]
 		self.p_head = p_head
@@ -512,9 +515,15 @@ class Seq2Seq2 (Dataset):
 				raise ValueError('packed archives are supported only for midiseq2 -> midiseq2')
 			if mark_mode != 'measure':
 				raise ValueError('mixed Lilylet alignment requires mark_mode="measure"')
+			if start_jitter:
+				raise ValueError('start_jitter is not defined for mixed Lilylet alignment')
+			if pos_style == 'absolute':
+				raise ValueError('pos_style="absolute" is not defined across mixed token axes')
 			from .unifiedSeq2Tokenizer import UnifiedSeq2Tokenizer
 			from ...lilylet.data.patchifier import LilyletTokenizer
-			self.tokenizer = UnifiedSeq2Tokenizer(vocab_path) if vocab_path else UnifiedSeq2Tokenizer()
+			if not vocab_path:
+				raise ValueError('mixed Seq2Seq2 requires a run-local unified vocab_path')
+			self.tokenizer = UnifiedSeq2Tokenizer(vocab_path)
 			lilylet_asset = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
 				os.path.dirname(os.path.abspath(__file__))))), 'assets', 'lilylet-tokenizer.json')
 			self.lilylet_tokenizer = LilyletTokenizer(lilylet_asset)
@@ -547,7 +556,9 @@ class Seq2Seq2 (Dataset):
 		midi_dir = source_dir if self.source_format == 'midiseq2' else target_dir
 		self._lyl_files = _recursive_files(os.path.join(root, lyl_dir), '.lyl')
 		self._midi_files = _recursive_files(os.path.join(root, midi_dir), '.txt')
-		path = measures_path or os.path.join(root, 'metadata', 'measures.json')
+		path = measures_path or os.path.join('metadata', 'measures.json')
+		if not os.path.isabs(path):
+			path = os.path.join(root, path)
 		with open(path, 'r', encoding='utf-8') as f:
 			all_measures = json.load(f)
 		if not isinstance(all_measures, dict):
@@ -555,20 +566,30 @@ class Seq2Seq2 (Dataset):
 		self._measure_maps: Dict[str, List[int]] = {}
 		for sample_id in sorted(set(self._lyl_files) & set(self._midi_files)):
 			record = all_measures.get(sample_id)
-			if not isinstance(record, dict) or record.get('ok') is False:
-				continue
+			if not isinstance(record, dict):
+				raise ValueError(f'{sample_id}: missing or invalid measures.json record')
+			if record.get('ok') is False:
+				raise ValueError(f'{sample_id}: measures.json record is marked not ok')
 			rows = record.get('measures')
 			if not isinstance(rows, list) or not rows:
-				continue
+				raise ValueError(f'{sample_id}: measures.json has no measure rows')
 			mapping: List[int] = []
+			unaligned_repeat = record.get('repeat_aligned') is False
 			for expected, row in enumerate(rows, 1):
 				if not isinstance(row, dict) or row.get('index') != expected:
-					raise ValueError(f'{path}: {sample_id}: played measure indices must be contiguous from 1')
+					raise ValueError(f'{sample_id}: measures.json indices must be contiguous from 1')
 				source_measure = row.get('source_measure')
-				if not isinstance(source_measure, int) or source_measure < 1:
-					raise ValueError(f'{path}: {sample_id}: invalid source_measure at played measure {expected}')
+				if source_measure is None and unaligned_repeat:
+					# A failed repeat expansion has no honest mapping back to notation. Exclude the
+					# whole pair; retaining only its mapped prefix would silently train a partial piece.
+					mapping = []
+					break
+				if not isinstance(source_measure, int) or isinstance(source_measure, bool) or source_measure < 1:
+					raise ValueError(f'{sample_id}: invalid source_measure at played measure {expected}')
 				mapping.append(source_measure)
-			self._measure_maps[sample_id] = mapping
+			if mapping:
+				self._measure_maps[sample_id] = mapping
+
 		self.names = sorted(self._measure_maps)
 		if not self.names:
 			raise RuntimeError(f'no valid Lilylet/midiseq2 pairs between {lyl_dir!r} and {midi_dir!r}')
@@ -610,14 +631,15 @@ class Seq2Seq2 (Dataset):
 	def _mixed_midi_text (self, midi: _File, played: Sequence[int]) -> List[str]:
 		lines: List[str] = []
 		for number in played:
-			start = midi.marks[number - 1][0]
+			# Measure 1 owns the file header. This matches the legacy head-crop contract: <bos>
+			# means the sequence starts at the actual beginning, including ticks_per_beat/format_type.
+			start = 0 if number == 1 and not lines else midi.marks[number - 1][0]
 			end = midi.marks[number][0] if number < len(midi.marks) else len(midi.lines)
 			lines.extend(midi.lines[start:end])
 		return lines
 
 	def _mixed_encode_midi (self, lines: Sequence[str], eom: bool) -> List[int]:
-		lookup = {self.tokenizer.tokens[self.tokenizer.midiseq2_offset + i]: self.tokenizer.midi_id(i)
-			for i in range(self.tokenizer.blocks['midiseq2']['size'])}
+		lookup = self.tokenizer.midiseq2_id_by_token
 		ids: List[int] = []
 		for line in lines:
 			if line.startswith('@measure'):
@@ -676,13 +698,23 @@ class Seq2Seq2 (Dataset):
 	def _describe_mixed (self, index: int) -> Dict[str, Any]:
 		rng = random if self.random_crop else random.Random(self.seed ^ (index * 2654435761))
 		best = None
+		last_error = None
 		for _ in range(max(1, self.resample_tries)):
-			case = self._describe_mixed_once(index, rng)
+			try:
+				case = self._describe_mixed_once(index, rng)
+			except ValueError as exc:
+				# An unmapped Lilylet crop is a rejected draw; resample it like an overlong crop.
+				last_error = exc
+				continue
 			if best is None or len(case['ids']) < len(best['ids']):
 				best = case
 			if not self.max_tokens or len(case['ids']) <= self.max_tokens:
 				return case
-		return best
+		if best is not None:
+			return best
+		if last_error is not None:
+			raise last_error
+		raise RuntimeError(f'{self.names[index]}: unable to build mixed sample')
 
 	# --- crop selection -------------------------------------------------------------------
 	#

@@ -24,8 +24,8 @@ imports:
 
 data:
   type:                     Seq2Seq2
-  # Absolute, so this does not depend on DATA_DIR (which currently points at lilylet/patches/).
-  root:                     /home/camus/data/midi/test202608
+  # Relative to DATA_DIR; callers should pass data_dir=os.environ['DATA_DIR'].
+  root:                     test202608
   # 99 shared samples. cycle 10, phase 9 -> 9 val / 90 train.
   splits:                   '*0..8/10:9/10'
   # Measured on one RTX 3090 (24GB) at the model size below, worst-case T for THIS pairing (1088,

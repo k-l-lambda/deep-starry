@@ -27,9 +27,8 @@ imports:
 
 data:
   type:                     Seq2Seq2
-  # Absolute, so this does not depend on DATA_DIR (which currently points at lilylet/patches/).
-  # os.path.join keeps an absolute second argument, so an absolute root wins over data_dir.
-  root:                     /home/camus/data/midi/test202608
+  # Relative to DATA_DIR; callers should pass data_dir=os.environ['DATA_DIR'].
+  root:                     test202608
   # 99 shared samples. cycle 20, phase 19 -> ~4 val / ~95 train.
   splits:                   '*0..18/20:19/20'
   batch_size:               4

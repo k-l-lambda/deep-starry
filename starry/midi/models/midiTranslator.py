@@ -30,6 +30,7 @@ from transformers import LlamaConfig, LlamaModel
 from ...utils.registry import register_model
 from ...utils.weightedValue import WeightedValue
 from ..data.seq2CondPachifier import Midiseq2Tokenizer
+from ..data.unifiedSeq2Tokenizer import UnifiedSeq2Tokenizer
 from .midiSeq2BgptSelfAttn import _TYPE_CODES, _TYPE_NAMES, _build_type_map
 
 
@@ -63,12 +64,13 @@ class MidiTranslator (nn.Module):
 
 	def __init__ (self, vocab_size=838, backbone='llama', d_model=512, n_layer=8, n_head=8,
 		d_inner=None, num_key_value_heads=None, max_seq_len=4096, dropout=0.1,
-		tie_embedding=False, **_):
+		tie_embedding=False, eos_id=2, **_):
 		super().__init__()
 
 		self.vocab_size = vocab_size
 		self.backbone_type = backbone
 		self.max_seq_len = max_seq_len
+		self.eos_id = eos_id
 
 		self.backbone, hidden = _build_backbone(backbone, vocab_size, d_model, n_layer, n_head,
 			d_inner, num_key_value_heads, max_seq_len, dropout)
@@ -108,12 +110,13 @@ class MidiTranslator (nn.Module):
 		return self.lm_head(out.last_hidden_state)
 
 	@torch.no_grad()
-	def generate (self, prefix_ids, max_new_tokens=512, eos_id=2, temperature=0.0, masks=None,
+	def generate (self, prefix_ids, max_new_tokens=512, eos_id=None, temperature=0.0, masks=None,
 		position_ids=None):
 		'''Free-run continuation of ONE prefix (the source half ++ <sep>, optionally ++ <bos>).
 
 		prefix_ids: LongTensor [T] or [1, T]. temperature 0 = greedy, else sample from the softmax.
-		Returns the generated ids only (the prefix is NOT included), stopping at eos_id.
+		Returns the generated ids only (the prefix is NOT included), stopping at eos_id or the
+		model's configured target EOS when eos_id is None.
 
 		position_ids: the prefix's positions ([T] or [1, T]), for a feeder using a non-'flat' pos_style.
 		Each generated token CONTINUES that run (+1 per step), which is what the target half does under
@@ -126,11 +129,17 @@ class MidiTranslator (nn.Module):
 		pos = None
 		if position_ids is not None:
 			pos = position_ids if position_ids.dim() == 2 else position_ids.unsqueeze(0)
+		mask = None
+		if masks is not None:
+			mask = masks if masks.dim() == 2 else masks.unsqueeze(0)
+			if mask.shape[1] != ids.shape[1]:
+				raise ValueError('masks must have the same sequence length as prefix_ids')
 		out = []
 		for _ in range(max_new_tokens):
 			window = ids[:, -self.max_seq_len:]
 			pos_window = pos[:, -self.max_seq_len:] if pos is not None else None
-			logits = self.forward(window, masks, pos_window)[:, -1, :]
+			mask_window = mask[:, -self.max_seq_len:] if mask is not None else None
+			logits = self.forward(window, mask_window, pos_window)[:, -1, :]
 			if temperature and temperature > 0:
 				nxt = torch.multinomial(F.softmax(logits / temperature, dim=-1), 1)
 			else:
@@ -138,9 +147,11 @@ class MidiTranslator (nn.Module):
 			token = int(nxt.item())
 			out.append(token)
 			ids = torch.cat((ids, nxt), dim=1)
+			if mask is not None:
+				mask = torch.cat((mask, torch.ones_like(nxt)), dim=1)
 			if pos is not None:
 				pos = torch.cat((pos, pos[:, -1:] + 1), dim=1)
-			if token == eos_id:
+			if token == (self.eos_id if eos_id is None else eos_id):
 				break
 		return torch.tensor(out, dtype=torch.long, device=ids.device)
 
@@ -167,23 +178,43 @@ class MidiTranslatorLoss (nn.Module):
 		(special / type / elapse / channel / pitch / vel / nibble / sep); an unknown name raises.'''
 		super().__init__()
 
-		tokenizer = Midiseq2Tokenizer(vocab_path) if vocab_path else Midiseq2Tokenizer()
-		kw_args.setdefault('vocab_size', tokenizer.vocab_size)
+		unified = bool(vocab_path and UnifiedSeq2Tokenizer.matches(vocab_path))
+		if unified:
+			tokenizer = UnifiedSeq2Tokenizer(vocab_path)
+			if 'vocab_size' in kw_args and int(kw_args['vocab_size']) != tokenizer.vocab_size:
+				raise ValueError(f'unified vocab_size must be {tokenizer.vocab_size}, got {kw_args["vocab_size"]}')
+			kw_args['vocab_size'] = tokenizer.vocab_size
+			kw_args.setdefault('eos_id', tokenizer.midiseq2_eos_id)
+			self.pad_id = tokenizer.pad_id
+			midi_tok = Midiseq2Tokenizer()
+			midi_offset = tokenizer.blocks['midiseq2']['offset']
+			type_map = torch.full((tokenizer.vocab_size,), 8, dtype=torch.long)
+			# Canonical wrapper controls are modality-neutral even though they live in the
+			# Lilylet-first block; keep them in the legacy special/sep metric classes.
+			type_map[:tokenizer.sep_id + 1] = torch.tensor(
+				[_TYPE_CODES['special']] * tokenizer.sep_id + [_TYPE_CODES['sep']])
+			type_map[midi_offset:] = _build_type_map(midi_tok)
+		else:
+			tokenizer = Midiseq2Tokenizer(vocab_path) if vocab_path else Midiseq2Tokenizer()
+			kw_args.setdefault('vocab_size', tokenizer.vocab_size)
+			self.pad_id = tokenizer.pad_id
+			type_map = _build_type_map(tokenizer)
 		self.deducer = MidiTranslator(**kw_args)
-		self.pad_id = tokenizer.pad_id
-
-		type_map = _build_type_map(tokenizer)
 		self.register_buffer('type_of_id', type_map, persistent=False)
 		self.type_names = dict(_TYPE_NAMES)
+		valid_type_codes = dict(_TYPE_CODES)
+		if isinstance(tokenizer, UnifiedSeq2Tokenizer):
+			valid_type_codes['lyl'] = 8
+			self.type_names[8] = 'err_lyl'
 
 		# per-vocab-id CE weight, built from the type -> weight config. Uniform (all 1) reproduces
 		# plain cross_entropy exactly, so the weighted path is a strict generalization.
 		self.loss_type_weights = dict(loss_type_weights) if loss_type_weights else {}
-		type_weight = torch.ones(len(_TYPE_CODES))				# indexed by class CODE
+		type_weight = torch.ones(max(valid_type_codes.values()) + 1)		# indexed by class CODE
 		for name, w in self.loss_type_weights.items():
-			if name not in _TYPE_CODES:
-				raise ValueError(f'unknown loss_type_weights key {name!r}; valid: {sorted(_TYPE_CODES)}')
-			type_weight[_TYPE_CODES[name]] = float(w)
+			if name not in valid_type_codes:
+				raise ValueError(f'unknown loss_type_weights key {name!r}; valid: {sorted(valid_type_codes)}')
+			type_weight[valid_type_codes[name]] = float(w)
 		self.register_buffer('ce_weight_of_id', type_weight[type_map], persistent=False)
 		self.weighted_loss = any(float(w) != 1.0 for w in self.loss_type_weights.values())
 

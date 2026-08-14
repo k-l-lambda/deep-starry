@@ -1,0 +1,70 @@
+# Mixed Seq2Seq2 smoke configuration: irregular midiseq2 performance -> Lilylet notation.
+# Configuration.create() creates and pins unifiedSeq2Vocab.json inside the run directory.
+id:     midi/{date}-{filename}
+
+imports:
+  - starry.midi.data.seq2seq2
+  - starry.midi.models.midiTranslator
+
+data:
+  type:                     Seq2Seq2
+  root:                     test202608
+  # 100 paired samples; phase 9 is a small deterministic validation split.
+  splits:                   '*0..8/10:9/10'
+  batch_size:               4
+  args:
+    source_format:          midiseq2
+    target_format:          lilylet
+    source_dir:             midi-seq2-irregular
+    target_dir:             lyl
+    measures_path:          metadata/measures.json
+    mark_mode:              measure
+    line_range:             [2, 12]
+    p_head:                 0.15
+    p_tail:                 0.15
+    source_eom:             false
+    max_tokens:             2048
+    resample_tries:         8
+    align_retries:          4
+    start_jitter:           0
+    pos_style:              sep
+  args_variant:
+    1:
+      random_crop:          false
+
+model:
+  type:                     MidiTranslator
+  args:
+    vocab_size:             1094
+    backbone:               llama
+    d_model:                256
+    n_layer:                4
+    n_head:                 8
+    d_inner:                1024
+    num_key_value_heads:    ~
+    max_seq_len:            2048
+    dropout:                0.1
+    tie_embedding:          false
+
+trainer:
+  device:                   cuda
+  epoch:                    100
+  epoch_size:               400
+  report_step_unit:         examples
+  save_mode:                best
+  moniter:
+    field:                  loss
+    mode:                   min
+
+optim:
+  type:                     AdamW
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+    weight_decay:           0.01
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               0.1
+      n_warmup_steps:       400
+      d_model:               256
