@@ -15,12 +15,20 @@ decompressed read is 0.1-0.4 ms of it.
 Only the basename INTERSECTION of the arms is packed. The feeder intersects anyway, so an unpaired file
 would be dead weight; doing it here makes each archive self-consistent.
 
+In packed mode the feeder's `source_dir`/`target_dir` are ENTRY PREFIXES rather than directories, so
+`--publish-as` decouples the name a config uses from the directory the corpus happened to be built in
+— pack a staging `midi-seq2-irregular2/` and publish it as `midi-seq2-irregular`. Note the corollary:
+because the prefix is baked into every entry, renaming an arm after the fact means repacking, which a
+`mv` on the loose corpus cannot substitute for.
+
 Resumable per shard: an existing `<XX>.zip` is skipped unless --force, so an interrupted run continues.
 The manifest is rewritten from whatever archives exist at the end, so it always describes the output.
 
-Example
+Example — nota1m, whose irregular arm was built into a suffixed staging directory but is published
+without the suffix, so no config or downstream host ever names it `midi-seq2-irregular2`:
     python tools/midi/packMidiseq2Shards.py \\
         --root /models/nota1m --arms midi-seq2-irregular2 midi-seq2-score \\
+        --publish-as midi-seq2-irregular midi-seq2-score \\
         --out /models/nota1m-packed --workers 8
 '''
 
@@ -77,7 +85,7 @@ def scan (root, arms):
 
 def pack_shard (job):
 	'''One shard -> one zip. Runs in a worker, so it takes and returns only picklable data.'''
-	root, arms, out, shard, names, force, level = job
+	root, arms, publish, out, shard, names, force, level = job
 	path = os.path.join(out, f'{shard}.zip')
 	if os.path.isfile(path) and not force:
 		return dict(shard=shard, skipped=True, entries=0, raw=0, size=os.path.getsize(path), seconds=0.0)
@@ -89,10 +97,14 @@ def pack_shard (job):
 	tmp = path + '.part'
 	with zipfile.ZipFile(tmp, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=level) as z:
 		for arm in arms:
+			# The entry prefix is the PUBLISHED name, which need not be the source directory name. In
+			# packed mode the feeder's source_dir/target_dir are entry prefixes, not directories
+			# (seq2seq2.py _ZipSource.read opens f'{arm}/{name}'), so this is what lets a staging
+			# directory carry a build-time name while configs name the arm however they should.
 			for name in names:
 				src = os.path.join(root, arm, name)
 				raw += os.path.getsize(src)
-				z.write(src, f'{arm}/{name}')
+				z.write(src, f'{publish[arm]}/{name}')
 	os.replace(tmp, path)
 	return dict(shard=shard, skipped=False, entries=len(names) * len(arms), raw=raw,
 		size=os.path.getsize(path), seconds=time.time() - t0)
@@ -133,6 +145,11 @@ def main ():
 	ap.add_argument('--root', required=True, help='corpus root holding the arm directories')
 	ap.add_argument('--arms', nargs='+', required=True,
 		help='arm directory names to pack (e.g. midi-seq2-irregular2 midi-seq2-score)')
+	ap.add_argument('--publish-as', nargs='+', default=None, metavar='NAME',
+		help='entry prefix to write for each --arms entry, in the same order. In packed mode the '
+			'feeder\'s source_dir/target_dir ARE the entry prefixes, so this decouples the name '
+			'configs use from the directory the corpus was built in (e.g. pack a staging '
+			'midi-seq2-irregular2/ and publish it as midi-seq2-irregular). Defaults to --arms.')
 	ap.add_argument('--out', required=True, help='destination dir for <XX>.zip + index.json')
 	ap.add_argument('--only', nargs='+', default=None,
 		help='pack just these shards (e.g. --only 00 01) — for subset tests')
@@ -143,8 +160,19 @@ def main ():
 	ap.add_argument('--force', action='store_true', help='repack shards whose zip already exists')
 	args = ap.parse_args()
 
+	published = args.publish_as if args.publish_as is not None else args.arms
+	if len(published) != len(args.arms):
+		raise SystemExit(f'--publish-as takes one name per --arms entry: '
+			f'{len(args.arms)} arms, {len(published)} published names')
+	if len(set(published)) != len(published):
+		raise SystemExit(f'--publish-as names must be distinct, got {published}')
+	publish = dict(zip(args.arms, published))
+
 	print(f'[scan] {args.root}')
 	shards, stats = scan(args.root, args.arms)
+	for arm, name in publish.items():
+		if arm != name:
+			print(f'  publishing {arm} as {name}')
 	print(f'  shared basenames: {stats["shared"]} across {len(shards)} shards')
 	for arm in args.arms:
 		only = stats[f'{arm}_only']
@@ -162,7 +190,7 @@ def main ():
 		print(f'  --only: {len(shards)} shard(s)')
 
 	os.makedirs(args.out, exist_ok=True)
-	jobs = [(args.root, args.arms, args.out, shard, names, args.force, args.level)
+	jobs = [(args.root, args.arms, publish, args.out, shard, names, args.force, args.level)
 		for shard, names in sorted(shards.items())]
 
 	t0 = time.time()
@@ -184,7 +212,9 @@ def main ():
 					f'{r["entries"]} entries {r["size"]/1e6:.1f} MB '
 					f'ratio {r["size"]/max(1, r["raw"]):.3f} {r["seconds"]:.0f}s'))
 
-	manifest, path = write_manifest(args.out, args.arms, all_shards)
+	# PUBLISHED names, not source directory names: the manifest's `arms` is what tells a reader which
+	# entry prefixes the archives actually contain, so recording the staging names would misdescribe them.
+	manifest, path = write_manifest(args.out, published, all_shards)
 	raw = sum(r['raw'] for r in results)
 	size = sum(r['size'] for r in results)
 	packed = sum(1 for r in results if not r['skipped'])
