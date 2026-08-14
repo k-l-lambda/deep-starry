@@ -125,9 +125,10 @@ if not root or not os.path.isdir(root):
 src = _make_source(root)
 kind = 'zip' if isinstance(src, _ZipSource) else 'dir'
 print(f"  ok   source detected as {kind}")
-# The arms are read from the corpus itself, never assumed: the irregular arm is `midi-seq2-irregular`
-# in the older shards and `midi-seq2-irregular2` after the regeneration, so hardcoding either one
-# makes the check fail on half the corpora with a KeyError that looks like a packing bug.
+# The arms are read from the corpus itself, never assumed. Packed corpora carry the arm name as an
+# ENTRY PREFIX, so a hardcoded guess fails with a KeyError that reads like a packing bug rather than a
+# naming mismatch — and it fails at first read, not at init, because names() comes from the manifest.
+# The manifest's `arms` is the authority for what the archives actually contain.
 import json
 if isinstance(src, _ZipSource):
     with open(os.path.join(root, _ZipSource.MANIFEST)) as f:
