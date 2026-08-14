@@ -41,7 +41,7 @@ class VocabAsset:
 
 		publish(path, args)   write the file into the run directory (use `publish_atomically`)
 		describe(path)        load it and return the model args it implies, e.g.
-		                      {'vocab_size': 838, 'eos_id': 2}. MUST validate, since this is the
+		                      {'vocab_size': 582, 'eos_id': 2}. MUST validate, since this is the
 		                      only thing standing between a corrupted pin and a silently
 		                      mis-numbered model.
 	'''

@@ -1,7 +1,7 @@
 '''Conditioned-MIDI MEASUREWISE patchifier — midiseq2 variant.
 
 Sibling of starry.midi.data.condPatchifier, but the MIDI side is the `midiseq2` self-describing
-token language (assets/midiseq2Vocab.yaml, vocab 838) instead of the one-event-per-patch
+token language (assets/midiseq2Vocab.yaml, vocab 582) instead of the one-event-per-patch
 MidiTokenizer, and patches are cut on MEASURE boundaries rather than on event boundaries.
 
 TWO-STAGE pipeline (per the design): basic whole-song MidiText is first converted to midiseq2
@@ -60,8 +60,8 @@ BOS_ID = 1
 EOS_ID = 2
 UNKNOWN_ID = 3
 EOM_ID = 4
-# <sep> occupies what was <reserved_5>, so adding it shifted no content id and vocab_size is
-# unchanged (838). Used by starry.midi.data.seq2seq2 to join a source and target sequence.
+# <sep> occupies what was <reserved_5>, so adding it shifted no content id. Used by
+# starry.midi.data.seq2seq2 to join a source and target sequence.
 SEP_ID = 5
 
 _ASSET_VOCAB = os.path.join(

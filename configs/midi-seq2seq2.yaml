@@ -85,12 +85,12 @@ data:
 #   target_mask LongTensor [B, T]   1 = supervised position (strictly after <sep>)
 #   sep_index   LongTensor [B]      position of <sep>
 # Loss: compare logits[:, i - 1] against input_ids[:, i] wherever target_mask is 1, which makes <sep>
-# the last context position before the first supervised token. Vocab is the midiseq2 838 (shared with
+# the last context position before the first supervised token. Vocab is the midiseq2 582 (shared with
 # the seq2* models), so a decoder-only stack over a single embedding table fits directly.
 #model:
 #  type:                    ~
 #  args:
-#    vocab_size:            838
+#    vocab_size:            582
 
 
 trainer:

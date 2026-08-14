@@ -6,7 +6,7 @@ measure-coupling windows, but the two modalities are kept in SEPARATE tensors at
 and vocabularies rather than one joint [T, 64] frame:
 
     lyl_patches  [Lp, lyl_patch_size=16]  lilylet ids (vocab 256)
-    midi_patches [Mp, midi_patch_size=64] midiseq2 ids (vocab 838)
+    midi_patches [Mp, midi_patch_size=64] midiseq2 ids (vocab 582)
 
 Batch contract (consumed by MidiSeq2PrefixInTokenLevel):
 	lyl_patches    LongTensor [B, Lmax, lyl_patch_size]   lilylet ids

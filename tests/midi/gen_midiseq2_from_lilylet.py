@@ -3,7 +3,7 @@
 midiseq2 sibling of tests/midi/gen_midi_from_lilylet.py. Conditions on a lilylet score (a
 READ-ONLY prefix encoded once by the frozen lyl encoder) and autoregressively generates the
 MIDI side as the self-describing **midiseq2** token language (assets/midiseq2Vocab.yaml, vocab
-838), under the SAME measure-coupled windowed/block joint attention mask the Seq2CondMidiPatchy
+582), under the SAME measure-coupled windowed/block joint attention mask the Seq2CondMidiPatchy
 feeder builds (build_vis). Two things differ from the basic-MIDI base:
 
   1. DUAL WIDTH. The joint patch frame is patch_size=64 wide; lilylet ids occupy columns

@@ -8,7 +8,7 @@ directive naming a score position, and the target window covers the same music b
 by that directive's key. So the checks here are mostly about boundaries and losslessness, not about
 tensor plumbing:
 
-  1. vocab layout   — <sep> is id 5, vocab_size 838, no other special moved
+  1. vocab layout   — <sep> is id 5, vocab_size 582, no other special moved
   2. round-trip     — decoding the source half reproduces the cropped source lines exactly
   3. no <unknown>   — the corpus is fully in-vocabulary, so a miss means an encoder bug
   4. boundaries     — ranges land on marks; <bos> iff the crop starts at the piece start; <eos> ends
@@ -67,7 +67,7 @@ def check_vocab (dataset):
 	'''1. The special block is positional — every packed artifact and checkpoint depends on it.'''
 	print('\n== 1. vocab layout')
 	t = dataset.tokenizer
-	check('vocab_size == 838', t.vocab_size == 838, f'got {t.vocab_size}')
+	check('vocab_size == 582', t.vocab_size == 582, f'got {t.vocab_size}')
 	check('<sep> == 5', t.sep_id == 5 and t.tokens[5] == '<sep>', f'got {t.tokens[5]!r}')
 	expected = [('<pad>', 0), ('<bos>', 1), ('<eos>', 2), ('<unknown>', 3), ('<eom>', 4)]
 	check('other specials unmoved', all(t.tokens[i] == n for n, i in expected),

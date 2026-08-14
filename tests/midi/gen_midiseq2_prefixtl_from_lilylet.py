@@ -2,7 +2,7 @@
 
 Split-modality sibling of tests/midi/gen_midiseq2_from_lilylet.py. Conditions on a lilylet score
 and autoregressively generates the MIDI side as the self-describing **midiseq2** token language
-(assets/midiseq2Vocab.yaml, vocab 838), but with a fundamentally different architecture:
+(assets/midiseq2Vocab.yaml, vocab 582), but with a fundamentally different architecture:
 
   1. NO LYL ENCODER. The lilylet signal is NOT projected into a frozen encoder memory and scattered
      into a joint decoder. Instead, the raw lilylet patches (native width-16, vocab 256) are

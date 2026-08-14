@@ -54,11 +54,11 @@ def vocab_layout (artifact):
 	'''The merged v3 mapping: one 16-id control region, then content-only modality blocks.'''
 	assert artifact['type'] == 'merged-lilylet-midiseq2'
 	assert artifact['version'] == 3
-	assert artifact['vocab_size'] == 1094
+	assert artifact['vocab_size'] == 838
 	assert artifact['blocks'] == {
 		'special': {'offset': 0, 'size': 16, 'local_start': 0},
 		'lilylet': {'offset': 16, 'size': 248, 'local_start': 8},
-		'midiseq2': {'offset': 264, 'size': 830, 'local_start': 8},
+		'midiseq2': {'offset': 264, 'size': 574, 'local_start': 8},
 	}
 	assert artifact['special_ids'] == {
 		'pad': 0, 'bos': 1, 'eos': 2, 'unknown': 3, 'mask': 4, 'sep': 5, 'eom': 6}
@@ -76,7 +76,7 @@ def vocab_layout (artifact):
 	# in the content block rather than staying where they were.
 	assert (tok.lilylet_id(8), tok.lilylet_id(255)) == (16, 263)
 	assert tok.lilylet_id(10) == 18						# newline, structurally significant
-	assert (tok.midi_id(8), tok.midi_id(837)) == (264, 1093)
+	assert (tok.midi_id(8), tok.midi_id(581)) == (264, 837)
 	assert tok.midi_id(4) == tok.eom_id					# MIDI <eom> folds into the shared control
 	assert tok.lilylet_id(4) == tok.mask_id				# Lilylet local 4 is <mask>, not <eom>
 	for local in (1, 2, 5):
@@ -92,7 +92,7 @@ def vocab_layout (artifact):
 	assert {'0', '9', 'a', 'f', '-', '_'} <= shared
 	assert all(tok.lilylet_id_by_token[t] != tok.midiseq2_id_by_token[t] for t in shared)
 	assert all(16 <= tok.lilylet_id_by_token[t] < 264 for t in shared)
-	assert all(264 <= tok.midiseq2_id_by_token[t] < 1094 for t in shared)
+	assert all(264 <= tok.midiseq2_id_by_token[t] < 838 for t in shared)
 
 	# Every id a real Lilylet encode can emit stays inside the control region or the Lilylet block.
 	lyl_tok = LilyletTokenizer(LILYLET_ASSET)
@@ -127,7 +127,7 @@ def midiseq2_asset (root):
 	path = os.path.join(run, 'midiseq2Vocab.yaml')
 	# Copied byte for byte, so the pinned file parses exactly as the asset does.
 	assert open(path, 'rb').read() == open(MIDI_ASSET, 'rb').read()
-	assert config['model.args.vocab_size'] == Midiseq2Tokenizer().vocab_size == 838
+	assert config['model.args.vocab_size'] == Midiseq2Tokenizer().vocab_size == 582
 	assert config['model.args.eos_id'] == 2
 	assert config['data.args.vocab_path'] == config['model.args.vocab_path'] == path
 
@@ -150,7 +150,8 @@ def midiseq2_asset (root):
 	assert raises(Exception, lambda: Configuration(truncated))
 
 	wrong = midiseq2_state()
-	wrong['model']['args']['vocab_size'] = 1094
+	# The unified size: the realistic mistake is pinning one vocabulary and sizing for the other.
+	wrong['model']['args']['vocab_size'] = 838
 	wrong_run = os.path.join(root, 'midiseq2-wrong-size')
 	os.makedirs(wrong_run)
 	assert raises(ValueError, lambda: Configuration(wrong_run, wrong))
@@ -160,11 +161,11 @@ def midiseq2_asset (root):
 	os.makedirs(volatile_run)
 	volatile_config = Configuration(volatile_run, midiseq2_state(), volatile=True)
 	assert os.listdir(volatile_run) == []
-	assert Midiseq2Tokenizer(volatile_config['model.args.vocab_path']).vocab_size == 838
+	assert Midiseq2Tokenizer(volatile_config['model.args.vocab_path']).vocab_size == 582
 
 	# The tool reads the RUN's copy, not today's asset: it is the only thing tying ids to weights.
 	tokenizer, resolved = resolve_tokenizer(run, config)
-	assert resolved == path and tokenizer.vocab_size == 838
+	assert resolved == path and tokenizer.vocab_size == 582
 	# A mixed run's pin is refused rather than rendered as if it were midiseq2.
 	mixed_run = os.path.join(root, 'run')
 	assert raises(ValueError, lambda: resolve_tokenizer(mixed_run, Configuration(mixed_run)))
@@ -184,7 +185,7 @@ def main ():
 		assert load_unified_vocab(path)['mapping_sha256'] == artifact['mapping_sha256']
 		assert config['data.args.vocab_path'] == path
 		assert config['model.args.vocab_path'] == path
-		assert config['model.args.vocab_size'] == 1094
+		assert config['model.args.vocab_size'] == 838
 		assert config['model.args.eos_id'] == tokenizer.eos_id
 
 		state_path = os.path.join(run, '.state.yaml')
@@ -225,7 +226,9 @@ def main ():
 		assert raises(ValueError, lambda: load_unified_vocab(bad_path))
 
 		wrong_size = mixed_state()
-		wrong_size['model']['args']['vocab_size'] = 838
+		# The midiseq2-only size. NOT 838: since the midiseq2 vocabulary shrank to 582, 838 is the
+		# unified size itself, so using it here would assert nothing.
+		wrong_size['model']['args']['vocab_size'] = 582
 		wrong_run = os.path.join(root, 'wrong-size')
 		os.makedirs(wrong_run)
 		assert raises(ValueError, lambda: Configuration(wrong_run, wrong_size))
@@ -309,7 +312,9 @@ def main ():
 				yaml.dump(escape_state, f)
 			assert raises(ValueError, lambda: Configuration(escape)), reference
 
-		# The v2 layout also held 1094 rows, so shape cannot distinguish it — the schema must.
+		# Shape cannot distinguish layouts, so the schema must. This copy carries the v3 row count with
+		# a v2 label; conversely 838 is now BOTH the unified size and the pre-shrink midiseq2 size, so
+		# a tensor width identifies nothing and only type/version + mapping_sha256 do.
 		v2 = copy.deepcopy(artifact)
 		v2['type'] = 'disjoint-lilylet-midiseq2'
 		v2['version'] = 2
@@ -341,15 +346,15 @@ def main ():
 
 		unified_loss = MidiTranslatorLoss(vocab_path=path, d_model=16, n_layer=1, n_head=1,
 			d_inner=32, max_seq_len=32, dropout=0)
-		assert unified_loss.deducer.vocab_size == 1094
+		assert unified_loss.deducer.vocab_size == 838
 		types = unified_loss.type_of_id
-		assert types.numel() == 1094
+		assert types.numel() == 838
 		assert int(types[tokenizer.sep_id]) == 7					# sep
 		assert set(types[:16].tolist()) == {0, 7}					# controls: special + sep
 		assert set(types[16:264].tolist()) == {8}					# Lilylet content -> err_lyl
 		assert 8 not in set(types[264:].tolist())					# MIDI content keeps MIDI classes
 		assert unified_loss.type_names[8] == 'err_lyl'
-		assert unified_loss.ce_weight_of_id.numel() == 1094
+		assert unified_loss.ce_weight_of_id.numel() == 838
 
 		legacy_json = os.path.join(root, 'legacy.json')
 		with open(legacy_json, 'w') as f:
@@ -384,7 +389,7 @@ def main ():
 		scratch = volatile_config['model.args.vocab_path']
 		assert os.path.dirname(scratch) == volatile_config.dir != volatile
 		assert load_unified_vocab(scratch)['mapping_sha256'] == artifact['mapping_sha256']
-		assert volatile_config['model.args.vocab_size'] == 1094
+		assert volatile_config['model.args.vocab_size'] == 838
 		# The scratch directory outlives creation: anything holding the config can still read the pin.
 		del volatile_config
 		assert not os.path.exists(scratch)

@@ -2,9 +2,11 @@
 # The `assets:` entry below makes Configuration.create() build and pin unifiedSeq2Vocab.json inside
 # the run directory, before the dataset/model factories run; a resumed run reloads that exact file.
 #
-# vocab_size 1094 = 16 shared controls + 248 Lilylet content + 830 midiseq2 content. The earlier v2
-# layout held the same 1094 rows with DIFFERENT meanings (it duplicated the controls per modality), so
-# a v2 mixed checkpoint loads by shape but is semantically wrong: start mixed runs from scratch. Only
+# vocab_size 838 = 16 shared controls + 248 Lilylet content + 574 midiseq2 content. Row count proves
+# nothing about a checkpoint: the earlier v2 layout held 1094 rows with DIFFERENT meanings (it
+# duplicated the controls per modality), and 838 is also what midiseq2 alone held before its
+# unreachable arg3/arg4 high halves were dropped. Any pre-v3 mixed checkpoint is semantically wrong
+# under this mapping even where it loads by shape: start mixed runs from scratch. Only
 # `eos_id` is derived here — it is the one shared <eos> for either direction, injected by Configuration.
 id:     midi/{date}-{filename}
 
@@ -45,7 +47,7 @@ data:
 
 model:
   type:                     MidiTranslator
-  # vocab_size (1094) and eos_id (2) are injected by the UnifiedSeq2Vocab asset. Stating either here
+  # vocab_size (838) and eos_id (2) are injected by the UnifiedSeq2Vocab asset. Stating either here
   # is allowed but redundant — a value disagreeing with the artifact raises rather than being used.
   args:
     backbone:               llama

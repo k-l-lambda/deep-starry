@@ -21,9 +21,10 @@ output has to be remapped through `lilylet_id` here; that is why Lilylet content
 its source ids.
 
 This is an id-semantic break from the v2 `disjoint-lilylet-midiseq2` layout, which appended both
-complete vocabularies (and therefore duplicated the controls). Both layouts happen to hold 1094 rows,
-so shape alone cannot distinguish them — `validate_unified_vocab` rejects v2 on type and version, and
-a v2 mixed checkpoint cannot be resumed under this mapping.
+complete vocabularies (and therefore duplicated the controls). Shape alone cannot distinguish
+vocabularies at all here: v2 held 1094 rows, and this v3 layout holds 838 — which is also exactly what
+midiseq2 held before its high arg halves were dropped. So `validate_unified_vocab` rejects v2 on type
+and version rather than on size, and a v2 mixed checkpoint cannot be resumed under this mapping.
 '''
 
 import hashlib

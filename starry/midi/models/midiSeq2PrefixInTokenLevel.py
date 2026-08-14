@@ -125,7 +125,7 @@ class MidiSeq2PrefixInTokenLevel (nn.Module):
 	no lyl encoder / enc_proj (the lilylet condition is re-embedded raw at the token level).
 	'''
 
-	def __init__ (self, lyl_vocab_size=256, midi_vocab_size=838, patch_size=64, lyl_patch_size=16,
+	def __init__ (self, lyl_vocab_size=256, midi_vocab_size=582, patch_size=64, lyl_patch_size=16,
 		lyl_patch_length=1024, w_cross=1,
 		d_model=768, n_dec_layer=6, token_num_layers=3, n_head=12,
 		d_inner=None, dec_num_key_value_heads=None, num_key_value_heads=None, dropout=0.1, **_):

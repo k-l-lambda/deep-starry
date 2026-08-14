@@ -14,7 +14,7 @@
 # full width). See starry/midi/data/seq2CondPachifier.py for the layout.
 #
 # Model: MidiSeq2BgptSelfAttn — a subclass of MidiBgptTransSelfAttn with an independent lilylet
-# encoder width (lyl_patch_size=16) for the dual-width midiseq2 joint layout (midi vocab 838,
+# encoder width (lyl_patch_size=16) for the dual-width midiseq2 joint layout (midi vocab 582,
 # patch_size 64). The base class (vocab-41 / patch_size-16) stays untouched for the basic-MIDI path.
 #
 # Test corpus: test20260629 (215 paired lilylet/midi samples from ~/data/abc/notagenx-samples).
@@ -46,7 +46,7 @@ model:
   type:                     MidiSeq2BgptSelfAttn
   args:
     lyl_vocab_size:         256
-    midi_vocab_size:        838        # midiseq2 vocab (assets/midiseq2Vocab.yaml)
+    midi_vocab_size:        582        # midiseq2 vocab (assets/midiseq2Vocab.yaml)
     patch_size:             64         # midiseq2 measure-patch width (midi side)
     lyl_patch_size:         16         # lilylet encoder-slice width (cols [0,16) of each patch)
     # --- lyl encoder (match the pretrained LilyletNotaGen patch tower; lilylet-notagen-llama.yaml) ---

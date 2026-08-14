@@ -2,7 +2,7 @@
 #
 # Committed template (small test corpus) for the MidiSeq2PrefixInTokenLevel model. The split-modality
 # dataset keeps the two modalities in SEPARATE tensors at their native widths / vocabularies:
-#   lyl_patches [Lp,16] (lyl vocab 256)   +   midi_patches [Mp,64] (midiseq2 vocab 838)
+#   lyl_patches [Lp,16] (lyl vocab 256)   +   midi_patches [Mp,64] (midiseq2 vocab 582)
 # — no 16->64 widening, no shared integer axis, no clamp.
 #
 # Pipeline to produce the artifact this config consumes:
@@ -48,7 +48,7 @@ model:
   args:
     w_cross:                1          # lyl cross window (MEASURES) for the per-target token-level prefix
     lyl_vocab_size:         256
-    midi_vocab_size:        838        # midiseq2 vocab (assets/midiseq2Vocab.yaml)
+    midi_vocab_size:        582        # midiseq2 vocab (assets/midiseq2Vocab.yaml)
     patch_size:             64         # midiseq2 measure-patch width (midi side)
     lyl_patch_size:         16         # lilylet patch width (native; raw-embedded as prefix)
     lyl_patch_length:       1024       # token/decoder max_position_embeddings (covers Kmax+P+1 & neg positions)

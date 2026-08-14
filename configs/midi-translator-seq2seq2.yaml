@@ -7,7 +7,7 @@
 #     <bos>? source...  <sep>  <bos>? target... <eos>
 #
 # with target_mask over the target half. Model (starry.midi.models.midiTranslator) is a single causal
-# stack over the shared midiseq2 vocabulary (838); the source half is context only, never a target, so
+# stack over the shared midiseq2 vocabulary (582); the source half is context only, never a target, so
 # <sep> is the last context position before the first supervised token.
 #
 # Corpus: test202608, 99 shared samples (the score arm skips one whose measure mapping was not
@@ -118,7 +118,7 @@ data:
 model:
   type:                     MidiTranslator
   args:
-    # vocab_size (838) and eos_id come from the pinned midiseq2Vocab.yaml via the assets: entry above;
+    # vocab_size (582) and eos_id come from the pinned midiseq2Vocab.yaml via the assets: entry above;
     # the midiseq2 vocabulary is shared by both halves (order == id).
     # Only 'llama' is wired up. The option exists so a second stack can be added without touching the
     # config schema or the metrics.
@@ -134,7 +134,7 @@ model:
     # positions, so max_tokens is the real guard.
     max_seq_len:            4096
     dropout:                0.1
-    # Untied: a 838 x 512 head is 0.4M params, cheap enough that sharing it with the input embedding
+    # Untied: a 582 x 512 head is 0.3M params, cheap enough that sharing it with the input embedding
     # buys little and constrains both roles.
     tie_embedding:          false
     # Optional {token-type: weight} per-type cross-entropy weight (special / type / elapse / channel /

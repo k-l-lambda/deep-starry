@@ -4,7 +4,7 @@ Derived from starry.midi.models.midiBgptTransSelfAttn.MidiBgptTransSelfAttn WITH
 so the basic-MIDI path stays byte-compatible. The base shares a SINGLE patch_size (16) between the
 lilylet encoder and the midi side; the midiseq2 feeder (starry.midi.data.seq2CondPatchy) is
 DUAL-WIDTH instead: joint patches are patch_size=64 wide, with lilylet token ids in columns
-[0, lyl_patch_size=16) (<pad> tail) and midiseq2 ids (vocab 838) using the full 64 columns.
+[0, lyl_patch_size=16) (<pad> tail) and midiseq2 ids (vocab 582) using the full 64 columns.
 
 This subclass fixes exactly that mismatch:
   - `lyl_encoder` is rebuilt at lyl_patch_size (16) so a pretrained LilyletNotaGen patch tower
@@ -37,7 +37,7 @@ class MidiSeq2BgptSelfAttn (MidiBgptTransSelfAttn):
 	(narrow the encoder input slice); all other methods are inherited unchanged.
 	'''
 
-	def __init__ (self, lyl_vocab_size=256, midi_vocab_size=838, patch_size=64, lyl_patch_size=16,
+	def __init__ (self, lyl_vocab_size=256, midi_vocab_size=582, patch_size=64, lyl_patch_size=16,
 		lyl_base_type='llama', lyl_hidden_size=512, lyl_patch_num_layers=8, lyl_patch_length=1024,
 		lyl_n_head=8, lyl_intermediate_size=2048, lyl_num_key_value_heads=8,
 		lyl_encoder_weights=None, freeze_lyl_encoder=False,

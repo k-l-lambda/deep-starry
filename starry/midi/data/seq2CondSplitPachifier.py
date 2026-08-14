@@ -6,7 +6,7 @@ tail) and shares a single integer axis between two vocabularies, this packer kee
 modalities in SEPARATE tensors at their native widths and vocabularies:
 
     lyl_patches   int16 [Lp, lyl_patch_size]   lilylet ids (vocab 256)
-    midi_patches  int16 [Mp, midi_patch_size]  midiseq2 ids (vocab 838)
+    midi_patches  int16 [Mp, midi_patch_size]  midiseq2 ids (vocab 582)
 
 Everything upstream is reused verbatim: patchify_lilylet (16-wide lyl patches + per-patch measure)
 and patchify_midi_seq2 (64-wide midiseq2 measure-patches + own/src measure). The split packer simply

@@ -62,7 +62,10 @@ class MidiTranslator (nn.Module):
 	head. Position 0 has no prediction target of its own; `logits[:, i]` predicts position `i + 1`.
 	'''
 
-	def __init__ (self, vocab_size=838, backbone='llama', d_model=512, n_layer=8, n_head=8,
+	# vocab_size has no safe default: it must match the vocabulary the run pinned, and MidiTranslatorLoss
+	# always derives it from that file. 582 is only the current asset's size, kept so a bare
+	# MidiTranslator() still builds for probes; a real run never relies on it.
+	def __init__ (self, vocab_size=582, backbone='llama', d_model=512, n_layer=8, n_head=8,
 		d_inner=None, num_key_value_heads=None, max_seq_len=4096, dropout=0.1,
 		tie_embedding=False, eos_id=2, **_):
 		super().__init__()
@@ -187,7 +190,7 @@ class MidiTranslatorLoss (nn.Module):
 			self.pad_id = tokenizer.pad_id
 			# One class per unified REGION. The merged layout has three: shared controls, Lilylet
 			# content, midiseq2 content — so nothing here may assume the MIDI block still carries its
-			# own controls or its full 838 source rows.
+			# own controls or a fixed number of source rows.
 			midi_block = tokenizer.blocks['midiseq2']
 			lyl_block = tokenizer.blocks['lilylet']
 			midi_local = _build_type_map(Midiseq2Tokenizer())[
