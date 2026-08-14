@@ -16,12 +16,16 @@ REPO_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
 sys.path.append(REPO_ROOT)
 
 from starry.lilylet.data.patchifier import LilyletTokenizer  # noqa: E402
-from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer  # noqa: E402
+from starry.midi.data.seq2CondPachifier import (  # noqa: E402
+	_ASSET_VOCAB as MIDI_ASSET, Midiseq2Tokenizer)
 from starry.midi.data.unifiedSeq2Tokenizer import (  # noqa: E402
 	LILYLET_ASSET, UnifiedSeq2Tokenizer, build_unified_vocab, load_unified_vocab,
 	write_unified_vocab)
 from starry.midi.models.midiTranslator import MidiTranslatorLoss  # noqa: E402
 from starry.utils.config import Configuration  # noqa: E402
+
+sys.path.append(os.path.join(REPO_ROOT, 'tools', 'midi'))
+from translateMidiseq2 import resolve_tokenizer  # noqa: E402
 
 
 def raises (error, function):
@@ -100,6 +104,70 @@ def vocab_layout (artifact):
 	assert max(local_ids) >= 8 and max(unified) >= 16
 	assert unified == [tok.lilylet_id(i) for i in local_ids]
 	return tok
+
+
+def midiseq2_state ():
+	'''A plain midiseq2 -> midiseq2 run pinning a COPY of the authoritative vocabulary.'''
+	return {
+		'id': 'midiseq2-test',
+		'env': None,
+		'imports': ['starry.midi.data.seq2CondPachifier'],
+		'assets': [{'type': 'Midiseq2Vocab'}],
+		'data': {'type': 'Seq2Seq2', 'args': {
+			'source_format': 'midiseq2', 'target_format': 'midiseq2'}},
+		'model': {'type': 'MidiTranslator', 'args': {}},
+	}
+
+
+def midiseq2_asset (root):
+	'''The second asset type: a verbatim copy, sharing the base class's lifecycle with the mixed one.'''
+	run = os.path.join(root, 'midiseq2-run')
+	os.makedirs(run)
+	config = Configuration(run, midiseq2_state())
+	path = os.path.join(run, 'midiseq2Vocab.yaml')
+	# Copied byte for byte, so the pinned file parses exactly as the asset does.
+	assert open(path, 'rb').read() == open(MIDI_ASSET, 'rb').read()
+	assert config['model.args.vocab_size'] == Midiseq2Tokenizer().vocab_size == 838
+	assert config['model.args.eos_id'] == 2
+	assert config['data.args.vocab_path'] == config['model.args.vocab_path'] == path
+
+	config.save()
+	state = yaml.safe_load(open(os.path.join(run, '.state.yaml'), 'r'))
+	assert state['_assets'] == {'Midiseq2Vocab': 'midiseq2Vocab.yaml'}
+	assert state['model']['args']['vocab_path'] == 'midiseq2Vocab.yaml'
+	config.load()
+	assert config['model.args.vocab_path'] == path
+
+	moved = os.path.join(root, 'midiseq2-moved')
+	shutil.copytree(run, moved)
+	assert Configuration(moved)['model.args.vocab_path'] == os.path.join(moved, 'midiseq2Vocab.yaml')
+
+	# A truncated pin drops the special block the module constants assume, so it must not resume.
+	truncated = os.path.join(root, 'midiseq2-truncated')
+	shutil.copytree(run, truncated)
+	with open(os.path.join(truncated, 'midiseq2Vocab.yaml'), 'w') as f:
+		f.write('vocab:\n  - <pad>\n')
+	assert raises(Exception, lambda: Configuration(truncated))
+
+	wrong = midiseq2_state()
+	wrong['model']['args']['vocab_size'] = 1094
+	wrong_run = os.path.join(root, 'midiseq2-wrong-size')
+	os.makedirs(wrong_run)
+	assert raises(ValueError, lambda: Configuration(wrong_run, wrong))
+
+	# Volatile creation publishes the copy to scratch, leaving the named directory alone.
+	volatile_run = os.path.join(root, 'midiseq2-volatile')
+	os.makedirs(volatile_run)
+	volatile_config = Configuration(volatile_run, midiseq2_state(), volatile=True)
+	assert os.listdir(volatile_run) == []
+	assert Midiseq2Tokenizer(volatile_config['model.args.vocab_path']).vocab_size == 838
+
+	# The tool reads the RUN's copy, not today's asset: it is the only thing tying ids to weights.
+	tokenizer, resolved = resolve_tokenizer(run, config)
+	assert resolved == path and tokenizer.vocab_size == 838
+	# A mixed run's pin is refused rather than rendered as if it were midiseq2.
+	mixed_run = os.path.join(root, 'run')
+	assert raises(ValueError, lambda: resolve_tokenizer(mixed_run, Configuration(mixed_run)))
 
 
 def main ():
@@ -306,14 +374,26 @@ def main ():
 		assert [mask.shape[1] for mask in seen_masks] == [2, 3]
 		assert seen_masks[1].tolist() == [[1, 1, 1]]
 
+		# A volatile config still needs its assets to exist — the model reads vocab_path while being
+		# built — but must not write them into the run directory it names. They go to a scratch dir
+		# owned by the Configuration, so validation notebooks and the inference tools keep working.
 		volatile = os.path.join(root, 'volatile')
 		os.makedirs(volatile)
-		assert raises(ValueError, lambda: Configuration(volatile, mixed_state(), volatile=True))
+		volatile_config = Configuration(volatile, mixed_state(), volatile=True)
 		assert os.listdir(volatile) == []
+		scratch = volatile_config['model.args.vocab_path']
+		assert os.path.dirname(scratch) == volatile_config.dir != volatile
+		assert load_unified_vocab(scratch)['mapping_sha256'] == artifact['mapping_sha256']
+		assert volatile_config['model.args.vocab_size'] == 1094
+		# The scratch directory outlives creation: anything holding the config can still read the pin.
+		del volatile_config
+		assert not os.path.exists(scratch)
 
 		roundtrip = os.path.join(root, 'roundtrip.json')
 		write_unified_vocab(roundtrip, artifact)
 		assert load_unified_vocab(roundtrip) == artifact
+
+		midiseq2_asset(root)
 	finally:
 		shutil.rmtree(root)
 

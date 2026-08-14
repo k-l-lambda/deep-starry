@@ -82,7 +82,8 @@ import torch
 
 from starry.utils.config import Configuration
 from starry.utils.model_factory import loadModel
-from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer
+from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer, Midiseq2Vocab
+from starry.midi.data.unifiedSeq2Tokenizer import UnifiedSeq2Tokenizer
 from starry.lilylet.patchyGenerator import sample_next
 
 
@@ -222,6 +223,34 @@ def resolve_checkpoint (run, config, explicit=None):
 		if os.path.exists(path):
 			return path
 	raise FileNotFoundError(f'no checkpoint found in {run}')
+
+
+def resolve_tokenizer (run, config):
+	'''Load the vocabulary the CHECKPOINT was trained against, preferring the run's own copy.
+
+	The vocabulary is positional: every id in the checkpoint's embedding rows means whatever row it
+	sat on during training. A run created from a config with `assets: [Midiseq2Vocab]` pins that
+	mapping beside its weights, so the run directory — not the current checkout — is the authority.
+	Order: the run-local copy, then whatever `data.args.vocab_path` names, then the repository asset
+	(with a warning, since nothing then ties the ids to the checkpoint).
+	'''
+	local = os.path.join(run, Midiseq2Vocab.FILENAME)
+	if os.path.isfile(local):
+		return Midiseq2Tokenizer(local), local
+
+	configured = (config['data.args'] or {}).get('vocab_path')
+	if configured:
+		path = configured if os.path.isabs(configured) else os.path.join(run, configured)
+		if UnifiedSeq2Tokenizer.matches(path):
+			# A mixed Lilylet/midiseq2 run: its content ids are offset and one half is not midiseq2 at
+			# all, so this script's renderer would emit nonsense rather than fail.
+			raise ValueError(f'{path} is a mixed unified vocabulary; this tool translates '
+				f'midiseq2 -> midiseq2 only')
+		return Midiseq2Tokenizer(path), path
+
+	print(f'[warn] {run} pins no vocabulary; falling back to the repository asset. If it has been '
+		f'edited since training, the rendered tokens will be wrong.')
+	return Midiseq2Tokenizer(), None
 
 
 def load_model (run, checkpoint, device):
@@ -615,8 +644,9 @@ def main ():
 	if data_args.get('source_eom'):
 		print('[note] config has source_eom on; the source half will carry <eom> tokens')
 
-	tokenizer = Midiseq2Tokenizer(data_args['vocab_path']) if data_args.get('vocab_path') \
-		else Midiseq2Tokenizer()
+	tokenizer, vocab_path = resolve_tokenizer(args.run, config)
+	if vocab_path:
+		print(f'[vocab] {vocab_path} ({tokenizer.vocab_size} tokens)')
 
 	with open(args.input, 'r', encoding='utf-8') as f:
 		lines = f.read().splitlines()

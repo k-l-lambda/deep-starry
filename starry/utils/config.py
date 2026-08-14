@@ -39,6 +39,8 @@ class Configuration:
 	def __init__ (self, dir, data=None, volatile=False):
 		self.dir = dir
 		self.data = data
+		# Set by _use_scratch_dir for a volatile config that declares assets; see there.
+		self._scratch = None
 		created = data is not None
 
 		if not created:
@@ -111,8 +113,7 @@ class Configuration:
 			builder = ASSETS[name]
 			if created:
 				if volatile:
-					raise ValueError(f'a volatile configuration cannot create the run-local asset '
-						f'{name!r}; create the run persistently first')
+					self._use_scratch_dir()
 				references[name] = builder.create(self, spec.get('args') or {})
 			else:
 				if name not in references:
@@ -120,6 +121,27 @@ class Configuration:
 				builder.resume(self, references[name])
 		if created:
 			self.data['_assets'] = references
+
+	def _use_scratch_dir (self):
+		'''Point a VOLATILE run at a throwaway directory, so its assets can be published somewhere.
+
+		`volatile=True` means "build this config in memory and touch no run directory" — the read-only
+		mode that validation notebooks and the inference tools use (`Configuration.createOrLoad(...,
+		volatile=True)`). Such a config still needs its assets to EXIST, because the feeder and the
+		model read them by path while being constructed. Publishing into `TRAINING_DIR/<id>` is what
+		volatile promises not to do: that directory belongs to a real run, which may already exist.
+
+		So the assets go to a temporary directory instead. It is owned by this Configuration — the
+		TemporaryDirectory object is kept alive as an attribute, so the files last exactly as long as
+		anything can still read the paths derived from them, and are cleaned up when the config is
+		collected. Only ever called on a volatile config that declares assets; every other config keeps
+		the directory it was given.
+		'''
+		if getattr(self, '_scratch', None) is None:
+			import tempfile
+
+			self._scratch = tempfile.TemporaryDirectory(prefix='starry-volatile-assets-')
+			self.dir = self._scratch.name
 
 	def _import_asset_modules (self):
 		'''Import the config's `imports:` so the ASSETS registry is populated.

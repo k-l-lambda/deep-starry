@@ -42,6 +42,8 @@ from typing import Any, Dict, List, Tuple
 import torch
 
 from ...lilylet.data.patchifier import LilyletTokenizer
+from ...utils.assets import VocabAsset, publish_atomically
+from ...utils.registry import register_asset
 # The lilylet side is identical to condPatchifier's, so reuse its patchify_lilylet verbatim
 # (emits no trailing <eos> patch, returns per-patch measure indices). NOTE: the lilylet
 # patch_size must match the frozen encoder's training patch_size (16), which is INDEPENDENT
@@ -213,6 +215,40 @@ class Midiseq2Tokenizer:
 				# stray token (shouldn't happen on grammar output); skip defensively.
 				i += 1
 		return header_tokens, events
+
+
+@register_asset
+class Midiseq2Vocab (VocabAsset):
+	'''Run-local COPY of assets/midiseq2Vocab.yaml, declared by a config's `assets:` list.
+
+	The vocabulary is positional — every checkpoint's embedding rows and every packed artifact read
+	these ids by index — so a run that reads the repository asset at load time is one asset edit away
+	from silently reinterpreting its own weights. Pinning a copy beside the checkpoint makes the
+	mapping part of the run rather than part of the checkout, and lets inference recover the exact
+	vocabulary a checkpoint was trained against (see tools/midi/translateMidiseq2.py).
+
+	Nothing is transformed: the file is copied verbatim, so `Midiseq2Tokenizer(vocab_path)` reads the
+	pinned copy exactly as it reads the asset. Contrast `UnifiedSeq2Vocab`, which synthesizes a mixed
+	mapping from two assets and therefore has no single file to copy.
+	'''
+
+	FILENAME = 'midiseq2Vocab.yaml'
+
+	@staticmethod
+	def publish (path, args):
+		source = args.get('source') or _ASSET_VOCAB
+		with open(source, 'r', encoding='utf-8') as f:
+			text = f.read()
+		# Parse before publishing, so an unreadable or reordered vocabulary fails while creating the
+		# run rather than on its first resume.
+		Midiseq2Tokenizer(source)
+		publish_atomically(path, lambda f: f.write(text))
+
+	@staticmethod
+	def describe (path):
+		# Constructing the tokenizer asserts the special-token block sits where the module constants
+		# say it does, so a reordered or truncated pin cannot reach the model.
+		return {'vocab_size': Midiseq2Tokenizer(path).vocab_size, 'eos_id': EOS_ID}
 
 
 # ---------------------------------------------------------------------------------------

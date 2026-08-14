@@ -22,6 +22,15 @@ imports:
   - starry.midi.models.midiTranslator
 
 
+# Run-local assets, materialized once at creation and reloaded verbatim on resume. Midiseq2Vocab
+# copies assets/midiseq2Vocab.yaml into the run directory, so the ids a checkpoint's embedding rows
+# stand for travel with the checkpoint instead of being re-read from whatever the checkout holds
+# later. The builder also injects the derived model args (vocab_size, eos_id), so they are not
+# restated below.
+assets:
+  - type: Midiseq2Vocab
+
+
 data:
   type:                     Seq2Seq2
   # Relative to DATA_DIR; callers should pass data_dir=os.environ['DATA_DIR'].
@@ -109,8 +118,8 @@ data:
 model:
   type:                     MidiTranslator
   args:
-    # The midiseq2 vocabulary, shared by both halves (assets/midiseq2Vocab.yaml, order == id).
-    vocab_size:             838
+    # vocab_size (838) and eos_id come from the pinned midiseq2Vocab.yaml via the assets: entry above;
+    # the midiseq2 vocabulary is shared by both halves (order == id).
     # Only 'llama' is wired up. The option exists so a second stack can be added without touching the
     # config schema or the metrics.
     backbone:               llama
