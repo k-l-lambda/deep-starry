@@ -71,6 +71,17 @@ def raises (error, function):
 	return False
 
 
+def is_lilylet (tok, ids):
+	'''Every id is either a shared control or Lilylet content — never midiseq2 content.'''
+	lo, size = tok.lilylet_offset, tok.blocks['lilylet']['size']
+	return bool(ids) and all(i < 16 or lo <= i < lo + size for i in ids)
+
+
+def is_midi (tok, ids):
+	lo, size = tok.midiseq2_offset, tok.blocks['midiseq2']['size']
+	return bool(ids) and all(i < 16 or lo <= i < lo + size for i in ids)
+
+
 def rewrite_metadata (root, metadata):
 	with open(os.path.join(root, 'metadata', 'measures.json'), 'w') as f:
 		json.dump({'s1': metadata}, f)
@@ -89,10 +100,16 @@ def main ():
 		assert case['target_measures'] == [1, 2, 1, 2, 3, 4]
 		assert case['target_range'] == (0, 4)
 		assert case['ids'][case['sep']] == tok.sep_id
-		assert all(i >= tok.midiseq2_offset for i in case['ids'][:case['sep']])
-		assert all(i < tok.midiseq2_offset for i in case['ids'][case['sep'] + 1:])
+		# Controls are SHARED (ids < 16) in both arms; only the content ranges are modality-specific,
+		# so "every id on the MIDI side is above the MIDI offset" is deliberately no longer true.
+		assert is_midi(tok, case['ids'][1:case['sep']])
+		assert is_lilylet(tok, case['ids'][case['sep'] + 2:-1])
+		assert case['ids'][0] == tok.bos_id
 		assert case['ids'][-1] == tok.eos_id
-		assert case['ids'][0] == tok.midiseq2_bos_id
+		# source_eom defaults off and the Lilylet target has no <eom>, so this direction emits none.
+		assert tok.eom_id not in case['ids']
+		assert tok.eom_id in forward._mixed_encode_midi(forward._mixed_midi_text(
+			forward._mixed_midi('s1'), [1, 2]), True)
 		header_ids = forward._mixed_encode_midi(['ticks_per_beat 1 e 0', 'format_type 1'], False)
 		assert case['ids'][1:1 + len(header_ids)] == header_ids
 		midi = forward._mixed_midi('s1')
@@ -106,9 +123,30 @@ def main ():
 		case = reverse.describe(0)
 		assert case['source_measures'] == [1, 2]
 		assert case['target_measures'] == [1, 2, 3, 4]
-		assert all(i < tok.midiseq2_offset for i in case['ids'][:case['sep']])
-		assert all(i >= tok.midiseq2_offset for i in case['ids'][case['sep'] + 1:])
-		assert case['ids'][-1] == tok.midiseq2_eos_id
+		assert is_lilylet(tok, case['ids'][1:case['sep']])
+		assert is_midi(tok, case['ids'][case['sep'] + 2:-1])
+		# Same shared wrappers in the reverse direction — the target EOS is not modality-specific.
+		assert (case['ids'][0], case['ids'][case['sep'] + 1]) == (tok.bos_id, tok.bos_id)
+		assert case['ids'][-1] == tok.eos_id
+		assert tok.eom_id in case['ids'][case['sep'] + 1:]
+
+		# Lilylet ids are byte VALUES before remapping, so a newline or an ASCII digit must not leak
+		# through as a raw local id.
+		lyl_body = ''.join(reverse._mixed_lilylet_measures('s1')[:2])
+		local_ids = reverse.lilylet_tokenizer.encode(lyl_body)
+		assert reverse._mixed_encode_lilylet(lyl_body) == [tok.lilylet_id(i) for i in local_ids]
+		assert 10 in local_ids and tok.lilylet_id(10) == 18
+		assert is_lilylet(tok, reverse._mixed_encode_lilylet(lyl_body))
+
+		# A Lilylet bar absent from the played mapping is a rejected crop, not a fatal parse error.
+		rewrite_metadata(root, record([2, 3, 4, 2, 3, 4]))
+		sparse = feeder(root, source_format='lilylet', line_range=(1, 1))
+		draws = iter(((0, 1), (1, 2)))
+		sparse._mixed_pick = lambda count, rng: next(draws)
+		case = sparse.describe(0)
+		assert case['source_measures'] == [2]
+		assert case['target_measures'] == [1, 4]
+		rewrite_metadata(root, record([1, 2, 1, 2, 3, 4]))
 
 		batch = forward.collateBatch([forward[0], forward[0]])
 		assert set(batch) == {'input_ids', 'masks', 'target_mask', 'sep_index', 'position_ids'}

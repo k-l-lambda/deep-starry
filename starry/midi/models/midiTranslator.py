@@ -184,16 +184,19 @@ class MidiTranslatorLoss (nn.Module):
 			if 'vocab_size' in kw_args and int(kw_args['vocab_size']) != tokenizer.vocab_size:
 				raise ValueError(f'unified vocab_size must be {tokenizer.vocab_size}, got {kw_args["vocab_size"]}')
 			kw_args['vocab_size'] = tokenizer.vocab_size
-			kw_args.setdefault('eos_id', tokenizer.midiseq2_eos_id)
 			self.pad_id = tokenizer.pad_id
-			midi_tok = Midiseq2Tokenizer()
-			midi_offset = tokenizer.blocks['midiseq2']['offset']
-			type_map = torch.full((tokenizer.vocab_size,), 8, dtype=torch.long)
-			# Canonical wrapper controls are modality-neutral even though they live in the
-			# Lilylet-first block; keep them in the legacy special/sep metric classes.
-			type_map[:tokenizer.sep_id + 1] = torch.tensor(
-				[_TYPE_CODES['special']] * tokenizer.sep_id + [_TYPE_CODES['sep']])
-			type_map[midi_offset:] = _build_type_map(midi_tok)
+			# One class per unified REGION. The merged layout has three: shared controls, Lilylet
+			# content, midiseq2 content — so nothing here may assume the MIDI block still carries its
+			# own controls or its full 838 source rows.
+			midi_block = tokenizer.blocks['midiseq2']
+			lyl_block = tokenizer.blocks['lilylet']
+			midi_local = _build_type_map(Midiseq2Tokenizer())[
+				midi_block['local_start']:midi_block['local_start'] + midi_block['size']]
+			type_map = torch.full((tokenizer.vocab_size,), 8, dtype=torch.long)		# 8 = lyl
+			# Shared controls are modality-neutral; <sep> keeps its own legacy class.
+			type_map[:lyl_block['offset']] = _TYPE_CODES['special']
+			type_map[tokenizer.sep_id] = _TYPE_CODES['sep']
+			type_map[midi_block['offset']:] = midi_local
 		else:
 			tokenizer = Midiseq2Tokenizer(vocab_path) if vocab_path else Midiseq2Tokenizer()
 			kw_args.setdefault('vocab_size', tokenizer.vocab_size)

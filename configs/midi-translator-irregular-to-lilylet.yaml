@@ -1,5 +1,10 @@
 # Mixed Seq2Seq2 smoke configuration: irregular midiseq2 performance -> Lilylet notation.
 # Configuration.create() creates and pins unifiedSeq2Vocab.json inside the run directory.
+#
+# vocab_size 1094 = 16 shared controls + 248 Lilylet content + 830 midiseq2 content. The earlier v2
+# layout held the same 1094 rows with DIFFERENT meanings (it duplicated the controls per modality), so
+# a v2 mixed checkpoint loads by shape but is semantically wrong: start mixed runs from scratch. Only
+# `eos_id` is derived here — it is the one shared <eos> for either direction, injected by Configuration.
 id:     midi/{date}-{filename}
 
 imports:

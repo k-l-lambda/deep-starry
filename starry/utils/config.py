@@ -42,6 +42,8 @@ class Configuration:
 		created = data is not None
 
 		if not created:
+			# load() resolves the pinned vocab reference; preprocess() re-validates it against the
+			# relative name, so the order below (load -> preprocess -> resolve) stays idempotent.
 			self.load()
 		self.preprocess(created=created, volatile=volatile)
 
@@ -105,6 +107,13 @@ class Configuration:
 		if configured_size is not None and int(configured_size) != artifact['vocab_size']:
 			raise ValueError(f'unified vocab_size must be {artifact["vocab_size"]}, got {configured_size}')
 		model_args['vocab_size'] = artifact['vocab_size']
+		# One shared <eos> terminates the generated half in EITHER direction — the merged control
+		# region has no modality-specific duplicate to choose between.
+		shared_eos = artifact['special_ids']['eos']
+		configured_eos = model_args.get('eos_id')
+		if configured_eos is not None and int(configured_eos) != shared_eos:
+			raise ValueError(f'unified eos_id must be {shared_eos}, got {configured_eos}')
+		model_args['eos_id'] = shared_eos
 		# Persist relocatable references. They are resolved only after save, and never written back.
 		data_args['vocab_path'] = name
 		model_args['vocab_path'] = name
@@ -135,6 +144,10 @@ class Configuration:
 		assert state_file is not None, f'No .state.yaml file found in config directory: {self.dir}'
 
 		self.data = yaml.safe_load(state_file)
+		# The state holds the run-relative reference; in memory it is always the absolute path. The
+		# distributed trainer reloads mid-epoch (trainerQuantitative.py), so without this the pinned
+		# vocab_path would silently degrade to a bare filename after the first save.
+		self._resolve_unified_vocab()
 
 
 	def save (self):

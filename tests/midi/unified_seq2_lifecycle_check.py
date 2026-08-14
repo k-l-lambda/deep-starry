@@ -9,12 +9,15 @@ import sys
 import tempfile
 
 import yaml
+import torch
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 
+from starry.lilylet.data.patchifier import LilyletTokenizer  # noqa: E402
 from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer  # noqa: E402
 from starry.midi.data.unifiedSeq2Tokenizer import (  # noqa: E402
-	UnifiedSeq2Tokenizer, build_unified_vocab, load_unified_vocab, write_unified_vocab)
+	LILYLET_ASSET, UnifiedSeq2Tokenizer, build_unified_vocab, load_unified_vocab,
+	write_unified_vocab)
 from starry.midi.models.midiTranslator import MidiTranslatorLoss  # noqa: E402
 from starry.utils.config import Configuration  # noqa: E402
 
@@ -37,15 +40,65 @@ def mixed_state ():
 	}
 
 
+def vocab_layout (artifact):
+	'''The merged v3 mapping: one 16-id control region, then content-only modality blocks.'''
+	assert artifact['type'] == 'merged-lilylet-midiseq2'
+	assert artifact['version'] == 3
+	assert artifact['vocab_size'] == 1094
+	assert artifact['blocks'] == {
+		'special': {'offset': 0, 'size': 16, 'local_start': 0},
+		'lilylet': {'offset': 16, 'size': 248, 'local_start': 8},
+		'midiseq2': {'offset': 264, 'size': 830, 'local_start': 8},
+	}
+	assert artifact['special_ids'] == {
+		'pad': 0, 'bos': 1, 'eos': 2, 'unknown': 3, 'mask': 4, 'sep': 5, 'eom': 6}
+	# The mapping is deterministic, so the digest pins it against silent asset drift.
+	assert build_unified_vocab()['mapping_sha256'] == artifact['mapping_sha256']
+
+	tok = UnifiedSeq2Tokenizer(artifact=artifact)
+	assert tok.tokens[:7] == ['<pad>', '<bos>', '<eos>', '<unknown>', '<mask>', '<sep>', '<eom>']
+	assert tok.tokens[7:16] == [f'<reserved_{i}>' for i in range(7, 16)]
+	# No modality-specific control duplicates survive: <bos>/<eos>/<eom> are single ids.
+	assert not any(token.startswith('<') and token.endswith('>') for token in tok.tokens[16:])
+	assert (tok.eom_id, tok.mask_id, tok.sep_id) == (6, 4, 5)
+
+	# Source-local remaps. Lilylet locals are BYTE values in the legacy tokenizer, so they must land
+	# in the content block rather than staying where they were.
+	assert (tok.lilylet_id(8), tok.lilylet_id(255)) == (16, 263)
+	assert tok.lilylet_id(10) == 18						# newline, structurally significant
+	assert (tok.midi_id(8), tok.midi_id(837)) == (264, 1093)
+	assert tok.midi_id(4) == tok.eom_id					# MIDI <eom> folds into the shared control
+	assert tok.lilylet_id(4) == tok.mask_id				# Lilylet local 4 is <mask>, not <eom>
+	for local in (1, 2, 5):
+		assert tok.lilylet_id(local) == tok.midi_id(local) == local
+	# The source reserves have no unified counterpart, so a stray one raises instead of aliasing.
+	for local in (6, 7):
+		assert raises(ValueError, lambda local=local: tok.lilylet_id(local))
+		assert raises(ValueError, lambda local=local: tok.midi_id(local))
+	assert raises(ValueError, lambda: tok.lilylet_id(256))
+
+	# Content strings shared by both modalities stay DISTINCT ids: the blocks are disjoint.
+	shared = set(tok.lilylet_id_by_token) & set(tok.midiseq2_id_by_token)
+	assert {'0', '9', 'a', 'f', '-', '_'} <= shared
+	assert all(tok.lilylet_id_by_token[t] != tok.midiseq2_id_by_token[t] for t in shared)
+	assert all(16 <= tok.lilylet_id_by_token[t] < 264 for t in shared)
+	assert all(264 <= tok.midiseq2_id_by_token[t] < 1094 for t in shared)
+
+	# Every id a real Lilylet encode can emit stays inside the control region or the Lilylet block.
+	lyl_tok = LilyletTokenizer(LILYLET_ASSET)
+	sample = '\\key c \\major \\time 4/4 c4 d e f |\ng4 a b c\' |\n'
+	local_ids = lyl_tok.encode(sample)
+	unified = tok.lilylet_ids(local_ids)
+	assert len(unified) == len(local_ids) and local_ids
+	assert all(i < 16 or 16 <= i < 264 for i in unified)
+	assert max(local_ids) >= 8 and max(unified) >= 16
+	assert unified == [tok.lilylet_id(i) for i in local_ids]
+	return tok
+
+
 def main ():
 	artifact = build_unified_vocab()
-	assert artifact['vocab_size'] == 1094
-	assert artifact['blocks']['lilylet'] == {'offset': 0, 'size': 256}
-	assert artifact['blocks']['midiseq2'] == {'offset': 256, 'size': 838}
-	tokenizer = UnifiedSeq2Tokenizer(artifact=artifact)
-	assert tokenizer.tokens[4] == '<mask>'
-	assert tokenizer.tokens[tokenizer.midiseq2_eom_id] == '<eom>'
-	assert tokenizer.lilylet_mask_id != tokenizer.midiseq2_eom_id
+	tokenizer = vocab_layout(artifact)
 
 	root = tempfile.mkdtemp(prefix='unified-seq2-check-')
 	try:
@@ -58,6 +111,7 @@ def main ():
 		assert config['data.args.vocab_path'] == path
 		assert config['model.args.vocab_path'] == path
 		assert config['model.args.vocab_size'] == 1094
+		assert config['model.args.eos_id'] == tokenizer.eos_id
 
 		state_path = os.path.join(run, '.state.yaml')
 		for _ in range(2):
@@ -66,6 +120,10 @@ def main ():
 			assert state['_unified_vocab'] == 'unifiedSeq2Vocab.json'
 			assert state['data']['args']['vocab_path'] == 'unifiedSeq2Vocab.json'
 			assert state['model']['args']['vocab_path'] == 'unifiedSeq2Vocab.json'
+			# The distributed trainer reloads mid-epoch, so in memory the path must stay absolute.
+			config.load()
+			assert config['data.args.vocab_path'] == path
+			assert config['model.args.vocab_path'] == path
 
 		moved = os.path.join(root, 'moved')
 		shutil.copytree(run, moved)
@@ -97,6 +155,85 @@ def main ():
 		wrong_run = os.path.join(root, 'wrong-size')
 		os.makedirs(wrong_run)
 		assert raises(ValueError, lambda: Configuration(wrong_run, wrong_size))
+
+		# Either direction terminates on the SAME shared <eos>; there is no modality-specific one.
+		midi_target = mixed_state()
+		midi_target['data']['args'] = {'source_format': 'lilylet', 'target_format': 'midiseq2'}
+		midi_target_run = os.path.join(root, 'midi-target')
+		os.makedirs(midi_target_run)
+		midi_target_config = Configuration(midi_target_run, midi_target)
+		assert midi_target_config['model.args.eos_id'] == tokenizer.eos_id
+
+		wrong_eos = mixed_state()
+		wrong_eos['model']['args']['eos_id'] = 264
+		wrong_eos_run = os.path.join(root, 'wrong-eos')
+		os.makedirs(wrong_eos_run)
+		assert raises(ValueError, lambda: Configuration(wrong_eos_run, wrong_eos))
+
+		# The v2 layout also held 1094 rows, so shape cannot distinguish it — the schema must.
+		v2 = copy.deepcopy(artifact)
+		v2['type'] = 'disjoint-lilylet-midiseq2'
+		v2['version'] = 2
+		v2_path = os.path.join(root, 'v2.json')
+		with open(v2_path, 'w') as f:
+			json.dump(v2, f)
+		assert raises(ValueError, lambda: load_unified_vocab(v2_path))
+		assert not UnifiedSeq2Tokenizer.matches(v2_path)
+		stale = os.path.join(root, 'stale-run')
+		shutil.copytree(run, stale)
+		shutil.copy(v2_path, os.path.join(stale, 'unifiedSeq2Vocab.json'))
+		assert raises(ValueError, lambda: Configuration(stale))
+
+		truncated = copy.deepcopy(artifact)
+		truncated['entries'] = truncated['entries'][:-1]
+		truncated['vocab_size'] = len(truncated['entries'])
+		truncated_path = os.path.join(root, 'truncated.json')
+		with open(truncated_path, 'w') as f:
+			json.dump(truncated, f)
+		assert raises(ValueError, lambda: load_unified_vocab(truncated_path))
+
+		# A relabelled control region must not pass as canonical.
+		relabelled = copy.deepcopy(artifact)
+		relabelled['entries'][6]['token'] = '<mask>'
+		relabelled_path = os.path.join(root, 'relabelled.json')
+		with open(relabelled_path, 'w') as f:
+			json.dump(relabelled, f)
+		assert raises(ValueError, lambda: load_unified_vocab(relabelled_path))
+
+		unified_loss = MidiTranslatorLoss(vocab_path=path, d_model=16, n_layer=1, n_head=1,
+			d_inner=32, max_seq_len=32, dropout=0)
+		assert unified_loss.deducer.vocab_size == 1094
+		types = unified_loss.type_of_id
+		assert types.numel() == 1094
+		assert int(types[tokenizer.sep_id]) == 7					# sep
+		assert set(types[:16].tolist()) == {0, 7}					# controls: special + sep
+		assert set(types[16:264].tolist()) == {8}					# Lilylet content -> err_lyl
+		assert 8 not in set(types[264:].tolist())					# MIDI content keeps MIDI classes
+		assert unified_loss.type_names[8] == 'err_lyl'
+		assert unified_loss.ce_weight_of_id.numel() == 1094
+
+		legacy_json = os.path.join(root, 'legacy.json')
+		with open(legacy_json, 'w') as f:
+			json.dump({'vocab': []}, f)
+		assert not UnifiedSeq2Tokenizer.matches(legacy_json)
+		legacy_loss = MidiTranslatorLoss(vocab_path=None, d_model=16, n_layer=1, n_head=1,
+			d_inner=32, max_seq_len=16, dropout=0)
+		assert legacy_loss.deducer.vocab_size == Midiseq2Tokenizer().vocab_size
+
+		model = legacy_loss.deducer
+		model.eos_id = 7
+		steps = iter((torch.tensor([[1., 0., 0., 0., 0., 0., 0., 0.]]),
+			torch.tensor([[0., 0., 0., 0., 0., 0., 0., 1.]])))
+		seen_masks = []
+		def scripted_forward (ids, masks=None, position_ids=None):
+			seen_masks.append(None if masks is None else masks.clone())
+			last = next(steps).to(ids.device)
+			return last[:, None, :].expand(ids.shape[0], ids.shape[1], -1)
+		model.forward = scripted_forward
+		generated = model.generate(torch.tensor([1, 2]), max_new_tokens=2, masks=torch.ones(2, dtype=torch.long))
+		assert generated.tolist() == [0, 7]
+		assert [mask.shape[1] for mask in seen_masks] == [2, 3]
+		assert seen_masks[1].tolist() == [[1, 1, 1]]
 
 		volatile = os.path.join(root, 'volatile')
 		os.makedirs(volatile)

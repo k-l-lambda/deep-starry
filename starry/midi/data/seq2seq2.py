@@ -639,24 +639,32 @@ class Seq2Seq2 (Dataset):
 		return lines
 
 	def _mixed_encode_midi (self, lines: Sequence[str], eom: bool) -> List[int]:
+		'''midiseq2 text -> unified ids. The lookup is MIDI-scoped (content only); measure boundaries
+		and unknowns come from the shared control region, which both arms use.'''
 		lookup = self.tokenizer.midiseq2_id_by_token
 		ids: List[int] = []
 		for line in lines:
 			if line.startswith('@measure'):
 				if eom and line.split()[1] != '1':
-					ids.append(self.tokenizer.midiseq2_eom_id)
+					ids.append(self.tokenizer.eom_id)
 				continue
 			if line.startswith('@tick'):
 				continue
-			ids.extend(lookup.get(token, self.tokenizer.midiseq2_unknown_id) for token in line.split())
+			ids.extend(lookup.get(token, self.tokenizer.unknown_id) for token in line.split())
 		return ids
+
+	def _mixed_encode_lilylet (self, text: str) -> List[int]:
+		'''Lilylet text -> unified ids. `LilyletTokenizer` emits ASCII byte VALUES as local ids, so its
+		output MUST be remapped: local 8..255 is content (unified 16..263), and its controls fold into
+		the shared region.'''
+		return self.tokenizer.lilylet_ids(self.lilylet_tokenizer.encode(text))
 
 	def _mixed_positions (self, n_source: int, n_target: int) -> List[int]:
 		if self.pos_style == 'flat':
 			return list(range(n_source + 1 + n_target))
 		return list(range(-(n_source + 1), n_target))
 
-	def _describe_mixed_once (self, index: int, rng: random.Random) -> Dict[str, Any]:
+	def _describe_mixed_once (self, index: int, rng: random.Random) -> Optional[Dict[str, Any]]:
 		sample_id = self.names[index]
 		lyl = self._mixed_lilylet_measures(sample_id)
 		midi = self._mixed_midi(sample_id)
@@ -667,8 +675,8 @@ class Seq2Seq2 (Dataset):
 			wanted = set(source_numbers)
 			played = [i for i, source_number in enumerate(mapping, 1) if source_number in wanted]
 			if not played:
-				raise ValueError(f'{sample_id}: Lilylet crop has no played measures in measures.json')
-			source_body = self.lilylet_tokenizer.encode(''.join(lyl[n - 1] for n in source_numbers))
+				return None
+			source_body = self._mixed_encode_lilylet(''.join(lyl[n - 1] for n in source_numbers))
 			target_body = self._mixed_encode_midi(self._mixed_midi_text(midi, played), True)
 			head = a == 0
 			source_range, target_range = (a, z), (min(played) - 1, max(played))
@@ -677,14 +685,13 @@ class Seq2Seq2 (Dataset):
 			played = list(range(a + 1, z + 1))
 			source_numbers = [mapping[n - 1] for n in played]
 			source_body = self._mixed_encode_midi(self._mixed_midi_text(midi, played), self.source_eom)
-			target_body = self.lilylet_tokenizer.encode(''.join(lyl[n - 1] for n in source_numbers))
+			target_body = self._mixed_encode_lilylet(''.join(lyl[n - 1] for n in source_numbers))
 			head = a == 0
 			source_range, target_range = (a, z), (min(source_numbers) - 1, max(source_numbers))
-		source_bos = self.tokenizer.bos_id if self.source_format == 'lilylet' else self.tokenizer.midiseq2_bos_id
-		target_bos = self.tokenizer.bos_id if self.target_format == 'lilylet' else self.tokenizer.midiseq2_bos_id
-		target_eos = self.tokenizer.eos_id if self.target_format == 'lilylet' else self.tokenizer.midiseq2_eos_id
-		source_ids = ([source_bos] if head else []) + source_body
-		target_ids = ([target_bos] if head else []) + target_body + [target_eos]
+		# The wrappers are modality-neutral under the merged layout: one <bos>/<eos>/<sep> for both
+		# arms. Which modality a half holds is read off its CONTENT id range, not off its controls.
+		source_ids = ([self.tokenizer.bos_id] if head else []) + source_body
+		target_ids = ([self.tokenizer.bos_id] if head else []) + target_body + [self.tokenizer.eos_id]
 		ids = source_ids + [self.tokenizer.sep_id] + target_ids
 		sep = len(source_ids)
 		return dict(name=sample_id, source=midi if self.source_format == 'midiseq2' else lyl,
@@ -698,13 +705,10 @@ class Seq2Seq2 (Dataset):
 	def _describe_mixed (self, index: int) -> Dict[str, Any]:
 		rng = random if self.random_crop else random.Random(self.seed ^ (index * 2654435761))
 		best = None
-		last_error = None
 		for _ in range(max(1, self.resample_tries)):
-			try:
-				case = self._describe_mixed_once(index, rng)
-			except ValueError as exc:
-				# An unmapped Lilylet crop is a rejected draw; resample it like an overlong crop.
-				last_error = exc
+			case = self._describe_mixed_once(index, rng)
+			if case is None:
+				# The selected Lilylet bars do not occur in the expanded MIDI mapping.
 				continue
 			if best is None or len(case['ids']) < len(best['ids']):
 				best = case
@@ -712,9 +716,7 @@ class Seq2Seq2 (Dataset):
 				return case
 		if best is not None:
 			return best
-		if last_error is not None:
-			raise last_error
-		raise RuntimeError(f'{self.names[index]}: unable to build mixed sample')
+		raise ValueError(f'{self.names[index]}: no sampled Lilylet crop has played measures in measures.json')
 
 	# --- crop selection -------------------------------------------------------------------
 	#
