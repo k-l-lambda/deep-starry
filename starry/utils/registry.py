@@ -16,6 +16,12 @@ import logging
 
 MODELS = {}
 DATASETS = {}
+# Run-local ASSETS: things a run must materialize in its own config directory BEFORE the dataset and
+# model factories run, and must then reload verbatim on resume rather than regenerate. A synthesized
+# vocabulary is the motivating case — regenerating it from today's assets would silently reinterpret a
+# checkpoint's embedding rows. Registered the same way as models/datasets, so a config's `imports:`
+# already triggers registration; see Configuration.preprocess for the create/resume contract.
+ASSETS = {}
 
 
 def _make_register (registry, kind):
@@ -45,6 +51,7 @@ def _make_register (registry, kind):
 
 register_model = _make_register(MODELS, 'model')
 register_dataset = _make_register(DATASETS, 'dataset')
+register_asset = _make_register(ASSETS, 'asset')
 
 
 def import_modules (specs):

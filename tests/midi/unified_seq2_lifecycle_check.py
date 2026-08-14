@@ -5,13 +5,15 @@ import copy
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
 import yaml
 import torch
 
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
+REPO_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+sys.path.append(REPO_ROOT)
 
 from starry.lilylet.data.patchifier import LilyletTokenizer  # noqa: E402
 from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer  # noqa: E402
@@ -30,10 +32,14 @@ def raises (error, function):
 	return False
 
 
-def mixed_state ():
+def mixed_state (assets=({'type': 'UnifiedSeq2Vocab'},)):
+	'''A mixed run's state. The run-local vocabulary is requested EXPLICITLY through `assets:` —
+	Configuration no longer infers it from data.type/source_format.'''
 	return {
 		'id': 'mixed-test',
 		'env': None,
+		'imports': ['starry.midi.data.unifiedSeq2Tokenizer'],
+		'assets': [dict(spec) for spec in assets],
 		'data': {'type': 'Seq2Seq2', 'args': {
 			'source_format': 'midiseq2', 'target_format': 'lilylet'}},
 		'model': {'type': 'MidiTranslator', 'args': {}},
@@ -117,7 +123,7 @@ def main ():
 		for _ in range(2):
 			config.save()
 			state = yaml.safe_load(open(state_path, 'r'))
-			assert state['_unified_vocab'] == 'unifiedSeq2Vocab.json'
+			assert state['_assets'] == {'UnifiedSeq2Vocab': 'unifiedSeq2Vocab.json'}
 			assert state['data']['args']['vocab_path'] == 'unifiedSeq2Vocab.json'
 			assert state['model']['args']['vocab_path'] == 'unifiedSeq2Vocab.json'
 			# The distributed trainer reloads mid-epoch, so in memory the path must stay absolute.
@@ -169,6 +175,71 @@ def main ():
 		wrong_eos_run = os.path.join(root, 'wrong-eos')
 		os.makedirs(wrong_eos_run)
 		assert raises(ValueError, lambda: Configuration(wrong_eos_run, wrong_eos))
+
+		# --- the generic assets: dispatch itself -------------------------------------------------
+		# A config declaring no assets is untouched: no file, no _assets, no injection. This is the
+		# midiseq2 -> midiseq2 case, which must stay exactly as it was.
+		plain = mixed_state(assets=())
+		plain.pop('assets')
+		plain['data']['args'] = {'source_format': 'midiseq2', 'target_format': 'midiseq2'}
+		plain_run = os.path.join(root, 'plain')
+		os.makedirs(plain_run)
+		plain_config = Configuration(plain_run, plain)
+		assert os.listdir(plain_run) == ['.state.yaml']
+		assert plain_config['model.args.vocab_size'] is None
+		assert plain_config['model.args.vocab_path'] is None
+		assert plain_config['_assets'] is None
+
+		# An unregistered or malformed entry fails loudly rather than being skipped.
+		for broken in ({'type': 'NoSuchAsset'}, {'args': {}}, 'UnifiedSeq2Vocab'):
+			broken_run = os.path.join(root, f'broken-{abs(hash(str(broken)))}')
+			os.makedirs(broken_run)
+			assert raises(ValueError, lambda: Configuration(broken_run, mixed_state(assets=(broken,)))), broken
+		not_a_list = mixed_state()
+		not_a_list['assets'] = {'type': 'UnifiedSeq2Vocab'}
+		list_run = os.path.join(root, 'assets-not-list')
+		os.makedirs(list_run)
+		assert raises(ValueError, lambda: Configuration(list_run, not_a_list))
+
+		# Resume in a FRESH interpreter, where nothing has imported the builder's module yet: the
+		# asset entry points must trigger the config's imports themselves. load() resolves references
+		# before preprocess() runs, and the distributed trainer calls load() on its own mid-epoch.
+		probe = ('import os, sys, yaml; sys.path.insert(0, %r)\n'
+			'from starry.utils.registry import ASSETS\n'
+			'assert not ASSETS, ASSETS\n'
+			'from starry.utils.config import Configuration\n'
+			'c = Configuration(%r)\n'
+			'want = os.path.join(%r, "unifiedSeq2Vocab.json")\n'
+			'assert c["model.args.vocab_path"] == want, c["model.args.vocab_path"]\n'
+			'assert c["model.args.eos_id"] == 2\n'
+			'c.load()\n'
+			'assert c["model.args.vocab_path"] == want, "bare load() lost the absolute path"\n'
+			'c.save()\n'
+			'assert yaml.safe_load(open(os.path.join(%r, ".state.yaml")))["model"]["args"]'
+			'["vocab_path"] == "unifiedSeq2Vocab.json"\n'
+			'print("fresh-interpreter resume ok")') % (REPO_ROOT, run, run, run)
+		result = subprocess.run([sys.executable, '-c', probe], capture_output=True, text=True)
+		assert result.returncode == 0, result.stderr
+		assert 'fresh-interpreter resume ok' in result.stdout
+
+		# Declared on resume but with no stored reference: the asset was never published.
+		orphan = os.path.join(root, 'orphan')
+		shutil.copytree(run, orphan)
+		orphan_state = yaml.safe_load(open(os.path.join(orphan, '.state.yaml'), 'r'))
+		del orphan_state['_assets']
+		with open(os.path.join(orphan, '.state.yaml'), 'w') as f:
+			yaml.dump(orphan_state, f)
+		assert raises(ValueError, lambda: Configuration(orphan))
+
+		# An absolute or nested reference would escape the run directory.
+		for reference in ('/etc/passwd', 'sub/dir.json', ''):
+			escape = os.path.join(root, f'escape-{abs(hash(reference))}')
+			shutil.copytree(run, escape)
+			escape_state = yaml.safe_load(open(os.path.join(escape, '.state.yaml'), 'r'))
+			escape_state['_assets'] = {'UnifiedSeq2Vocab': reference}
+			with open(os.path.join(escape, '.state.yaml'), 'w') as f:
+				yaml.dump(escape_state, f)
+			assert raises(ValueError, lambda: Configuration(escape)), reference
 
 		# The v2 layout also held 1094 rows, so shape cannot distinguish it — the schema must.
 		v2 = copy.deepcopy(artifact)

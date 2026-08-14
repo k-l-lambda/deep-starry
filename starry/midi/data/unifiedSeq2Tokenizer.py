@@ -32,6 +32,7 @@ import os
 import tempfile
 from typing import Any, Dict, List, Optional, Sequence
 
+from ...utils.registry import register_asset
 from .seq2CondPachifier import _ASSET_VOCAB as MIDI_ASSET, _load_vocab
 
 
@@ -297,3 +298,73 @@ class UnifiedSeq2Tokenizer:
 		'''Remap a whole `LilyletTokenizer.encode()` result.'''
 		table = self._lilylet_map
 		return [self._remap(table, 'lilylet', local_id) for local_id in local_ids]
+
+
+ASSET_FILENAME = 'unifiedSeq2Vocab.json'
+
+
+@register_asset
+class UnifiedSeq2Vocab:
+	'''Run-local unified vocabulary, declared by a mixed config's `assets:` list.
+
+	A mixed Lilylet/midiseq2 run needs this mapping to exist before its feeder and model are built,
+	and needs the SAME mapping back on resume — rebuilding from whatever assets are in the checkout
+	would silently reinterpret the checkpoint's embedding rows. `Configuration` therefore calls
+	`create()` once when the run directory is made and `resume()` on every later load; see
+	`starry/utils/config.py`.
+
+	Besides publishing the file, this injects the two model arguments that are DERIVED from it —
+	`vocab_size` and the single shared `eos_id` — validating them when the config states them
+	explicitly, so a stale hand-written number fails loudly instead of building a mismatched model.
+	'''
+
+	@staticmethod
+	def create (config, args) -> str:
+		'''Build, publish, and return the run-relative reference to store in the state.'''
+		path = config.localPath(ASSET_FILENAME)
+		artifact = build_unified_vocab(**args) if args else build_unified_vocab()
+		write_unified_vocab(path, artifact)
+		UnifiedSeq2Vocab._inject(config, artifact, ASSET_FILENAME)
+		return ASSET_FILENAME
+
+	@staticmethod
+	def resume (config, name: str) -> None:
+		'''Load the pinned artifact named by the state. Never regenerates.'''
+		if not isinstance(name, str) or not name or os.path.isabs(name) or os.path.dirname(name):
+			raise ValueError(f'{ASSET_FILENAME}: run state has no valid run-local reference: {name!r}')
+		artifact = load_unified_vocab(config.localPath(name))
+		UnifiedSeq2Vocab._inject(config, artifact, name)
+
+	@staticmethod
+	def resolve (config, name: str) -> None:
+		'''Turn the stored relative reference into the absolute in-memory path.
+
+		The state file keeps the run-relative name so a run directory can be moved; everything that
+		READS the config wants a usable path. Called after every load and save.
+		'''
+		path = config.localPath(name)
+		config['data.args.vocab_path'] = path
+		config['model.args.vocab_path'] = path
+
+	@staticmethod
+	def relativize (data, name: str) -> None:
+		'''Undo `resolve` on a copy of the state, just before it is written to disk.'''
+		data['data']['args']['vocab_path'] = name
+		data['model']['args']['vocab_path'] = name
+
+	@staticmethod
+	def _inject (config, artifact, name: str) -> None:
+		if config['model'] is None:
+			raise ValueError(f'{ASSET_FILENAME} requires a model section to inject vocab_size/eos_id')
+		model_args = config.data['model'].setdefault('args', {})
+		data_args = config.data.setdefault('data', {}).setdefault('args', {})
+		for key, value in (('vocab_size', artifact['vocab_size']),
+			# One shared <eos> terminates the generated half in EITHER direction.
+			('eos_id', artifact['special_ids']['eos'])):
+			configured = model_args.get(key)
+			if configured is not None and int(configured) != value:
+				raise ValueError(f'unified {key} must be {value}, got {configured}')
+			model_args[key] = value
+		# Persist relocatable references. They are resolved only after save, never written back.
+		data_args['vocab_path'] = name
+		model_args['vocab_path'] = name

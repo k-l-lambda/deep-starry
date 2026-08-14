@@ -1,5 +1,6 @@
 # Mixed Seq2Seq2 smoke configuration: irregular midiseq2 performance -> Lilylet notation.
-# Configuration.create() creates and pins unifiedSeq2Vocab.json inside the run directory.
+# The `assets:` entry below makes Configuration.create() build and pin unifiedSeq2Vocab.json inside
+# the run directory, before the dataset/model factories run; a resumed run reloads that exact file.
 #
 # vocab_size 1094 = 16 shared controls + 248 Lilylet content + 830 midiseq2 content. The earlier v2
 # layout held the same 1094 rows with DIFFERENT meanings (it duplicated the controls per modality), so
@@ -10,6 +11,11 @@ id:     midi/{date}-{filename}
 imports:
   - starry.midi.data.seq2seq2
   - starry.midi.models.midiTranslator
+
+# Run-local assets, materialized once at creation and reloaded verbatim on resume. The builder also
+# injects the derived model args (vocab_size, eos_id), so they need not be restated below.
+assets:
+  - type: UnifiedSeq2Vocab
 
 data:
   type:                     Seq2Seq2
@@ -39,8 +45,9 @@ data:
 
 model:
   type:                     MidiTranslator
+  # vocab_size (1094) and eos_id (2) are injected by the UnifiedSeq2Vocab asset. Stating either here
+  # is allowed but redundant — a value disagreeing with the artifact raises rather than being used.
   args:
-    vocab_size:             1094
     backbone:               llama
     d_model:                256
     n_layer:                4
