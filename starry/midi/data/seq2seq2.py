@@ -103,6 +103,42 @@ from ...utils.registry import register_dataset
 from .seq2CondPachifier import Midiseq2Tokenizer
 
 
+_FORMATS = ('midiseq2', 'lilylet')
+
+
+def _format (value: str) -> str:
+	value = value.lower()
+	if value == 'midi':
+		value = 'midiseq2'
+	if value not in _FORMATS:
+		raise ValueError(f'format must be one of {_FORMATS}, got {value!r}')
+	return value
+
+
+def _sample_id (name: str) -> str:
+	base = os.path.basename(name)
+	for suffix in ('.midiseq2.txt', '.lyl', '.txt'):
+		if base.endswith(suffix):
+			return base[:-len(suffix)]
+	return os.path.splitext(base)[0]
+
+
+def _recursive_files (root: str, suffix: str) -> Dict[str, str]:
+	out: Dict[str, str] = {}
+	if not os.path.isdir(root):
+		return out
+	for directory, _, files in os.walk(root):
+		for name in files:
+			if not name.endswith(suffix):
+				continue
+			path = os.path.join(directory, name)
+			key = _sample_id(name)
+			if key in out:
+				raise ValueError(f'duplicate normalized sample id {key!r} under {root!r}')
+			out[key] = path
+	return out
+
+
 # Position-id conventions, see Seq2Seq2._positions. 'flat' and 'sep' are equivalent to the model
 # (RoPE is relative); only 'absolute' carries where the crop was taken from.
 _POS_STYLES = ('flat', 'sep', 'absolute')
@@ -404,10 +440,16 @@ class Seq2Seq2 (Dataset):
 		line_range=(20, 256), p_head=0.15, p_tail=0.15, source_eom=False,
 		max_tokens=0, resample_tries=8, align_retries=4, start_jitter=0.0,
 		random_crop=None, seed=0, vocab_path=None, pos_style='flat',
-		packed=None, max_cached_files=0, **_):
+		packed=None, max_cached_files=0, source_format='midiseq2',
+		target_format='midiseq2', measures_path=None, **_):
 		super().__init__()
 		self.device = device
 		self.shuffle = shuffle
+		self.source_format = _format(source_format)
+		self.target_format = _format(target_format)
+		if self.source_format == self.target_format == 'lilylet':
+			raise ValueError('Lilylet -> Lilylet is not supported; at least one side must be midiseq2')
+		self.mixed = self.source_format != self.target_format
 		if mark_mode not in ('measure', 'tick'):
 			raise ValueError(f'mark_mode must be "measure" or "tick", got {mark_mode!r}')
 		self.mark_mode = mark_mode
@@ -464,23 +506,183 @@ class Seq2Seq2 (Dataset):
 		# so train augments and val is reproducible epoch to epoch.
 		self.random_crop = shuffle if random_crop is None else random_crop
 		self.seed = seed
-		self.tokenizer = Midiseq2Tokenizer(vocab_path) if vocab_path else Midiseq2Tokenizer()
+		self._split = split
+		if self.mixed:
+			if packed:
+				raise ValueError('packed archives are supported only for midiseq2 -> midiseq2')
+			if mark_mode != 'measure':
+				raise ValueError('mixed Lilylet alignment requires mark_mode="measure"')
+			from .unifiedSeq2Tokenizer import UnifiedSeq2Tokenizer
+			from ...lilylet.data.patchifier import LilyletTokenizer
+			self.tokenizer = UnifiedSeq2Tokenizer(vocab_path) if vocab_path else UnifiedSeq2Tokenizer()
+			lilylet_asset = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+				os.path.dirname(os.path.abspath(__file__))))), 'assets', 'lilylet-tokenizer.json')
+			self.lilylet_tokenizer = LilyletTokenizer(lilylet_asset)
+		else:
+			self.tokenizer = Midiseq2Tokenizer(vocab_path) if vocab_path else Midiseq2Tokenizer()
 
-		# The split filter is positional, so the file list MUST be deterministically ordered or the
-		# train/val partition shifts with directory iteration order.
-		names = sorted(
-			set(self.source.names(self.arm_source)) & set(self.source.names(self.arm_target))
-		)
-		self.names = [name for name in names if name.endswith('.txt')]
-		if not self.names:
-			raise RuntimeError(f'no shared .txt basenames between {self.arm_source!r} and '
-				f'{self.arm_target!r} in {self.source.describe()}')
+		if self.mixed:
+			self._init_mixed(root, source_dir, target_dir, measures_path)
+		else:
+			# The split filter is positional, so the file list MUST be deterministically ordered or the
+			# train/val partition shifts with directory iteration order.
+			names = sorted(
+				set(self.source.names(self.arm_source)) & set(self.source.names(self.arm_target))
+			)
+			self.names = [name for name in names if name.endswith('.txt')]
+			if not self.names:
+				raise RuntimeError(f'no shared .txt basenames between {self.arm_source!r} and '
+					f'{self.arm_target!r} in {self.source.describe()}')
 
 		phases, cycle = parseFilterStr(split)
 		self.indices = [i for i in range(len(self.names)) if i % cycle in phases]
 
 	def __len__ (self) -> int:
 		return len(self.indices)
+
+	def _init_mixed (self, root: str, source_dir: str, target_dir: str,
+		measures_path: Optional[str]) -> None:
+		'''Discover cross-format pairs and validate repeat-aware measure maps.'''
+		lyl_dir = source_dir if self.source_format == 'lilylet' else target_dir
+		midi_dir = source_dir if self.source_format == 'midiseq2' else target_dir
+		self._lyl_files = _recursive_files(os.path.join(root, lyl_dir), '.lyl')
+		self._midi_files = _recursive_files(os.path.join(root, midi_dir), '.txt')
+		path = measures_path or os.path.join(root, 'metadata', 'measures.json')
+		with open(path, 'r', encoding='utf-8') as f:
+			all_measures = json.load(f)
+		if not isinstance(all_measures, dict):
+			raise ValueError(f'{path!r} must contain an object keyed by normalized sample id')
+		self._measure_maps: Dict[str, List[int]] = {}
+		for sample_id in sorted(set(self._lyl_files) & set(self._midi_files)):
+			record = all_measures.get(sample_id)
+			if not isinstance(record, dict) or record.get('ok') is False:
+				continue
+			rows = record.get('measures')
+			if not isinstance(rows, list) or not rows:
+				continue
+			mapping: List[int] = []
+			for expected, row in enumerate(rows, 1):
+				if not isinstance(row, dict) or row.get('index') != expected:
+					raise ValueError(f'{path}: {sample_id}: played measure indices must be contiguous from 1')
+				source_measure = row.get('source_measure')
+				if not isinstance(source_measure, int) or source_measure < 1:
+					raise ValueError(f'{path}: {sample_id}: invalid source_measure at played measure {expected}')
+				mapping.append(source_measure)
+			self._measure_maps[sample_id] = mapping
+		self.names = sorted(self._measure_maps)
+		if not self.names:
+			raise RuntimeError(f'no valid Lilylet/midiseq2 pairs between {lyl_dir!r} and {midi_dir!r}')
+
+	def _mixed_lilylet_measures (self, sample_id: str) -> List[str]:
+		from ...lilylet.data.patchifier import split_lilylet_document, split_measures
+		with open(self._lyl_files[sample_id], 'r', encoding='utf-8') as f:
+			# Header and style metadata are not score measures and must not enter alignment.
+			_, body_lines = split_lilylet_document(f.read())
+		measures = split_measures(body_lines)
+		maximum = max(self._measure_maps[sample_id])
+		if len(measures) < maximum:
+			raise ValueError(f'{sample_id}: measures.json references source measure {maximum}, '
+				f'but the Lilylet body has only {len(measures)} measures')
+		return measures
+
+	def _mixed_midi (self, sample_id: str) -> _File:
+		with open(self._midi_files[sample_id], 'r', encoding='utf-8') as f:
+			parsed = _File(f.read(), 'measure')
+		keys = [key for _, key in parsed.marks]
+		expected = list(range(1, len(self._measure_maps[sample_id]) + 1))
+		if keys != expected:
+			raise ValueError(f'{sample_id}: MIDI @measure marks do not match measures.json played indices')
+		return parsed
+
+	def _mixed_pick (self, count: int, rng: random.Random) -> Tuple[int, int]:
+		maximum = min(count, max(1, self.line_range[1]))
+		minimum = min(maximum, self.line_range[0])
+		length = minimum if minimum == maximum else rng.randint(minimum, maximum)
+		roll = rng.random()
+		if roll < self.p_head:
+			start = 0
+		elif roll < self.p_head + self.p_tail:
+			start = count - length
+		else:
+			start = rng.randrange(0, count - length + 1)
+		return start, start + length
+
+	def _mixed_midi_text (self, midi: _File, played: Sequence[int]) -> List[str]:
+		lines: List[str] = []
+		for number in played:
+			start = midi.marks[number - 1][0]
+			end = midi.marks[number][0] if number < len(midi.marks) else len(midi.lines)
+			lines.extend(midi.lines[start:end])
+		return lines
+
+	def _mixed_encode_midi (self, lines: Sequence[str], eom: bool) -> List[int]:
+		lookup = {self.tokenizer.tokens[self.tokenizer.midiseq2_offset + i]: self.tokenizer.midi_id(i)
+			for i in range(self.tokenizer.blocks['midiseq2']['size'])}
+		ids: List[int] = []
+		for line in lines:
+			if line.startswith('@measure'):
+				if eom and line.split()[1] != '1':
+					ids.append(self.tokenizer.midiseq2_eom_id)
+				continue
+			if line.startswith('@tick'):
+				continue
+			ids.extend(lookup.get(token, self.tokenizer.midiseq2_unknown_id) for token in line.split())
+		return ids
+
+	def _mixed_positions (self, n_source: int, n_target: int) -> List[int]:
+		if self.pos_style == 'flat':
+			return list(range(n_source + 1 + n_target))
+		return list(range(-(n_source + 1), n_target))
+
+	def _describe_mixed_once (self, index: int, rng: random.Random) -> Dict[str, Any]:
+		sample_id = self.names[index]
+		lyl = self._mixed_lilylet_measures(sample_id)
+		midi = self._mixed_midi(sample_id)
+		mapping = self._measure_maps[sample_id]
+		if self.source_format == 'lilylet':
+			a, z = self._mixed_pick(len(lyl), rng)
+			source_numbers = list(range(a + 1, z + 1))
+			wanted = set(source_numbers)
+			played = [i for i, source_number in enumerate(mapping, 1) if source_number in wanted]
+			if not played:
+				raise ValueError(f'{sample_id}: Lilylet crop has no played measures in measures.json')
+			source_body = self.lilylet_tokenizer.encode(''.join(lyl[n - 1] for n in source_numbers))
+			target_body = self._mixed_encode_midi(self._mixed_midi_text(midi, played), True)
+			head = a == 0
+			source_range, target_range = (a, z), (min(played) - 1, max(played))
+		else:
+			a, z = self._mixed_pick(len(mapping), rng)
+			played = list(range(a + 1, z + 1))
+			source_numbers = [mapping[n - 1] for n in played]
+			source_body = self._mixed_encode_midi(self._mixed_midi_text(midi, played), self.source_eom)
+			target_body = self.lilylet_tokenizer.encode(''.join(lyl[n - 1] for n in source_numbers))
+			head = a == 0
+			source_range, target_range = (a, z), (min(source_numbers) - 1, max(source_numbers))
+		source_bos = self.tokenizer.bos_id if self.source_format == 'lilylet' else self.tokenizer.midiseq2_bos_id
+		target_bos = self.tokenizer.bos_id if self.target_format == 'lilylet' else self.tokenizer.midiseq2_bos_id
+		target_eos = self.tokenizer.eos_id if self.target_format == 'lilylet' else self.tokenizer.midiseq2_eos_id
+		source_ids = ([source_bos] if head else []) + source_body
+		target_ids = ([target_bos] if head else []) + target_body + [target_eos]
+		ids = source_ids + [self.tokenizer.sep_id] + target_ids
+		sep = len(source_ids)
+		return dict(name=sample_id, source=midi if self.source_format == 'midiseq2' else lyl,
+			target=midi if self.target_format == 'midiseq2' else lyl, a=a, z=z, jitter=0, skip=0,
+			source_range=source_range, target_range=target_range, ids=ids, sep=sep,
+			positions=self._mixed_positions(len(source_ids), len(target_ids)), head=head,
+			tail=z >= (len(lyl) if self.source_format == 'lilylet' else len(mapping)),
+			pos_bos_on_sep=False, source_measures=source_numbers if self.source_format == 'lilylet' else played,
+			target_measures=played if self.target_format == 'midiseq2' else source_numbers)
+
+	def _describe_mixed (self, index: int) -> Dict[str, Any]:
+		rng = random if self.random_crop else random.Random(self.seed ^ (index * 2654435761))
+		best = None
+		for _ in range(max(1, self.resample_tries)):
+			case = self._describe_mixed_once(index, rng)
+			if best is None or len(case['ids']) < len(best['ids']):
+				best = case
+			if not self.max_tokens or len(case['ids']) <= self.max_tokens:
+				return case
+		return best
 
 	# --- crop selection -------------------------------------------------------------------
 	#
@@ -785,6 +987,8 @@ class Seq2Seq2 (Dataset):
 	# --- item -----------------------------------------------------------------------------
 
 	def describe (self, index: int) -> Dict[str, Any]:
+		if self.mixed:
+			return self._describe_mixed(index)
 		'''The whole crop decision for one sample, ids included.
 
 		`_item` is a thin wrapper over this. Visualization and diagnostics need what the id sequence
