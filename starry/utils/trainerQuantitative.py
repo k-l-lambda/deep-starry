@@ -248,6 +248,33 @@ class Trainer:
 				for k, v in metric.items():
 					metric_data[k] = metric_data[k] + v if k in metric_data else v
 
+				# Diagnostic only, OFF unless STARRY_MEM_TRACE is set. Added to settle why nvidia-smi
+				# shows ~3x what the fixed-shape probe in tests/midi/tune_probe.py reserves, and it did:
+				# print BOTH counters and the answer is visible directly. `peak_alloc` here matches the
+				# probe to within 0.02G (11.15G vs 11.17G at bs 20) -- the real memory requirement is
+				# the same. `reserved` is what diverges: 40.01G, a ratio of 3.59 against peak_alloc,
+				# reached in visible jumps whenever a step brings a T the pool has not served before.
+				# That is caching-allocator FRAGMENTATION, not extra memory in use: variable T means
+				# each new shape carves fresh blocks, and torch never returns a block to the driver, so
+				# the pool converges on the union of shapes instead of the max. The probe hides this by
+				# calling empty_cache() before measuring a single fixed shape, which is why its ratio is
+				# an implausible 1.035 -- so the config memory tables read as a lower bound, not a
+				# footprint. Confirmed by the fix rather than by argument: re-running this exact config
+				# with PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True gives peak_alloc 11.14G and
+				# reserved 11.65G (ratio 1.045), i.e. 40.01G -> 11.65G with the requirement unchanged.
+				# Ruled out along the way, each by separate measurement: the optimizer, the grad-clip
+				# norm, the metric dict, autocast (fp32 here, so a nullcontext), and growth with step
+				# count (flat once the shape distribution is covered).
+				if os.environ.get('STARRY_MEM_TRACE') and n_batch % int(
+						os.environ.get('STARRY_MEM_TRACE_EVERY', 25)) == 0:
+					dev = self.device
+					logging.info('[mem] step %d  T %s  alloc %.2fG  peak_alloc %.2fG  reserved %.2fG  '
+						'peak_reserved %.2fG', n_batch, tuple(batch['input_ids'].shape),
+						torch.cuda.memory_allocated(dev) / 1024 ** 3,
+						torch.cuda.max_memory_allocated(dev) / 1024 ** 3,
+						torch.cuda.memory_reserved(dev) / 1024 ** 3,
+						torch.cuda.max_memory_reserved(dev) / 1024 ** 3)
+
 			stat = self.model.stat if hasattr(self.model, 'stat') else stat_average
 			metrics = stat(metric_data, n_batch)
 			train_loss = total_loss / n_batch
