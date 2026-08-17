@@ -33,17 +33,40 @@ An immediate <eos> at the END of a piece is the correct answer, not a stall: the
 detects that (both halves must agree, so a spurious early end_of_track cannot truncate a file that still
 has source) and ends the run cleanly instead of grinding through the remaining lines producing nothing.
 
-Sizing, measured over 800 crops through the live training config (nota1m-00, mark_mode tick,
-line_range [20,256], pos_style sep):
+Sizing is PER-RUN, not a property of the format: it follows the training config's `line_range`, so the
+right --src-window has to be re-measured for whatever checkpoint you are running. Two runs measured,
+each over ~800 crops through that run's own args (nota1m, mark_mode tick, pos_style sep):
 
-	source half tokens   median 275   p90 490   p99 635   max 1001
-	target half tokens   median 130   p90 270   p99 351   max  468
-	total T              median 409   p90 740   p99 916   max 1037
+	line_range [20,256]                         line_range [64,512]  (20260814 l16d256)
+	  source half   median 275  p99  635         source half   median 598  p90  967  p99 1236  max 1495
+	  target half   median 130  p99  351         target half   median 287  p90  523  p99  738
+	  total T       median 409  p99  916         total T       median 916  p90 1481  p99 1844  max 2022
 
 So `max_tokens: 2048` in the training config is NOT a window size — it is a resample cap on total T
-that essentially never fires. --src-window defaults to 640 (about the trained p99), which puts
-steady-state T at ~961, inside the trained p90-p99 band. A 1024-token source window would exceed the
-longest source half the model has ever seen (1001) and push T past 1400, which training never saw.
+that essentially never fires.
+
+--src-window defaults to 640, which is about the p99 of the FIRST column only. On the l16d256 run it is
+p55, covering just 54.5% of trained source halves, and that under-sizing measurably hurts. Swept with
+tests/midi/translate_accuracy_check.py (10 files, bars 7..18, greedy, e358), onset F1 falls into three
+regimes, with every boundary checked per-file rather than by comparing means:
+
+	480 / 640     0.361 / 0.552   under-sized; tied with each other, both clearly beaten
+	960 / 1260    0.714 / 0.729   THE PLATEAU; tied with each other (median delta 0.000)
+	1500 / 1660   0.388 / 0.167   collapsed
+
+Use 960: it ties 1260 on accuracy while costing 15% less (108 vs 125 s/file). 640 -> 960 is the real
+gain (7/10 files, median +0.157).
+
+The collapse lands exactly at the run's trained MAX source half (1495) — 1500 is the first window
+exceeding every source half the model has seen. Past it the model MISCOUNTS BARS: notes and local
+rhythm survive (pitch F1 still 0.87, and correcting one constant shift recovers e.g. 0.136 -> 0.836)
+but the stream lands whole bars off, with best shifts of +960 (exactly one 2/4 bar), +720, +1680; note
+counts climb 179 -> 239 while bars generated FALL. Not a budget artifact: T at 1500 is 1821, well under
+max_token 2048.
+
+So size the window against the run's own source-half p90..p99 and stay clear of its max. The old "1024
+would exceed anything trained" caution was right in kind but specific to the narrow-crop column — here
+the equivalent ceiling is ~1495, not ~1001.
 
 Two asymmetries with training worth knowing, both deliberate:
 
@@ -51,6 +74,20 @@ Two asymmetries with training worth knowing, both deliberate:
     seam. Training always started a target half fresh at a crop boundary, so a primed target is
     out-of-distribution; it is what keeps successive windows one stream instead of overlapping
     alternatives. Pass --no-prime to fall back to the trained form.
+
+    Measured (l16d256 e358, 10 files, bars 7..18): the prime is ESSENTIAL and its size is nearly
+    irrelevant. --no-prime scores onset F1 0.147 against 0.560 at prime 320 -- worse than any
+    src_window setting, losing 7/10 files, three of them from ~1.0 to ~0.1, with anchors scattering
+    both directions and no stalls. Being out-of-distribution costs far less than not knowing where in
+    the target stream you are. But prime_window 160/240/320 are mutually indistinguishable (every
+    pairwise median delta ~0.00), so the 320 default is already in the flat region and needs no
+    tuning; total spread across 160..740 is 0.085 against src_window's 0.562.
+
+    Above ~520 it degrades (6/10 files worse) because prime_window is a CEILING that only acts when
+    the view exceeds it: primes 520 and 740 produce byte-identical runs on 8/10 files, both meaning
+    "never trim". So the real variable is whether trim_prime fires, not how large the cap is -- and
+    trained target-half statistics are the WRONG yardstick for sizing it, since they describe complete
+    crops rather than mid-stream continuations.
   - A training crop's left edge always landed on an @tick line. Here it lands on an arbitrary line
     boundary, because the production source carries no @measure/@tick at all. That costs nothing in
     the token sequence (with source_eom off the feeder discards both directive kinds on the source
@@ -608,7 +645,8 @@ def main ():
 	ap.add_argument('--max-token', type=int, default=2048,
 		help='total-T ceiling; pass the training max_tokens (default 2048)')
 	ap.add_argument('--src-window', type=int, default=640,
-		help='source-half token budget (default 640, about the trained p99)')
+		help='source-half token budget. 640 suits line_range [20,256] runs; RE-MEASURE per run '
+			'(see module docstring) — on the [64,512] l16d256 run use 960')
 	ap.add_argument('--no-prime', action='store_true',
 		help="don't seed the target half with the previous window's tail (matches training exactly)")
 	ap.add_argument('--prime-window', type=int, default=320,
