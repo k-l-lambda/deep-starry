@@ -133,6 +133,12 @@ def iter_source_windows (source, nominal_lines=256):
 			z = a
 			while z < len(source.marks) and source.marks[z][0] < nominal_end:
 				z += 1
+			# `_bounds(a, z)` treats mark z as an exclusive boundary, and a == 0 is the special
+			# head sentinel. If the first tick itself lies at/after the nominal boundary, using z=0
+			# would make the next crop's a=0 point back at line 0 and stall. Consume that first mark
+			# as part of the initial head range and use the following mark (or EOF) as the boundary.
+			if z == a and a == 0:
+				z = 1
 			end = n_lines if z >= len(source.marks) else source.marks[z][0]
 		yield dict(a=a, z=z, start=start, nominal_end=nominal_end, end=end)
 		if z >= len(source.marks):
@@ -461,8 +467,12 @@ def self_check ():
 	sparse = synthetic_file(700, [(0, 0), (610, 1)])
 	sparse_windows = list(iter_source_windows(sparse, 256))
 	assert sparse_windows[0]['end'] == 610
-	assert sparse_windows[0]['extension_lines'] == 354
+	assert sparse_windows[0]['end'] - sparse_windows[0]['nominal_end'] == 354
 	validate_tiling(sparse, sparse_windows)
+	header = synthetic_file(300, [(149, 0), (260, 1)])
+	header_windows = list(iter_source_windows(header, 128))
+	validate_tiling(header, header_windows)
+	assert header_windows[0]['end'] == 260
 	markless = synthetic_file(31, [])
 	markless_windows = list(iter_source_windows(markless, 256))
 	assert [(w['start'], w['end'], w['a'], w['z']) for w in markless_windows] == [(0, 31, 0, 0)]
