@@ -12,26 +12,38 @@ The mechanic — two windows advancing in lockstep:
 	src_cursor    line cursor into the source file
 
 Each step assembles `src_window <sep> prime`, generates to <eos>, appends every new token to `output`,
-then moves `prime_start` past the first <eom> at or after it — the measure that rolls out of the view
-is final. Both windows' left edges therefore advance one measure per step:
+then moves `prime_start` to at least `--advance-tokens` target tokens ahead, rounding the cut upward to
+ the next complete `<eom>` measure boundary. The internal safety ceiling can retire more old measures if
+the retained primer grows too large.
 
 	step0   src[bars 1-6]  <sep> (empty)      -> generates bars 1-6   (~320 tok)
-	step1   src[bars 2-7]  <sep> prime[2-6]   -> generates bar 7      (~64 tok)
+	step1   src[bars 2-7]  <sep> prime[2-6]   -> generates bar 7      (~64 tok)  [default stride]
 	step2   src[bars 3-8]  <sep> prime[3-7]   -> generates bar 8
 
-In steady state each step finalizes one measure and generates one, so the cost is ~one measure of
-decoding per measure of output rather than a full re-generation per window.
+The default stride is one target token, rounded to the next `<eom>`; larger `--advance-tokens` values
+request a farther target cut and reduce the number of decoder windows at the cost of a larger jump between
+source/target views.
 
-The view has to be CAPPED (--prime-window, default 320), because a step can generate several measures
-while only one rolls out, so the view grows. Left alone it leaves the trained distribution and the model
-simply stops: observed at prime 432 (trained target halves are median 130, p99 351, max 468), where
-<eos> came out with logit 13.16 against 7.71 for the next-best token — from the model's point of view a
-target half that long is already finished. `trim_prime` rolls whole extra measures out to keep it in band.
+The view has to stay within the trained target-half distribution. Its movement is controlled explicitly by
+--advance-tokens (default 1 target token): each step requests at least that many tokens from the target
+view, then rounds the cut upward to the next complete `<eom>` measure. This is deliberately a movement
+parameter, not a retention-cap parameter. An internal safety cap trims an overgrown primer only when the
+model emits more than the trained context can hold; it is not the user-facing stride control.
+
+The FIRST token of every step has <eos> masked out of its logits, so no step can return empty. An empty
+step is the one thing the loop cannot use: no <eom> to advance past, no onsets to move the source cursor
+by, so it falls through to the anti-stall fallbacks and advances by something unrelated to the music.
 
 An immediate <eos> at the END of a piece is the correct answer, not a stall: the source window ends in
-`end_of_track`, the output already carries one, and there is nothing left to translate. `finished`
-detects that (both halves must agree, so a spurious early end_of_track cannot truncate a file that still
-has source) and ends the run cleanly instead of grinding through the remaining lines producing nothing.
+`end_of_track`, the output already carries one, and there is nothing left to translate. Since the mask
+means a finished step no longer shows up as an empty one, `finished` is keyed on the model HAVING WANTED
+<eos> (both halves must still agree, so a spurious early end_of_track cannot truncate a file that still
+has source) and ends the run cleanly instead of grinding through the remaining lines.
+
+The mask is reported, never silent: `stats['eos_forced']` counts every step it fired on and `stalls`
+counts the mid-piece subset. A mid-piece override means the model wanted to stop and was overruled --
+usually the primer having grown out of band -- so a high count is a defect to chase, not a run that
+went well.
 
 Sizing is PER-RUN, not a property of the format: it follows the training config's `line_range`, so the
 right --src-window has to be re-measured for whatever checkpoint you are running. Two runs measured,
@@ -79,9 +91,10 @@ Two asymmetries with training worth knowing, both deliberate:
     irrelevant. --no-prime scores onset F1 0.147 against 0.560 at prime 320 -- worse than any
     src_window setting, losing 7/10 files, three of them from ~1.0 to ~0.1, with anchors scattering
     both directions and no stalls. Being out-of-distribution costs far less than not knowing where in
-    the target stream you are. But prime_window 160/240/320 are mutually indistinguishable (every
-    pairwise median delta ~0.00), so the 320 default is already in the flat region and needs no
-    tuning; total spread across 160..740 is 0.085 against src_window's 0.562.
+    the target stream you are. But prime_window 160/240/320 were mutually indistinguishable (every
+    pairwise median delta ~0.00) in that sweep; the current default is 2048 so ordinary generated
+    blocks are not aggressively trimmed. Re-measure if the checkpoint or generation ceiling changes;
+    total spread across 160..740 was 0.085 against src_window's 0.562.
 
     Above ~520 it degrades (6/10 files worse) because prime_window is a CEILING that only acts when
     the view exceeds it: primes 520 and 740 produce byte-identical runs on 8/10 files, both meaning
@@ -625,7 +638,7 @@ class AttentionInspector:
 		# they are the same boundary only in the sense that one follows the other, and this window's start
 		# is by construction the leftmost note drawn, so marking it would put a line at x=0 that says
 		# nothing. The previous window's END falls INSIDE this one -- that is the overlap the sliding
-		# window depends on, and it is worth seeing.
+		# window depends on, it is worth seeing, and the figure also PINS the output lane to it.
 		prev = self.windows.get(step - 1)
 		self.windows[step] = dict(
 			src_orders=[e['order'] for e in key_events],
@@ -817,7 +830,7 @@ class SlidingTranslator:
 
 	def __init__ (self, model, tokenizer, pos_style='sep', src_window=640, max_token=2048,
 		device='cpu', prime=True, temperature=0.0, top_k=0, top_p=1.0, source_eom=False,
-		prime_window=320):
+		advance_tokens=1, prime_window=2048):
 		self.model = model
 		self.tk = tokenizer
 		self.pos_style = pos_style
@@ -825,10 +838,11 @@ class SlidingTranslator:
 		self.max_token = max_token
 		self.device = torch.device(device)
 		self.prime = prime
-		# Cap on the target-half view. Trained target halves run median 130 / p99 351 / max 468, and a
-		# prime past that reads to the model as an already-finished target: at 432 it emitted <eos>
-		# immediately and the run stalled. 320 keeps the view inside the trained band with room for the
-		# measure being generated.
+		self.advance_tokens = max(1, int(advance_tokens))
+		# Safety ceiling on the target-half view. This is separate from the user-facing stride: the model can
+		# generate several measures in one step, so the retained primer may grow beyond its trained context.
+		# The ceiling trims that accidental growth; it does not determine how many measures we intentionally
+		# advance per step.
 		self.prime_window = prime_window
 		# mirrors the feeder's source_eom: whether @measure becomes <eom> on the SOURCE half
 		self.source_eom = source_eom
@@ -875,18 +889,38 @@ class SlidingTranslator:
 
 	@torch.no_grad()
 	def generate (self, prefix_ids, prefix_positions, temperature, top_k, top_p):
-		'''Autoregressive continuation to <eos> or the max_token ceiling. Returns new ids only.
+		'''Autoregressive continuation to <eos> or the max_token ceiling. Returns (new ids, eos_forced).
 
 		The <eos> is NOT included in the return: it terminates this window, but the output stream is
 		one continuous piece of music, so an <eos> in the middle of it would be a stray token.
+
+		The FIRST token of a step has <eos> masked out of the logits, so every step emits at least one
+		token. Without it a step could return nothing at all, and an empty step is the one thing this
+		loop cannot use: it has no <eom> to advance past and no onsets to move the source cursor by, so
+		the run leans entirely on the anti-stall fallbacks to make any progress.
+
+		Reported, not hidden. The mask changes what the model was going to do, so `eos_forced` says it
+		happened and the caller counts it. A step that wanted <eos> immediately is usually the primer
+		having grown outside the trained band (see trim_prime), and masking makes the run continue rather
+		than making that condition go away -- so a high forced count is evidence to act on, not a
+		success. The mask applies ONLY to the first position; from the second token on, <eos> ends the
+		window normally.
 		'''
 		ids = list(prefix_ids)
 		positions = list(prefix_positions)
 		out = []
+		forced = False
 		while len(ids) < self.max_token:
 			window = torch.tensor([ids], dtype=torch.long, device=self.device)
 			pos = torch.tensor([positions], dtype=torch.long, device=self.device)
 			logits = self.model(window, None, pos)[0, -1, :]
+			if not out:
+				# -inf, not a small penalty: the observed degenerate case had <eos> at logit 13.16
+				# against 7.71 for next-best, which any finite margin would have to be tuned against.
+				# Cloned so the mask cannot leak into anything holding this tensor.
+				logits = logits.clone()
+				forced = bool(logits.argmax().item() == self.tk.eos_id)
+				logits[self.tk.eos_id] = float('-inf')
 			nxt = (int(logits.argmax().item()) if not temperature
 				else sample_next(logits, temperature=temperature, top_k=top_k, top_p=top_p))
 			if nxt == self.tk.eos_id:
@@ -894,30 +928,33 @@ class SlidingTranslator:
 			out.append(nxt)
 			ids.append(nxt)
 			positions.append(positions[-1] + 1)
-		return out
+		return out, forced
 
 	# --- advancing -----------------------------------------------------------------------
 
 	def advance_output (self, output, prime_start):
-		'''Move the view's left edge one measure. Returns the new prime_start.
+		'''Move the view at least `advance_tokens` target tokens, then round upward to the next `<eom>`.
 
-		One measure = up to and including the first <eom> at or after prime_start. With no <eom> in the
-		view, fall back to half the CURRENT TARGET WINDOW — len(output[prime_start:]) // 2, i.e. the
-		whole target region the model saw this step, not just the newly generated part.
-
-		Guarantees forward motion of at least one token whenever the view is non-empty, so the loop
-		cannot stall on a window that generated nothing and holds no <eom>.
+		The threshold is measured only in the generated target stream: first choose `prime_start +
+		advance_tokens`, then scan forward to the first complete measure boundary and return the token
+		immediately after that `<eom>`. Thus actual movement is never less than requested unless output ends.
+		If no boundary exists after the threshold, advance to the available threshold; an empty view does not
+		move.
 		'''
-		for i in range(prime_start, len(output)):
+		span = len(output) - prime_start
+		if span <= 0:
+			return prime_start
+		threshold = min(len(output), prime_start + self.advance_tokens)
+		for i in range(threshold, len(output)):
 			if output[i] == self.tk.eom_id:
 				return i + 1
-		span = len(output) - prime_start
-		return prime_start + max(1, span // 2) if span else prime_start
+		# No complete boundary after the requested threshold: move by the available token distance.
+		return threshold
 
 	def trim_prime (self, output, prime_start):
-		'''Roll extra measures out of the view until the prime fits prime_window. Returns prime_start.
+		'''Apply the internal target-view safety ceiling, independently of the public stride.
 
-		Necessary because one step can generate far more than one measure while advance_output rolls
+		Necessary because one step can generate far more than the requested stride while advance_output rolls
 		out exactly one, so the view GROWS. Left alone it walks out of the trained distribution and the
 		model stops: observed at prime 432 (trained target halves are median 130, p99 351, max 468),
 		where the model emitted <eos> immediately with logit 13.16 against 7.71 for the next-best token
@@ -989,6 +1026,7 @@ class SlidingTranslator:
 		cursor = 0
 		step = 0
 		stalls = 0
+		forced = 0			# steps whose first token was <eos> before the mask removed it
 		done = False
 		start_time = time.time()
 
@@ -1005,25 +1043,33 @@ class SlidingTranslator:
 					f'nothing left to generate; stopping')
 				break
 
-			new_ids = self.generate(prefix, positions, self.temperature, self.top_k, self.top_p)
+			new_ids, eos_forced = self.generate(prefix, positions, self.temperature, self.top_k,
+				self.top_p)
 			out_base = len(output)		# before the extend: maps a new_ids offset onto the output stream
 			output.extend(new_ids)
 			step_prime_start = prime_start
-			if not new_ids:
-				# An immediate <eos> is the RIGHT answer once the piece is over: the source window ends
-				# in end_of_track and the output already carries one, so there is nothing left to
-				# translate. Stopping here (rather than grinding through the remaining source lines
-				# producing nothing) is what makes the run end cleanly. Only count it as a stall when
-				# the music is NOT finished, which is the case worth warning about.
+			forced += eos_forced
+			# An immediate <eos> is the RIGHT answer once the piece is over: the source window ends in
+			# end_of_track and the output already carries one, so there is nothing left to translate.
+			# Stopping here (rather than grinding through the remaining source lines producing nothing) is
+			# what makes the run end cleanly.
+			#
+			# The first-token mask means new_ids is never empty, so this can no longer be reached by
+			# testing for an empty step -- it is keyed on the model HAVING WANTED <eos> instead. Without
+			# this the end-of-piece stop would be unreachable and every finished run would grind to EOF
+			# emitting whatever the mask forced out of it.
+			if eos_forced:
 				if self.finished(output, src_ids):
 					done = True
 					break
+				# not finished: the model wanted to stop early and was overridden. Counted as a stall
+				# because that is what it is -- a step that produced only because it was made to.
 				stalls += 1
 
 			before = prime_start
 			prime_start = self.advance_output(output, prime_start)
-			# a step can generate several measures while only one rolls out, so the view grows; trim it
-			# back into the trained band or the model starts answering <eos> immediately
+			# A step can generate several measures while the requested stride rolls out only some of them;
+			# the internal safety ceiling may retire additional old measures to keep the primer in-band.
 			prime_start = self.trim_prime(output, prime_start)
 			rolled = output[before:prime_start]
 			onsets = count_note_on(rolled, self.tk)
@@ -1045,11 +1091,13 @@ class SlidingTranslator:
 				print(f'  step {step:4d}  src[{src_before}:{cursor}] {len(src_ids):5d} tok  '
 					f'prime {len(prime_ids):5d}  gen {len(new_ids):5d}  '
 					f'rolled {len(rolled):4d} tok / {onsets:3d} onsets  '
-					f'out {len(output):7d}  T {len(prefix) + len(new_ids):5d}')
+					f'out {len(output):7d}  T {len(prefix) + len(new_ids):5d}'
+					f'{"  <eos> forced" if eos_forced else ""}')
 			step += 1
 
 		stats = dict(steps=step, output_tokens=len(output), source_lines=len(lines),
-			consumed_lines=cursor, stalls=stalls, done=done, elapsed=time.time() - start_time)
+			consumed_lines=cursor, stalls=stalls, eos_forced=forced, done=done,
+			elapsed=time.time() - start_time)
 		return output, stats
 
 
@@ -1113,7 +1161,13 @@ def report_output (body_lines, stats):
 	if measures and measures != list(range(1, 1 + len(measures))):
 		print(f'[warn] measure numbers not contiguous from 1: {measures[:12]}...')
 	if stats['stalls']:
-		print(f'[warn] {stats["stalls"]} step(s) generated nothing mid-piece (forced advance)')
+		print(f'[warn] {stats["stalls"]} step(s) wanted <eos> mid-piece and were overridden by the '
+			f'first-token mask')
+	if stats.get('eos_forced'):
+		# Includes the final end-of-piece step, which is legitimate; stalls counts only the mid-piece
+		# ones. The gap between the two numbers is how many overrides were the run ending normally.
+		print(f'[info] first-token <eos> mask fired on {stats["eos_forced"]} step(s) '
+			f'({stats["stalls"]} mid-piece)')
 	consumed, total = stats['consumed_lines'], stats['source_lines']
 	# reaching end_of_track before the last source line is normal: the tail of a source file is its own
 	# note_off/end_of_track run, which the model translates in one window rather than one per line.
@@ -1307,7 +1361,8 @@ def plot_attention_step (pairs, window, step, path, threshold, subtitle=''):
 	Both lanes carry dashed window cuts, and each names a specific boundary:
 
 		source  prev    where the PREVIOUS window ended -- it falls inside this one, and the material left
-		                of it is the overlap the two windows share
+		                of it is the overlap the two windows share. Also the ANCHOR: see the x-axis note
+		                below, where the output lane is pinned to it
 		source  next    where the NEXT window starts; everything right of it is about to be re-read
 		output  prev    where this step's primer began, i.e. what the previous slide rolled into view
 		output  next    where the next step's view starts; generated notes left of it will have rolled out
@@ -1315,21 +1370,40 @@ def plot_attention_step (pairs, window, step, path, threshold, subtitle=''):
 	A boundary that does not exist (no previous window on step 0, no next at the last step) draws no line
 	rather than a line at the edge, so a mark is always a real slide.
 
-	Each lane's x=0 is the leftmost note IT DRAWS, so on the output lane that is the primer's first note.
-	This is what aligns the two panels: the source cursor advances by exactly the notes that roll OUT of the
-	primer, so the window's first source note and the primer's first note are the same musical position.
+	How the two lanes are put on one x axis. The source lane always spans 0..1 over its own window. The
+	output lane is then placed by TWO PINS, which is exactly enough to fix an affine map -- offset and scale
+	both, with nothing arbitrary left to choose:
 
-	Why normalise x per sequence. The two streams do not share a tick origin -- the irregular source
-	carries rubato while the score output is quantised, so they sit a few hundred ticks apart before
+		left pin    the leftmost note the output lane DRAWS -- the primer's first, when there is a primer --
+		            lands on x=0, where the source window's first note is
+		cut pin     the step's FIRST GENERATED note lands on the source lane's `prev cut`, the position the
+		            previous window ended at and where this step's generation picks up
+
+	Both are real correspondences rather than conveniences. The primer IS this step's output for the overlap
+	region: the stretch of source left of `prev cut` that this window shares with the previous one. So the
+	pins say "the overlap lines up, and so does the handover", and everything right of the cut -- the part
+	this step actually produced -- is then read in units of that overlap.
+
+	The RIGHT ends therefore do not line up, and are not meant to: how far past the cut the generated block
+	runs is how much this step produced, and a step that ran long draws long. The span ratio in the title is
+	the same quantity in numbers.
+
+	Degeneracies fall back instead of dividing by zero or inverting the axis. With no primer, or an anchor at
+	or left of x=0, the left pin has nothing to fix or would demand a non-positive scale: the cut pin is kept
+	(it is the more specific claim) and the scale is borrowed from the source lane. With no `prev cut` or no
+	generated notes at all -- step 0 -- there is no correspondence to assert and the lane normalises over its
+	own extent from x=0. The x label names which of the three is in force.
+
+	Why not one absolute tick axis for both. The two streams do not share a tick origin -- the irregular
+	source carries rubato while the score output is quantised, so they sit a few hundred ticks apart before
 	attention enters (measured: an identity gen#i<->src#i mapping already shows a +246 median offset).
-	Plotting both on one absolute axis makes every link lean by that offset, which looks like a finding
-	and is not. Normalising each to its own extent removes it.
+	Plotting both on raw ticks makes every link lean by that offset, which looks like a finding and is not.
+	The pins remove the offset by construction.
 
-	What that costs, stated plainly: normalisation is affine per sequence, so it DISCARDS absolute tempo
-	and length disagreement. A step whose output runs half the source's duration is stretched to fit and
-	its links look well-placed. That is not hypothetical -- measured on one file, steps 2 and 3 ran 0.50x
-	and 0.58x of their source window's duration. So the span ratio is printed in the title and reported
-	in text by plot_attention; read it before reading the links.
+	What the earlier per-lane normalisation cost, and this no longer does: it stretched each lane to its OWN
+	extent, so the output was fitted to the same width as the source no matter how much or little it had
+	generated -- a step whose output ran half the source window's duration looked well-placed. Measured on one
+	file, steps 2 and 3 ran 0.50x and 0.58x. Under the pins that difference is on the figure.
 	'''
 	import matplotlib
 	matplotlib.use('Agg')					# file output only; no display on a training box
@@ -1345,18 +1419,50 @@ def plot_attention_step (pairs, window, step, path, threshold, subtitle=''):
 		ons = [e['onset'] for e in events]
 		return (min(ons), max(ons)) if ons else (0, 0)
 
-	# x=0 is the leftmost note the lane DRAWS, which on the output side means the primer's first note when
-	# there is a primer. That is what makes the two lanes comparable: the source cursor advances by the
-	# notes that roll OUT of the primer, so the window's first source note and the primer's first note are
-	# the same musical position. Rebasing on the step's own first generated note instead -- as this did
-	# earlier -- put the two lanes' origins a whole primer apart and leaned every link by that much.
 	src_lo, src_hi = extent(src)
 	out_lo, out_hi = extent(list(prime) + list(out))
+	gen_lo = extent(out)[0]					# the cut pin's note; only meaningful when `out` is non-empty
 
-	def norm (v, lo, hi):
+	def norm_s (tick):
 		# a degenerate extent (one note, or all notes on one tick) has no meaningful position: centre it
 		# rather than dividing by zero
-		return 0.5 if hi <= lo else (v - lo) / (hi - lo)
+		return 0.5 if src_hi <= src_lo else (tick - src_lo) / (src_hi - src_lo)
+
+	# The output lane is placed by TWO pins, which is exactly enough to fix an affine map -- offset and scale
+	# both, with nothing left over to choose:
+	#
+	#	left    the leftmost note the lane draws (the primer's first, when there is a primer) lands on x=0,
+	#	        where the source window's first note is
+	#	cut     the first GENERATED note lands on the source's `prev cut`, where this step picks up
+	#
+	# Both are real correspondences, not conveniences: the primer IS the output for the overlap region, the
+	# stretch of source left of `prev cut` that this window shares with the previous one. So the two pins say
+	# "the overlap lines up and the handover lines up", and the generated block's width is then read in units
+	# of that overlap.
+	#
+	# Degeneracies fall back rather than divide by zero or invert the axis. No primer (or a primer starting on
+	# the first generated tick) leaves nothing to pin the left edge with, and an anchor at or left of x=0
+	# would need a zero or negative scale: in both cases the cut pin is kept -- it is the more specific claim
+	# -- and the scale is borrowed from the source lane. With no cut or no generated note at all (step 0)
+	# there is no correspondence to assert, so the lane normalises over its own extent.
+	anchor_tick = cuts.get('src_prev')
+	anchor_x = norm_s(anchor_tick) if anchor_tick is not None else None
+	can_anchor = anchor_x is not None and bool(out) and src_hi > src_lo
+	if can_anchor and gen_lo > out_lo and anchor_x > 1e-9:
+		align = 'two-pin'
+		o_gain = anchor_x / (gen_lo - out_lo)
+		o_base, o_base_x = out_lo, 0.0
+	elif can_anchor:
+		align = 'cut'
+		o_gain = 1.0 / (src_hi - src_lo)		# x per output tick == x per source tick
+		o_base, o_base_x = gen_lo, anchor_x
+	else:
+		align = 'extent'
+		o_gain = 0.0 if out_hi <= out_lo else 1.0 / (out_hi - out_lo)
+		o_base, o_base_x = out_lo, (0.5 if out_hi <= out_lo else 0.0)
+
+	def norm_o (tick):
+		return o_base_x + (tick - o_base) * o_gain
 
 	# hspace is set AFTER tight_layout, not here: tight_layout computes spacing itself and warns that
 	# results may be incorrect when hspace has been pinned in gridspec_kw.
@@ -1370,22 +1476,35 @@ def plot_attention_step (pairs, window, step, path, threshold, subtitle=''):
 	p_lo, p_hi = (min(pitches), max(pitches)) if pitches else (60, 61)
 	pad = max(2, (p_hi - p_lo) * 0.08)
 
-	# The output lane now starts at its primer, so its own material never goes negative -- but the SOURCE
-	# lane's previous cut still can, since that cut is the previous window's end and this window may start
-	# after it. Both panels get the SAME limits: the two lanes are each normalised to their own ticks, and a
-	# link is only readable as vertical if equal normalised positions land at equal screen positions.
-	left = [0.0]
-	left += [norm(e['onset'], out_lo, out_hi) for e in prime]
-	for key, lo, hi in (('src_prev', src_lo, src_hi), ('out_prev', out_lo, out_hi)):
+	# Limits come from everything actually DRAWN on either lane, not from a fixed 0..1. With the anchor the
+	# output lane can start left of 0 (its primer runs back from the anchor) and end right of 1 (a generated
+	# block longer in ticks than the source window), and a note outside the limits is a note silently dropped
+	# from a figure whose title still counts it. Both panels get the SAME limits: equal x must be equal
+	# screen position or a same-position link stops reading as vertical.
+	xs = [0.0, 1.0]
+	xs += [norm_s(e['onset']) for e in src]
+	xs += [norm_o(e['onset']) for e in list(prime) + list(out)]
+	for key, fn in (('src_prev', norm_s), ('src_next', norm_s),
+			('out_prev', norm_o), ('out_next', norm_o)):
 		if cuts.get(key) is not None:
-			left.append(norm(cuts[key], lo, hi))
-	x_lo = max(-2.5, min(left)) - 0.03		# clamped: a very long primer would squash the step to nothing
-	# Ticks step by 0.25 across whatever range is visible. Negative fractions are labelled by the same
-	# affine map, so they read as the real ticks of the material before the window -- which is what the
-	# primer and the previous cut are.
-	fracs = [f / 4 for f in range(int(math.floor(x_lo * 4)) + 1, 5)]
+			xs.append(fn(cuts[key]))
+	# `<eom>` deliberately does NOT vote. Bar lines are minor gridlines and already skip themselves when out of
+	# range, so letting one distant boundary widen the axis would shrink the notes for a line that is not even
+	# drawn -- measured: a single out-of-range <eom> stretched the limits from -0.36..1.03 to -3.53..4.53.
+	# Clamped: one far-out cut or a very long primer would otherwise squash the step itself to nothing. What
+	# falls outside is counted into the title rather than quietly discarded.
+	x_lo = max(-3.5, min(xs)) - 0.03
+	x_hi = min(4.5, max(xs)) + 0.03
+	# Ticks step by a round fraction across whatever range is visible, coarsening as the range widens so the
+	# labels stay readable. Fractions outside 0..1 are labelled by the same affine maps, so they read as the
+	# real ticks of the material before and after the window.
+	span_x = x_hi - x_lo
+	tick_step = 0.25 if span_x <= 2.2 else (0.5 if span_x <= 4.5 else 1.0)
+	n_lo = int(math.ceil(x_lo / tick_step))
+	n_hi = int(math.floor(x_hi / tick_step))
+	fracs = [n * tick_step for n in range(n_lo, n_hi + 1)]
 	for ax in (ax_s, ax_o):
-		ax.set_xlim(x_lo, 1.03)
+		ax.set_xlim(x_lo, x_hi)
 		ax.set_ylim(p_lo - pad, p_hi + pad)
 		ax.set_xticks(fracs)
 		ax.set_ylabel('pitch')
@@ -1406,14 +1525,26 @@ def plot_attention_step (pairs, window, step, path, threshold, subtitle=''):
 	for side in ('top', 'left'):
 		ax_s.spines[side].set_color(SRC_COLOR)
 
-	ax_o.set_xticklabels([f'{out_lo + f * (out_hi - out_lo):.0f}' for f in fracs])
-	ax_o.set_xlabel(f'generated onset (ticks {out_lo}..{out_hi}, normalised)', color=OUT_COLOR)
+	# Labels INVERT norm_o rather than re-deriving a map of their own. Two expressions for one placement is one
+	# too many: they only have to disagree once for the axis to be labelled with ticks the notes above it do
+	# not have.
+	def unnorm_o (x):
+		return o_base if not o_gain else o_base + (x - o_base_x) / o_gain
+
+	ax_o.set_xticklabels([f'{unnorm_o(f):.0f}' for f in fracs])
+	ax_o.set_xlabel(
+		f'generated onset (ticks {out_lo}..{out_hi}'
+		+ (f', {out_lo} pinned to source start and first generated {gen_lo} to prev cut @{anchor_tick})'
+			if align == 'two-pin' else
+			f', first generated {gen_lo} pinned to prev cut @{anchor_tick}, source scale)'
+			if align == 'cut' else ', normalised)'),
+		color=OUT_COLOR)
 	ax_o.tick_params(axis='x', colors=OUT_COLOR)
 	for side in ('bottom', 'left'):
 		ax_o.spines[side].set_color(OUT_COLOR)
 
 	if src:
-		ax_s.scatter([norm(e['onset'], src_lo, src_hi) for e in src], [e['pitch'] for e in src],
+		ax_s.scatter([norm_s(e['onset']) for e in src], [e['pitch'] for e in src],
 			s=26, marker='o', c=SRC_COLOR, edgecolors='white', linewidths=0.4,
 			label=f'source note_on ({len(src)})', zorder=4)
 		ax_s.legend(loc='upper right', fontsize=8, framealpha=0.9)
@@ -1422,11 +1553,11 @@ def plot_attention_step (pairs, window, step, path, threshold, subtitle=''):
 	# earlier steps as context (hollow squares). Shape carries the distinction, not just colour, so it
 	# survives greyscale and colour-blind viewing.
 	if prime:
-		ax_o.scatter([norm(e['onset'], out_lo, out_hi) for e in prime], [e['pitch'] for e in prime],
+		ax_o.scatter([norm_o(e['onset']) for e in prime], [e['pitch'] for e in prime],
 			s=26, marker='s', facecolors='none', edgecolors=OUT_COLOR, linewidths=0.7, alpha=0.65,
 			label=f'primer note_on ({len(prime)})', zorder=3)
 	if out:
-		ax_o.scatter([norm(e['onset'], out_lo, out_hi) for e in out], [e['pitch'] for e in out],
+		ax_o.scatter([norm_o(e['onset']) for e in out], [e['pitch'] for e in out],
 			s=30, marker='v', c=OUT_COLOR, edgecolors='white', linewidths=0.4,
 			label=f'generated note_on ({len(out)})', zorder=4)
 	# ax_o's legend is built AFTER the <eom> lines below, so the bar-line entry can be in it.
@@ -1436,14 +1567,14 @@ def plot_attention_step (pairs, window, step, path, threshold, subtitle=''):
 	# to be re-read by the following window, and the primer to the left of 0 is what that window will
 	# carry over. A cut outside the drawn range is skipped rather than clamped, which would put it at a
 	# tick it does not belong to.
-	for ax, keys, lo, hi in ((ax_s, ('src_prev', 'src_next'), src_lo, src_hi),
-			(ax_o, ('out_prev', 'out_next'), out_lo, out_hi)):
+	for ax, keys, fn in ((ax_s, ('src_prev', 'src_next'), norm_s),
+			(ax_o, ('out_prev', 'out_next'), norm_o)):
 		for key, style in zip(keys, ('prev', 'next')):
 			tick = cuts.get(key)
 			if tick is None:
 				continue					# no such neighbour (first or last step), so nothing to mark
-			x = norm(tick, lo, hi)
-			if not (x_lo <= x <= 1.03):
+			x = fn(tick)
+			if not (x_lo <= x <= x_hi):
 				continue
 			ax.axvline(x, color='#6a6a6a', lw=1.0, ls=(0, (4, 3)) if style == 'prev' else (0, (1, 2)),
 				alpha=0.75, zorder=5)
@@ -1457,8 +1588,8 @@ def plot_attention_step (pairs, window, step, path, threshold, subtitle=''):
 	# the tick axis already gives the position.
 	seen = set()
 	for tick in sorted(window.get('eoms') or []):
-		x = norm(tick, out_lo, out_hi)
-		if not (x_lo <= x <= 1.03):
+		x = norm_o(tick)
+		if not (x_lo <= x <= x_hi):
 			continue
 		key = round(x, 4)
 		if key in seen:					# two boundaries on one tick would just thicken the same line
@@ -1498,8 +1629,8 @@ def plot_attention_step (pairs, window, step, path, threshold, subtitle=''):
 			alpha *= 0.7				# recessive: context-reading is the secondary claim on this figure
 		alpha = max(MIN_LINK_ALPHA, alpha)
 		link = ConnectionPatch(
-			xyA=(norm(p['src_onset'], src_lo, src_hi), p['src_pitch']), coordsA=ax_s.transData,
-			xyB=(norm(p['out_onset'], out_lo, out_hi), p['out_pitch']), coordsB=ax_o.transData,
+			xyA=(norm_s(p['src_onset']), p['src_pitch']), coordsA=ax_s.transData,
+			xyB=(norm_o(p['out_onset']), p['out_pitch']), coordsB=ax_o.transData,
 			color=PRIME_LINK_COLOR if prime_link else '#3a3a3a',
 			lw=(0.3 + 0.9 * w) if weak else (0.4 + 1.8 * w), alpha=alpha,
 			linestyle=((0, (5, 2)) if prime_link else (0, (1, 3)) if weak else '-'), zorder=2)
@@ -1509,12 +1640,12 @@ def plot_attention_step (pairs, window, step, path, threshold, subtitle=''):
 		link.set_clip_on(False)
 		ax_s.add_artist(link)
 	lo_line, hi_line = window['lines']
-	# The span ratio is precisely what normalisation divides out, so name it: at 1.0 the two sequences
-	# cover equal durations and horizontal positions are directly comparable; far from 1.0 the figure is
-	# stretching one lane to match the other, and a well-placed-looking link may only be well-placed
-	# after that stretch.
-	# From span_ratio, NOT from the drawn extents: the output lane's extent now includes the primer, and the
-	# ratio is a claim about what this step GENERATED against the source window it read. Computing it from
+	# The span ratio is the number behind what the pins make visible: how far past the cut the generated block
+	# runs is how much this step produced. Kept in the title because on an unpinned step (no prev cut) the lane
+	# is still normalised to its own extent and the width says nothing -- and because "roughly this wide" is
+	# not the same as 0.50x.
+	# From span_ratio, NOT from the drawn extents: the output lane's extent includes the primer, and the ratio
+	# is a claim about what this step GENERATED against the source window it read. Computing it from
 	# out_hi - out_lo would silently start measuring primer + generated and disagree with the text report.
 	ratio = span_note(window)
 	# Counted honestly: solid links cleared the threshold, dotted ones are per-note fallbacks. Reporting a
@@ -1523,8 +1654,15 @@ def plot_attention_step (pairs, window, step, path, threshold, subtitle=''):
 	counts = (f'{n_strong} link(s) >= {threshold}'
 		+ (f' + {n_weak} fallback' if n_weak else '')
 		+ (f' + {n_prime} primer' if n_prime else ''))
+	# Notes the clamped limits pushed off the canvas. Named in the title because the legend still counts them:
+	# a figure whose caption says 40 notes while 6 are outside the axes is a figure lying about its own
+	# contents, and the clamp exists precisely so one outlier cannot squash the rest.
+	off = sum(1 for x in ([norm_s(e['onset']) for e in src]
+			+ [norm_o(e['onset']) for e in list(prime) + list(out)])
+		if not (x_lo <= x <= x_hi))
 	fig.suptitle(f'step {step}  source lines [{lo_line}:{hi_line}]  '
-		f'{counts}  peak {peak:.3f}  {ratio}{subtitle}', fontsize=10)
+		f'{counts}  peak {peak:.3f}  {ratio}'
+		f'{f"  {off} note(s) off-range" if off else ""}{subtitle}', fontsize=10)
 	# ConnectionPatch resolves its endpoints from the axes' transData at DRAW time, so laying out after
 	# adding the links is safe: the segments follow the panels wherever tight_layout puts them.
 	fig.tight_layout(rect=(0, 0.01, 1, 0.93))
@@ -1556,10 +1694,10 @@ def span_note (window):
 def report_spans (windows, by_step, threshold=None):
 	'''Per-step span ratios, as text beside the figures.
 
-	The figures normalise each sequence to its own extent, which is what makes links readable but also
-	DIVIDES OUT duration disagreement. This table puts the divided-out factor back on the record: a ratio
-	far from 1.0 means the step's output covered a different duration than the source window it was
-	translating, i.e. accumulated bar-length error, which is invisible in the normalised picture.
+	A ratio far from 1.0 means the step's output covered a different duration than the source window it was
+	translating, i.e. accumulated bar-length error. The figures place the output lane by two pins rather than
+	stretching it to its own extent, so this is visible there as the generated block's width -- but only on a
+	pinned step, and only to the eye. The table states it in numbers for every step, pinned or not.
 	'''
 	print('[attn] per-step span (generated ticks / source ticks — 1.0 = equal duration):')
 	for step in sorted(windows):
@@ -1627,8 +1765,10 @@ def main ():
 			'(see module docstring) — on the [64,512] l16d256 run use 960')
 	ap.add_argument('--no-prime', action='store_true',
 		help="don't seed the target half with the previous window's tail (matches training exactly)")
-	ap.add_argument('--prime-window', type=int, default=320,
-		help='cap on the target-half view; past ~430 the model answers <eos> at once (default 320)')
+	ap.add_argument('--advance-tokens', type=int, default=1,
+		help='minimum target tokens retired per step, rounded up to the next <eom> (default 1)')
+	ap.add_argument('--prime-window', type=int, default=2048,
+		help='internal target-view safety ceiling in tokens; not the step stride (default 2048)')
 	ap.add_argument('--max-steps', type=int, default=0, help='stop after N windows (0 = whole file)')
 	ap.add_argument('--temperature', type=float, default=0.0, help='0 = greedy argmax')
 	ap.add_argument('--top-k', type=int, default=0)
@@ -1694,7 +1834,8 @@ def main ():
 	translator = SlidingTranslator(model, tokenizer, pos_style=pos_style,
 		src_window=args.src_window, max_token=args.max_token, device=args.device,
 		prime=not args.no_prime, temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
-		source_eom=bool(data_args.get('source_eom')), prime_window=args.prime_window)
+		source_eom=bool(data_args.get('source_eom')), advance_tokens=args.advance_tokens,
+		prime_window=args.prime_window)
 
 	# The output path has to be settled BEFORE translate runs, because the streaming figures are named
 	# from it and are written while the loop is still going.
@@ -1739,7 +1880,7 @@ def main ():
 				json.dump(dict(input=args.input, checkpoint=checkpoint,
 					reduce=args.inspect_reduce, query=args.inspect_query,
 					threshold=args.inspect_threshold, top_k=args.inspect_top_k,
-					src_window=args.src_window, prime_window=args.prime_window,
+					src_window=args.src_window, advance_tokens=args.advance_tokens, prime_window=args.prime_window,
 					generated_notes=len(out_events), source_notes=len(src_events),
 					# prime_notes and cuts are recorded so what a figure DREW is checkable from data,
 					# rather than only by looking at the image: an empty primer or a missing cut is a

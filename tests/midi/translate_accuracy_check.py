@@ -353,16 +353,17 @@ def parse_settings (spec, default_prime):
 def run_setting (model, tokenizer, config, pairs, src_window, prime_window, args):
 	'''Translate every pair at one (src_window, prime_window) and aggregate.
 
-	Both windows are swept on the same axis because they trade against the SAME budget: steady-state
-	T = src_window + 1 + prime_window must stay inside the run's trained total-T range, so growing one
-	eventually costs the other. Reporting them as one setting label keeps that trade visible.
+	`prime_window` is the internal target-view safety ceiling. The public stride is
+	`args.advance_tokens`; keeping these axes separate prevents a token-retention
+	budget from being mistaken for a movement setting.
 	'''
 	data_args = config['data.args'] or {}
 	translator = T.SlidingTranslator(model, tokenizer,
 		pos_style=data_args.get('pos_style', 'flat'),
 		src_window=src_window, max_token=args.max_token, device=args.device,
 		prime=not args.no_prime, temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
-		source_eom=bool(data_args.get('source_eom')), prime_window=prime_window)
+		source_eom=bool(data_args.get('source_eom')), advance_tokens=args.advance_tokens,
+		prime_window=prime_window)
 
 	rows = []
 	for name, src_path, ref_path in pairs:
@@ -441,8 +442,10 @@ def main ():
 	ap.add_argument('--sweep', default=None,
 		help='comma-separated settings. Bare `960` sweeps src_window at --prime-window; '
 			'`1260:520` pins both, so one paired run can vary either axis.')
-	ap.add_argument('--prime-window', type=int, default=320,
-		help='target-half prime budget for bare --sweep entries (default 320)')
+	ap.add_argument('--advance-tokens', type=int, default=1,
+		help='minimum target tokens retired per step, rounded to the next <eom> (default 1)')
+	ap.add_argument('--prime-window', type=int, default=2048,
+		help='internal target-view safety ceiling for sweep settings (default 2048)')
 	ap.add_argument('--no-prime', action='store_true')
 	ap.add_argument('--max-token', type=int, default=2048)
 	ap.add_argument('--max-steps', type=int, default=12,
@@ -495,7 +498,7 @@ def main ():
 			print(f'\n=== src_window {src_w}  NO PRIME (steady-state T {src_w + 1}) ===')
 		else:
 			print(f'\n=== src_window {src_w}  prime_window {prime_w}  '
-				f'(steady-state T {src_w + 1 + prime_w}) ===')
+				f'advance_tokens {args.advance_tokens}  (steady-state T {src_w + 1 + prime_w}) ===')
 		rows, agg = run_setting(model, tokenizer, config, pairs, src_w, prime_w, args)
 		if agg:
 			print(f'  MEAN  pitchF1 {agg["pitch_f1"]:.3f} (p {agg["pitch_p"]:.3f} '

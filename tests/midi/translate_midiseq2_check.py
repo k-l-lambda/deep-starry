@@ -138,14 +138,14 @@ def check_advance ():
 	got = tr.advance_output(out, 4)
 	if got != 7:
 		print(f'  FAIL second eom advance: {got} != 7'); ok = False
-	# no <eom> in view -> half of the CURRENT TARGET WINDOW (len(output) - prime_start)
+	# no <eom> in view -> the minimum target-token stride (default 1)
 	got = tr.advance_output([10, 11, 12, 13, 14, 15], 0)
-	if got != 3:
-		print(f'  FAIL fallback: {got} != 3 (half of 6)'); ok = False
-	# fallback counts the whole view, not the whole stream: view is 4 long from index 4
+	if got != 1:
+		print(f'  FAIL fallback: {got} != 1 (default token stride)'); ok = False
+	# the threshold is relative to the current target view, not the whole stream
 	got = tr.advance_output([1, 2, 3, 4, 10, 11, 12, 13], 4)
-	if got != 6:
-		print(f'  FAIL fallback denominator: {got} != 6 (4 + 4//2)'); ok = False
+	if got != 5:
+		print(f'  FAIL fallback denominator: {got} != 5 (4 + one token)'); ok = False
 	# a single-token view must still advance
 	got = tr.advance_output([10], 0)
 	if got != 1:
@@ -154,7 +154,23 @@ def check_advance ():
 	got = tr.advance_output([10, 11], 2)
 	if got != 2:
 		print(f'  FAIL empty view: {got} != 2'); ok = False
-	print(f'{"ok  " if ok else "FAIL"} advance_output: eom step, half-window fallback, no stall')
+	# The public stride is a minimum target-token distance: the cut rounds upward to the next <eom>.
+	for tokens, want in ((1, 4), (3, 4), (4, 7), (5, 7)):
+		wide = SlidingTranslator(None, tk, advance_tokens=tokens, prime_window=10 ** 6)
+		got = wide.advance_output(out, 0)
+		if got != want:
+			print(f'  FAIL advance_tokens={tokens}: {got} != {want}'); ok = False
+	# A threshold beyond the stream clamps at EOF; no boundary after a threshold moves by tokens exactly.
+	wide = SlidingTranslator(None, tk, advance_tokens=99, prime_window=10 ** 6)
+	if wide.advance_output(out, 0) != len(out):
+		print(f'  FAIL oversized token advance: {wide.advance_output(out, 0)} != {len(out)}'); ok = False
+	wide = SlidingTranslator(None, tk, advance_tokens=3, prime_window=10 ** 6)
+	if wide.advance_output([10, 11, 12, 13, 14], 0) != 3:
+		print('  FAIL no-eom token advance should not use half-window fallback'); ok = False
+	# The safety ceiling is separate and is applied only by trim_prime afterward.
+	if SlidingTranslator(None, tk, advance_tokens=4, prime_window=5).advance_output(out, 0) != 7:
+		print('  FAIL stride should be decided before safety trim'); ok = False
+	print(f'{"ok  " if ok else "FAIL"} advance_output: token threshold rounded to eom, fallback, no stall')
 	return ok
 
 
@@ -668,6 +684,82 @@ def check_fallback_links (root):
 	return ok
 
 
+def check_eos_mask ():
+	'''The first token of a step must never be <eos>, and the override must be reported.
+
+	Three claims, and the third is the one that would rot silently. A model that wants <eos> immediately
+	is overridden -- fine, that is the request -- but the run has to SAY so, because a mid-piece override
+	means the model wanted to stop and was overruled. If `eos_forced` ever stopped being returned, the
+	figures and stats would look like a clean run.
+
+	The stub puts <eos> at an overwhelming logit (matching the observed degenerate case, 13.16 vs 7.71),
+	so nothing but the mask can produce a non-empty step. From the SECOND token on, <eos> must still end
+	the window normally -- masking every position would make the loop run to max_token.
+	'''
+	import torch
+
+	tk = Midiseq2Tokenizer()
+	ok = True
+
+	class EosModel:
+		'''Always wants <eos>; `after` controls from which output position it is allowed to win.'''
+
+		def __init__ (self, vocab, after=0):
+			self.vocab, self.after, self.calls = vocab, after, 0
+
+		def __call__ (self, ids, mask, pos):
+			self.calls += 1
+			logits = torch.full((1, ids.shape[1], self.vocab), 7.71)
+			logits[0, -1, tk.eos_id] = 13.16
+			# a distinct runner-up, so the forced token is identifiable rather than arbitrary
+			logits[0, -1, tk.eom_id] = 9.0
+			return logits
+
+	vocab = len(tk.tokens)
+	tr = SlidingTranslator(EosModel(vocab), tk, max_token=40)
+	ids, forced = tr.generate([tk.bos_id, tk.sep_id], [0, 1], 0.0, 0, 1.0)
+	if not ids:
+		print('  FAIL step still returned empty; the first-token mask did not fire')
+		ok = False
+	elif ids[0] == tk.eos_id:
+		print('  FAIL first token is <eos> despite the mask')
+		ok = False
+	elif ids[0] != tk.eom_id:
+		print(f'  FAIL forced token is {tk.tokens[ids[0]]!r}, not the runner-up <eom>')
+		ok = False
+	if not forced:
+		print('  FAIL the override was not reported; a mid-piece stop would look like a clean step')
+		ok = False
+	# <eos> must still terminate from the second token on, so exactly ONE token comes out here
+	if len(ids) != 1:
+		print(f'  FAIL {len(ids)} token(s) generated; <eos> should end the window after the first')
+		ok = False
+
+	# and a step the model did NOT want to end must report forced=False, or the count is meaningless
+	class ContentModel:
+		def __init__ (self, vocab):
+			self.vocab, self.n = vocab, 0
+
+		def __call__ (self, ids, mask, pos):
+			self.n += 1
+			logits = torch.full((1, ids.shape[1], self.vocab), 1.0)
+			# three content tokens, then <eos>
+			logits[0, -1, tk.eom_id if self.n <= 3 else tk.eos_id] = 20.0
+			return logits
+
+	ids2, forced2 = SlidingTranslator(ContentModel(vocab), tk, max_token=40).generate(
+		[tk.bos_id], [0], 0.0, 0, 1.0)
+	if forced2:
+		print('  FAIL a step that wanted content was reported as forced')
+		ok = False
+	if len(ids2) != 3:
+		print(f'  FAIL expected 3 content tokens before <eos>, got {len(ids2)}')
+		ok = False
+	print(f'{"ok  " if ok else "FAIL"} first-token <eos> mask: forced 1 token and reported it, '
+		f'<eos> still ends the window from token 2, unforced step reports False')
+	return ok
+
+
 def check_primer_and_eom (root):
 	'''Primer pitch tokens must be queried, and `<eom>` must be collected on the notes' own tick walk.
 
@@ -802,12 +894,15 @@ def check_plot_layout ():
 	from matplotlib.patches import ConnectionPatch
 	from matplotlib.lines import Line2D
 
-	src = [dict(onset=0, pitch=60, order=0), dict(onset=480, pitch=72, order=1)]
+	# src_prev deliberately AWAY from the source window's start (480 of 0..960, so x=0.5): an anchor that
+	# happens to land on x=0 would pass equally under the old primer-at-zero rule and prove nothing.
+	src = [dict(onset=0, pitch=60, order=0), dict(onset=480, pitch=72, order=1),
+		dict(onset=960, pitch=65, order=2)]
 	out = [dict(onset=1000, pitch=61, order=5), dict(onset=1440, pitch=71, order=6)]
 	prime = [dict(onset=200, pitch=55, order=3), dict(onset=600, pitch=57, order=4)]
 	window = dict(src=src, out=out, prime=prime, lines=(0, 40),
 		eoms=[480, 960, 1440],
-		cuts=dict(src_prev=0, src_next=300, out_prev=200, out_next=1300))
+		cuts=dict(src_prev=480, src_next=720, out_prev=200, out_next=1300))
 	# one passing link, one sub-threshold fallback, one primer-context link: all three renderings
 	pairs = [dict(step=0, score=1.0, kind='gen', src_onset=0, src_pitch=60, src_order=0,
 			out_onset=1000, out_pitch=61, out_order=5),
@@ -923,23 +1018,75 @@ def check_plot_layout ():
 			print(f'  FAIL title does not report the {word} count: {title!r}')
 			ok = False
 
-	# The output lane is normalised from its PRIMER, so its first primer note lands at x=0 -- the same place
-	# the source lane's first note lands. That alignment is the whole point: the source cursor advances by
-	# the notes that roll out of the primer, so those two are the same musical position.
+	# ANCHOR: the first GENERATED note sits exactly on the source lane's prev cut. That is the alignment the
+	# figure claims, and it is the one thing a reader uses to judge whether generation picked up where the
+	# previous window left off -- so it is asserted numerically, not left to the eye.
 	o_off = ax_o.collections[0].get_offsets()
-	s_off = ax_s.collections[0].get_offsets()
-	if abs(float(min(o_off[:, 0])) - 0.0) > 1e-9 or abs(float(min(s_off[:, 0])) - 0.0) > 1e-9:
-		print(f'  FAIL lanes are not aligned at x=0: primer min {min(o_off[:, 0])}, '
-			f'source min {min(s_off[:, 0])}')
-		ok = False
-	# generated notes must then sit to the RIGHT of the primer, not on top of it
 	g_off = ax_o.collections[1].get_offsets()
-	if float(min(g_off[:, 0])) <= float(max(o_off[:, 0])):
-		print(f'  FAIL generated notes overlap the primer: generated from {min(g_off[:, 0]):.3f}, '
-			f'primer to {max(o_off[:, 0]):.3f}')
+	s_off = ax_s.collections[0].get_offsets()
+	src_ons = [e['onset'] for e in src]
+	want_anchor = ((window['cuts']['src_prev'] - min(src_ons)) / (max(src_ons) - min(src_ons)))
+	got_anchor = float(min(g_off[:, 0]))
+	if abs(got_anchor - want_anchor) > 1e-9:
+		print(f'  FAIL first generated note at x={got_anchor:.6f}, want the source prev cut at '
+			f'x={want_anchor:.6f}')
+		ok = False
+	# and the anchor must be where the source lane's own prev-cut LINE is, not merely at the same number:
+	# the two are drawn by different code paths and only have to disagree once to mislead
+	# Found by its ANNOTATION, which is how a reader identifies it too -- "the leftmost dashed line" would
+	# silently start testing the wrong cut the moment a window put next before prev, and matplotlib reports
+	# both dash patterns as plain '--' so the style is not usable here.
+	s_prev = [a for a in ax_s.texts if a.get_text().startswith('prev cut')]
+	if len(s_prev) != 1:
+		print(f'  FAIL source panel has {len(s_prev)} prev-cut annotation(s), want 1')
+		ok = False
+	else:
+		s_prev_x = float(s_prev[0].xy[0])
+		if abs(s_prev_x - got_anchor) > 1e-9:
+			print(f'  FAIL source prev-cut mark at x={s_prev_x:.6f} but generation starts at '
+				f'x={got_anchor:.6f}')
+			ok = False
+		if f'@{window["cuts"]["src_prev"]}' not in s_prev[0].get_text():
+			print(f'  FAIL prev-cut label names the wrong tick: {s_prev[0].get_text()!r}')
+			ok = False
+	# LEFT PIN: the output lane's leftmost drawn note -- the primer's first -- lands on x=0, where the source
+	# window's first note is. Together with the cut pin above this fixes the lane's scale as well as its
+	# offset, so both must hold at once or the map is not the one the docstring describes.
+	if abs(float(min(o_off[:, 0]))) > 1e-9:
+		print(f'  FAIL primer does not start at x=0: {min(o_off[:, 0])}')
+		ok = False
+	# The two pins imply the scale, so assert the IMPLIED width rather than a source-scale one: generated span
+	# over primer-to-first-generated span, times the anchor's x. Derived independently of the plot's own
+	# arithmetic, so agreement is evidence rather than a tautology.
+	out_ons = [e['onset'] for e in out]
+	pri_ons = [e['onset'] for e in prime]
+	gain = want_anchor / (min(out_ons) - min(pri_ons))
+	want_w = (max(out_ons) - min(out_ons)) * gain
+	got_w = float(max(g_off[:, 0]) - min(g_off[:, 0]))
+	if abs(got_w - want_w) > 1e-9:
+		print(f'  FAIL generated block spans {got_w:.6f} x, want {want_w:.6f} under the two pins')
+		ok = False
+	# the primer runs LEFT of the anchor -- it is earlier material, and must not sit on top of generation
+	if float(max(o_off[:, 0])) >= got_anchor:
+		print(f'  FAIL primer reaches x={max(o_off[:, 0]):.3f}, at or past the anchor {got_anchor:.3f}')
+		ok = False
+	# the label must name which rule is in force, so a reader is never guessing at the geometry
+	if 'pinned to source start' not in ax_o.get_xlabel():
+		print(f'  FAIL output label does not name the two-pin alignment: {ax_o.get_xlabel()!r}')
+		ok = False
+	# the source lane still spans 0..1 over its own window
+	if abs(float(min(s_off[:, 0]))) > 1e-9 or abs(float(max(s_off[:, 0])) - 1.0) > 1e-9:
+		print(f'  FAIL source lane is not 0..1: {min(s_off[:, 0])}..{max(s_off[:, 0])}')
 		ok = False
 	if ax_s.get_xlim() != ax_o.get_xlim():
 		print(f'  FAIL panels have different x limits: {ax_s.get_xlim()} vs {ax_o.get_xlim()}')
+		ok = False
+	# every drawn note must be INSIDE the limits, or the figure is hiding points its legend still counts
+	x_lo, x_hi = ax_s.get_xlim()
+	outside = [float(x) for x in list(s_off[:, 0]) + list(o_off[:, 0]) + list(g_off[:, 0])
+		if not (x_lo <= x <= x_hi)]
+	if outside:
+		print(f'  FAIL {len(outside)} note(s) fall outside the x limits: {outside}')
 		ok = False
 
 	# each lane labels its own ticks, extrapolated by its own affine map
@@ -953,11 +1100,69 @@ def check_plot_layout ():
 		print('  FAIL source ticks are not on the top edge')
 		ok = False
 	plt.close(fig)
+
+	# STEP 0 has no prev cut, so there is no correspondence to anchor to. It must fall back to normalising the
+	# output lane over its own extent -- not anchor to something arbitrary, and not crash on the missing key.
+	w0 = dict(window)
+	w0['cuts'] = dict(src_next=720, out_next=1300)
+	captured.clear()
+	plt.subplots = spy
+	try:
+		plot_attention_step(pairs, w0, 0, path, 0.05)
+	finally:
+		plt.subplots = real
+	f0, (a0s, a0o) = captured['fig'], captured['axes']
+	o0 = a0o.collections[0].get_offsets()
+	s0 = a0s.collections[0].get_offsets()
+	if abs(float(min(o0[:, 0]))) > 1e-9 or abs(float(min(s0[:, 0]))) > 1e-9:
+		print(f'  FAIL unanchored step does not fall back to x=0 on both lanes: output '
+			f'{min(o0[:, 0])}, source {min(s0[:, 0])}')
+		ok = False
+	# one dashed cut per lane now (only `next` exists), and no anchor wording on the label
+	for ax, name in ((a0s, 'source'), (a0o, 'output')):
+		dashed = [ln for ln in ax.lines if ln.get_linestyle() not in ('-', 'None')]
+		if len(dashed) != 1:
+			print(f'  FAIL unanchored {name} panel has {len(dashed)} dashed cut line(s), want 1')
+			ok = False
+	if 'pinned' in a0o.get_xlabel():
+		print(f'  FAIL unanchored step claims a pin in its label: {a0o.get_xlabel()!r}')
+		ok = False
+	plt.close(f0)
+
+	# NO PRIMER but a cut to anchor to: the left pin has nothing to fix, so the cut pin must be kept -- it is
+	# the more specific claim -- and the scale borrowed from the source lane. Dropping BOTH here would lose the
+	# handover position for no reason.
+	wc = dict(window)
+	wc['prime'] = []
+	captured.clear()
+	plt.subplots = spy
+	try:
+		plot_attention_step([pairs[0]], wc, 1, path, 0.05)
+	finally:
+		plt.subplots = real
+	fc, (acs, aco) = captured['fig'], captured['axes']
+	gc = next(c.get_offsets() for c in aco.collections if c.get_label().startswith('generated'))
+	if abs(float(min(gc[:, 0])) - want_anchor) > 1e-9:
+		print(f'  FAIL primerless step lost the cut pin: generated starts at {min(gc[:, 0]):.6f}, '
+			f'want {want_anchor:.6f}')
+		ok = False
+	# source scale: one x unit is one source-window span
+	want_wc = (max(out_ons) - min(out_ons)) / (max(src_ons) - min(src_ons))
+	got_wc = float(max(gc[:, 0]) - min(gc[:, 0]))
+	if abs(got_wc - want_wc) > 1e-9:
+		print(f'  FAIL primerless step spans {got_wc:.6f} x, want {want_wc:.6f} at the source scale')
+		ok = False
+	if 'source scale' not in aco.get_xlabel():
+		print(f'  FAIL primerless step does not name the source-scale fallback: {aco.get_xlabel()!r}')
+		ok = False
+	plt.close(fc)
+
 	if os.path.exists(path):
 		os.remove(path)
 	print(f'{"ok  " if ok else "FAIL"} step figure: backgrounds transparent, primer/generated shapes '
 		f'distinct, {2 + 2} cut marks, {len(window["eoms"])} <eom> lines, primer links distinct, '
-		f'alpha floor 0.1, lanes aligned at x=0')
+		f'alpha floor 0.1; two pins (primer start at x=0, first generated on the source prev cut), '
+		f'source-scale fallback without a primer, own-extent fallback without a cut')
 	return ok
 
 
@@ -988,6 +1193,7 @@ def main ():
 		check_line_offsets(args.root, min(args.samples, 4)),
 		check_inspector_indexing(args.root),
 		check_fallback_links(args.root),
+		check_eos_mask(),
 		check_primer_and_eom(args.root),
 		check_plot_layout(),
 		check_streaming_plots(args.root),
