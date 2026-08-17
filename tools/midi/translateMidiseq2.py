@@ -102,12 +102,34 @@ it; `advance_source_by_onsets` is isolated so it can be swapped without touching
 No KV cache: each step re-runs the whole prefix per token, O(T^2) per token. Meant for inspection-scale
 translation, not bulk decoding.
 
+--inspect answers a different question from the accuracy metrics: not "is the output right" but "what
+is the model looking at". For every generated pitch token it records the attention over the SOURCE pitch
+tokens, reduced by max over layers and heads, and draws the surviving links as onset correspondences --
+ONE FIGURE PER SLIDING STEP, since a step is the unit the model works in and superimposing steps would
+draw links across distances no forward pass ever spanned. See AttentionInspector for why one extra
+forward per window reproduces the generation-time rows exactly rather than approximately, and why it
+forces eager attention.
+
+Every generated note keeps at least its strongest link. When nothing clears --inspect-threshold the
+argmax alone is kept, drawn dotted and counted apart from passing links everywhere it is reported: a note
+with no line at all now means its window held no source notes, not that the threshold cut it. Without
+this, a diffuse row and an absent row looked identical on the figure, and those are different claims.
+
+Primer notes are queried too. Their rows come free from the same forward pass, and they answer a separate
+question -- where the model looks while READING its carried-in context rather than while producing a note.
+They are drawn in their own colour and dash and are excluded from every statistic: a note appears as primer
+in step n only after being scored as generated in step n-1, so counting both would count it twice.
+
 Usage:
   python tools/midi/translateMidiseq2.py --run <run_dir> --input a.midiseq2.txt --output b.midiseq2.txt
   python tools/midi/translateMidiseq2.py --run <run_dir> --input a.txt --temperature 0 --verbose
+  python tools/midi/translateMidiseq2.py --run <run_dir> --input a.txt --src-window 960 \
+      --inspect --inspect-threshold 0.05 --max-steps 8
 '''
 
 import argparse
+import json
+import math
 import os
 import sys
 import time
@@ -236,6 +258,460 @@ def count_note_on (ids, tokenizer):
 	'''How many note_on events are in this id run.'''
 	note_on = tokenizer.id_by_token.get('note_on')
 	return sum(1 for t in ids if t == note_on)
+
+
+# --- token <-> note_on mapping (for attention inspection) ----------------------------------
+
+def note_on_events (ids, tokenizer, keywords, tick0=0, state=None, index0=0, order0=0, marks=None):
+	'''Token ids -> the note_on events inside them, each carrying the index of its PITCH token.
+
+	Each event is dict(pitch_index, pitch, channel, onset, order):
+
+	  pitch_index  position IN `ids` of the `#XX` token, shifted by `index0`. This is what an attention
+	               row is keyed on, so it is the bridge between a musical note and a matrix coordinate.
+	  onset        absolute tick, accumulated from the leading E... runs exactly as
+	               seq2CondPachifier.parse_events does. A stream that starts mid-piece therefore needs
+	               its `tick0` from the caller, since the run before it is not in `ids`.
+
+	A bare `#` token is NOT enough to identify a pitch: note_off carries one too (verified on the
+	corpus, where note_on and note_off each own exactly half of them), and taking those for note_ons
+	would put a phantom note on the plot for every real one. So the walk tracks which keyword opened
+	the current event and accepts a `#` only under note_on. Channel is optional in the text (C0 is
+	omitted), which is why it defaults rather than being required.
+
+	RESUMABLE. Returns (events, abst, state), and accepts the `state` a previous call returned, so a
+	stream can be walked in chunks with the same result as walking it whole. That matters because a chunk
+	boundary can fall BETWEEN `note_on` and its `#XX` -- a fresh walk would start with no open keyword
+	and silently drop that note. `index0`/`order0` shift the emitted indices and order numbers into the
+	whole stream's coordinates. tests/midi/translate_midiseq2_check.py asserts chunked == whole at chunk
+	sizes 1/2/3/17/256; the small ones are below event length, so they split every event in the corpus.
+
+	Pass a list as `marks` to also collect `(token_index, tick)` for every `<eom>`. It rides along on
+	THIS walk on purpose: a second pass over the same ids would have to re-accumulate the elapse runs,
+	and two counters over one stream is one counter too many -- they only have to disagree once for the
+	bar lines to drift away from the notes they are supposed to bound.
+	'''
+	events = []
+	abst = tick0
+	current, onset, channel = state if state is not None else (None, tick0, 0)
+	vocab = tokenizer.tokens
+	for i, tid in enumerate(ids):
+		tok = vocab[tid] if 0 <= tid < len(vocab) else '<oob>'
+		if is_elapse(tok):
+			abst += int(tok[1:], 16)
+			current = None		# an elapse run stands between events, so it closes the open one
+			continue
+		if tok.startswith('<'):
+			# <eom> is a bar boundary and carries no time of its own; <bos>/<sep>/<eos> are structural
+			if marks is not None and tok == '<eom>':
+				marks.append((index0 + i, abst))
+			current = None
+			continue
+		if tok in keywords:
+			current, onset, channel = tok, abst, 0
+			continue
+		if current == 'note_on':
+			if tok.startswith('C'):
+				try:
+					channel = int(tok[1:], 16)
+				except ValueError:
+					pass
+			elif tok.startswith('#'):
+				try:
+					pitch = int(tok[1:], 16)
+				except ValueError:
+					continue
+				events.append(dict(pitch_index=index0 + i, pitch=pitch, channel=channel, onset=onset,
+					order=order0 + len(events)))
+	return events, abst, (current, onset, channel)
+
+
+def line_token_offsets (lines, tokenizer, eom=False):
+	'''Prefix sums of per-line token counts: offsets[i] = tokens produced by lines[:i].
+
+	`encode_lines` has no cross-line state (it concatenates each line's tokens), so encoding lines
+	one at a time and concatenating gives exactly the same stream as encoding them together. That is
+	what makes this prefix sum valid, and it is what lets a window's local token index be translated
+	into an index in the whole file's stream — the source window is line-aligned, so a window that
+	starts at line `c` starts at token offset `offsets[c]`.
+	'''
+	offsets = [0]
+	for line in lines:
+		offsets.append(offsets[-1] + len(encode_lines([line], tokenizer, eom)))
+	return offsets
+
+
+class AttentionInspector:
+	'''Records, for every GENERATED note_on, how strongly it attended to each SOURCE note_on.
+
+	Method. Attention is read from ONE extra forward pass per window rather than from every decoding
+	step, and that is exact rather than an approximation: the stack is causal, so the attention row at
+	query q depends only on tokens 0..q. Re-running the finished window [prefix ++ generated] and
+	reading row q therefore reproduces bit-for-bit the row that was live when token q+1 was produced
+	(verified to 7e-09, float32 epsilon). One pass per window instead of attentions on every token is
+	roughly a 200x saving.
+
+	Positions must be reproduced exactly, not merely plausibly. RoPE encodes relative offsets, so
+	shifting every position by a constant is invisible (measured: identical to 7e-09) -- but this run
+	uses pos_style 'sep', whose target half RESTARTS its numbering, and perturbing that changes the
+	rows by 3e-03. So the inspection pass is handed the same `positions` list the generation step used.
+
+	`output_attentions=True` also demands eager attention: under sdpa the flag is silently ignored and
+	the model returns attentions=None with only a warning, which would otherwise look like a bug here
+	rather than in the config.
+
+	Reduction. For one generated pitch token and one source pitch token there are n_layer x n_head
+	scores. The default takes the MAX over both, per the brief: a single head in a single layer
+	pointing hard at a source note is the evidence of interest, and averaging would bury it under the
+	many heads doing positional or local work.
+
+	Memory. output_attentions materialises n_layer x n_head x T x T floats at once, which for this run
+	(16 x 8, float32) is 0.78 GiB at the T=1281 that src_window 960 produces and 2.0 GiB at the 2048
+	ceiling. Step 0 is the worst case, since it generates a whole window in one shot. The reduction
+	slices out only the pitch-token rows and columns, so what is KEPT is small; the peak is set by the
+	forward pass itself and scales as T squared. Large --src-window plus --inspect is the combination to
+	watch.
+
+	Query convention (--inspect-query). Causally, the row that CHOSE a pitch token belongs to the
+	position BEFORE it -- the model was at `note_on` when it picked `#3c`. That is 'producer', the
+	default, and it answers "which source note produced this note". 'self' instead reads the row at
+	the pitch token itself, answering "what does this note look at once written". They are different
+	questions and the distinction is easy to lose silently, so it is an explicit flag.
+
+	Measured on one file (e366, src_window 960, 4 steps, 258 generated notes), they are the SAME signal
+	traded off differently, not two findings:
+
+		                        notes linked   pitch match   |order delta| <= 3
+		producer                 188 (73%)         58%              53%
+		self                      79 (31%)         81%              80%
+		-- on the 73 notes both linked --
+		producer                                   81%              75%
+		self                                       82%              81%
+
+	On shared notes they are indistinguishable and name the SAME source note 88% of the time. The whole
+	difference is recall: producer links 115 further notes at 43% pitch / 39% order, well above the ~10%
+	null but far below its own top band. So 'producer' is the default because the correspondence FIGURE
+	wants coverage, and 'self' is the one to reach for when a clean, high-precision picture matters more.
+	'''
+
+	def __init__ (self, model, tokenizer, keywords, source_lines, source_eom, device,
+		reduce='max', query='producer', threshold=0.05, top_k=8, plot_prefix=None):
+		self.model = model
+		self.tk = tokenizer
+		self.keywords = keywords
+		self.device = device
+		self.reduce = reduce
+		self.query = query
+		self.threshold = threshold
+		self.top_k = top_k
+		# When set, each observe() draws its own step's figure before returning, so figures appear as the
+		# run proceeds instead of after it. This is sound because `output` is APPEND-ONLY: a note's
+		# absolute onset is fixed the moment its tokens are appended, and no later step can move it.
+		self.plot_prefix = plot_prefix
+		self.plot_paths = []
+
+		# The whole source, once: global token stream, global note_on events, and the per-line offsets
+		# that turn a window-local token index into a global one.
+		self.src_ids_all = encode_lines(source_lines, tokenizer, source_eom)
+		self.src_events, _, _ = note_on_events(self.src_ids_all, tokenizer, keywords)
+		self.src_event_by_index = {e['pitch_index']: e for e in self.src_events}
+		self.line_offsets = line_token_offsets(source_lines, tokenizer, source_eom)
+
+		# Switch to eager ONCE, before any generation, not lazily at the first observe(): observe runs
+		# after its step's generate, so a lazy switch would decode step 0 under sdpa and every later step
+		# under eager. The two agree only to float epsilon, which is enough to flip a near-tie argmax, so
+		# a mixed run could differ from both a pure sdpa run and a pure eager one. Inspecting therefore
+		# costs speed for the whole run, and buys a run that is internally consistent.
+		self._enable_eager()
+
+		# (step, output pitch-token index, source pitch-token index, score), filled per step
+		self.links = []
+		# per-step context, so a step's figure can show the window it actually saw rather than the whole
+		# piece: step -> dict(src_orders, out_indices, lines)
+		self.windows = {}
+		self.steps = 0
+		self.attn_calls = 0
+
+		# Incremental walk of the OUTPUT stream. Re-walking the whole stream every step would be
+		# O(steps x total) and, worse, would make per-step plotting look like it needs the finished
+		# stream. Instead the walk is resumed from where it stopped, carrying the open-keyword state so a
+		# step boundary between `note_on` and its `#XX` loses nothing.
+		self.out_events = []
+		self.out_event_by_index = {}
+		# Measure boundaries of the generated stream, (token index, tick). Collected on the SAME walk as the
+		# notes, so a bar line can never drift away from the notes it bounds.
+		self.out_eoms = []
+		self.out_eom_tick = {}
+		self._out_walked = 0			# tokens of `output` already consumed
+		self._out_tick = 0
+		self._out_state = None
+
+	def _enable_eager (self):
+		'''Force eager attention, or output_attentions returns None with only a warning.'''
+		backbone = getattr(self.model, 'backbone', self.model)
+		setter = getattr(backbone, 'set_attn_implementation', None)
+		if setter is not None:
+			setter('eager')
+		else:					# older transformers: the config field is the only lever
+			cfg = getattr(backbone, 'config', None)
+			if cfg is not None:
+				cfg._attn_implementation = 'eager'
+
+	def _extend_output (self, output):
+		'''Resume the output walk over whatever `output` has gained since the last call.'''
+		if len(output) <= self._out_walked:
+			return
+		marks = []
+		fresh, self._out_tick, self._out_state = note_on_events(
+			output[self._out_walked:], self.tk, self.keywords,
+			tick0=self._out_tick, state=self._out_state,
+			index0=self._out_walked, order0=len(self.out_events), marks=marks)
+		self.out_events.extend(fresh)
+		for e in fresh:
+			self.out_event_by_index[e['pitch_index']] = e
+		self.out_eoms.extend(marks)
+		for i, t in marks:
+			self.out_eom_tick[i] = t
+		self._out_walked = len(output)
+
+	def _src_tick_at (self, line):
+		'''Onset tick of the first source note at or after `line`, or None past the end.
+
+		Used to place a window cut on the onset axis. A cut is a LINE index, and the axis is in ticks, so
+		the cut is shown at the first note the next window will actually see -- which is what the boundary
+		means musically.
+		'''
+		if line is None or line >= len(self.line_offsets):
+			return None
+		off = self.line_offsets[line]
+		for e in self.src_events:
+			if e['pitch_index'] >= off:
+				return e['onset']
+		return None
+
+	def _out_tick_at (self, index):
+		'''Onset tick of the first generated note at or after output token `index`, or None.'''
+		if index is None:
+			return None
+		for e in self.out_events:
+			if e['pitch_index'] >= index:
+				return e['onset']
+		return None
+
+	@torch.no_grad()
+	def observe (self, step, prefix, positions, new_ids, src_ids, cursor, next_cursor, head, out_base,
+		output=None, prime_start=None, next_cursor_real=None, next_prime_start=None):
+		'''One window: re-run [prefix ++ new_ids] with attentions, record its links, draw its figure.
+
+		out_base is len(output) BEFORE new_ids were appended, so a generated token's index in the final
+		output stream is out_base + (its offset within new_ids).
+
+		`output` is the stream AFTER this step's tokens were appended. Passing it lets the step resolve
+		its own notes' absolute onsets and plot immediately -- which is correct rather than merely early,
+		because the stream is append-only and those onsets can never change.
+
+		prime_start / next_cursor_real / next_prime_start are the sliding-window bookkeeping, recorded so
+		the figure can mark where the neighbouring windows cut. They are optional: without them the figure
+		simply carries no cut marks, so a caller that does not track them still gets a valid plot.
+		'''
+		if output is not None:
+			self._extend_output(output)
+		if not new_ids:
+			return
+		ids = list(prefix) + list(new_ids)
+		pos = list(positions)
+		while len(pos) < len(ids):			# generation continues the run by +1 per token
+			pos.append(pos[-1] + 1)
+
+		src_off = 1 if head else 0			# <bos> sits ahead of the source half on the first window
+		src_lo, src_hi = src_off, src_off + len(src_ids)
+		# Source pitch tokens are the attention KEYS we care about. Map each one to its global event.
+		key_cols, key_events = [], []
+		win_events, _, _ = note_on_events(src_ids, self.tk, self.keywords)
+		for e in win_events:
+			g = self.line_offsets[cursor] + e['pitch_index']
+			ge = self.src_event_by_index.get(g)
+			if ge is None:
+				continue					# window boundary landed oddly; skip rather than guess
+			key_cols.append(src_lo + e['pitch_index'])
+			key_events.append(ge)
+		if not key_cols:
+			return
+
+		# Generated pitch tokens are the QUERIES. Their indices are relative to new_ids, so shift into
+		# both prefix coordinates (to index the attention matrix) and output coordinates (to name them).
+		gen_events, _, _ = note_on_events(new_ids, self.tk, self.keywords)
+		if not gen_events:
+			return
+		prefix_len = len(prefix)
+		queries = []
+		for e in gen_events:
+			q = prefix_len + e['pitch_index']
+			if self.query == 'producer':
+				q -= 1						# the row that CHOSE this token sits one position earlier
+			if q < 0 or q >= len(ids):
+				continue
+			queries.append((q, out_base + e['pitch_index'], 'gen'))
+		# PRIMER pitch tokens are queries too. They are the tail of the prefix -- tokens [prime_start,
+		# out_base) of `output` re-fed as this step's target context -- so their rows are already in this same
+		# forward pass and reading them costs nothing but a few more sliced rows. What they answer is a
+		# DIFFERENT question: not "which source note produced this note" (the model did not produce them here,
+		# it was handed them) but "which source note is the model looking at while reading this context".
+		# Recorded and drawn apart from the generated links for exactly that reason, and kept out of the
+		# agreement statistics, which are about production.
+		prime_lo = out_base if prime_start is None else prime_start
+		prime_len = out_base - prime_lo
+		# The primer occupies the prefix's tail by construction. Verified rather than assumed: if the caller's
+		# bookkeeping and the prefix disagree, the indices would name the wrong tokens, and a plausible-looking
+		# wrong link is worse than no primer links at all.
+		prime_base = prefix_len - prime_len
+		if (output is not None and prime_len > 0 and prime_base >= 0
+				and list(prefix[prime_base:]) == list(output[prime_lo:out_base])):
+			for e in self.out_events:
+				if not (prime_lo <= e['pitch_index'] < out_base):
+					continue
+				q = prime_base + (e['pitch_index'] - prime_lo)
+				if self.query == 'producer':
+					q -= 1
+				if q < 0 or q >= len(ids):
+					continue
+				queries.append((q, e['pitch_index'], 'prime'))
+		if not queries:
+			return
+
+		window = torch.tensor([ids], dtype=torch.long, device=self.device)
+		pos_t = torch.tensor([pos], dtype=torch.long, device=self.device)
+		backbone = getattr(self.model, 'backbone', self.model)
+		out = backbone(input_ids=window, attention_mask=None, position_ids=pos_t,
+			output_attentions=True)
+		attns = out.attentions
+		if attns is None or attns[0] is None:
+			raise RuntimeError('the backbone returned no attentions; eager attention could not be '
+				'enabled, so --inspect cannot work on this transformers build')
+		self.attn_calls += 1
+
+		q_idx = torch.tensor([q for q, _, _ in queries], device=self.device)
+		k_idx = torch.tensor(key_cols, device=self.device)
+		# [layer, head, n_query, n_key] -> reduce over layer and head
+		block = torch.stack([a[0][:, q_idx][:, :, k_idx] for a in attns])
+		scores = (block.amax(dim=(0, 1)) if self.reduce == 'max'
+			else block.mean(dim=(0, 1))).float().cpu()
+		del attns, out, block
+
+		for row, (q, out_index, kind) in enumerate(queries):
+			vals = scores[row]
+			keep = (vals >= self.threshold).nonzero(as_tuple=True)[0]
+			if self.top_k and len(keep) > self.top_k:
+				order = vals[keep].argsort(descending=True)[:self.top_k]
+				keep = keep[order]
+			if not len(keep):
+				# Nothing cleared the threshold, so keep the ARGMAX alone. Every generated note then has
+				# somewhere it looked most, and a note with no line means only that its window held no
+				# source notes -- not that the threshold happened to cut it. The distinction matters for
+				# reading the figures: dropping these notes silently made diffuse attention look like
+				# absent attention, and diffuse-but-consistent is a different claim from nothing.
+				# Flagged below threshold so it is never counted as evidence alongside a passing link.
+				keep = vals.argmax().reshape(1)
+			for c in keep.tolist():
+				self.links.append((step, out_index, key_events[c]['pitch_index'], float(vals[c]), kind))
+		# What this step could possibly have linked, recorded even when nothing passed the threshold: a
+		# step whose window held source notes and produced notes but drew NO line is itself the finding,
+		# and it would be invisible if only surviving links were kept.
+		# The primer is the tail of PREVIOUSLY generated output handed back as this step's target prefix:
+		# tokens [prime_start, out_base). Recorded separately from the generated notes because the model
+		# did not choose it this step -- it is context, and showing it as generated would overstate what
+		# the step produced.
+		# Cut marks. On the source lane the PREVIOUS window's own end is used, not this window's start:
+		# they are the same boundary only in the sense that one follows the other, and this window's start
+		# is by construction the leftmost note drawn, so marking it would put a line at x=0 that says
+		# nothing. The previous window's END falls INSIDE this one -- that is the overlap the sliding
+		# window depends on, and it is worth seeing.
+		prev = self.windows.get(step - 1)
+		self.windows[step] = dict(
+			src_orders=[e['order'] for e in key_events],
+			out_indices=[i for _, i, k in queries if k == 'gen'],
+			prime_indices=[e['pitch_index'] for e in self.out_events
+				if prime_lo <= e['pitch_index'] < out_base],
+			# Measure boundaries inside what this step DRAWS -- primer included, since the primer is drawn.
+			# Indices, not ticks: resolve_step turns them into ticks, so the streaming and deferred paths go
+			# through one conversion instead of two.
+			eom_indices=[i for i, _ in self.out_eoms if prime_lo <= i < len(output or ())],
+			cuts=dict(src_prev_line=(prev['lines'][1] if prev else None),
+				src_next_line=next_cursor_real,
+				# only when something actually rolled out: on the first step the view starts at 0 with no
+				# primer, and a mark there would invent a slide that never happened
+				out_prev=(prime_start if prime_start is not None and prime_start < out_base else None),
+				out_next=next_prime_start),
+			lines=(cursor, next_cursor))
+		self.steps += 1
+		if self.plot_prefix:
+			self.plot_step(step)
+
+	def _pairs (self, links):
+		'''Turn recorded (step, out_index, src_index, score) links into resolved, score-sorted pairs.'''
+		pairs = []
+		for step, out_index, src_index, score, kind in links:
+			oe = self.out_event_by_index.get(out_index)
+			se = self.src_event_by_index.get(src_index)
+			if oe is None or se is None:
+				continue
+			pairs.append(dict(step=step, score=score, kind=kind,
+				out_onset=oe['onset'], out_pitch=oe['pitch'], out_order=oe['order'],
+				src_onset=se['onset'], src_pitch=se['pitch'], src_order=se['order']))
+		pairs.sort(key=lambda p: -p['score'])
+		return pairs
+
+	def resolve_step (self, step):
+		'''One step's resolved links and window. Needs only what that step already appended.'''
+		w = self.windows.get(step)
+		if w is None:
+			return [], None
+		c = w.get('cuts') or {}
+		window = dict(lines=w['lines'],
+			src=[self.src_events[o] for o in w['src_orders'] if o < len(self.src_events)],
+			out=[self.out_event_by_index[i] for i in w['out_indices']
+				if i in self.out_event_by_index],
+			prime=[self.out_event_by_index[i] for i in w.get('prime_indices', ())
+				if i in self.out_event_by_index],
+			eoms=[self.out_eom_tick[i] for i in w.get('eom_indices', ())
+				if i in self.out_eom_tick],
+			# resolved to ticks here rather than in the plot, so the figure stays a pure function of the
+			# window and the deferred path draws exactly what the streaming path drew
+			cuts=dict(
+				src_prev=self._src_tick_at(c.get('src_prev_line')),
+				src_next=self._src_tick_at(c.get('src_next_line')),
+				out_prev=self._out_tick_at(c.get('out_prev')),
+				out_next=self._out_tick_at(c.get('out_next'))))
+		return self._pairs([l for l in self.links if l[0] == step]), window
+
+	def plot_step (self, step):
+		'''Draw and report one step's figure. Called from observe() during the run.'''
+		pairs, window = self.resolve_step(step)
+		if window is None or (not pairs and not window['out']):
+			return None
+		path = f'{self.plot_prefix}.step{step:03d}.png'
+		os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+		plot_attention_step(pairs, window, step, path, self.threshold)
+		self.plot_paths.append(path)
+		gen = [p for p in pairs if p.get('kind', 'gen') == 'gen']
+		weak = sum(1 for p in gen if p['score'] < self.threshold)
+		print(f'[attn] step {step}: {len(gen) - weak} link(s) >= {self.threshold}'
+			f'{f" + {weak} fallback" if weak else ""}'
+			f'{f" + {len(pairs) - len(gen)} primer" if len(pairs) > len(gen) else ""} over '
+			f'{len(window["src"])} src / {len(window["out"])} gen notes  {span_note(window)}  '
+			f'-> {os.path.basename(path)}')
+		return path
+
+	def resolve_all (self, output=None):
+		'''Everything, for the end-of-run report. `output` only tops up the incremental walk.'''
+		if output is not None:
+			self._extend_output(output)
+		windows = {}
+		for step in self.windows:
+			_, w = self.resolve_step(step)
+			if w is not None:
+				windows[step] = w
+		return self._pairs(self.links), self.out_events, self.src_events, windows
 
 
 # --- model ---------------------------------------------------------------------------------
@@ -502,7 +978,7 @@ class SlidingTranslator:
 
 	# --- whole file ----------------------------------------------------------------------
 
-	def translate (self, lines, verbose=False, max_steps=0):
+	def translate (self, lines, verbose=False, max_steps=0, inspector=None):
 		'''Slide across `lines`, returning (output_ids, stats).
 
 		The invariant that makes this terminate: every step either advances src_cursor or, at EOF,
@@ -530,7 +1006,9 @@ class SlidingTranslator:
 				break
 
 			new_ids = self.generate(prefix, positions, self.temperature, self.top_k, self.top_p)
+			out_base = len(output)		# before the extend: maps a new_ids offset onto the output stream
 			output.extend(new_ids)
+			step_prime_start = prime_start
 			if not new_ids:
 				# An immediate <eos> is the RIGHT answer once the piece is over: the source window ends
 				# in end_of_track and the output already carries one, so there is nothing left to
@@ -554,6 +1032,14 @@ class SlidingTranslator:
 			# a step that consumed no source line would repeat the same window forever
 			if cursor <= src_before:
 				cursor = min(next_cursor, len(lines)) if next_cursor > src_before else src_before + 1
+
+			if inspector is not None:
+				# Observed after the advance, not before it: the figure marks where the NEXT window cuts,
+				# and that is only known once the roll-out has been computed. Still inside the same step, so
+				# the figure is still written the moment the step is over.
+				inspector.observe(step, prefix, positions, new_ids, src_ids, src_before, next_cursor,
+					step == 0, out_base, output=output, prime_start=step_prime_start,
+					next_cursor_real=cursor, next_prime_start=prime_start)
 
 			if verbose:
 				print(f'  step {step:4d}  src[{src_before}:{cursor}] {len(src_ids):5d} tok  '
@@ -635,6 +1121,498 @@ def report_output (body_lines, stats):
 		print(f'[warn] stopped after {consumed}/{total} source lines')
 
 
+def attention_null (pairs, best, draws=200, seed=0):
+	'''What the agreement numbers would be if attention carried NO correspondence information.
+
+	Without this the observed rates are unreadable. "58% of best links have matching pitch" sounds
+	middling until you know that drawing a random source note from the same step's candidate pool gives
+	10%. The pool is deliberately restricted to notes that were actually in that step's attention keys,
+	so the null is "attention points somewhere in the window it could see", not "anywhere in the piece"
+	-- the weaker, and therefore harder to beat, baseline.
+	'''
+	import random
+
+	pool = {}
+	for p in pairs:
+		pool.setdefault(p['step'], set()).add((p['src_order'], p['src_pitch']))
+	pool = {k: sorted(v) for k, v in pool.items()}
+	rng = random.Random(seed)
+	pm, oa, n = 0, 0, 0
+	for _ in range(draws):
+		for p in best:
+			cand = pool.get(p['step'])
+			if not cand:
+				continue
+			order, pitch = rng.choice(cand)
+			n += 1
+			pm += pitch == p['out_pitch']
+			oa += abs(p['out_order'] - order) <= 3
+	return (100 * pm / n, 100 * oa / n) if n else (0.0, 0.0)
+
+
+def report_attention (pairs, out_events, src_events, threshold=None, top=20):
+	'''The ranking, plus the numbers that say whether it means anything.
+
+	A ranking alone is easy to over-read: the top rows always look like alignment because the top rows
+	of any monotone-ish attention will. Three things are reported underneath, in increasing order of how
+	much they tell you:
+
+	1. Coverage -- how many generated notes cleared the threshold. Every note also keeps its single best
+	   link as a FALLBACK when nothing cleared it, so "linked at all" is ~100% by construction and says
+	   nothing; the number that carries information is how many passed, reported separately from the
+	   fallbacks. The agreement statistics below are computed on PASSING links only, so a run's headline
+	   numbers stay comparable to one taken before fallbacks existed; the fallback subset is scored on its
+	   own line, where a rate near the null is the expected and honest result.
+	2. Agreement against a null (attention_null), as a multiple. Pitch match and ORDER delta are the
+	   usable measures. ONSET delta is reported but is NOT evidence about attention: the irregular
+	   source carries rubato while the score output is quantized, so the two streams are already offset
+	   by a few hundred ticks before attention enters. Measured on one file, the attention's median
+	   onset delta was +377 and a plain gen#i<->src#i identity mapping over the same 117 notes gave
+	   +246, so most of that number is the streams, not the model.
+	3. Dose-response -- agreement binned by score. This is the strongest of the three: if attention
+	   encodes correspondence, a HIGHER score must mean a MORE correct link, and a flat profile falsifies
+	   that even when the overall rate looks good. Measured: 75% pitch match in the top bin falling
+	   monotonically to 43% in the weakest.
+	'''
+	if not pairs:
+		print('[attn] no links at all — no step had both source and generated notes')
+		return
+	# Primer links are excluded from every number below. They are rows read while INGESTING carried-in
+	# context, not rows that produced a note in this step, and a note that appears as primer in step n was
+	# already scored as generated in step n-1 -- folding them in would count the same note twice under two
+	# different questions. They are drawn on the figures and counted in its title, and nowhere else.
+	n_prime_links = sum(1 for p in pairs if p.get('kind', 'gen') == 'prime')
+	pairs = [p for p in pairs if p.get('kind', 'gen') == 'gen']
+	if n_prime_links:
+		print(f'[attn] {n_prime_links} primer-context link(s) drawn on the figures, excluded from the '
+			f'statistics below (they are context reads, not productions)')
+	if not pairs:
+		print('[attn] no generated-note links at all')
+		return
+	thr = 0.0 if threshold is None else threshold
+	passing = [p for p in pairs if p['score'] >= thr]
+	print(f'[attn] {len(passing)} link(s) >= {thr} over {len(out_events)} generated / '
+		f'{len(src_events)} source note_on ({len(pairs) - len(passing)} sub-threshold fallback link(s))')
+
+	# best link per note, split by whether it cleared the bar. Fallbacks are kept out of the headline
+	# numbers: they are every note's argmax regardless of strength, so folding them in would dilute the
+	# measured rates toward the null and make a run look worse for a reason that is not about the model.
+	all_best = {}
+	for p in pairs:					# pairs are score-sorted, so the first per note is its best
+		all_best.setdefault(p['out_order'], p)
+	best = [p for p in all_best.values() if p['score'] >= thr]
+	fallback = [p for p in all_best.values() if p['score'] < thr]
+	print(f'[attn] {len(best)}/{len(out_events)} generated notes have a link >= {thr} '
+		f'({100 * len(best) / max(1, len(out_events)):.0f}%); '
+		f'{len(fallback)} carry only a sub-threshold best link')
+	if not best:
+		print(f'[attn] nothing cleared {thr} — lower --inspect-threshold; '
+			f'the figures still show each note\'s best link')
+		return
+	n = max(1, len(best))
+	same_pitch = sum(1 for p in best if p['out_pitch'] == p['src_pitch'])
+	near_order = sum(1 for p in best if abs(p['out_order'] - p['src_order']) <= 3)
+	pm_null, oa_null = attention_null(pairs, best)
+	pm, oa = 100 * same_pitch / n, 100 * near_order / n
+	print(f'[attn] best link: pitch match {same_pitch}/{n} ({pm:.0f}%, null {pm_null:.0f}% '
+		f'-> {pm / max(pm_null, 1e-9):.1f}x), '
+		f'|order delta| <= 3 on {near_order}/{n} ({oa:.0f}%, null {oa_null:.0f}% '
+		f'-> {oa / max(oa_null, 1e-9):.1f}x)')
+	orders = sorted(p['out_order'] - p['src_order'] for p in best)
+	print(f'[attn] order delta of best link: median {orders[len(orders) // 2]:+d}, '
+		f'p10 {orders[len(orders) // 10]:+d}, p90 {orders[9 * len(orders) // 10]:+d}')
+	deltas = sorted(p['out_onset'] - p['src_onset'] for p in best)
+	if deltas:
+		mid = deltas[len(deltas) // 2]
+		# reported for completeness, but the two streams are offset before attention enters -- see the
+		# docstring; do not read this as an attention measurement
+		print(f'[attn] onset delta of best link: median {mid:+d} ticks, '
+			f'range {deltas[0]:+d}..{deltas[-1]:+d} (streams are pre-offset; not attention evidence)')
+	if fallback:
+		# Scored separately, and expected to sit near the null: these are argmaxes of diffuse rows. If they
+		# instead scored well, that would be the finding -- it would mean the threshold is discarding real
+		# correspondence, and the bar is set too high.
+		fp = 100 * sum(1 for p in fallback if p['out_pitch'] == p['src_pitch']) / len(fallback)
+		fo = 100 * sum(1 for p in fallback
+			if abs(p['out_order'] - p['src_order']) <= 3) / len(fallback)
+		print(f'[attn] sub-threshold fallbacks ({len(fallback)} note(s), not counted above): '
+			f'pitch match {fp:.0f}%, |order delta| <= 3 on {fo:.0f}% '
+			f'(null {pm_null:.0f}%/{oa_null:.0f}% — near the null is the expected result)')
+	print('[attn] dose-response — agreement by score bin (must FALL with score to mean anything):')
+	print('       score bin       n   pitch  |order|<=3')
+	# spans the whole range, fallbacks included, so the profile can be read continuously through the
+	# threshold rather than stopping at it
+	bins = ((0.15, 1.01), (0.10, 0.15), (0.08, 0.10), (0.06, 0.08), (0.04, 0.06), (0.02, 0.04),
+		(0.0, 0.02))
+	for lo, hi in bins:
+		g = [p for p in all_best.values() if lo <= p['score'] < hi]
+		if not g:
+			continue
+		gp = 100 * sum(1 for p in g if p['out_pitch'] == p['src_pitch']) / len(g)
+		go = 100 * sum(1 for p in g if abs(p['out_order'] - p['src_order']) <= 3) / len(g)
+		mark = '' if lo >= thr else '  (fallback)'
+		print(f'       [{lo:.2f},{min(hi, 1.0):.2f})  {len(g):5d}   {gp:4.0f}%     {go:4.0f}%{mark}')
+	print(f'[attn] top {min(top, len(pairs))} links by score:')
+	print('       score  step  gen#  onset  pitch    src#  onset  pitch   dt')
+	for p in pairs[:top]:
+		print(f'       {p["score"]:.3f}  {p["step"]:4d}  {p["out_order"]:4d} {p["out_onset"]:6d}  '
+			f'{p["out_pitch"]:5d}    {p["src_order"]:4d} {p["src_onset"]:6d}  {p["src_pitch"]:5d}  '
+			f'{p["out_onset"] - p["src_onset"]:+5d}')
+
+
+SRC_COLOR = '#2f5f9f'
+OUT_COLOR = '#a5432f'
+PRIME_LINK_COLOR = '#4a7c59'
+# Floor for link opacity. Weight is normalised within the step, so a step with one dominant link would
+# otherwise render the rest at an alpha that rounds to invisible -- and a link that is counted in the title
+# but cannot be seen is a figure disagreeing with its own caption.
+MIN_LINK_ALPHA = 0.1
+
+
+def plot_attention_step (pairs, window, step, path, threshold, subtitle=''):
+	'''One sliding-window step: PITCH against onset, both sequences on one pitch axis.
+
+	One figure PER STEP rather than one for the file, because a step is the unit the model actually
+	works in. Superimposing all steps would overlay windows that never saw each other and let a late
+	window's links cross a region an early window could not reach, which reads as long-range attention
+	that no forward pass ever performed. Only this step's window is drawn -- the source notes that were
+	in its attention keys and the notes it generated -- so the plotted extent IS the step's reach.
+
+	Layout. TWO STACKED PANELS, each sequence its own: source above, generated below. Every axis is per
+	sequence -- x is onset normalised to that sequence's own tick extent (source ticks labelled along the
+	top edge, generated along the bottom), y is pitch with its own scale on each panel. Links are drawn
+	across the panel boundary, so a link's geometry is the diagnostic:
+
+		vertical       same pitch AND same relative position -- the corresponding note
+		tilted         relative position disagrees; the tilt is how far
+		ends at
+		different
+		heights        pitch disagrees
+
+	The two pitch axes deliberately share one RANGE (the union of both sequences, padded) even though
+	they are drawn and ticked separately. Independent ranges would rescale each panel to its own tessitura
+	and a same-pitch link would stop being vertical, which is the one thing the geometry is for.
+
+	The output lane also carries the PRIMER -- the tail of earlier output fed back as this step's target
+	prefix -- as hollow squares against the filled triangles of what this step generated. Both carry links,
+	but they are not the same claim and are not drawn alike: a solid dark line to a triangle says "this is
+	what the model looked at while producing this note", while a dashed green line to a square says "this is
+	what it looked at while reading this carried-in context". Only the first is production, so only the first
+	enters the agreement statistics.
+
+	Thin olive verticals on the output lane are `<eom>`, the model's own bar lines. They make a horizontal
+	displacement musically readable: a link landing a bar late and one landing a beat late are different
+	errors, and on a bare onset axis both merely look shifted.
+
+	Both lanes carry dashed window cuts, and each names a specific boundary:
+
+		source  prev    where the PREVIOUS window ended -- it falls inside this one, and the material left
+		                of it is the overlap the two windows share
+		source  next    where the NEXT window starts; everything right of it is about to be re-read
+		output  prev    where this step's primer began, i.e. what the previous slide rolled into view
+		output  next    where the next step's view starts; generated notes left of it will have rolled out
+
+	A boundary that does not exist (no previous window on step 0, no next at the last step) draws no line
+	rather than a line at the edge, so a mark is always a real slide.
+
+	Each lane's x=0 is the leftmost note IT DRAWS, so on the output lane that is the primer's first note.
+	This is what aligns the two panels: the source cursor advances by exactly the notes that roll OUT of the
+	primer, so the window's first source note and the primer's first note are the same musical position.
+
+	Why normalise x per sequence. The two streams do not share a tick origin -- the irregular source
+	carries rubato while the score output is quantised, so they sit a few hundred ticks apart before
+	attention enters (measured: an identity gen#i<->src#i mapping already shows a +246 median offset).
+	Plotting both on one absolute axis makes every link lean by that offset, which looks like a finding
+	and is not. Normalising each to its own extent removes it.
+
+	What that costs, stated plainly: normalisation is affine per sequence, so it DISCARDS absolute tempo
+	and length disagreement. A step whose output runs half the source's duration is stretched to fit and
+	its links look well-placed. That is not hypothetical -- measured on one file, steps 2 and 3 ran 0.50x
+	and 0.58x of their source window's duration. So the span ratio is printed in the title and reported
+	in text by plot_attention; read it before reading the links.
+	'''
+	import matplotlib
+	matplotlib.use('Agg')					# file output only; no display on a training box
+	import matplotlib.pyplot as plt
+	from matplotlib.patches import ConnectionPatch
+	from matplotlib.ticker import MaxNLocator
+
+	src, out = window['src'], window['out']
+	prime = window.get('prime') or []
+	cuts = window.get('cuts') or {}
+
+	def extent (events):
+		ons = [e['onset'] for e in events]
+		return (min(ons), max(ons)) if ons else (0, 0)
+
+	# x=0 is the leftmost note the lane DRAWS, which on the output side means the primer's first note when
+	# there is a primer. That is what makes the two lanes comparable: the source cursor advances by the
+	# notes that roll OUT of the primer, so the window's first source note and the primer's first note are
+	# the same musical position. Rebasing on the step's own first generated note instead -- as this did
+	# earlier -- put the two lanes' origins a whole primer apart and leaned every link by that much.
+	src_lo, src_hi = extent(src)
+	out_lo, out_hi = extent(list(prime) + list(out))
+
+	def norm (v, lo, hi):
+		# a degenerate extent (one note, or all notes on one tick) has no meaningful position: centre it
+		# rather than dividing by zero
+		return 0.5 if hi <= lo else (v - lo) / (hi - lo)
+
+	# hspace is set AFTER tight_layout, not here: tight_layout computes spacing itself and warns that
+	# results may be incorrect when hspace has been pinned in gridspec_kw.
+	fig, (ax_s, ax_o) = plt.subplots(2, 1,
+		figsize=(max(9, min(30, (len(src) + len(out)) / 4.5)), 6.4))
+
+	# One shared pitch RANGE across the two panels, each still drawn and ticked on its own axis: a
+	# same-pitch link must come out vertical, and per-panel autoscaling would tilt it by whatever the two
+	# tessituras happen to differ by.
+	pitches = [e['pitch'] for e in src] + [e['pitch'] for e in out] + [e['pitch'] for e in prime]
+	p_lo, p_hi = (min(pitches), max(pitches)) if pitches else (60, 61)
+	pad = max(2, (p_hi - p_lo) * 0.08)
+
+	# The output lane now starts at its primer, so its own material never goes negative -- but the SOURCE
+	# lane's previous cut still can, since that cut is the previous window's end and this window may start
+	# after it. Both panels get the SAME limits: the two lanes are each normalised to their own ticks, and a
+	# link is only readable as vertical if equal normalised positions land at equal screen positions.
+	left = [0.0]
+	left += [norm(e['onset'], out_lo, out_hi) for e in prime]
+	for key, lo, hi in (('src_prev', src_lo, src_hi), ('out_prev', out_lo, out_hi)):
+		if cuts.get(key) is not None:
+			left.append(norm(cuts[key], lo, hi))
+	x_lo = max(-2.5, min(left)) - 0.03		# clamped: a very long primer would squash the step to nothing
+	# Ticks step by 0.25 across whatever range is visible. Negative fractions are labelled by the same
+	# affine map, so they read as the real ticks of the material before the window -- which is what the
+	# primer and the previous cut are.
+	fracs = [f / 4 for f in range(int(math.floor(x_lo * 4)) + 1, 5)]
+	for ax in (ax_s, ax_o):
+		ax.set_xlim(x_lo, 1.03)
+		ax.set_ylim(p_lo - pad, p_hi + pad)
+		ax.set_xticks(fracs)
+		ax.set_ylabel('pitch')
+		ax.yaxis.set_major_locator(MaxNLocator(integer=True, nbins=7))
+		ax.grid(alpha=0.18, zorder=1)
+		# The links live on ax_s with clipping off so they can reach down into ax_o, but ax_o is drawn
+		# after ax_s and its opaque background painted over exactly the part that crossed into it. Making
+		# both patches transparent lets the segments stay visible over the whole crossing; the figure's own
+		# white background still provides the surface.
+		ax.patch.set_visible(False)
+
+	# source panel: its ticks read along the TOP edge, so the two x scales sit at the figure's outside
+	ax_s.xaxis.set_ticks_position('top')
+	ax_s.xaxis.set_label_position('top')
+	ax_s.set_xticklabels([f'{src_lo + f * (src_hi - src_lo):.0f}' for f in fracs])
+	ax_s.set_xlabel(f'source onset (ticks {src_lo}..{src_hi}, normalised)', color=SRC_COLOR)
+	ax_s.tick_params(axis='x', colors=SRC_COLOR)
+	for side in ('top', 'left'):
+		ax_s.spines[side].set_color(SRC_COLOR)
+
+	ax_o.set_xticklabels([f'{out_lo + f * (out_hi - out_lo):.0f}' for f in fracs])
+	ax_o.set_xlabel(f'generated onset (ticks {out_lo}..{out_hi}, normalised)', color=OUT_COLOR)
+	ax_o.tick_params(axis='x', colors=OUT_COLOR)
+	for side in ('bottom', 'left'):
+		ax_o.spines[side].set_color(OUT_COLOR)
+
+	if src:
+		ax_s.scatter([norm(e['onset'], src_lo, src_hi) for e in src], [e['pitch'] for e in src],
+			s=26, marker='o', c=SRC_COLOR, edgecolors='white', linewidths=0.4,
+			label=f'source note_on ({len(src)})', zorder=4)
+		ax_s.legend(loc='upper right', fontsize=8, framealpha=0.9)
+	# The output lane holds two different things and they must not read alike: notes THIS STEP generated
+	# (filled triangles, the model's work, the only ones links attach to) and primer notes carried in from
+	# earlier steps as context (hollow squares). Shape carries the distinction, not just colour, so it
+	# survives greyscale and colour-blind viewing.
+	if prime:
+		ax_o.scatter([norm(e['onset'], out_lo, out_hi) for e in prime], [e['pitch'] for e in prime],
+			s=26, marker='s', facecolors='none', edgecolors=OUT_COLOR, linewidths=0.7, alpha=0.65,
+			label=f'primer note_on ({len(prime)})', zorder=3)
+	if out:
+		ax_o.scatter([norm(e['onset'], out_lo, out_hi) for e in out], [e['pitch'] for e in out],
+			s=30, marker='v', c=OUT_COLOR, edgecolors='white', linewidths=0.4,
+			label=f'generated note_on ({len(out)})', zorder=4)
+	# ax_o's legend is built AFTER the <eom> lines below, so the bar-line entry can be in it.
+
+	# Window cuts, dashed, on each lane's own axis: where the previous window was cut and where the next
+	# one will be. They are what makes the step's reach legible -- material to the right of `next` is about
+	# to be re-read by the following window, and the primer to the left of 0 is what that window will
+	# carry over. A cut outside the drawn range is skipped rather than clamped, which would put it at a
+	# tick it does not belong to.
+	for ax, keys, lo, hi in ((ax_s, ('src_prev', 'src_next'), src_lo, src_hi),
+			(ax_o, ('out_prev', 'out_next'), out_lo, out_hi)):
+		for key, style in zip(keys, ('prev', 'next')):
+			tick = cuts.get(key)
+			if tick is None:
+				continue					# no such neighbour (first or last step), so nothing to mark
+			x = norm(tick, lo, hi)
+			if not (x_lo <= x <= 1.03):
+				continue
+			ax.axvline(x, color='#6a6a6a', lw=1.0, ls=(0, (4, 3)) if style == 'prev' else (0, (1, 2)),
+				alpha=0.75, zorder=5)
+			ax.annotate(f'{style} cut @{tick}', xy=(x, 1.0), xycoords=('data', 'axes fraction'),
+				xytext=(2, -9), textcoords='offset points', fontsize=7, color='#5a5a5a')
+
+	# Measure boundaries of the generated stream. They are the model's own barring, not the source's, and
+	# they are what makes a horizontal position musically readable: a link landing a bar late is a different
+	# error from one landing a beat late, and without bar lines both just look "shifted". Drawn thin and
+	# behind the notes, and unlabelled -- one label per bar would crowd the lane for no information, since
+	# the tick axis already gives the position.
+	seen = set()
+	for tick in sorted(window.get('eoms') or []):
+		x = norm(tick, out_lo, out_hi)
+		if not (x_lo <= x <= 1.03):
+			continue
+		key = round(x, 4)
+		if key in seen:					# two boundaries on one tick would just thicken the same line
+			continue
+		seen.add(key)
+		ax_o.axvline(x, color='#8a7f5a', lw=0.7, alpha=0.55, zorder=1,
+			label=(f'<eom> ({len(window.get("eoms") or [])})' if len(seen) == 1 else None))
+	if out or prime or seen:
+		ax_o.legend(loc='upper right', fontsize=8, framealpha=0.9)
+
+	# Links cross the panel boundary, so they are figure-level artists in DATA coordinates of the two
+	# axes rather than lines inside either one.
+	peak = max((p['score'] for p in pairs), default=0.0)		# the real peak, for the title
+	hi = peak or 1.0
+	# Floor the normaliser at the threshold. Weight is normalised WITHIN the step so a modest step does not
+	# render blank beside a confident one -- but a step whose every link is a sub-threshold fallback has no
+	# strong link to normalise against, and dividing by its own weak peak would draw those faint rows at
+	# full strength. Flooring keeps a weak step looking weak.
+	hi = max(hi, threshold) if threshold else hi
+	n_weak = n_prime = 0
+	for p in pairs:
+		w = min(1.0, p['score'] / hi)
+		# A link that did not clear the threshold is the note's argmax kept so no generated note is left
+		# unexplained. It is drawn DOTTED and fainter: still visible as "this is where it looked most",
+		# never mistakable for evidence at the same standing as a passing link.
+		weak = threshold is not None and p['score'] < threshold
+		n_weak += weak and p.get('kind', 'gen') == 'gen'
+		# Primer links answer a different question -- what the model reads while ingesting its own carried-in
+		# context, not what produced a note here -- so they get their own colour and dash. Same weight scale,
+		# because the scores come from the same reduction.
+		prime_link = p.get('kind', 'gen') == 'prime'
+		n_prime += prime_link
+		# Alpha floors at MIN_LINK_ALPHA. A link drawn at 0.02 is a link that was recorded and then hidden,
+		# which is the worst of both: the count in the title says it is there and the figure says it is not.
+		alpha = (0.10 + 0.28 * w) if weak else (0.14 + 0.66 * w)
+		if prime_link:
+			alpha *= 0.7				# recessive: context-reading is the secondary claim on this figure
+		alpha = max(MIN_LINK_ALPHA, alpha)
+		link = ConnectionPatch(
+			xyA=(norm(p['src_onset'], src_lo, src_hi), p['src_pitch']), coordsA=ax_s.transData,
+			xyB=(norm(p['out_onset'], out_lo, out_hi), p['out_pitch']), coordsB=ax_o.transData,
+			color=PRIME_LINK_COLOR if prime_link else '#3a3a3a',
+			lw=(0.3 + 0.9 * w) if weak else (0.4 + 1.8 * w), alpha=alpha,
+			linestyle=((0, (5, 2)) if prime_link else (0, (1, 3)) if weak else '-'), zorder=2)
+		# Added to an AXES, not the figure: a figure-level artist makes the figure incompatible with
+		# tight_layout ("results might be incorrect"), and a layout warning is not worth shipping. Living
+		# on ax_s with clipping off, the segment still reaches down into ax_o.
+		link.set_clip_on(False)
+		ax_s.add_artist(link)
+	lo_line, hi_line = window['lines']
+	# The span ratio is precisely what normalisation divides out, so name it: at 1.0 the two sequences
+	# cover equal durations and horizontal positions are directly comparable; far from 1.0 the figure is
+	# stretching one lane to match the other, and a well-placed-looking link may only be well-placed
+	# after that stretch.
+	# From span_ratio, NOT from the drawn extents: the output lane's extent now includes the primer, and the
+	# ratio is a claim about what this step GENERATED against the source window it read. Computing it from
+	# out_hi - out_lo would silently start measuring primer + generated and disagree with the text report.
+	ratio = span_note(window)
+	# Counted honestly: solid links cleared the threshold, dotted ones are per-note fallbacks. Reporting a
+	# single total would let a step of nothing but fallbacks read as a step full of links.
+	n_strong = len(pairs) - n_weak - n_prime
+	counts = (f'{n_strong} link(s) >= {threshold}'
+		+ (f' + {n_weak} fallback' if n_weak else '')
+		+ (f' + {n_prime} primer' if n_prime else ''))
+	fig.suptitle(f'step {step}  source lines [{lo_line}:{hi_line}]  '
+		f'{counts}  peak {peak:.3f}  {ratio}{subtitle}', fontsize=10)
+	# ConnectionPatch resolves its endpoints from the axes' transData at DRAW time, so laying out after
+	# adding the links is safe: the segments follow the panels wherever tight_layout puts them.
+	fig.tight_layout(rect=(0, 0.01, 1, 0.93))
+	# Now widen the gap: the generated panel's x label and the source panel's top ticks both live in it,
+	# and the links have to cross it legibly.
+	fig.subplots_adjust(hspace=0.34)
+	fig.savefig(path, dpi=130)
+	plt.close(fig)
+
+
+def span_ratio (window):
+	'''(generated span, source span, ratio or None) in ticks for one step's window.'''
+	so = [e['onset'] for e in window['src']]
+	oo = [e['onset'] for e in window['out']]
+	if not so or not oo:
+		return None, None, None
+	ss, os_ = max(so) - min(so), max(oo) - min(oo)
+	return os_, ss, (os_ / ss if ss else None)
+
+
+def span_note (window):
+	'''One-line span summary for a step's log line.'''
+	os_, ss, r = span_ratio(window)
+	if os_ is None:
+		return 'span n/a'
+	return f'span {os_}/{ss} = {r:.2f}x' if r is not None else f'span {os_}/0'
+
+
+def report_spans (windows, by_step, threshold=None):
+	'''Per-step span ratios, as text beside the figures.
+
+	The figures normalise each sequence to its own extent, which is what makes links readable but also
+	DIVIDES OUT duration disagreement. This table puts the divided-out factor back on the record: a ratio
+	far from 1.0 means the step's output covered a different duration than the source window it was
+	translating, i.e. accumulated bar-length error, which is invisible in the normalised picture.
+	'''
+	print('[attn] per-step span (generated ticks / source ticks — 1.0 = equal duration):')
+	for step in sorted(windows):
+		os_, ss, r = span_ratio(windows[step])
+		if os_ is None:
+			continue
+		flag = '  <-- output duration disagrees' if r is not None and not 0.8 <= r <= 1.25 else ''
+		shown = f'{r:.2f}x' if r is not None else 'n/a'
+		# generated links only: this table is about what the step produced, and primer links belong to a
+		# neighbouring step's production
+		links = [p for p in by_step.get(step, []) if p.get('kind', 'gen') == 'gen']
+		strong = links if threshold is None else [p for p in links if p['score'] >= threshold]
+		count = (f'{len(strong)} links' if len(strong) == len(links)
+			else f'{len(strong)} links + {len(links) - len(strong)} fallback')
+		print(f'       step {step}: {os_:6d} / {ss:6d} = {shown}  ({count}){flag}')
+	# A step with source notes and notes of its own, where NOTHING cleared the bar. Since every note now
+	# keeps a fallback, such a step still draws lines -- all dotted -- so it is no longer visible as an
+	# empty figure and has to be named here instead.
+	quiet = []
+	for s in sorted(windows):
+		links = [p for p in by_step.get(s, []) if p.get('kind', 'gen') == 'gen']
+		if not (windows[s]['out'] and windows[s]['src']) or not links:
+			continue
+		if threshold is not None and all(p['score'] < threshold for p in links):
+			quiet.append(s)
+	if quiet:
+		print(f'[attn] {len(quiet)} step(s) generated notes but cleared the threshold nowhere '
+			f'(figure shows fallbacks only): {quiet[:12]}{"..." if len(quiet) > 12 else ""}')
+
+
+def plot_attention (pairs, windows, prefix, threshold, subtitle=''):
+	'''Draw every step's figure in one pass, for a deferred run (--inspect-plot-at-end).
+
+	The streaming path does not come through here: AttentionInspector.plot_step draws each step inside
+	observe(). This exists for the deferred case and must produce the same files, which
+	tests/midi/translate_midiseq2_check.py asserts.
+	'''
+	by_step = {}
+	for p in pairs:
+		by_step.setdefault(p['step'], []).append(p)
+	os.makedirs(os.path.dirname(os.path.abspath(prefix)), exist_ok=True)
+	paths = []
+	for step in sorted(windows):
+		links, window = by_step.get(step, []), windows[step]
+		if not links and not window['out']:
+			continue			# a step that generated nothing has no correspondence to show
+		path = f'{prefix}.step{step:03d}.png'
+		plot_attention_step(links, window, step, path, threshold, subtitle)
+		paths.append(path)
+	print(f'[attn] wrote {len(paths)} step figure(s): {prefix}.stepNNN.png')
+	return paths
+
+
 def main ():
 	ap = argparse.ArgumentParser(description='Translate a whole midiseq2 file with MidiTranslator.')
 	ap.add_argument('--run', default=DEFAULT_RUN, help='training run dir (.state.yaml + checkpoint)')
@@ -659,6 +1637,28 @@ def main ():
 	ap.add_argument('--threads', type=int, default=0)
 	ap.add_argument('--device', default='cpu')
 	ap.add_argument('--verbose', action='store_true')
+	ap.add_argument('--inspect', action='store_true',
+		help='record, for every generated pitch token, its attention over the source pitch tokens '
+			'(one extra exact forward per window; forces eager attention)')
+	ap.add_argument('--inspect-threshold', type=float, default=0.05,
+		help='links at or above this attention score count as evidence (default 0.05). A note whose '
+			'scores all fall below it still keeps its single best link, drawn dotted and reported '
+			'separately, so no generated note is left unexplained')
+	ap.add_argument('--inspect-top-k', type=int, default=8,
+		help='per generated note, keep at most this many source links (0 = all above threshold); the '
+			'per-note fallback is always one link regardless')
+	ap.add_argument('--inspect-reduce', choices=['max', 'mean'], default='max',
+		help="reduction over layers and heads; 'max' (default) is what the brief asks for")
+	ap.add_argument('--inspect-query', choices=['producer', 'self'], default='producer',
+		help="'producer' reads the row that CHOSE the pitch (one position earlier); 'self' reads the "
+			'pitch token row itself. Different questions — see AttentionInspector')
+	ap.add_argument('--inspect-plot', default=None,
+		help='path PREFIX for the per-step onset-correspondence figures, written as '
+			'<prefix>.stepNNN.png, one per sliding window (default: alongside --output)')
+	ap.add_argument('--inspect-plot-at-end', action='store_true',
+		help='draw all figures after the run instead of one per step as it completes. Same output; '
+			'streaming is the default so a long run can be watched rather than waited out')
+	ap.add_argument('--inspect-json', default=None, help='dump the full ranking as JSON')
 	args = ap.parse_args()
 
 	if args.threads:
@@ -696,15 +1696,62 @@ def main ():
 		prime=not args.no_prime, temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
 		source_eom=bool(data_args.get('source_eom')), prime_window=args.prime_window)
 
-	output_ids, stats = translator.translate(lines, verbose=args.verbose, max_steps=args.max_steps)
+	# The output path has to be settled BEFORE translate runs, because the streaming figures are named
+	# from it and are written while the loop is still going.
+	out_path = args.output or os.path.join(REPO_ROOT, 'tests', 'output', 'translate_midiseq2',
+		os.path.basename(args.input))
+	plot_prefix = args.inspect_plot or os.path.splitext(out_path)[0] + '.attn'
+
+	inspector = None
+	if args.inspect:
+		inspector = AttentionInspector(model, tokenizer, translator.keywords, lines,
+			bool(data_args.get('source_eom')), args.device, reduce=args.inspect_reduce,
+			query=args.inspect_query, threshold=args.inspect_threshold, top_k=args.inspect_top_k,
+			plot_prefix=None if args.inspect_plot_at_end else plot_prefix)
+		print(f'[attn] inspecting: reduce {args.inspect_reduce}, query {args.inspect_query}, '
+			f'threshold {args.inspect_threshold}, top-k {args.inspect_top_k or "all"}, '
+			f'figures {"at end" if args.inspect_plot_at_end else "per step, as generated"}')
+
+	output_ids, stats = translator.translate(lines, verbose=args.verbose, max_steps=args.max_steps,
+		inspector=inspector)
 	body = render_lines(output_ids, tokenizer, translator.keywords)
 	final = compose_output(body, source_header(lines))
 	report_output(final, stats)
 
-	out_path = args.output or os.path.join(REPO_ROOT, 'tests', 'output', 'translate_midiseq2',
-		os.path.basename(args.input))
 	write_output(out_path, final)
 	print(f'[done] {out_path}')
+
+	if inspector is not None:
+		pairs, out_events, src_events, windows = inspector.resolve_all(output_ids)
+		by_step = {}
+		for p in pairs:
+			by_step.setdefault(p['step'], []).append(p)
+		if args.inspect_plot_at_end:
+			plot_attention(pairs, windows, plot_prefix, args.inspect_threshold,
+				subtitle=f'  ({args.inspect_reduce} over layers/heads, {args.inspect_query} row)')
+		else:
+			print(f'[attn] {len(inspector.plot_paths)} step figure(s) already written during the run: '
+				f'{plot_prefix}.stepNNN.png')
+		report_spans(windows, by_step, threshold=args.inspect_threshold)
+		report_attention(pairs, out_events, src_events, threshold=args.inspect_threshold)
+		if args.inspect_json:
+			with open(args.inspect_json, 'w', encoding='utf-8') as f:
+				json.dump(dict(input=args.input, checkpoint=checkpoint,
+					reduce=args.inspect_reduce, query=args.inspect_query,
+					threshold=args.inspect_threshold, top_k=args.inspect_top_k,
+					src_window=args.src_window, prime_window=args.prime_window,
+					generated_notes=len(out_events), source_notes=len(src_events),
+					# prime_notes and cuts are recorded so what a figure DREW is checkable from data,
+					# rather than only by looking at the image: an empty primer or a missing cut is a
+					# figure quietly short of a mark, and that should be visible here.
+					steps={str(s): dict(lines=w['lines'],
+							src_notes=len(w['src']), out_notes=len(w['out']),
+							prime_notes=len(w.get('prime') or []),
+							eoms=list(w.get('eoms') or []),
+							cuts=w.get('cuts') or {})
+						for s, w in sorted(windows.items())},
+					links=pairs), f, indent=2)
+			print(f'[attn] wrote {args.inspect_json}')
 	return 0
 
 
