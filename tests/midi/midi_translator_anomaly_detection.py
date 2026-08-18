@@ -512,6 +512,29 @@ def evaluate_windows (dataset, model, items):
 	if offset != len(labels): raise AssertionError('batched target segmentation disagrees with _shift')
 	return out,pred,labels
 
+def merge_reports (paths, report_path, plot_path, top_k):
+    reports=[]
+    for path in paths:
+        path=os.path.abspath(path); path=os.path.join(path,'report.json') if os.path.isdir(path) else path
+        with open(path,encoding='utf-8') as f: reports.append(json.load(f))
+    if not reports: raise ValueError('no shard reports supplied')
+    first=reports[0]; count=int(first['shard']['count']); indices=sorted(int(r['shard']['index']) for r in reports)
+    if indices != list(range(count)): raise ValueError(f'incomplete shard set: {indices}')
+    for r in reports[1:]:
+        if r['run']['checkpoint_sha256'] != first['run']['checkpoint_sha256'] or r['run']['vocab_sha256'] != first['run']['vocab_sha256']: raise ValueError('shards use different model identities')
+        if r['corpus']['root'] != first['corpus']['root'] or r['corpus']['shared_files'] != first['corpus']['shared_files']: raise ValueError('shards use different corpora')
+    arrays=[metric_values(r['sidecars']['metrics']['path']) for r in reports]; values=np.concatenate(arrays,axis=0)
+    dist={'loss':distribution_array(values[:,0]),'err':distribution_array(values[:,1])}
+    agg={k:sum(r['aggregate'][k] for r in reports) for k in ('windows','n_target','loss_sum','n_error')}; agg['loss']=agg['loss_sum']/agg['n_target']; agg['err']=agg['n_error']/agg['n_target']
+    cov={k:sum(r['coverage'][k] for r in reports) for k in ('songs_expected','songs_attempted','songs_complete','windows_attempted','windows_scored')}; cov.update(songs_corpus=first['corpus']['shared_files'],all_source_covered=cov['songs_complete']==first['corpus']['shared_files'])
+    errors=sum(r['errors']['count'] for r in reports); top={}
+    for key in ('loss','err'):
+        top[key]=sorted((row for r in reports for row in r['top'][key]),key=lambda row:row['metrics'][key],reverse=True)[:top_k]
+    plot_ok=plot_values(plot_path,values[:,0],values[:,1],dist)
+    complete=all(r['complete'] for r in reports) and not errors and cov['all_source_covered']
+    merged={'schema':'midi-translator-anomaly-report','version':2,'created_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'status':'complete' if complete else 'failed','complete':complete,'exhaustive':True,'self_check':all(r['self_check'] for r in reports),'invocation':sys.argv,'torch_version':torch.__version__,'device':[r['device'] for r in reports],'run':first['run'],'corpus':first['corpus'],'shard':{'index':None,'count':count},'windowing':first['windowing'],'coverage':cov,'aggregate':agg,'distributions':dist,'top':top,'errors':{'count':errors,'paths':[r['errors']['path'] for r in reports]},'shards':paths,'plot':plot_path if plot_ok else None}
+    atomic_json(report_path,merged); print('status: %s'%merged['status']); print('windows: %d scored / %d attempted'%(cov['windows_scored'],cov['windows_attempted'])); print('loss / err: %s / %s'%(agg['loss'],agg['err'])); print('report: %s'%report_path); print('plot: %s'%(plot_path if plot_ok else 'not written')); return 0 if complete else 1
+
 def main ():
 	ap=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
 	ap.add_argument('--run',default=DEFAULT_RUN); ap.add_argument('--checkpoint',default=None); ap.add_argument('--corpus',default=DEFAULT_CORPUS)
@@ -519,14 +542,16 @@ def main ():
 	ap.add_argument('--expect-files',type=int,default=100,help='required exact pair count; 0 disables'); ap.add_argument('--device',default='cuda'); ap.add_argument('--batch-size',type=int,default=1)
 	ap.add_argument('--max-files',type=int,default=0); ap.add_argument('--max-windows',type=int,default=0); ap.add_argument('--shard-index',type=int,default=0); ap.add_argument('--num-shards',type=int,default=1)
 	ap.add_argument('--top-k',type=int,default=100); ap.add_argument('--progress-every-songs',type=int,default=100); ap.add_argument('--out-dir',default=DEFAULT_OUT)
-	ap.add_argument('--report',default=None); ap.add_argument('--plot',default=None); ap.add_argument('--self-check-only',action='store_true'); args=ap.parse_args()
+	ap.add_argument('--report',default=None); ap.add_argument('--plot',default=None); ap.add_argument('--self-check-only',action='store_true'); ap.add_argument('--merge-shards',nargs='+',default=None); args=ap.parse_args()
 	if args.window_lines<1 or args.batch_size<1 or min(args.max_files,args.max_windows)<0: ap.error('window-lines/batch-size positive; limits non-negative')
 	if args.num_shards<1 or not 0<=args.shard_index<args.num_shards: ap.error('invalid shard selection')
+	report_path=os.path.abspath(args.report or os.path.join(args.out_dir,'report.json')); plot_path=os.path.abspath(args.plot or os.path.join(args.out_dir,'distributions.png'))
 	if args.top_k<1 or args.progress_every_songs<1: ap.error('top-k/progress positive')
+	if args.merge_shards: return merge_reports(args.merge_shards, report_path, plot_path, args.top_k)
 	if str(args.device).startswith('cuda') and not torch.cuda.is_available(): ap.error('CUDA unavailable; pass --device cpu')
 	self_check_ok=self_check(); print('synthetic self-check: PASS',flush=True)
 	if args.self_check_only: return 0
-	args.device=torch.device(args.device); report_path=os.path.abspath(args.report or os.path.join(args.out_dir,'report.json')); plot_path=os.path.abspath(args.plot or os.path.join(args.out_dir,'distributions.png'))
+	args.device=torch.device(args.device)
 	config,model,dataset,identity,corpus=load_run(args); all_names=dataset.names; selected=all_names[args.shard_index::args.num_shards]
 	if args.max_files: selected=selected[:args.max_files]
 	manifest=os.path.join(args.corpus,'index.json'); corpus.update(layout=type(dataset.source).__name__,manifest=os.path.abspath(manifest) if os.path.isfile(manifest) else None,manifest_sha256=sha256_file(manifest) if os.path.isfile(manifest) else None,selected_files=len(selected))
