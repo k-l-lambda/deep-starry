@@ -21,7 +21,9 @@ Short smoke run (explicitly reported as non-exhaustive):
 import argparse
 import datetime
 import hashlib
+import heapq
 import json
+import struct
 import math
 import os
 import statistics
@@ -29,6 +31,7 @@ import sys
 import tempfile
 import traceback
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 
@@ -258,7 +261,7 @@ def load_run (args):
 		source_dir=args.source_dir, target_dir=args.target_dir, mark_mode='tick',
 		line_range=args.window_lines, p_head=0, p_tail=0, source_eom=False,
 		max_tokens=0, resample_tries=1, align_retries=0, start_jitter=0,
-		random_crop=False, seed=0, vocab_path=vocab_path, pos_style='sep', packed=False)
+		random_crop=False, seed=0, vocab_path=vocab_path, pos_style='sep', packed=None)
 	if dataset.tokenizer.vocab_size != model.deducer.vocab_size:
 		raise ValueError('feeder vocabulary does not match model embedding rows')
 
@@ -368,83 +371,83 @@ def error_json (kind, error, name=None, window_index=None):
 		message='%s: %s' % (type(error).__name__, error), traceback=traceback.format_exc())
 
 
-# --- report and plot -----------------------------------------------------------------------
+# --- streamed report and plot ----------------------------------------------------------------
 
-def plot_report (path, windows, summaries):
-	rows = [row for row in windows if row['status'] == 'ok']
-	loss = [row['metrics']['loss'] for row in rows]
-	err = [row['metrics']['err'] for row in rows]
-	if not rows:
-		return False
-	fig, axes = plt.subplots(1, 2, figsize=(13, 4.5), layout='constrained')
-	for ax, values, title, color, xlabel, stat in (
-		(axes[0], loss, 'Per-window cross-entropy', '#4C78A8', 'loss', summaries['loss']),
-		(axes[1], err, 'Per-window token error rate', '#E45756', 'err', summaries['err'])):
-		bins = min(60, max(10, round(math.sqrt(len(values)))))
-		if min(values) == max(values):
-			bins = 1
-		ax.hist(values, bins=bins, color=color, edgecolor='white', linewidth=0.8)
-		ax.axvline(stat['median'], color='#222222', linestyle='--', linewidth=1.2,
-			label='median %.4g' % stat['median'])
-		ax.axvline(stat['p95'], color='#777777', linestyle=':', linewidth=1.2,
-			label='p95 %.4g' % stat['p95'])
-		ax.set_title(title)
-		ax.set_xlabel(xlabel)
-		ax.set_ylabel('windows')
-		ax.grid(axis='y', color='#dddddd', linewidth=0.6)
-		ax.set_axisbelow(True)
-		ax.legend(frameon=False, fontsize=9)
-		ax.text(0.99, 0.97, 'n=%d\nmax=%.4g' % (len(values), stat['max']),
-			transform=ax.transAxes, ha='right', va='top', fontsize=9)
-		for side in ('top', 'right'):
-			ax.spines[side].set_visible(False)
-	fig.suptitle('MidiTranslator anomaly scan — 256 source lines extended to @tick')
+class ScanWriter:
+    """Bounded-memory trace writer, aggregate metrics, and top anomalies."""
+    def __init__(self, out_dir, top_k=100):
+        self.out_dir=os.path.abspath(out_dir); os.makedirs(self.out_dir, exist_ok=True)
+        self.paths={k: os.path.join(self.out_dir, f'{k}.jsonl') for k in ('windows','songs','errors')}
+        self.paths['metrics']=os.path.join(self.out_dir,'metrics.f64')
+        self.files={k:open(v,'w',encoding='utf-8') for k,v in self.paths.items() if k!='metrics'}
+        self.files['metrics']=open(self.paths['metrics'],'wb')
+        self.top_k=top_k; self.top={'loss':[],'err':[]}; self.serial=0
+        self.windows_attempted=self.windows_scored=self.songs_attempted=self.songs_complete=0
+        self.n_target=self.n_error=0; self.loss_sum=0.0; self.error_count=0
+    def _json(self, key, row):
+        json.dump(row,self.files[key],ensure_ascii=False,allow_nan=False,separators=(',',':')); self.files[key].write('\n')
+    def write_window(self,row):
+        self.windows_attempted+=1; self._json('windows',row)
+        if row.get('status')!='ok': return
+        m=row['metrics']; self.windows_scored+=1; self.n_target+=int(m['n_target']); self.n_error+=int(m['n_error']); self.loss_sum+=float(m['loss_sum'])
+        self.files['metrics'].write(struct.pack('<dd',float(m['loss']),float(m['err']))); self.serial+=1
+        for key in ('loss','err'):
+            item=(float(m[key]),self.serial,row); heap=self.top[key]
+            if len(heap)<self.top_k: heapq.heappush(heap,item)
+            elif item[0]>heap[0][0]: heapq.heapreplace(heap,item)
+    def write_song(self,row):
+        self.songs_attempted+=1; self.songs_complete+=int(bool(row.get('source_coverage_complete'))); self._json('songs',row)
+    def write_error(self,row): self.error_count+=1; self._json('errors',row)
+    def aggregate(self):
+        return dict(windows=self.windows_scored,n_target=self.n_target,loss_sum=self.loss_sum,n_error=self.n_error,loss=self.loss_sum/self.n_target if self.n_target else None,err=self.n_error/self.n_target if self.n_target else None)
+    def top_rows(self): return {k:[x[2] for x in sorted(v,reverse=True)] for k,v in self.top.items()}
+    def flush(self):
+        for f in self.files.values(): f.flush()
+    def close(self):
+        for f in self.files.values(): f.flush(); os.fsync(f.fileno()); f.close()
 
-	os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-	tmp = None
-	try:
-		with tempfile.NamedTemporaryFile(dir=os.path.dirname(os.path.abspath(path)),
-			prefix='.%s.' % os.path.basename(path), suffix='.png', delete=False) as f:
-			tmp = f.name
-		fig.savefig(tmp, dpi=130)
-		os.replace(tmp, path)
-	except Exception:
-		if tmp and os.path.exists(tmp):
-			os.unlink(tmp)
-		raise
-	finally:
-		plt.close(fig)
-	return True
+def trace_record(record):
+    out={k:record[k] for k in ('id','status','song','song_index','window_index')}
+    for group, keys in (('source',('range','lines','nominal_end','extension_lines','mark_range','head','tail','boundary')),('target',('range','lines','overlap_with_previous','gap_from_previous','alignment'))):
+        if group in record: out[group]={k:record[group].get(k) for k in keys}
+    if 'sequence' in record: out['sequence']=record['sequence']
+    if 'metrics' in record: out['metrics']=record['metrics']
+    if 'error' in record: out['error']=record['error']
+    return out
 
+def metric_values(path):
+    values=np.fromfile(path,dtype='<f8')
+    if values.size%2: raise ValueError('corrupt metrics sidecar: odd float count')
+    return values.reshape(-1,2)
 
-def make_report (args, identity, corpus, windows, songs, errors, exhaustive, self_check_ok):
-	ok = [row for row in windows if row['status'] == 'ok']
-	metrics = [row['metrics'] for row in ok]
-	loss_dist = distribution([row['loss'] for row in metrics])
-	err_dist = distribution([row['err'] for row in metrics])
-	all_song_coverage = len(songs) == corpus['shared_files'] and all(song['source_coverage_complete'] for song in songs)
-	complete = exhaustive and not errors and all_song_coverage and len(ok) == len(windows)
-	return {
-		'schema': 'midi-translator-anomaly-report', 'version': 1,
-		'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-		'status': 'complete' if complete else ('failed' if errors else 'limited'),
-		'complete': complete, 'exhaustive': exhaustive, 'self_check': self_check_ok,
-		'invocation': sys.argv, 'torch_version': torch.__version__, 'device': str(args.device),
-		'run': identity, 'corpus': corpus,
-		'windowing': {'nominal_source_lines': args.window_lines,
-			'right_boundary': 'first source @tick line at or after nominal end; otherwise EOF',
-			'random_crop': False, 'start_jitter': 0, 'resampling': False, 'truncation': False},
-		'coverage': {
-			'songs_expected': corpus['shared_files'], 'songs_attempted': len(songs),
-			'songs_complete': sum(song['source_coverage_complete'] for song in songs),
-			'windows_attempted': len(windows), 'windows_scored': len(ok),
-			'all_source_covered': all_song_coverage,
-		},
-		'aggregate': aggregate_metrics(metrics),
-		'distributions': {'loss': loss_dist, 'err': err_dist},
-		'songs': songs, 'windows': windows, 'errors': errors,
-	}
+def distribution_array(values):
+    if not len(values): return dict(count=0,min=None,mean=None,median=None,p90=None,p95=None,p99=None,max=None)
+    q=np.percentile(values,[50,90,95,99])
+    return dict(count=int(len(values)),min=float(np.min(values)),mean=float(np.mean(values)),median=float(q[0]),p90=float(q[1]),p95=float(q[2]),p99=float(q[3]),max=float(np.max(values)))
 
+def plot_values(path, loss, err, summaries):
+    if not len(loss): return False
+    fig,axes=plt.subplots(1,2,figsize=(13,4.5),layout='constrained')
+    for ax,values,title,color,xlabel,stat in ((axes[0],loss,'Per-window cross-entropy','#4C78A8','loss',summaries['loss']),(axes[1],err,'Per-window token error rate','#E45756','err',summaries['err'])):
+        bins=min(100,max(10,round(math.sqrt(len(values)))))
+        if stat['min']==stat['max']: bins=1
+        ax.hist(values,bins=bins,color=color,edgecolor='white',linewidth=.5); ax.axvline(stat['median'],color='#222',linestyle='--',label='median %.4g'%stat['median']); ax.axvline(stat['p95'],color='#777',linestyle=':',label='p95 %.4g'%stat['p95'])
+        ax.set_title(title); ax.set_xlabel(xlabel); ax.set_ylabel('windows'); ax.grid(axis='y',color='#ddd',linewidth=.6); ax.set_axisbelow(True); ax.legend(frameon=False,fontsize=9); ax.text(.99,.97,'n=%d\nmax=%.4g'%(len(values),stat['max']),transform=ax.transAxes,ha='right',va='top',fontsize=9)
+        for side in ('top','right'): ax.spines[side].set_visible(False)
+    fig.suptitle('MidiTranslator anomaly scan — 256 source lines extended to @tick'); os.makedirs(os.path.dirname(os.path.abspath(path)),exist_ok=True); tmp=None
+    try:
+        with tempfile.NamedTemporaryFile(dir=os.path.dirname(os.path.abspath(path)),prefix='.%s.'%os.path.basename(path),suffix='.png',delete=False) as f: tmp=f.name
+        fig.savefig(tmp,dpi=130); os.replace(tmp,path)
+    finally:
+        if tmp and os.path.exists(tmp): os.unlink(tmp)
+        plt.close(fig)
+    return True
+
+def sidecar_metadata(paths): return {k:{'path':os.path.abspath(v),'bytes':os.path.getsize(v),'sha256':sha256_file(v)} for k,v in paths.items()}
+
+def make_stream_report(args,identity,corpus,writer,exhaustive,self_check_ok,distributions,plot_path):
+    selected=int(corpus['selected_files']); all_covered=writer.songs_attempted==selected and writer.songs_complete==selected; complete=exhaustive and not writer.error_count and all_covered and writer.windows_attempted==writer.windows_scored
+    return {'schema':'midi-translator-anomaly-report','version':2,'created_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'status':'complete' if complete else ('failed' if writer.error_count else 'limited'),'complete':complete,'exhaustive':exhaustive,'self_check':self_check_ok,'invocation':sys.argv,'torch_version':torch.__version__,'device':str(args.device),'run':identity,'corpus':corpus,'shard':{'index':args.shard_index,'count':args.num_shards},'windowing':{'nominal_source_lines':args.window_lines,'right_boundary':'first source @tick line at or after nominal end; otherwise EOF','random_crop':False,'start_jitter':0,'resampling':False,'truncation':False},'coverage':{'songs_corpus':corpus['shared_files'],'songs_expected':selected,'songs_attempted':writer.songs_attempted,'songs_complete':writer.songs_complete,'windows_attempted':writer.windows_attempted,'windows_scored':writer.windows_scored,'all_source_covered':all_covered},'aggregate':writer.aggregate(),'distributions':distributions,'top':writer.top_rows(),'errors':{'count':writer.error_count,'path':os.path.abspath(writer.paths['errors'])},'sidecars':sidecar_metadata(writer.paths),'plot':plot_path}
 
 # --- synthetic checks ----------------------------------------------------------------------
 
@@ -492,129 +495,106 @@ def self_check ():
 
 # --- driver --------------------------------------------------------------------------------
 
+def evaluate_windows (dataset, model, items):
+	batch = dataset.collateBatch([(torch.tensor(x['ids'],dtype=torch.long), x['sep'], torch.tensor(x['positions'],dtype=torch.long), 0) for x in items])
+	for row,x in enumerate(items):
+		ids,sep=x['ids'],x['sep']
+		if int(batch['target_mask'][row,:sep+1].sum()) != 0: raise AssertionError('source or <sep> is supervised')
+		if int(batch['target_mask'][row].sum()) != len(ids)-sep-1: raise AssertionError('target mask does not cover whole target')
+		if ids[-1] != dataset.tokenizer.eos_id or not bool(batch['target_mask'][row,len(ids)-1]): raise AssertionError('<eos> is not final supervised token')
+	logits=model.deducer(batch['input_ids'],batch['masks'],batch['position_ids']); pred,labels=model._shift(batch,logits)
+	counts=batch['target_mask'][:,1:].sum(dim=1).tolist(); out=[]; offset=0
+	for count in counts:
+		count=int(count); out.append(score_logits(pred[offset:offset+count],labels[offset:offset+count])); offset+=count
+	if offset != len(labels): raise AssertionError('batched target segmentation disagrees with _shift')
+	return out,pred,labels
+
 def main ():
-	ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-	ap.add_argument('--run', default=DEFAULT_RUN)
-	ap.add_argument('--checkpoint', default=None, help='default: <run>/best.chkpt (no fallback)')
-	ap.add_argument('--corpus', default=DEFAULT_CORPUS)
-	ap.add_argument('--source-dir', default='midi-seq2-irregular')
-	ap.add_argument('--target-dir', default='midi-seq2-score')
-	ap.add_argument('--window-lines', type=int, default=256)
-	ap.add_argument('--expect-files', type=int, default=100, help='required exact pair count; 0 disables')
-	ap.add_argument('--device', default='cuda')
-	ap.add_argument('--max-files', type=int, default=0, help='smoke limit; 0 = all')
-	ap.add_argument('--max-windows', type=int, default=0, help='global smoke limit; 0 = all')
-	ap.add_argument('--out-dir', default=DEFAULT_OUT)
-	ap.add_argument('--report', default=None, help='JSON path; default: <out-dir>/report.json')
-	ap.add_argument('--plot', default=None, help='PNG path; default: <out-dir>/distributions.png')
-	ap.add_argument('--self-check-only', action='store_true')
-	args = ap.parse_args()
-
-	if args.window_lines < 1 or args.max_files < 0 or args.max_windows < 0:
-		ap.error('window-lines must be positive and limits must be non-negative')
-	if str(args.device).startswith('cuda') and not torch.cuda.is_available():
-		ap.error('CUDA was requested but is not available; pass --device cpu')
-	self_check_ok = self_check()
-	print('synthetic self-check: PASS')
-	if args.self_check_only:
-		return 0
-
-	args.device = torch.device(args.device)
-	report_path = os.path.abspath(args.report or os.path.join(args.out_dir, 'report.json'))
-	plot_path = os.path.abspath(args.plot or os.path.join(args.out_dir, 'distributions.png'))
-	config, model, dataset, identity, corpus = load_run(args)
-	print('checkpoint: %s (epoch %s)' % (identity['checkpoint'], identity['checkpoint_epoch']))
-	print('corpus    : %d exact pairs, %s -> %s' % (
-		corpus['shared_files'], args.source_dir, args.target_dir))
-
-	names = dataset.names[:args.max_files or None]
-	exhaustive = not args.max_files and not args.max_windows
-	windows_out, songs, errors = [], [], []
-	total_attempted = 0
-	stop = False
-	train_cap = int((config['data.args'] or {}).get('max_tokens') or 0)
-	model_cap = int((config['model.args'] or {}).get('max_seq_len') or 0)
-	wrapper_checked = False
-
-	with torch.inference_mode():
-		for song_index, name in enumerate(names):
-			source = _get_file(dataset.source, dataset.arm_source, name, 'tick')
-			target = _get_file(dataset.source, dataset.arm_target, name, 'tick')
-			planned = list(iter_source_windows(source, args.window_lines))
-			validate_tiling(source, planned)
-			attempted = []
-			previous_target_end = None
-			for window_index, window in enumerate(planned):
-				if args.max_windows and total_attempted >= args.max_windows:
-					stop = True
-					break
-				total_attempted += 1
-				a, z = window['a'], window['z']
-				align = dataset._align(source, target, a, z)
-				if align is None:
-					error = ValueError('tick alignment produced an empty target range')
-					failure = error_json('alignment', error, name, window_index)
-					errors.append(failure)
-					windows_out.append(dict(id='%s:w%04d' % (name.rsplit('.', 2)[0], window_index),
-						status='error', song=name, song_index=song_index, window_index=window_index,
-						source={'range': [window['start'], window['end']]}, error=failure))
-					attempted.append(window)
-					continue
-				ids, sep, positions = dataset._assemble(source, target, a, z, align, 0)
-				record = window_record(dataset, name, song_index, window_index, source, target,
-					window, align, ids, sep, positions, previous_target_end, train_cap, model_cap)
-				previous_target_end = align[1]
-				attempted.append(window)
+	ap=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
+	ap.add_argument('--run',default=DEFAULT_RUN); ap.add_argument('--checkpoint',default=None); ap.add_argument('--corpus',default=DEFAULT_CORPUS)
+	ap.add_argument('--source-dir',default='midi-seq2-irregular'); ap.add_argument('--target-dir',default='midi-seq2-score'); ap.add_argument('--window-lines',type=int,default=256)
+	ap.add_argument('--expect-files',type=int,default=100,help='required exact pair count; 0 disables'); ap.add_argument('--device',default='cuda'); ap.add_argument('--batch-size',type=int,default=1)
+	ap.add_argument('--max-files',type=int,default=0); ap.add_argument('--max-windows',type=int,default=0); ap.add_argument('--shard-index',type=int,default=0); ap.add_argument('--num-shards',type=int,default=1)
+	ap.add_argument('--top-k',type=int,default=100); ap.add_argument('--progress-every-songs',type=int,default=100); ap.add_argument('--out-dir',default=DEFAULT_OUT)
+	ap.add_argument('--report',default=None); ap.add_argument('--plot',default=None); ap.add_argument('--self-check-only',action='store_true'); args=ap.parse_args()
+	if args.window_lines<1 or args.batch_size<1 or min(args.max_files,args.max_windows)<0: ap.error('window-lines/batch-size positive; limits non-negative')
+	if args.num_shards<1 or not 0<=args.shard_index<args.num_shards: ap.error('invalid shard selection')
+	if args.top_k<1 or args.progress_every_songs<1: ap.error('top-k/progress positive')
+	if str(args.device).startswith('cuda') and not torch.cuda.is_available(): ap.error('CUDA unavailable; pass --device cpu')
+	self_check_ok=self_check(); print('synthetic self-check: PASS',flush=True)
+	if args.self_check_only: return 0
+	args.device=torch.device(args.device); report_path=os.path.abspath(args.report or os.path.join(args.out_dir,'report.json')); plot_path=os.path.abspath(args.plot or os.path.join(args.out_dir,'distributions.png'))
+	config,model,dataset,identity,corpus=load_run(args); all_names=dataset.names; selected=all_names[args.shard_index::args.num_shards]
+	if args.max_files: selected=selected[:args.max_files]
+	manifest=os.path.join(args.corpus,'index.json'); corpus.update(layout=type(dataset.source).__name__,manifest=os.path.abspath(manifest) if os.path.isfile(manifest) else None,manifest_sha256=sha256_file(manifest) if os.path.isfile(manifest) else None,selected_files=len(selected))
+	print('checkpoint: %s (epoch %s)'%(identity['checkpoint'],identity['checkpoint_epoch']),flush=True); print('corpus: %d pairs, %s, shard %d/%d (%d songs)'%(corpus['shared_files'],corpus['layout'],args.shard_index,args.num_shards,len(selected)),flush=True)
+	writer=ScanWriter(args.out_dir,args.top_k); exhaustive=not args.max_files and not args.max_windows; total=0; stop=False; wrapper_checked=False; train_cap=int((config['data.args'] or {}).get('max_tokens') or 0); model_cap=int((config['model.args'] or {}).get('max_seq_len') or 0)
+	def failure(kind,error,name=None,index=None):
+		row=error_json(kind,error,name,index); writer.write_error(row); return row
+	def score_pending(pending,song_metrics):
+		nonlocal wrapper_checked
+		if not pending:return
+		try: metrics,pred,labels=evaluate_windows(dataset,model,pending)
+		except Exception as error:
+			if len(pending)>1:
+				for item in pending: score_pending([item],song_metrics)
+				return
+			item=pending[0]; row=failure('cuda_oom' if isinstance(error,torch.OutOfMemoryError) else 'inference',error,item['name'],item['window_index']); item['record']['status']='error'; item['record']['error']=row; writer.write_window(trace_record(item['record']))
+			if isinstance(error,torch.OutOfMemoryError) and torch.cuda.is_available(): torch.cuda.empty_cache()
+			return
+		if not wrapper_checked:
+			weighted=sum(x['loss_sum'] for x in metrics)/sum(x['n_target'] for x in metrics)
+			if abs(float(model._loss(pred,labels).item())-weighted)>2e-6: raise AssertionError('direct CE disagrees with wrapper loss')
+			wrapper_checked=True
+		for item,metric in zip(pending,metrics): item['record'].update(metrics=metric,status='ok'); writer.write_window(trace_record(item['record'])); song_metrics.append(metric)
+	try:
+		with torch.inference_mode():
+			for local_index, name in enumerate(selected):
+				idx = args.shard_index + local_index * args.num_shards
+				pending, attempted, song_metrics = [], [], []
 				try:
-					metric, pred, labels = evaluate_window(dataset, model, ids, sep, positions)
-					if not wrapper_checked:
-						wrapper_loss = float(model._loss(pred, labels).item())
-						if abs(wrapper_loss - metric['loss']) > 2e-6:
-							raise AssertionError('direct CE disagrees with MidiTranslatorLoss._loss')
-						wrapper_checked = True
-					record['metrics'] = metric
-					record['status'] = 'ok'
-				except torch.OutOfMemoryError as error:
-					failure = error_json('cuda_oom', error, name, window_index)
-					record['status'], record['error'] = 'error', failure
-					errors.append(failure)
-					if torch.cuda.is_available():
-						torch.cuda.empty_cache()
+					source = _get_file(dataset.source, dataset.arm_source, name, 'tick')
+					target = _get_file(dataset.source, dataset.arm_target, name, 'tick')
+					planned = list(iter_source_windows(source, args.window_lines))
+					validate_tiling(source, planned)
 				except Exception as error:
-					failure = error_json('inference', error, name, window_index)
-					record['status'], record['error'] = 'error', failure
-					errors.append(failure)
-				windows_out.append(record)
-				if total_attempted % 50 == 0:
-					print('  windows %4d  songs %3d/%d  last T=%d' % (
-						total_attempted, song_index + 1, len(names), len(ids)))
-
-			song_rows = [row['metrics'] for row in windows_out
-				if row.get('song') == name and row.get('status') == 'ok']
-			coverage_complete = len(attempted) == len(planned) and (not attempted
-				or attempted[0]['start'] == 0 and attempted[-1]['end'] == len(source.lines))
-			songs.append(dict(song=name, song_index=song_index, source_lines=len(source.lines),
-				target_lines=len(target.lines), windows_planned=len(planned), windows_attempted=len(attempted),
-				windows_scored=len(song_rows), source_coverage_complete=coverage_complete,
-				metrics=aggregate_metrics(song_rows)))
-			if stop:
-				break
-
-	report = make_report(args, identity, corpus, windows_out, songs, errors,
-		exhaustive, self_check_ok)
-	plot_ok = plot_report(plot_path, windows_out, report['distributions'])
-	report['plot'] = plot_path if plot_ok else None
-	atomic_json(report_path, report)
-	print('\nstatus     : %s' % report['status'])
-	print('windows    : %d scored / %d attempted' % (
-		report['coverage']['windows_scored'], report['coverage']['windows_attempted']))
-	print('loss / err : %s / %s (token-weighted)' % (
-		report['aggregate']['loss'], report['aggregate']['err']))
-	print('report     : %s' % report_path)
-	print('plot       : %s' % (plot_path if plot_ok else 'not written'))
-	if errors:
-		print('errors     : %d (see report)' % len(errors))
-	return 0 if not errors else 1
+					row = failure('song_preparation', error, name)
+					writer.write_song({'song': name, 'song_index': idx, 'status': 'error', 'source_coverage_complete': False, 'metrics': aggregate_metrics([]), 'error': row})
+					continue
+				previous_target_end = None
+				for wi, window in enumerate(planned):
+					if args.max_windows and total >= args.max_windows:
+						stop = True
+						break
+					total += 1
+					attempted.append(window)
+					a, z = window['a'], window['z']
+					try:
+						align = dataset._align(source, target, a, z)
+						if align is None:
+							raise ValueError('tick alignment produced an empty target range')
+						ids, sep, positions = dataset._assemble(source, target, a, z, align, 0)
+						record = window_record(dataset, name, idx, wi, source, target, window, align, ids, sep, positions, previous_target_end, train_cap, model_cap)
+						previous_target_end = align[1]
+					except Exception as error:
+						row = failure('window_preparation', error, name, wi)
+						writer.write_window({'id': '%s:w%04d' % (name.rsplit('.', 2)[0], wi), 'status': 'error', 'song': name, 'song_index': idx, 'window_index': wi, 'source': {'range': [window['start'], window['end']]}, 'error': row})
+						continue
+					pending.append({'name': name, 'window_index': wi, 'ids': ids, 'sep': sep, 'positions': positions, 'record': record})
+					if len(pending) >= args.batch_size:
+						score_pending(pending, song_metrics)
+						pending = []
+				score_pending(pending, song_metrics)
+				covered = len(attempted) == len(planned) and (not attempted or (attempted[0]['start'] == 0 and attempted[-1]['end'] == len(source.lines)))
+				writer.write_song({'song': name, 'song_index': idx, 'status': 'ok' if covered else 'limited', 'source_lines': len(source.lines), 'target_lines': len(target.lines), 'windows_planned': len(planned), 'windows_attempted': len(attempted), 'windows_scored': len(song_metrics), 'source_coverage_complete': covered, 'metrics': aggregate_metrics(song_metrics)})
+				if writer.songs_attempted % args.progress_every_songs == 0:
+					writer.flush()
+					print('songs %d/%d windows %d loss %.5g err %.5g' % (writer.songs_attempted, len(selected), writer.windows_scored, writer.aggregate()['loss'] or 0, writer.aggregate()['err'] or 0), flush=True)
+				if stop:
+					break
+	finally: writer.close()
+	values=metric_values(writer.paths['metrics']); distributions={'loss':distribution_array(values[:,0]),'err':distribution_array(values[:,1])}; plot_ok=plot_values(plot_path,values[:,0],values[:,1],distributions); report=make_stream_report(args,identity,corpus,writer,exhaustive,self_check_ok,distributions,plot_path if plot_ok else None); atomic_json(report_path,report)
+	print('\\nstatus: %s'%report['status']); print('windows: %d scored / %d attempted'%(report['coverage']['windows_scored'],report['coverage']['windows_attempted'])); print('loss / err: %s / %s'%(report['aggregate']['loss'],report['aggregate']['err'])); print('report: %s'%report_path); print('plot: %s'%(plot_path if plot_ok else 'not written')); return 0 if not writer.error_count else 1
 
 
 if __name__ == '__main__':
