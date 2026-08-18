@@ -35,9 +35,12 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt						# noqa: E402
+try:
+	import matplotlib
+	matplotlib.use('Agg')
+	import matplotlib.pyplot as plt					# noqa: E402
+except ImportError:
+	plt = None
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if REPO_ROOT not in sys.path:
@@ -426,7 +429,7 @@ def distribution_array(values):
     return dict(count=int(len(values)),min=float(np.min(values)),mean=float(np.mean(values)),median=float(q[0]),p90=float(q[1]),p95=float(q[2]),p99=float(q[3]),max=float(np.max(values)))
 
 def plot_values(path, loss, err, summaries):
-    if not len(loss): return False
+    if plt is None or not len(loss): return False
     fig,axes=plt.subplots(1,2,figsize=(13,4.5),layout='constrained')
     for ax,values,title,color,xlabel,stat in ((axes[0],loss,'Per-window cross-entropy','#4C78A8','loss',summaries['loss']),(axes[1],err,'Per-window token error rate','#E45756','err',summaries['err'])):
         bins=min(100,max(10,round(math.sqrt(len(values)))))
