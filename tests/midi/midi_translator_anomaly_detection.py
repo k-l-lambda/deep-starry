@@ -597,7 +597,7 @@ def main ():
 					break
 	finally: writer.close()
 	values=metric_values(writer.paths['metrics']); distributions={'loss':distribution_array(values[:,0]),'err':distribution_array(values[:,1])}; plot_ok=plot_values(plot_path,values[:,0],values[:,1],distributions); report=make_stream_report(args,identity,corpus,writer,exhaustive,self_check_ok,distributions,plot_path if plot_ok else None); atomic_json(report_path,report)
-	print('\\nstatus: %s'%report['status']); print('windows: %d scored / %d attempted'%(report['coverage']['windows_scored'],report['coverage']['windows_attempted'])); print('loss / err: %s / %s'%(report['aggregate']['loss'],report['aggregate']['err'])); print('report: %s'%report_path); print('plot: %s'%(plot_path if plot_ok else 'not written')); return 0 if not writer.error_count else 1
+	print('\nstatus: %s'%report['status']); print('windows: %d scored / %d attempted'%(report['coverage']['windows_scored'],report['coverage']['windows_attempted'])); print('loss / err: %s / %s'%(report['aggregate']['loss'],report['aggregate']['err'])); print('report: %s'%report_path); print('plot: %s'%(plot_path if plot_ok else 'not written')); return 0 if not writer.error_count else 1
 
 
 if __name__ == '__main__':
