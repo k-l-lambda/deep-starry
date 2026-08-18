@@ -12,7 +12,7 @@ match element for element between 'flat' and 'split'. Everything else is plumbin
   2. label parity  — flat and split select the SAME labels, in the same order, for the same crop
   3. positions     — both halves stay on the pos_style axis; the pad tail continues each run
   4. skip          — start_jitter's unsupervised head lands on the same tokens in both forms
-  5. masks         — the encoder mask blocks the pad tail; a pad query produces no nan anywhere
+  5. masks         — the encoder mask blocks the pad tail; padded rows stay finite everywhere
   6. pad invariance— a padded batch's real rows match their unpadded selves
   7. cross-attn    — RoPE is absent from cross-attention; the source mask reaches it
   8. loss geometry — logits[:, j] aligns with labels[:, j]; loss/metrics finite; only <sep> leads
@@ -228,8 +228,9 @@ def check_masks ():
 	report('5i keep-mask marks real tokens', keep[0, 0].tolist() == [True, True, False, False])
 	report('5j no keep-mask without padding', _keep_mask(None) is None)
 
-	# The nan the asymmetry exists to prevent. A pad-query row under causal+key-padding would be all
-	# -inf; this asserts the model as wired produces no nan on a batch with a padded decoder row.
+	# The decoder's key-padding mask is omitted as REDUNDANT, not to dodge a nan: the fill is a finite
+	# finfo.min and the causal block keeps the diagonal at 0, so no query row can lose every key (the
+	# validation notebook sweeps every layout). This just pins that the model as wired stays finite.
 	model = MidiTranslatorEncDec(vocab_size=64, d_model=32, n_layer=2, n_head=4)
 	source = torch.tensor([[7, 8, 9, 0], [7, 8, 9, 10]])
 	source_masks = torch.tensor([[1, 1, 1, 0], [1, 1, 1, 1]])

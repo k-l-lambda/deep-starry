@@ -40,11 +40,12 @@ so a decoder layer is deliberately mixed; DecoderLayer documents the consequence
 
 The masks are not symmetric between the two stacks, and `_attn_mask` / `_keep_mask` document why: the
 encoder needs its key-padding mask (bidirectional attention would otherwise read the pad tail), while
-the decoder's self-attention deliberately takes the causal mask ALONE. Right padding plus causality means
-a real query never sees a pad key anyway, and adding the key-padding mask there would leave a pad
-QUERY row fully masked -> softmax over all -inf -> nan, which 0-weighted mixing spreads into the real
-rows. Cross-attention takes the source key-padding mask, since the decoder is not causal w.r.t. the
-encoder.
+the decoder's self-attention deliberately takes the causal mask ALONE. Causality plus right padding
+already stops every real query from reading a pad key, so the key-padding mask changes nothing that
+survives: real query rows come out bit-identical, and the only rows it does change are pad QUERY rows,
+which target_mask discards. It is omitted as redundant, not as dangerous — see `_attn_mask` for why the
+usual all -inf/nan hazard does not arise here. Cross-attention takes the source key-padding mask, since
+the decoder is not causal w.r.t. the encoder.
 '''
 
 import torch
@@ -112,11 +113,20 @@ def _attn_mask (query_len, key_padding, causal, dtype, device):
 	self-attention, but NOT for causal self-attention over a right-padded batch (cross-attention does
 	not come through here at all — it masks via `_keep_mask`, the boolean form the repo's
 	MultiHeadAttention takes). Under causal self-attention, causality already stops every real query
-	from reading a pad key, and including the
-	key-padding mask would fully mask the pad QUERY rows — softmax over an all -inf row is nan, and
-	although those rows are dropped by target_mask, they are mixed at weight 0 into nothing, so the
-	nan would not stay local. Leaving pad queries free to attend costs nothing: their outputs are
-	discarded.
+	from reading a pad key, so the key-padding mask changes no number that survives target_mask: it
+	alters only pad QUERY rows, whose outputs are discarded. Redundant, so not passed.
+
+	Two notes on the fill, because the usual "all -inf row -> softmax nan" worry does NOT apply here
+	and it is worth recording why rather than re-deriving it:
+
+	- the fill is `finfo(dtype).min`, which is FINITE. A row masked everywhere therefore softmaxes to
+	  uniform (finite garbage) rather than nan. Summing the two blocks does saturate to -inf where both
+	  apply, so -inf does appear in the tensor — just never across a whole row.
+	- the causal block leaves the DIAGONAL at 0, so under `causal` every query row keeps at least one
+	  unmasked key whatever the key-padding says.
+
+	Verified exhaustively over all 32 key-padding layouts of a width-5 row, causal and not: no row is
+	ever entirely -inf and no softmax is ever nan.
 	'''
 	mask = None
 	minimum = torch.finfo(dtype).min
