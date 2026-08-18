@@ -1,0 +1,205 @@
+# MidiTranslatorEncDec over the seq2seq2 paired corpus: a BIDIRECTIONAL encoder over the source, a
+# causal decoder writing the target through cross-attention.
+#
+# The paired experiment to configs/midi-translator-seq2seq2.yaml, and deliberately its minimal
+# contrast. Everything below `data:` is copied from that config VERBATIM -- same corpus, same
+# direction, same mark_mode, same line_range, same p_head/p_tail, same pos_style, same splits, same
+# deterministic val variant -- with ONE line added:
+#
+#     pack: split
+#
+# That option reshapes the batch without touching a single crop decision. The feeder cuts the same
+# assembled sequence at its own recorded <sep>, hands <sep> to the decoder as its start token, and
+# shifts the target into (decoder_input_ids, labels). The supervised label set is bit-identical to the
+# flat form's -- tests/midi/seq2seq2_pack_check.py asserts that element for element (check 2), which is
+# what makes a loss difference between the two runs attributable to the architecture rather than to a
+# difference in what each was asked to predict.
+#
+# So this config answers one question: does the source half benefit from bidirectional attention and
+# from being lifted out of the decoder's causal budget, enough to pay for the cross-attention?
+#
+# Corpus: test202608, 99 shared samples. A SMOKE corpus -- see "val is tiny" under trainer.
+
+id:     midi/{date}-{filename}
+
+
+imports:
+  - starry.midi.data.seq2seq2
+  - starry.midi.models.midiTranslatorEncDec
+
+
+# Same run-local vocabulary asset as the decoder-only config, and it must be: <sep> is this model's
+# decoder start token, so the id the FEEDER writes and the id the MODEL starts from have to come from
+# one pinned file. MidiTranslatorEncDecLoss takes sep_id from the tokenizer it resolves here rather
+# than from this file, so the two cannot drift.
+assets:
+  - type: Midiseq2Vocab
+
+
+data:
+  type:                     Seq2Seq2
+  # Relative to DATA_DIR; callers should pass data_dir=os.environ['DATA_DIR'].
+  root:                     test202608
+  # 99 shared samples. cycle 10, phase 9 -> 9 val / 90 train.
+  splits:                   '*0..8/10:9/10'
+  # Measured on one RTX 3090 (24GB) at the model size below (e4d4), real batches from this pairing:
+  # bs 24 -> 7.5GB (31%) at 15.4 samples/s, bs 32 -> 10.4GB (43%) at 15.3 samples/s. Throughput is
+  # flat, so the larger batch buys nothing but spent headroom.
+  #
+  # The ceiling is T = S + 1 + U, not batch count. Synthetic worst-case at bs 24: T 1024 -> 7.9GB
+  # (33%), T 2048 -> 18.7GB (78%), T 3072 OOMs. So the wall is near T ~2300, TIGHTER than the
+  # decoder-only run's ~2560 at the same batch size, because cross-attention here goes through the
+  # repo's MultiHeadAttention, which materializes the full [B, H, U, S] weight matrix instead of using
+  # SDPA (see DecoderLayer). Comfortable in `tick` mode (p99 939) but not in `measure` mode, whose tail
+  # reaches T 4699-8050 -- see max_tokens.
+  batch_size:               24
+  args:
+    # Direction: humanized performance -> notated score, i.e. transcription. Swap the two for the
+    # rendering direction (score -> performance); midi-seq2 is the third arm (regular performance).
+    source_dir:             midi-seq2-irregular
+    target_dir:             midi-seq2-score
+    # THE line that differs from the decoder-only config. 'split' emits the source and the target as
+    # separate tensors with the target already shifted into (decoder_input_ids, labels), which is what
+    # MidiTranslatorEncDec consumes. It is a batch-SHAPE choice only: every crop decision below is made
+    # before it applies, so both configs train on the same crops and the same labels.
+    pack:                   split
+    # 'tick' keeps the length tail bounded, which is what makes bs 24 safe here. Measured T over 800
+    # random crops at line_range [20, 256]:
+    #
+    #   pairing                          mode      median   p95    p99    max
+    #   irregular -> score               tick         449    853    939   1008
+    #   score     -> midi-seq2           tick         830   1871   2414   3604
+    #   midi-seq2 -> irregular           tick         689   1361   1611   2211
+    #   irregular -> score               measure      414   1026   1640   4699
+    #   score     -> midi-seq2           measure      793   1667   2554   4911
+    #   midi-seq2 -> irregular           measure      628   1443   2734   8050
+    #
+    # Attention is O(T^2), so the p99 and max size the run, not the median. 'measure' mode or either
+    # of the other two pairings needs a lower batch_size and a max_tokens guard.
+    mark_mode:              tick
+    # Bounds the SOURCE crop in lines; the cap is drawn UNIFORMLY per crop from [lo, hi], so the whole
+    # length range is in the training distribution (a scalar would make nearly every window maximal).
+    # The TARGET length follows from mark alignment and is direction-dependent.
+    line_range:             [20, 256]
+    # Probability of a crop pinned to the start / end of the piece, so boundary behaviour is learned
+    # rather than only ever seen mid-piece. The remaining 0.7 lands in the middle.
+    p_head:                 0.15
+    p_tail:                 0.15
+    # Emit <eom> at bar lines on the source half too. Off: the source is a read-only condition and its
+    # measure structure is already implied by its content.
+    source_eom:             false
+    # Hard cap on the assembled sequence, enforced by RESAMPLING the crop (truncating would cut a
+    # boundary off its mark and destroy the alignment). 0 = off, which is safe here because tick-mode
+    # max is 1008 against a memory wall at ~2048. Turn this on (e.g. 2048) for measure mode or the
+    # other pairings, whose tails reach 4700-8050.
+    max_tokens:             0
+    resample_tries:         8
+    # Augmentation: std dev IN LINES of a normal offset on the source crop's start, for crops that do
+    # not begin at the piece's start (head crops are exempt -- a == 0 is the <bos> condition). 0 = off.
+    #
+    # Closes a train/inference mismatch. Every crop here starts exactly ON a mark line because growth
+    # steps whole marks, but a sliding window over a production file has no @measure/@tick to land on
+    # (tools/midi/translateMidiseq2.py matches note_on counts instead) and so starts mid-measure. With
+    # this off the model never sees that. The target stays mark-aligned either way -- only the source's
+    # leading context moves. A measure is ~104 lines and a tick mark ~15, so single digits is a
+    # fraction of a bar; 8 gives offsets in [-20, 20] with 88% nonzero.
+    start_jitter:           0
+    # RoPE position convention:
+    #   flat      0, 1, 2, ... T-1
+    #   sep       source ends at -2, <sep> = -1, target starts at 0
+    #   absolute  <sep> = -1 as in 'sep', but each half sits on its OWN FILE's token axis -- target
+    #             file's first token is 0 counting up, source file's last token is -2 counting down,
+    #             so the positions carry WHERE in the piece the crop came from.
+    #
+    # flat and sep are equivalent to the model (one arithmetic run; RoPE reads relative distance only,
+    # so a uniform shift is invisible -- measured 1.3e-6 on the hidden states). sep is the readable
+    # form of the same thing: a position's sign says which half it is in. Only 'absolute' changes
+    # behaviour, and it is the one that stays collision-free: source <= -2 and target >= -1 by
+    # construction, so the halves can never share a position id nor invert their order however long
+    # the files get. A fixed source offset cannot promise that -- at -N/2 (half the slowest RoPE
+    # period, 23559 here) 0.4% of crops collided and 1.25% inverted, because the irregular arm reaches
+    # 76567 tokens while the score arm caps at 41416.
+    pos_style:              absolute
+  args_variant:
+    # Val takes a deterministic crop per sample — still a mix of head/tail/middle, but the same one
+    # every epoch, so the metric moves only when the model does.
+    1:
+      random_crop:          false
+
+
+
+model:
+  type:                     MidiTranslatorEncDec
+  args:
+    # vocab_size and eos_id come from the pinned midiseq2Vocab.yaml via the assets: entry above; sep_id
+    # and pad_id are taken from the same tokenizer by the loss wrapper. One vocabulary, shared by the
+    # encoder and the decoder through ONE embedding table: the two halves are the same token language
+    # describing two renderings of the piece, so separate tables would learn the same thing twice from
+    # half the data each.
+    d_model:                512
+    # Split 4/4 rather than 8/8. The point of this run is the encoder, not more capacity: 8+8 is 76.1M
+    # params against the decoder-only run's 34.2M, so a win there would be unattributable. e4d4 is
+    # 38.4M -- the closest match to 34.2M available at this d_model -- and the extra 4.2M is the
+    # cross-attention itself, which is the thing being tested.
+    #
+    # Asymmetry is a real option here and `n_layer` (a single number for both) is the shorthand: the
+    # source is read-only while the target is what gets generated, so a deeper decoder over a shallower
+    # encoder (e.g. 3/5, 46.7M at 6/4) is worth trying once the symmetric baseline has a curve.
+    n_layer_encoder:        4
+    n_layer_decoder:        4
+    n_head:                 8
+    # None -> d_model * 4 (2048) for the MLP.
+    d_inner:                ~
+    # Rotary position budget. Positions here are NEGATIVE under this config's pos_style: 'absolute'
+    # (source counts down from -2, <sep> at -1), and RoPE computes sin/cos from the value itself rather
+    # than indexing a table, so nothing here is out of range and this number is not a hard cap on
+    # position VALUES -- it only sizes the rotary cache. The real length guard is max_tokens.
+    max_seq_len:            4096
+    dropout:                0.1
+    # Untied, matching the decoder-only config so the two differ in one thing only.
+    tie_embedding:          false
+    # Same per-type CE weighting hook as the decoder-only run, and the same defaults: omitted =
+    # uniform. Inherited from MidiTranslatorLoss along with the type map and every metric, so the two
+    # runs' loss and error/* panels measure identical quantities and their curves are comparable.
+    #loss_type_weights:
+    #  elapse:              2.0
+# 38.4M params at this size (34.2M for the decoder-only run at l8 d512).
+
+trainer:
+  device:                   cuda
+  # SINGULAR — this is train.py (starry/utils/trainer.py). trainDist.py reads `epochs` (plural), so
+  # porting this config to the distributed trainer means renaming this key or it KeyErrors.
+  epoch:                    1000
+  # Measured on the 3090 at e4d4: a real train step is 1.56s at bs 24 (S 629 / U 337 that batch),
+  # i.e. 15.4 samples/s -- faster per step than the decoder-only run's 2.85s, since the source is
+  # processed once by a 4-layer encoder instead of sitting in every decoder layer's causal window.
+  # Balancing train-epoch against val-epoch the usual way would give a degenerate epoch_size, because
+  # val here is 9 samples rather than a proper split. So this is set by checkpoint cadence instead:
+  # 1200 samples = 50 steps = ~1.3min per epoch.
+  #
+  # val is tiny: 9 samples is a smoke check, not a metric to tune against. Enlarge the corpus before
+  # trusting val curves or comparing runs.
+  epoch_size:               1200
+  # x-axis in cumulative samples, so curves stay comparable after epoch_size / batch_size changes.
+  report_step_unit:         examples
+  save_mode:                best
+  moniter:
+    field:                  loss
+    mode:                   min
+
+
+optim:
+  # No `lr` here on purpose: the scheduler sets param_group['lr'] every step, so an `lr` in args would
+  # be silently overwritten. Peak lr = lr_mul * d_model^-0.5 * n_warmup^-0.5 = 0.1 * 512^-0.5 *
+  # 400^-0.5 = 2.2e-4, reached at step 400 (~8 epochs at 50 steps/epoch), then inverse-sqrt decay.
+  type:                     AdamW
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+    weight_decay:           0.01
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               0.1
+      n_warmup_steps:       400
+      d_model:              512       # == model d_model

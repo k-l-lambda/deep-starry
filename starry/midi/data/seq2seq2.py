@@ -69,7 +69,23 @@ tests/midi/seq2seq2_archive_check.py asserts.
 and RoPE reads only relative distance, so a uniform shift changes nothing. 'sep' buys readability (a
 position's sign says which half it is in). Only 'absolute' changes what the model sees.
 
-Batch contract:
+`pack` picks the BATCH SHAPE, and nothing else — every crop decision (alignment, wrappers, positions,
+the unsupervised `skip`) is made before it applies, so the two forms carry the same supervision over
+the same crops:
+
+    'flat'   one sequence per sample plus a `target_mask` over its tail — the decoder-only form,
+             consumed by starry.midi.models.midiTranslator.MidiTranslator
+    'split'  source and target as SEPARATE tensors, the target already shifted into
+             (decoder_input_ids, labels) — the encoder-decoder form, consumed by
+             starry.midi.models.midiTranslatorEncDec.MidiTranslatorEncDec
+
+'split' cuts the assembled sequence at its recorded <sep> index rather than encoding anything a second
+time, and gives <sep> to the decoder as its start token (the target's own <bos> is conditional on the
+crop reaching the start of the piece, so it cannot serve as one). The supervised label SET is therefore
+identical between the two forms, which is what makes a decoder-only and an encoder-decoder run
+comparable on the same corpus. `tests/midi/seq2seq2_pack_check.py` asserts that equality.
+
+Batch contract, `pack: flat`:
 	input_ids    LongTensor [B, T]   source ++ <sep> ++ target, right-padded with <pad>
 	masks        LongTensor [B, T]   1 = real token
 	target_mask  LongTensor [B, T]   1 = a supervised target position (strictly after <sep>). A crop
@@ -85,6 +101,21 @@ Batch contract:
 Loss convention: for a next-token model, compare `logits[:, i - 1]` against `input_ids[:, i]` at
 every `i` where target_mask is 1. `<sep>` is therefore the last context position before the first
 supervised token, and nothing in the source half is ever a target.
+
+Batch contract, `pack: split`:
+	source_ids           LongTensor [B, S]   <bos>? source..., right-padded. NO <sep>
+	source_masks         LongTensor [B, S]   1 = real token. The encoder is BIDIRECTIONAL, so unlike
+	                                         the flat form this mask is load-bearing: without it a
+	                                         real position would attend to the pad tail
+	source_position_ids  LongTensor [B, S]   the source half of the same pos_style axis
+	decoder_input_ids    LongTensor [B, U]   <sep> ++ target[:-1], right-padded
+	decoder_masks        LongTensor [B, U]   1 = real token
+	decoder_position_ids LongTensor [B, U]   <sep>'s position ++ the target's, same axis
+	labels               LongTensor [B, U]   target — decoder_input_ids shifted left by one
+	target_mask          LongTensor [B, U]   1 = supervised label (0 for the `skip` head and the pad)
+
+Loss convention here: compare `logits[:, j]` against `labels[:, j]` wherever target_mask is 1. The
+shift already happened in the collate, so this form takes NO further shift.
 '''
 
 import json
@@ -104,6 +135,9 @@ from .seq2CondPachifier import Midiseq2Tokenizer
 
 
 _FORMATS = ('midiseq2', 'lilylet')
+# Batch shape. 'flat' is the decoder-only form (one sequence, target_mask over its tail); 'split'
+# is the encoder-decoder form (source and target as separate tensors). See _collate_split.
+_PACKS = ('flat', 'split')
 
 
 def _format (value: str) -> str:
@@ -439,7 +473,7 @@ class Seq2Seq2 (Dataset):
 		source_dir='midi-seq2-score', target_dir='midi-seq2', mark_mode='measure',
 		line_range=(20, 256), p_head=0.15, p_tail=0.15, source_eom=False,
 		max_tokens=0, resample_tries=8, align_retries=4, start_jitter=0.0,
-		random_crop=None, seed=0, vocab_path=None, pos_style='flat',
+		random_crop=None, seed=0, vocab_path=None, pos_style='flat', pack='flat',
 		packed=None, max_cached_files=0, source_format='midiseq2',
 		target_format='midiseq2', measures_path=None, **_):
 		super().__init__()
@@ -456,6 +490,12 @@ class Seq2Seq2 (Dataset):
 		if pos_style not in _POS_STYLES:
 			raise ValueError(f'pos_style must be one of {sorted(_POS_STYLES)}, got {pos_style!r}')
 		self.pos_style = pos_style
+		if pack not in _PACKS:
+			raise ValueError(f'pack must be one of {sorted(_PACKS)}, got {pack!r}')
+		# `pack` is a BATCH-SHAPE choice only. Every crop decision above it -- alignment, wrappers,
+		# positions, the unsupervised `skip` -- is identical either way, so the two forms carry the
+		# same supervision and a run can switch architecture without changing what it learns.
+		self.pack = pack
 		# The backing store. A directory root and a packed root differ only here: `packed=None`
 		# auto-detects, so an existing config keeps reading loose files with no change.
 		self.source = _make_source(root, packed)
@@ -1120,6 +1160,81 @@ class Seq2Seq2 (Dataset):
 			yield self._item(index)
 
 	def collateBatch (self, batch):
+		return self._collate_split(batch) if self.pack == 'split' else self._collate_flat(batch)
+
+	def _pad_positions (self, rows, width):
+		"""Right-pad each row's position run by CONTINUING it, never with a constant fill.
+
+		Shared by both pack forms because the reason is the same in both: RoPE rotates every position
+		before the attention mask drops it, so a constant fill (0 especially, which every style uses
+		for a real position) breaks the arithmetic run and makes a padded row stop matching its
+		unpadded self. Measured at 4e-2 on a 'flat' batch before this continued instead.
+		"""
+		return torch.stack([
+			torch.cat([pos, torch.arange(1, width - len(pos) + 1) + pos[-1]]) if len(pos) < width else pos
+			for pos in rows
+		])
+
+	def _collate_split (self, batch):
+		"""The encoder-decoder form: the SAME assembled sequence, cut at <sep> into two tensors.
+
+		Cut from the recorded `sep` index, so this is a reshaping of `_collate_flat`'s row and not a
+		second encoding -- ids, positions and `skip` all come from `_assemble` unchanged.
+
+			source_ids [B, S]           <bos>? source...            (no <sep>: it is the decoder's
+			                                                         start token, see below)
+			decoder_input_ids [B, U]    <sep> ++ target[:-1]
+			labels [B, U]               target                       (= decoder_input shifted left)
+			target_mask [B, U]          1 where labels is supervised
+
+		<sep> becomes the decoder's unconditional start token. The target half's own <bos> is
+		conditional (present only for a crop at the start of the piece), so it cannot serve as one;
+		<sep> already means "the target begins here" in the flat form and is in the vocabulary
+		already, so nothing new is added to it.
+
+		The shift is done HERE rather than in the loss, which is what makes the two forms comparable:
+		labels[j] is predicted from decoder position j, so the supervised label SET is exactly the
+		flat form's -- everything strictly after <sep>, minus `skip` leading tokens. An encoder-decoder
+		loss therefore needs no shift of its own (see MidiTranslatorEncDecLoss._shift).
+		"""
+		pad = self.tokenizer.pad_id
+		sources, decoder_inputs, labels_rows, source_pos, decoder_pos, keeps = [], [], [], [], [], []
+		for ids, sep, positions, skip in batch:
+			target = ids[sep + 1:]
+			# <sep> leads the decoder and its position leads the decoder's run, so both halves stay on
+			# the position axis `_positions` built -- including 'absolute', where the gap between the
+			# halves is the crop's own geometry and must not be renormalized.
+			decoder_inputs.append(torch.cat([ids[sep:sep + 1], target[:-1]]))
+			decoder_pos.append(positions[sep:sep + len(target)])
+			labels_rows.append(target)
+			sources.append(ids[:sep])
+			source_pos.append(positions[:sep])
+			keeps.append(int(skip))
+
+		source_ids = pad_sequence(sources, batch_first=True, padding_value=pad)
+		source_masks = pad_sequence(
+			[torch.ones(len(ids), dtype=torch.long) for ids in sources], batch_first=True, padding_value=0)
+		decoder_input_ids = pad_sequence(decoder_inputs, batch_first=True, padding_value=pad)
+		decoder_masks = pad_sequence(
+			[torch.ones(len(ids), dtype=torch.long) for ids in decoder_inputs], batch_first=True, padding_value=0)
+		# labels pad with pad_id for readability only: target_mask, not the fill, decides supervision.
+		labels = pad_sequence(labels_rows, batch_first=True, padding_value=pad)
+		target_mask = torch.zeros_like(labels)
+		for row, (ids, skip) in enumerate(zip(labels_rows, keeps)):
+			target_mask[row, skip:len(ids)] = 1
+
+		return dict(
+			source_ids=source_ids.to(self.device),
+			source_masks=source_masks.to(self.device),
+			source_position_ids=self._pad_positions(source_pos, source_ids.shape[1]).to(self.device),
+			decoder_input_ids=decoder_input_ids.to(self.device),
+			decoder_masks=decoder_masks.to(self.device),
+			decoder_position_ids=self._pad_positions(decoder_pos, decoder_input_ids.shape[1]).to(self.device),
+			labels=labels.to(self.device),
+			target_mask=target_mask.to(self.device),
+		)
+
+	def _collate_flat (self, batch):
 		sequences = [ex[0] for ex in batch]
 		input_ids = pad_sequence(sequences, batch_first=True, padding_value=self.tokenizer.pad_id)
 		masks = pad_sequence(
@@ -1136,17 +1251,9 @@ class Seq2Seq2 (Dataset):
 		for row, (ids, sep, _, skip) in enumerate(batch):
 			target_mask[row, sep + 1 + skip:len(ids)] = 1
 		sep_index = torch.tensor([ex[1] for ex in batch], dtype=torch.long)
-		# Padded slots CONTINUE each row's run rather than taking a constant fill. A constant would put
-		# a real position (e.g. 0, which every style uses) on a pad slot and break the arithmetic run,
-		# which is measurable: RoPE rotates every position before the attention mask drops it, so a
-		# padded 'flat' batch stopped matching its unpadded self by 4e-2 until this continued instead.
+		# Padded slots CONTINUE each row's run rather than taking a constant fill -- see _pad_positions.
 		# The mask still excludes these slots from attention; this only keeps the geometry consistent.
-		width = input_ids.shape[1]
-		position_ids = torch.stack([
-			torch.cat([ex[2], torch.arange(1, width - len(ex[2]) + 1) + ex[2][-1]])
-			if len(ex[2]) < width else ex[2]
-			for ex in batch
-		])
+		position_ids = self._pad_positions([ex[2] for ex in batch], input_ids.shape[1])
 
 		return dict(
 			input_ids=input_ids.to(self.device),

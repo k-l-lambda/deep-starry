@@ -169,11 +169,19 @@ class MidiTranslatorLoss (nn.Module):
 	checkpointed, so every trainable tensor lives inside it and the two type maps here are
 	`persistent=False` buffers (derived from the vocab asset, never learned).
 
+	`DEDUCER` names the module this wraps. It is a class attribute so a sibling architecture can
+	subclass this wrapper and inherit the parts that MUST NOT differ between architectures — the
+	vocabulary resolution, the type map, the per-type CE weights, the metrics and their aggregation —
+	while overriding only the three things that are genuinely architecture-specific (`DEDUCER`,
+	`_logits`, `_shift`). See midiTranslatorEncDec.MidiTranslatorEncDecLoss.
+
 	The per-type metrics reuse midiSeq2BgptSelfAttn's vocab partition (`_build_type_map`), which
 	classifies ids by TOKEN STRING against the same `assets/midiseq2Vocab.yaml` the feeder reads —
 	but the accuracy/error code is written fresh for the flat `target_mask` form rather than
 	adapted, since the sibling's version reconstructs patch labels via a BOS-prepend.
 	'''
+
+	DEDUCER = MidiTranslator
 
 	def __init__ (self, loss_type_weights=None, vocab_path=None, **kw_args):
 		'''loss_type_weights: optional {token-type-name: float} per-type cross-entropy weight
@@ -188,6 +196,7 @@ class MidiTranslatorLoss (nn.Module):
 				raise ValueError(f'unified vocab_size must be {tokenizer.vocab_size}, got {kw_args["vocab_size"]}')
 			kw_args['vocab_size'] = tokenizer.vocab_size
 			self.pad_id = tokenizer.pad_id
+			self.sep_id = tokenizer.sep_id
 			# One class per unified REGION. The merged layout has three: shared controls, Lilylet
 			# content, midiseq2 content — so nothing here may assume the MIDI block still carries its
 			# own controls or a fixed number of source rows.
@@ -204,8 +213,9 @@ class MidiTranslatorLoss (nn.Module):
 			tokenizer = Midiseq2Tokenizer(vocab_path) if vocab_path else Midiseq2Tokenizer()
 			kw_args.setdefault('vocab_size', tokenizer.vocab_size)
 			self.pad_id = tokenizer.pad_id
+			self.sep_id = tokenizer.sep_id
 			type_map = _build_type_map(tokenizer)
-		self.deducer = MidiTranslator(**kw_args)
+		self.deducer = self.DEDUCER(**kw_args)
 		self.register_buffer('type_of_id', type_map, persistent=False)
 		self.type_names = dict(_TYPE_NAMES)
 		valid_type_codes = dict(_TYPE_CODES)
@@ -229,6 +239,11 @@ class MidiTranslatorLoss (nn.Module):
 
 	def validation_parameters (self):
 		return []
+
+	def _logits (self, batch):
+		'''Batch -> logits. The only place that knows the deducer's call signature, so `forward` and
+		`inspectRun` cannot drift apart from each other or from a subclass's architecture.'''
+		return self.deducer(batch['input_ids'], batch['masks'], batch.get('position_ids'))
 
 	def _shift (self, batch, logits):
 		'''The whole loss/metric geometry in one place, so nothing can disagree about the shift.
@@ -285,7 +300,7 @@ class MidiTranslatorLoss (nn.Module):
 		return out
 
 	def forward (self, batch):
-		logits = self.deducer(batch['input_ids'], batch['masks'], batch.get('position_ids'))
+		logits = self._logits(batch)
 		pred, labels = self._shift(batch, logits)
 		loss = self._loss(pred, labels)
 
@@ -302,7 +317,7 @@ class MidiTranslatorLoss (nn.Module):
 
 	def inspectRun (self, batch):
 		'''Notebook entry point: the metrics plus the raw tensors needed to look at a prediction.'''
-		logits = self.deducer(batch['input_ids'], batch['masks'], batch.get('position_ids'))
+		logits = self._logits(batch)
 		pred, labels = self._shift(batch, logits)
 		loss = self._loss(pred, labels)
 		acc = (pred.argmax(dim=-1) == labels).float().mean().item() if labels.numel() else 0.0
