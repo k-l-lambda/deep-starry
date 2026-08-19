@@ -70,23 +70,59 @@ def optimizer_for (model):
 		weight_decay=0.01)
 
 
-def pad_to (batch, T, pad_id):
-	'''Stretch a real batch to T tokens, so the sweep sees the worst case the cap allows.'''
-	out = {}
-	for key, value in batch.items():
-		if not torch.is_tensor(value) or value.dim() != 2 or value.shape[1] >= T:
-			out[key] = value
+# Which batch keys carry a sequence axis, per pack. 'split' has TWO independent axes and the cap is
+# JOINT over them, which is the whole reason this table exists rather than a single T.
+_SPLIT_SOURCE = ('source_ids', 'source_masks', 'source_position_ids')
+_SPLIT_TARGET = ('decoder_input_ids', 'decoder_masks', 'decoder_position_ids', 'labels', 'target_mask')
+
+
+def _seq_len (batch):
+	"""Assembled length: the quantity `max_tokens` actually bounds.
+
+	`Seq2Seq2` applies max_tokens to `len(case['ids'])` — the assembled source+<sep>+target sequence —
+	BEFORE `pack: split` cuts it at the recorded <sep>. So a split batch's cap is joint over its two
+	axes, and the flat batch's single axis already IS the assembled length.
+	"""
+	if 'input_ids' in batch:
+		return int(batch['input_ids'].shape[1])
+	return int(batch['source_ids'].shape[1]) + int(batch['decoder_input_ids'].shape[1])
+
+
+def _pad_axis (batch, keys, target_len, pad_id):
+	out = dict(batch)
+	for key in keys:
+		value = batch.get(key)
+		if not torch.is_tensor(value) or value.dim() != 2 or value.shape[1] >= target_len:
 			continue
-		pad = T - value.shape[1]
-		fill = pad_id if key == 'input_ids' else 0
-		if key == 'position_ids':
-			# positions must stay monotone in the target half, so continue the run rather than zero it
+		pad = target_len - value.shape[1]
+		fill = pad_id if key in ('input_ids', 'source_ids', 'decoder_input_ids') else 0
+		if key.endswith('position_ids'):
+			# positions must stay monotone, so continue the run rather than zero it
 			tail = value[:, -1:] + torch.arange(1, pad + 1, device=value.device)
 			out[key] = torch.cat((value, tail), dim=1)
 		else:
 			out[key] = torch.cat((value,
 				torch.full((value.shape[0], pad), fill, dtype=value.dtype, device=value.device)), dim=1)
 	return out
+
+
+def pad_to (batch, T, pad_id, split_bias=0.75):
+	"""Stretch a real batch to the worst case the cap allows.
+
+	Flat: one axis, padded to T.
+
+	Split: the cap is JOINT, so padding both axes to T would measure ~2T tokens and report a ceiling
+	the run can never hit. Attention cost is O(S^2) + O(T^2) + O(S*T); with S + T = C that is
+	C^2 - S*T, i.e. MAXIMISED at the extremes rather than at an even split. The adverse extreme is the
+	decoder-heavy one whenever the decoder stack is the deeper of the two, since the per-layer linear
+	terms bill against each axis by its own layer count. `split_bias` is the target's share of the cap.
+	"""
+	if 'input_ids' in batch:
+		return _pad_axis(batch, tuple(batch.keys()), T, pad_id)
+	tgt = max(1, int(round(T * split_bias)))
+	src = max(1, T - tgt)
+	out = _pad_axis(batch, _SPLIT_SOURCE, src, pad_id)
+	return _pad_axis(out, _SPLIT_TARGET, tgt, pad_id)
 
 
 def one_step (model, opt, batch):
@@ -114,7 +150,14 @@ def section_memory (config, train, model, device, sizes):
 	cap = int((config['data.args'] or {}).get('max_tokens') or 2048)
 	pad_id = getattr(model, 'pad_id', 0)
 	total = torch.cuda.get_device_properties(device).total_memory / 1024 ** 3
-	print(f'\n== 1. memory at worst-case T = {cap} (card {total:.1f} GB)')
+	it0 = cycle(train)
+	probe0 = next(it0)
+	if 'input_ids' in probe0:
+		shape_note = f'T = {cap}'
+	else:
+		tgt = max(1, int(round(cap * 0.75)))
+		shape_note = f'source {cap - tgt} + target {tgt} = {cap} JOINT (decoder-heavy extreme)'
+	print(f'\n== 1. memory at worst case, {shape_note} (card {total:.1f} GB)')
 	print('  %4s %11s %11s %7s %9s %11s' % ('bs', 'allocated', 'reserved', 'card%', 'step', 'samples/s'))
 
 	it = cycle(train)
@@ -166,7 +209,7 @@ def section_step (train, model, device, steps):
 		one_step(model, opt, batch)
 		torch.cuda.synchronize(device)
 		times.append(time.time() - s)
-		lengths.append(int(batch['input_ids'].shape[1]))
+		lengths.append(_seq_len(batch))
 	wall = time.time() - t0
 	times.sort()
 	median = times[len(times) // 2]
