@@ -61,6 +61,28 @@ spec:
           value: /opt/sys-packages:/opt/dist-packages:/opt/apt-packages:/workspace/deeps
         - name: MPLBACKEND
           value: Agg
+        # CST, matching the host. The minimal image has NO /etc/localtime and NO /etc/timezone, so
+        # glibc falls back to UTC and every timestamp the pod produces is 8 h behind the wall clock
+        # the operator reads. That is not merely cosmetic: `Configuration.create`
+        # (starry/utils/config.py) stamps the run id with `date.today()`, so a run launched at 07:58
+        # CST on the 15th was named `20260814-...` — off by a calendar day, permanently, because the
+        # id is then persisted into .state.yaml and becomes the directory name. TZ (not
+        # /etc/localtime) is the lever here: the zoneinfo mount below supplies the data, this selects
+        # from it, and it is set in `env:` rather than /etc/profile.d because kubectl exec does not
+        # read profile scripts.
+        #
+        # This entry only takes effect on a pod that is CREATED with it. The live pod was fixed in
+        # place instead, with no restart (3 trainings were running):
+        #     ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+        #     echo Asia/Shanghai > /etc/timezone
+        # Either lever works — glibc consults TZ first and falls back to /etc/localtime — and the
+        # symlink has the advantage of applying pod-wide without being re-exported per entry point.
+        # It lives in the container's EPHEMERAL layer though, so it is lost on recreation; that is
+        # what this env entry is for. Already-running processes keep the zone they cached at startup
+        # (verified: the three live runs went on logging UTC after the symlink landed), which is the
+        # safe outcome — no timestamp discontinuity mid-logfile.
+        - name: TZ
+          value: Asia/Shanghai
         # The cluster's internal CONNECT proxy — the only egress. Large wheels need a long
         # read timeout through it (diary: files.pythonhosted.org read-timeouts otherwise).
         - name: HTTP_PROXY
@@ -106,7 +128,9 @@ spec:
         - { name: nvidia7, mountPath: /dev/nvidia7 }
         - { name: datasets,      mountPath: /data/midi }
         - { name: datasets-nota1m, mountPath: /data/midi/nota1m, readOnly: true }
+        - { name: datasets-wash0819, mountPath: /data/midi/nota1m-wash0819, readOnly: true }
         - { name: training,      mountPath: /data/training }
+        - { name: training-data, mountPath: /data/training-data }
         - { name: dshm,          mountPath: /dev/shm }
   volumes:
     # The repo lives on the HOST and is bind-mounted, so `git pull` on the host updates the pod's
@@ -165,7 +189,31 @@ spec:
     # `sudo`, and rsync as `linux` into this path will fail.
     - name: datasets-nota1m
       hostPath: { path: /var/lib/containerd/datasets/nota1m, type: Directory }
+    # nota1m-wash0819: the same corpus with the four known anomaly classes excluded (668,054 of
+    # 889,717 pairs kept). It holds NO data of its own — 256 symlinks into the nota1m mount above plus
+    # a filtered index.json, ~32 MB — so it lives on /home rather than the NVMe without violating the
+    # "no datasets under ~/work" rule: the bytes are still on the NVMe, this is only a view of them.
+    #
+    # Mounted at the SAME pod path it was built at, so its symlinks (absolute, /data/midi/nota1m/XX.zip)
+    # and the verification already done against it stay valid. Read-only for the same reason as nota1m.
+    #
+    # The symlinks are pod-internal absolute paths, so they DANGLE when read from a host shell. That is
+    # unavoidable: the corpus is at /var/lib/containerd/datasets/nota1m on the host and /data/midi/nota1m
+    # in the pod, and one symlink cannot resolve in both namespaces. Host-side access needs sudo anyway
+    # (/var/lib/containerd is 0700 root), so nothing is lost — but do not rsync this dir from the host
+    # expecting data to follow.
+    - name: datasets-wash0819
+      hostPath: { path: /home/linux/work/datasets/nota1m-wash0819, type: Directory }
     - name: training
       hostPath: { path: /home/linux/work/training, type: DirectoryOrCreate }
+    # Second training target, on the NVMe (nvme0n1, 6.6T free) rather than sda3 (1.5T). Checkpoint
+    # writes sit on the critical path — `trainerQuantitative.py` saves once per epoch, i.e. every ~3
+    # minutes at epoch_size 10000 — so the faster disk is worth a mount of its own.
+    #
+    # The 0700-root traversal note above applies here too: the pod writes fine (kubelet resolves
+    # hostPath as root), but reading these runs from a host shell as `linux` needs sudo, and rsync as
+    # `linux` into this path fails. Use `sudo` for tensorboard or for copying checkpoints out.
+    - name: training-data
+      hostPath: { path: /var/lib/containerd/training-data, type: Directory }
     - name: dshm
       emptyDir: { medium: Memory, sizeLimit: 16Gi }
