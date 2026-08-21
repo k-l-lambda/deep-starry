@@ -177,10 +177,14 @@ def check_encdec_inspector_indexing (root):
 			return source.float()
 		def decode (self, memory, decoder, source_masks, positions, need_weights=False):
 			S, U = memory.shape[1], decoder.shape[1]
-			weights = torch.zeros(1, 2, U, S)
-			weights[:, :, :, self.peak] = 1.0
+			# The first layer deliberately peaks elsewhere: inspection must use the final
+			# cross-attention layer rather than averaging decoder layers together.
+			early = torch.zeros(1, 2, U, S)
+			early[:, :, :, (self.peak + 1) % S] = 2.0
+			final = torch.zeros(1, 2, U, S)
+			final[:, :, :, self.peak] = 1.0
 			self.calls.append((decoder.detach().clone(), positions.detach().clone()))
-			return torch.zeros(1, U, len(tk.tokens)), (weights, weights)
+			return torch.zeros(1, U, len(tk.tokens)), (early, final)
 
 	src_events, _, _ = note_on_events(src_ids, tk, kw)
 	want_event = src_events[1]

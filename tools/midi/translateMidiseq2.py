@@ -612,7 +612,11 @@ class AttentionInspector:
 			k_local = k_idx
 			if torch.any(q_local < 0) or torch.any(q_local >= decoder.shape[1]):
 				raise RuntimeError('EncDec attention query escaped decoder prefix')
-			block = torch.stack([a[0][:, q_local][:, :, k_local] for a in attns])
+			# Alignment emerges in the late decoder block; averaging every decoder layer mixes
+			# early structural attention into that signal. Inspect only the final decoder layer,
+			# while preserving the configured mean/max reduction across its heads.
+			#block = torch.stack([a[0][:, q_local][:, :, k_local] for a in attns])
+			block = torch.stack([attns[-1][0][:, q_local][:, :, k_local]])
 			self.attn_calls += 1
 		else:
 			window = torch.tensor([ids], dtype=torch.long, device=self.device)
