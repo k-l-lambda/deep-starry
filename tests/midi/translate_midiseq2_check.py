@@ -212,7 +212,7 @@ def check_encdec_inspector_indexing (root):
 
 
 def check_positions ():
-	'''pos_style layouts, and that continuation is a plain +1 run.'''
+	'''pos_style layouts, absolute file-axis positions, and explicit axes.'''
 	ok = True
 	flat = positions_for('flat', 3, 2)
 	if flat != [0, 1, 2, 3, 4, 5]:
@@ -220,20 +220,62 @@ def check_positions ():
 	sep = positions_for('sep', 3, 2)
 	if sep != [-4, -3, -2, -1, 0, 1]:
 		print(f'  FAIL sep: {sep}'); ok = False
-	# source ends at -2, <sep> = -1, target starts at 0
-	if sep[2] != -2 or sep[3] != -1 or sep[4] != 0:
-		print(f'  FAIL sep boundaries: {sep}'); ok = False
+	absolute = positions_for('absolute', 3, 2, [4, 5], total_source=10, target_base=7, head=True)
+	if absolute != [-8, -7, -6, -1, 6, 7]:
+		print(f'  FAIL absolute: {absolute}'); ok = False
 	try:
 		positions_for('absolute', 3, 2)
-		print('  FAIL absolute should raise'); ok = False
+		print('  FAIL absolute without axes should raise'); ok = False
 	except ValueError:
 		pass
-	print(f'{"ok  " if ok else "FAIL"} positions_for: flat / sep layouts, absolute refused')
+	print(f'{"ok  " if ok else "FAIL"} positions_for: flat / sep / absolute layouts and explicit axes')
+	return ok
+
+
+def check_absolute_prefix ():
+	'''Absolute prefixes preserve source file coordinates and target primer coordinates.'''
+	import torch
+	tk = Midiseq2Tokenizer()
+	ok = True
+	tr = SlidingTranslator(None, tk, pos_style='absolute', max_token=64)
+	ids, pos, n = tr.build_prefix([10, 11], [20, 21], head=False,
+		source_base=4, total_source=10, target_base=6)
+	if ids != [10, 11, tk.sep_id, 20, 21] or pos != [-7, -6, -1, 6, 7] or n != 2:
+		print(f'  FAIL absolute continuation prefix: ids={ids}, pos={pos}, n={n}')
+		ok = False
+	ids, pos, n = tr.build_prefix([10, 11], [], head=True,
+		source_base=0, total_source=10, target_base=0)
+	if pos != [-12, -11, -10, -1, -1]:
+		print(f'  FAIL absolute head prefix: pos={pos}')
+		ok = False
+	class PositionModel:
+		def __init__ (self):
+			self.positions = []
+		def __call__ (self, ids, mask, positions):
+			self.positions.append(positions.detach().clone())
+			v = len(tk.tokens)
+			logits = torch.full((1, ids.shape[1], v), -10.0)
+			logits[0, -1, tk.eom_id] = 10.0
+			logits[0, -1, tk.eos_id] = 0.0
+			return logits
+	model = PositionModel()
+	tr.model = model
+	prefix, prefix_pos, n = tr.build_prefix([10], [], head=False,
+		source_base=4, total_source=10, target_base=6)
+	tr.generate(prefix, prefix_pos, 0.0, 0, 1.0, n_source=n, next_position=6)
+	if not model.positions or model.positions[0][0, -1].item() != -1:
+		print(f'  FAIL absolute empty-primer prefix query: {model.positions}')
+		ok = False
+	# The first generated query is the prefix tail (-1); the next query carries explicit target position 6.
+	if len(model.positions) < 2 or model.positions[1][0, -1].item() != 6:
+		print(f'  FAIL absolute empty-primer seed: {model.positions}')
+		ok = False
+	print(f'{"ok  " if ok else "FAIL"} absolute prefix and empty-primer position seed')
 	return ok
 
 
 def check_advance ():
-	'''advance_output: one measure per step via <eom>, half-window fallback, never stalls.'''
+	'''advance_output uses target-token thresholds, rounds to eom, and cannot stall.'''
 	tk = Midiseq2Tokenizer()
 	tr = SlidingTranslator(None, tk)
 	ok = True
@@ -1290,6 +1332,7 @@ def main ():
 	results = [
 		check_keywords(),
 		check_positions(),
+		check_absolute_prefix(),
 		check_encdec_split_inference(),
 		check_encdec_inspector_indexing(args.root),
 		check_advance(),

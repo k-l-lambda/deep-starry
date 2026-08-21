@@ -515,7 +515,8 @@ class AttentionInspector:
 
 	@torch.no_grad()
 	def observe (self, step, prefix, positions, new_ids, src_ids, cursor, next_cursor, head, out_base,
-		n_source=None, output=None, prime_start=None, next_cursor_real=None, next_prime_start=None):
+		n_source=None, output=None, prime_start=None, next_cursor_real=None, next_prime_start=None,
+		next_position=None):
 		'''One window: re-run [prefix ++ new_ids] with attentions, record its links, draw its figure.
 
 		out_base is len(output) BEFORE new_ids were appended, so a generated token's index in the final
@@ -535,8 +536,9 @@ class AttentionInspector:
 			return
 		ids = list(prefix) + list(new_ids)
 		pos = list(positions)
-		while len(pos) < len(ids):			# generation continues the run by +1 per token
-			pos.append(pos[-1] + 1)
+		while len(pos) < len(ids):
+			pos.append(next_position if len(pos) == len(positions) and next_position is not None
+				else pos[-1] + 1)
 
 		src_off = 1 if head else 0			# <bos> sits ahead of the source half on the first window
 		src_lo, src_hi = src_off, src_off + len(src_ids)
@@ -824,25 +826,33 @@ def load_model (run, checkpoint, device):
 
 # --- positions (mirrors Seq2Seq2._positions) ----------------------------------------------
 
-def positions_for (pos_style, n_source, n_target):
-	'''RoPE positions for a `n_source ++ <sep> ++ n_target` layout. Length n_source + 1 + n_target.
+def positions_for (pos_style, n_source, n_target, source_positions=None, total_source=None,
+	target_base=0, head=False):
+	'''RoPE positions for ``source ++ <sep> ++ target``.
 
-	  'flat'   0, 1, 2, ... T-1
-	  'sep'    source ends at -2, <sep> = -1, target starts at 0
-
-	The two are equivalent to the model — both are one arithmetic run, and RoPE reads only relative
-	distance, so a uniform shift is invisible. Continuation just keeps counting up from the last value,
-	which is why generation can extend either style by +1 per token.
-
-	'absolute' is refused by the caller: it places each half on its own FILE's token axis, which a
-	sliding window does not define (the output file's token count is not known until we are done).
+	For ``absolute``, ``source_positions`` are the feeder cursor values for the source ids and
+	``target_base`` is the target cursor at the first target id.  The optional arguments keep the
+	legacy flat/sep helper calls unchanged while making file-axis semantics explicit at the caller.
 	'''
 	total = n_source + 1 + n_target
 	if pos_style == 'flat':
 		return list(range(total))
 	if pos_style == 'sep':
 		return list(range(-(n_source + 1), n_target))
-	raise ValueError(f'unsupported pos_style {pos_style!r} for sliding-window inference')
+	if pos_style != 'absolute':
+		raise ValueError(f'unsupported pos_style {pos_style!r} for sliding-window inference')
+	if source_positions is None or total_source is None:
+		raise ValueError('absolute positions require source_positions and total_source')
+	if len(source_positions) != n_source - int(head):
+		raise ValueError(f'absolute source position count {len(source_positions)} does not match '
+			f'{n_source - int(head)} content ids')
+	src = [p - total_source - 1 for p in source_positions]
+	if head:
+		src = [(src[0] if src else -2) - 1] + src
+	tgt = list(range(target_base, target_base + n_target - int(head)))
+	if head:
+		tgt = [(target_base if tgt else 0) - 1] + tgt
+	return src + [-1] + tgt
 
 
 class SlidingTranslator:
@@ -894,24 +904,32 @@ class SlidingTranslator:
 			index += 1
 		return ids, index
 
-	def build_prefix (self, src_ids, prime_ids, head):
-		'''Assemble the prefix and its positions, matching Seq2Seq2._assemble.
+	def build_prefix (self, src_ids, prime_ids, head, source_base=0, total_source=None,
+		target_base=0):
+		'''Assemble the prefix and positions, matching Seq2Seq2._assemble.
 
 			[<bos> if head] src... <sep> [<bos> if head] prime...
 
-		<bos> goes on BOTH halves iff the crop reaches the start of the piece (seq2seq2.py:507) — so
-		only on the first window. <eos> is never in a prefix: it is what generation produces to stop.
+		``source_base`` and ``target_base`` are feeder-axis cursors used only by ``absolute``.
+		The fourth return value is the position for the first generated target token; it must be
+		explicit when the target primer is empty because the prefix then ends at ``<sep>``.
 		'''
-		source = ([self.tk.bos_id] if head else []) + src_ids
+		source = ([self.tk.bos_id] if head else []) + list(src_ids)
 		target = ([self.tk.bos_id] if head else []) + list(prime_ids)
 		ids = source + [self.tk.sep_id] + target
-		# positions_for lays out the full n_source+1+n_target run; the prefix is that run truncated to
-		# what we actually have, and generation continues it by +1 per token.
-		positions = positions_for(self.pos_style, len(source), len(target))
+		if self.pos_style == 'absolute':
+			if total_source is None:
+				raise ValueError('absolute prefix requires total_source')
+			source_index = list(range(source_base, source_base + len(src_ids)))
+			positions = positions_for('absolute', len(source), len(target), source_index,
+				total_source=total_source, target_base=target_base, head=head)
+		else:
+			positions = positions_for(self.pos_style, len(source), len(target))
 		return ids, positions, len(source)
 
 	@torch.no_grad()
-	def generate (self, prefix_ids, prefix_positions, temperature, top_k, top_p, n_source=None):
+	def generate (self, prefix_ids, prefix_positions, temperature, top_k, top_p, n_source=None,
+		next_position=None):
 		'''Autoregressive continuation to <eos> or the max_token ceiling. Returns (new ids, eos_forced).
 
 		The <eos> is NOT included in the return: it terminates this window, but the output stream is
@@ -950,7 +968,7 @@ class SlidingTranslator:
 				break
 			out.append(nxt)
 			ids.append(nxt)
-			positions.append(positions[-1] + 1)
+			positions.append(next_position if len(out) == 1 and next_position is not None else positions[-1] + 1)
 		return out, forced
 
 	# --- advancing -----------------------------------------------------------------------
@@ -1046,6 +1064,13 @@ class SlidingTranslator:
 		'''
 		output = []
 		prime_start = 0
+		retired_eom = 0
+		# Seq2Seq2._File.token_before counts content only: directives contribute no slots.
+		source_offsets = [0]
+		for line in lines:
+			source_offsets.append(source_offsets[-1] if line.startswith(('@measure', '@tick'))
+				else source_offsets[-1] + len(line.split()))
+		total_source = source_offsets[-1]
 		cursor = 0
 		step = 0
 		stalls = 0
@@ -1060,14 +1085,17 @@ class SlidingTranslator:
 			if not src_ids:
 				break
 			prime_ids = output[prime_start:] if self.prime else []
-			prefix, positions, n_source = self.build_prefix(src_ids, prime_ids, head=(step == 0))
+			target_base = prime_start - retired_eom
+			prefix, positions, n_source = self.build_prefix(src_ids, prime_ids, head=(step == 0),
+				source_base=source_offsets[cursor], total_source=total_source, target_base=target_base)
 			if len(prefix) >= self.max_token:
 				print(f'[warn] step {step}: prefix {len(prefix)} >= max_token {self.max_token}, '
 					f'nothing left to generate; stopping')
 				break
 
 			new_ids, eos_forced = self.generate(prefix, positions, self.temperature, self.top_k,
-				self.top_p, n_source=n_source)
+				self.top_p, n_source=n_source,
+				next_position=(target_base + len(prime_ids) if self.pos_style == 'absolute' else None))
 			out_base = len(output)		# before the extend: maps a new_ids offset onto the output stream
 			output.extend(new_ids)
 			step_prime_start = prime_start
@@ -1095,6 +1123,7 @@ class SlidingTranslator:
 			# the internal safety ceiling may retire additional old measures to keep the primer in-band.
 			prime_start = self.trim_prime(output, prime_start)
 			rolled = output[before:prime_start]
+			retired_eom += sum(1 for token in rolled if token == self.tk.eom_id)
 			onsets = count_note_on(rolled, self.tk)
 			src_before = cursor
 			cursor = self.advance_source_by_onsets(lines, cursor, onsets)
@@ -1108,7 +1137,9 @@ class SlidingTranslator:
 				# the figure is still written the moment the step is over.
 				inspector.observe(step, prefix, positions, new_ids, src_ids, src_before, next_cursor,
 					step == 0, out_base, n_source=n_source, output=output, prime_start=step_prime_start,
-					next_cursor_real=cursor, next_prime_start=prime_start)
+					next_cursor_real=cursor, next_prime_start=prime_start,
+					next_position=(target_base + len(prime_ids)
+						if self.pos_style == 'absolute' else None))
 
 			if verbose:
 				print(f'  step {step:4d}  src[{src_before}:{cursor}] {len(src_ids):5d} tok  '
@@ -1137,7 +1168,8 @@ class SlidingEncDecTranslator (SlidingTranslator):
 		self.is_encdec = True
 
 	@torch.no_grad()
-	def generate (self, prefix_ids, prefix_positions, temperature, top_k, top_p, n_source=None):
+	def generate (self, prefix_ids, prefix_positions, temperature, top_k, top_p, n_source=None,
+		next_position=None):
 		if n_source is None:
 			raise ValueError('EncDec generation requires the source prefix length')
 		if n_source <= 0 or n_source >= len(prefix_ids):
@@ -1167,7 +1199,7 @@ class SlidingEncDecTranslator (SlidingTranslator):
 				break
 			out.append(nxt)
 			decoder_ids_list.append(nxt)
-			decoder_pos_list.append(decoder_pos_list[-1] + 1)
+			decoder_pos_list.append((next_position if len(out) == 1 and next_position is not None else decoder_pos_list[-1] + 1))
 		return out, forced
 
 
@@ -1885,10 +1917,8 @@ def main ():
 	if model_type not in ('MidiTranslator', 'MidiTranslatorEncDec'):
 		print(f'[error] unsupported model type {model_type!r} for midiseq2 translation')
 		return 1
-	if pos_style == 'absolute':
-		print("[error] pos_style 'absolute' places each half on its own file's token axis, which a "
-			"sliding window cannot define (the output's total token count is unknown until done). "
-			"Retrain with 'sep'/'flat', or extend this script with an explicit axis.")
+	if pos_style not in ('flat', 'sep', 'absolute'):
+		print(f'[error] unsupported data.args.pos_style {pos_style!r}')
 		return 1
 	trained_max = data_args.get('max_tokens')
 	if trained_max and args.max_token != trained_max:
