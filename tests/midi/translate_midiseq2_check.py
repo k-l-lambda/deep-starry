@@ -26,8 +26,8 @@ from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer
 sys.path.insert(0, os.path.join(REPO_ROOT, 'tools', 'midi'))
 from translateMidiseq2 import (encode_lines, keyword_tokens, positions_for, render_lines,
 	plot_attention_step,
-	count_note_on, source_header, SlidingTranslator, is_elapse, note_on_events,
-	line_token_offsets, AttentionInspector)
+	count_note_on, source_header, SlidingTranslator, SlidingEncDecTranslator, is_elapse,
+	note_on_events, line_token_offsets, AttentionInspector)
 
 
 DEFAULT_ROOT = os.path.expanduser('~/data/midi/test202608')
@@ -100,6 +100,111 @@ def check_prefix_parity (root, samples, verbose=False):
 	print(f'{"ok  " if not bad else "FAIL"} prefix parity vs Seq2Seq2.describe '
 		f'({samples} files, {bad} mismatches)')
 	return bad == 0
+
+
+def check_encdec_split_inference ():
+	'''EncDec prefixes and low-level generation must match the split feeder contract.'''
+	import torch
+	tk = Midiseq2Tokenizer()
+	ok = True
+	tr = SlidingEncDecTranslator(None, tk, pos_style='sep', max_token=32)
+	ids, pos, n = tr.build_prefix([10, 11], [], head=True)
+	want_ids = [tk.bos_id, 10, 11, tk.sep_id, tk.bos_id]
+	want_pos = [-4, -3, -2, -1, 0]
+	if ids != want_ids or pos != want_pos or n != 3:
+		print(f'  FAIL EncDec head split: ids={ids}, pos={pos}, n_source={n}')
+		ok = False
+	ids2, pos2, n2 = tr.build_prefix([10, 11], [20], head=False)
+	if ids2 != [10, 11, tk.sep_id, 20] or pos2 != [-3, -2, -1, 0] or n2 != 2:
+		print(f'  FAIL EncDec continuation split: ids={ids2}, pos={pos2}, n_source={n2}')
+		ok = False
+
+	class StubEncDec:
+		max_seq_len = 64
+		encoder = object()
+		def __init__ (self):
+			self.encode_calls = []
+			self.decode_calls = []
+		def encode (self, source, masks, positions):
+			self.encode_calls.append((source.detach().clone(), masks.detach().clone(), positions.detach().clone()))
+			return source.float()
+		def decode (self, memory, decoder, source_masks, decoder_positions):
+			self.decode_calls.append((decoder.detach().clone(), decoder_positions.detach().clone()))
+			v = len(tk.tokens)
+			logits = torch.full((1, decoder.shape[1], v), -5.0)
+			logits[0, -1, tk.eos_id] = 10.0
+			if len(self.decode_calls) == 1:
+				logits[0, -1, tk.eom_id] = 9.0
+			return logits
+	model = StubEncDec()
+	tr = SlidingEncDecTranslator(model, tk, pos_style='sep', max_token=32)
+	got, forced = tr.generate(want_ids, want_pos, 0.0, 0, 1.0, n_source=3)
+	if got != [tk.eom_id] or not forced:
+		print(f'  FAIL EncDec EOS-mask generation: ids={got}, forced={forced}')
+		ok = False
+	if len(model.encode_calls) != 1:
+		print(f'  FAIL source encoded {len(model.encode_calls)} times, want once')
+		ok = False
+	elif model.encode_calls[0][0].tolist() != [[tk.bos_id, 10, 11]] or model.encode_calls[0][2].tolist() != [[-4, -3, -2]]:
+		print(f'  FAIL encoded source arguments: {model.encode_calls[0]}')
+		ok = False
+	elif model.decode_calls[0][0].tolist() != [[tk.sep_id, tk.bos_id]] or model.decode_calls[0][1].tolist() != [[-1, 0]]:
+		print(f'  FAIL decoder prefix arguments: {model.decode_calls[0]}')
+		ok = False
+	print(f'{"ok  " if ok else "FAIL"} EncDec split prefix, one-shot encode, and EOS mask')
+	return ok
+
+
+def check_encdec_inspector_indexing (root):
+	'''EncDec inspection must convert joint prefix indices to cross-attention halves exactly.'''
+	import torch
+	d = os.path.join(root, 'midi-seq2-irregular')
+	if not os.path.isdir(d):
+		print('skip EncDec inspector indexing: no corpus arm found')
+		return True
+	tk = Midiseq2Tokenizer()
+	kw = keyword_tokens(tk)
+	lines = open(os.path.join(d, sorted(os.listdir(d))[0])).read().splitlines()[:100]
+	src_ids = encode_lines(lines, tk)
+	new_ids = src_ids[:600]
+
+	class StubEncDec:
+		encoder = object()
+		def __init__ (self, peak):
+			self.peak = peak
+			self.calls = []
+		def encode (self, source, masks, positions):
+			return source.float()
+		def decode (self, memory, decoder, source_masks, positions, need_weights=False):
+			S, U = memory.shape[1], decoder.shape[1]
+			weights = torch.zeros(1, 2, U, S)
+			weights[:, :, :, self.peak] = 1.0
+			self.calls.append((decoder.detach().clone(), positions.detach().clone()))
+			return torch.zeros(1, U, len(tk.tokens)), (weights, weights)
+
+	src_events, _, _ = note_on_events(src_ids, tk, kw)
+	want_event = src_events[1]
+	ok = True
+	for head in (True, False):
+		# The peak is at one known source-tensor column. On a head window that column includes <bos>.
+		model = StubEncDec(want_event['pitch_index'] + int(head))
+		insp = AttentionInspector(model, tk, kw, lines, False, 'cpu', query='producer',
+			threshold=0.05, top_k=8)
+		source = ([tk.bos_id] if head else []) + src_ids
+		prefix = source + [tk.sep_id] + ([tk.bos_id] if head else [])
+		positions = positions_for('sep', len(source), 1 if head else 0)
+		insp.observe(0, prefix, positions, new_ids, src_ids, 0, len(lines), head, 0,
+			n_source=len(source))
+		if insp.attn_calls != 1 or not insp.links:
+			print(f'  FAIL EncDec head={head}: calls={insp.attn_calls}, links={len(insp.links)}')
+			ok = False
+			continue
+		wrong = [link for link in insp.links if link[2] != want_event['pitch_index']]
+		if wrong:
+			print(f'  FAIL EncDec head={head}: {len(wrong)} link(s) missed peaked source pitch')
+			ok = False
+	print(f'{"ok  " if ok else "FAIL"} EncDec cross-attention indexing: source <bos> offset and call count')
+	return ok
 
 
 def check_positions ():
@@ -1181,6 +1286,8 @@ def main ():
 	results = [
 		check_keywords(),
 		check_positions(),
+		check_encdec_split_inference(),
+		check_encdec_inspector_indexing(args.root),
 		check_advance(),
 		check_encode_parity(args.root, args.samples, args.verbose),
 		check_prefix_parity(args.root, args.samples, args.verbose),

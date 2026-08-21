@@ -1,9 +1,11 @@
-'''Whole-file midiseq2 -> midiseq2 translation with MidiTranslator, by sliding window.
+'''Whole-file midiseq2 -> midiseq2 translation with MidiTranslator models, by sliding window.
 
-MidiTranslator is trained by starry.midi.data.seq2seq2.Seq2Seq2 on CROPS, never whole pieces: one
-flat sequence `source... <sep> target... <eos>`, supervised only on the target half. A real file runs
-to ~7.7k lines / ~76k tokens, far past any single crop, so translating one end to end means sliding a
-window across the source and stitching the generated target halves into one stream.
+Seq2Seq2 trains both supported architectures on CROPS, never whole pieces. Decoder-only
+`MidiTranslator` receives one flat `source... <sep> target... <eos>` sequence, while
+`MidiTranslatorEncDec` receives the same crop split into encoder source and decoder
+`<sep> ++ target[:-1]`; both supervise only target labels. A real file runs to ~7.7k lines / ~76k
+tokens, far past any single crop, so translating one end to end means sliding a window across the
+source and stitching the generated target halves into one stream.
 
 The mechanic — two windows advancing in lockstep:
 
@@ -82,10 +84,11 @@ the equivalent ceiling is ~1495, not ~1001.
 
 Two asymmetries with training worth knowing, both deliberate:
 
-  - The target half here is PRIMED with the previous window's tail so generation continues across the
-    seam. Training always started a target half fresh at a crop boundary, so a primed target is
-    out-of-distribution; it is what keeps successive windows one stream instead of overlapping
-    alternatives. Pass --no-prime to fall back to the trained form.
+  - The target half here is PRIMED with the previous window's generated tail so generation continues
+    across the seam. Training does include target history, but it is ground-truth history under teacher
+    forcing; inference carries model-generated history from the preceding source window. That exposure
+    and alignment mismatch is what is out-of-distribution, and it is also what keeps successive windows
+    one stream instead of overlapping alternatives. Pass --no-prime to omit the carried history.
 
     Measured (l16d256 e358, 10 files, bars 7..18): the prime is ESSENTIAL and its size is nearly
     irrelevant. --no-prime scores onset F1 0.147 against 0.560 at prime 320 -- worse than any
@@ -358,11 +361,11 @@ class AttentionInspector:
 	'''Records, for every GENERATED note_on, how strongly it attended to each SOURCE note_on.
 
 	Method. Attention is read from ONE extra forward pass per window rather than from every decoding
-	step, and that is exact rather than an approximation: the stack is causal, so the attention row at
-	query q depends only on tokens 0..q. Re-running the finished window [prefix ++ generated] and
-	reading row q therefore reproduces bit-for-bit the row that was live when token q+1 was produced
-	(verified to 7e-09, float32 epsilon). One pass per window instead of attentions on every token is
-	roughly a 200x saving.
+	step. For decoder-only models this reads causal self-attention from target queries to source keys;
+	for EncDec it reads decoder CROSS-attention to encoder keys. Re-running the completed decoder prefix
+	is exact rather than approximate: a causal decoder row depends only on earlier decoder tokens, while
+	the encoder memory is fixed for the window. One pass per window instead of attentions on every token
+	is roughly a 200x saving.
 
 	Positions must be reproduced exactly, not merely plausibly. RoPE encodes relative offsets, so
 	shifting every position by a constant is invisible (measured: identical to 7e-09) -- but this run
@@ -378,12 +381,11 @@ class AttentionInspector:
 	pointing hard at a source note is the evidence of interest, and averaging would bury it under the
 	many heads doing positional or local work.
 
-	Memory. output_attentions materialises n_layer x n_head x T x T floats at once, which for this run
-	(16 x 8, float32) is 0.78 GiB at the T=1281 that src_window 960 produces and 2.0 GiB at the 2048
-	ceiling. Step 0 is the worst case, since it generates a whole window in one shot. The reduction
-	slices out only the pitch-token rows and columns, so what is KEPT is small; the peak is set by the
-	forward pass itself and scales as T squared. Large --src-window plus --inspect is the combination to
-	watch.
+	Memory. Decoder-only output_attentions materialises n_layer x n_head x T x T floats; EncDec
+	cross-attention materialises n_layer x n_head x decoder_length x source_length. The reduction keeps
+	only pitch-token rows and columns, but the peak is set by the model call itself. Step 0 is usually the
+	worst because it generates a whole window in one shot; large --src-window plus --inspect is the
+	combination to watch.
 
 	Query convention (--inspect-query). Causally, the row that CHOSE a pitch token belongs to the
 	position BEFORE it -- the model was at `note_on` when it picked `#3c`. That is 'producer', the
@@ -513,7 +515,7 @@ class AttentionInspector:
 
 	@torch.no_grad()
 	def observe (self, step, prefix, positions, new_ids, src_ids, cursor, next_cursor, head, out_base,
-		output=None, prime_start=None, next_cursor_real=None, next_prime_start=None):
+		n_source=None, output=None, prime_start=None, next_cursor_real=None, next_prime_start=None):
 		'''One window: re-run [prefix ++ new_ids] with attentions, record its links, draw its figure.
 
 		out_base is len(output) BEFORE new_ids were appended, so a generated token's index in the final
@@ -592,24 +594,41 @@ class AttentionInspector:
 		if not queries:
 			return
 
-		window = torch.tensor([ids], dtype=torch.long, device=self.device)
-		pos_t = torch.tensor([pos], dtype=torch.long, device=self.device)
-		backbone = getattr(self.model, 'backbone', self.model)
-		out = backbone(input_ids=window, attention_mask=None, position_ids=pos_t,
-			output_attentions=True)
-		attns = out.attentions
-		if attns is None or attns[0] is None:
-			raise RuntimeError('the backbone returned no attentions; eager attention could not be '
-				'enabled, so --inspect cannot work on this transformers build')
-		self.attn_calls += 1
-
 		q_idx = torch.tensor([q for q, _, _ in queries], device=self.device)
 		k_idx = torch.tensor(key_cols, device=self.device)
-		# [layer, head, n_query, n_key] -> reduce over layer and head
-		block = torch.stack([a[0][:, q_idx][:, :, k_idx] for a in attns])
+		if getattr(self.model, 'encoder', None) is not None and n_source is not None:
+			# EncDec weights are cross-attention [B, heads, decoder_query, source_key].
+			source = torch.tensor([ids[:n_source]], dtype=torch.long, device=self.device)
+			decoder = torch.tensor([ids[n_source:]], dtype=torch.long, device=self.device)
+			spos = torch.tensor([pos[:n_source]], dtype=torch.long, device=self.device)
+			dpos = torch.tensor([pos[n_source:]], dtype=torch.long, device=self.device)
+			memory = self.model.encode(source, torch.ones_like(source), spos)
+			_, attns = self.model.decode(memory, decoder, torch.ones_like(source), dpos, need_weights=True)
+			if not attns:
+				raise RuntimeError('EncDec returned no cross-attention weights; --inspect cannot work')
+			# Cross-attention indices are local to the decoder/source halves, unlike the
+			# decoder-only matrix which uses the joint prefix coordinates.
+			q_local = q_idx - n_source
+			k_local = k_idx
+			if torch.any(q_local < 0) or torch.any(q_local >= decoder.shape[1]):
+				raise RuntimeError('EncDec attention query escaped decoder prefix')
+			block = torch.stack([a[0][:, q_local][:, :, k_local] for a in attns])
+			self.attn_calls += 1
+		else:
+			window = torch.tensor([ids], dtype=torch.long, device=self.device)
+			pos_t = torch.tensor([pos], dtype=torch.long, device=self.device)
+			backbone = getattr(self.model, 'backbone', self.model)
+			out = backbone(input_ids=window, attention_mask=None, position_ids=pos_t,
+				output_attentions=True)
+			attns = out.attentions
+			if attns is None or attns[0] is None:
+				raise RuntimeError('the backbone returned no attentions; eager attention could not be '
+					'enabled, so --inspect cannot work on this transformers build')
+			self.attn_calls += 1
+			block = torch.stack([a[0][:, q_idx][:, :, k_idx] for a in attns])
 		scores = (block.amax(dim=(0, 1)) if self.reduce == 'max'
 			else block.mean(dim=(0, 1))).float().cpu()
-		del attns, out, block
+		del block
 
 		for row, (q, out_index, kind) in enumerate(queries):
 			vals = scores[row]
@@ -780,7 +799,7 @@ def resolve_tokenizer (run, config):
 
 
 def load_model (run, checkpoint, device):
-	'''Build the bare MidiTranslator from the run's .state.yaml and load weights (eval mode).
+	'''Build the bare translator from the run's .state.yaml and load weights (eval mode).
 
 	No postfix='Loss' — the training wrapper (MidiTranslatorLoss) adds the loss and the per-type
 	metric buffers, none of which inference needs, and the checkpoint holds only `deducer`'s
@@ -888,7 +907,7 @@ class SlidingTranslator:
 		return ids, positions, len(source)
 
 	@torch.no_grad()
-	def generate (self, prefix_ids, prefix_positions, temperature, top_k, top_p):
+	def generate (self, prefix_ids, prefix_positions, temperature, top_k, top_p, n_source=None):
 		'''Autoregressive continuation to <eos> or the max_token ceiling. Returns (new ids, eos_forced).
 
 		The <eos> is NOT included in the return: it terminates this window, but the output stream is
@@ -1037,14 +1056,14 @@ class SlidingTranslator:
 			if not src_ids:
 				break
 			prime_ids = output[prime_start:] if self.prime else []
-			prefix, positions, _ = self.build_prefix(src_ids, prime_ids, head=(step == 0))
+			prefix, positions, n_source = self.build_prefix(src_ids, prime_ids, head=(step == 0))
 			if len(prefix) >= self.max_token:
 				print(f'[warn] step {step}: prefix {len(prefix)} >= max_token {self.max_token}, '
 					f'nothing left to generate; stopping')
 				break
 
 			new_ids, eos_forced = self.generate(prefix, positions, self.temperature, self.top_k,
-				self.top_p)
+				self.top_p, n_source=n_source)
 			out_base = len(output)		# before the extend: maps a new_ids offset onto the output stream
 			output.extend(new_ids)
 			step_prime_start = prime_start
@@ -1084,7 +1103,7 @@ class SlidingTranslator:
 				# and that is only known once the roll-out has been computed. Still inside the same step, so
 				# the figure is still written the moment the step is over.
 				inspector.observe(step, prefix, positions, new_ids, src_ids, src_before, next_cursor,
-					step == 0, out_base, output=output, prime_start=step_prime_start,
+					step == 0, out_base, n_source=n_source, output=output, prime_start=step_prime_start,
 					next_cursor_real=cursor, next_prime_start=prime_start)
 
 			if verbose:
@@ -1099,6 +1118,53 @@ class SlidingTranslator:
 			consumed_lines=cursor, stalls=stalls, eos_forced=forced, done=done,
 			elapsed=time.time() - start_time)
 		return output, stats
+
+
+class SlidingEncDecTranslator (SlidingTranslator):
+	'''Sliding translator for MidiTranslatorEncDec's split source/decoder API.
+
+	The prefix is assembled in the same conceptual order as the decoder-only translator. `generate`
+	cuts it at `n_source` and feeds the two halves through encode/decode, while all sliding bookkeeping
+	and output stitching remain shared.
+	'''
+
+	def __init__ (self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.is_encdec = True
+
+	@torch.no_grad()
+	def generate (self, prefix_ids, prefix_positions, temperature, top_k, top_p, n_source=None):
+		if n_source is None:
+			raise ValueError('EncDec generation requires the source prefix length')
+		if n_source <= 0 or n_source >= len(prefix_ids):
+			raise ValueError(f'invalid EncDec prefix split {n_source}/{len(prefix_ids)}')
+		source_ids = torch.tensor([prefix_ids[:n_source]], dtype=torch.long, device=self.device)
+		source_pos = torch.tensor([prefix_positions[:n_source]], dtype=torch.long, device=self.device)
+		decoder_ids_list = list(prefix_ids[n_source:])
+		decoder_pos_list = list(prefix_positions[n_source:])
+		source_masks = torch.ones_like(source_ids)
+		memory = self.model.encode(source_ids, source_masks, source_pos)
+		out = []
+		forced = False
+		while len(prefix_ids) + len(out) < self.max_token:
+			decoder_ids = torch.tensor([decoder_ids_list], dtype=torch.long, device=self.device)
+			decoder_pos = torch.tensor([decoder_pos_list], dtype=torch.long, device=self.device)
+			# Keep the newest decoder context but preserve its original RoPE positions.
+			decoder_ids_window = decoder_ids[:, -self.model.max_seq_len:]
+			decoder_pos_window = decoder_pos[:, -self.model.max_seq_len:]
+			logits = self.model.decode(memory, decoder_ids_window, source_masks, decoder_pos_window)[0, -1, :]
+			if not out:
+				logits = logits.clone()
+				forced = bool(logits.argmax().item() == self.tk.eos_id)
+				logits[self.tk.eos_id] = float('-inf')
+			nxt = (int(logits.argmax().item()) if not temperature
+				else sample_next(logits, temperature=temperature, top_k=top_k, top_p=top_p))
+			if nxt == self.tk.eos_id:
+				break
+			out.append(nxt)
+			decoder_ids_list.append(nxt)
+			decoder_pos_list.append(decoder_pos_list[-1] + 1)
+		return out, forced
 
 
 # --- output file ---------------------------------------------------------------------------
@@ -1752,7 +1818,7 @@ def plot_attention (pairs, windows, prefix, threshold, subtitle=''):
 
 
 def main ():
-	ap = argparse.ArgumentParser(description='Translate a whole midiseq2 file with MidiTranslator.')
+	ap = argparse.ArgumentParser(description='Translate a whole midiseq2 file with MidiTranslator or MidiTranslatorEncDec.')
 	ap.add_argument('--run', default=DEFAULT_RUN, help='training run dir (.state.yaml + checkpoint)')
 	ap.add_argument('--checkpoint', default=None,
 		help="checkpoint path (default: config['best'], then best.chkpt, then latest.chkpt)")
@@ -1811,6 +1877,10 @@ def main ():
 
 	data_args = config['data.args'] or {}
 	pos_style = data_args.get('pos_style', 'flat')
+	model_type = config['model.type']
+	if model_type not in ('MidiTranslator', 'MidiTranslatorEncDec'):
+		print(f'[error] unsupported model type {model_type!r} for midiseq2 translation')
+		return 1
 	if pos_style == 'absolute':
 		print("[error] pos_style 'absolute' places each half on its own file's token axis, which a "
 			"sliding window cannot define (the output's total token count is unknown until done). "
@@ -1823,6 +1893,11 @@ def main ():
 		print('[note] config has source_eom on; the source half will carry <eom> tokens')
 
 	tokenizer, vocab_path = resolve_tokenizer(args.run, config)
+	# Bare EncDec inference skips the Loss wrapper, which normally copies these ids from the asset.
+	if model_type == 'MidiTranslatorEncDec':
+		model.sep_id = tokenizer.sep_id
+		model.eos_id = tokenizer.eos_id
+		model.pad_id = tokenizer.pad_id
 	if vocab_path:
 		print(f'[vocab] {vocab_path} ({tokenizer.vocab_size} tokens)')
 
@@ -1831,7 +1906,8 @@ def main ():
 	print(f'[in]  {os.path.basename(args.input)}: {len(lines)} lines, '
 		f'pos_style {pos_style}, src_window {args.src_window}, max_token {args.max_token}')
 
-	translator = SlidingTranslator(model, tokenizer, pos_style=pos_style,
+	Translator = SlidingEncDecTranslator if model_type == 'MidiTranslatorEncDec' else SlidingTranslator
+	translator = Translator(model, tokenizer, pos_style=pos_style,
 		src_window=args.src_window, max_token=args.max_token, device=args.device,
 		prime=not args.no_prime, temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
 		source_eom=bool(data_args.get('source_eom')), advance_tokens=args.advance_tokens,
