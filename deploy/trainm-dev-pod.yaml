@@ -7,12 +7,27 @@
 # with the SAME python 3.10.12. An exact minor-version match is what makes the mount trick legal:
 # C extensions in dist-packages are built against 3.10's ABI.
 #
-# GPUs: `nvidia.com/gpu` is deliberately NOT requested. Every GPU node in this cluster is 8/8
-# allocated by serving/training workloads that are not ours, so a pod asking for cards would sit
-# Pending forever. This mirrors trainl-dev-51, which also held no GPU limit and instead took cards
-# ad-hoc via CUDA_VISIBLE_DEVICES against the bare host. Nothing here competes with the live vLLM
-# TP8 serve holding 263 GB on each of maiyi-9's cards — check `nvidia-smi` for free memory BEFORE
-# launching any training, and pick the free indices explicitly.
+# GPUs: `nvidia.com/gpu: 4` IS requested — reversing the original decision here, which was correct
+# when written on 2026-08-19 and is not any more. The old reasoning: every GPU node was 8/8 allocated
+# by workloads that are not ours, so a pod asking for cards would sit Pending forever, and taking
+# cards ad-hoc via CUDA_VISIBLE_DEVICES against the bare host was the only way in.
+#
+# Two things overturned it. (1) nvidia-device-plugin rolled out cluster-wide on 2026-08-20, and free
+# capacity now genuinely exists — measured free=4/8 on host-172-16-2-140 on 08-25. (2) Requesting
+# nothing reserves nothing: on 2026-08-22 the scheduler saw all 8 cards as free and placed a
+# competing 8-GPU pod here, killing four training runs at 11:24. The trade is no longer
+# "request => never schedules" but "no request => gets displaced".
+#
+# The request is PURELY accounting. This pod is privileged and bind-mounts every /dev/nvidiaN, so
+# CUDA enumerates all 8 devices regardless of what the device plugin injects — verified 08-25 on both
+# exp51-16k-train and this pod: each requests 4, each gets 4 GPU UUIDs in NVIDIA_VISIBLE_DEVICES,
+# and `nvidia-smi -L` still lists 8. So hardcoded CUDA_VISIBLE_DEVICES pinning keeps working, and you
+# must STILL check `nvidia-smi` for free memory and pick idle indices explicitly before launching.
+#
+# Sizing: 4 covers the two 2-GPU runs this pod normally drives. Do not raise it past what the node
+# actually has free (`kubectl describe node <n> | grep -A3 'Allocated resources'`) — an over-request
+# hangs Pending, and this pod is pinned by nodeName so it cannot schedule elsewhere. Changing it
+# requires delete + re-apply: resources are immutable on a running pod.
 #
 # Apply (from maiyi-9, root is needed for kubectl — the `linux` account has no kubeconfig):
 #   rsync -a --partial deploy/trainm-dev-pod.yaml maiyi-9:/home/linux/work/
@@ -91,22 +106,24 @@ spec:
           value: http://172.16.1.35:7890
         - name: NO_PROXY
           value: localhost,127.0.0.1,172.16.0.0/12,10.0.0.0/8,.svc,.cluster.local,sealos.hub
-      # GPU access WITHOUT holding k8s quota. Every GPU pod in this cluster requests
-      # `nvidia.com/gpu` and runs privileged, but all 6 GPU nodes are 8/8 allocated, so a request
-      # would never schedule. Instead the driver devices are bind-mounted and the container runs
-      # privileged, which is the same shape as trainl-dev-51's ad-hoc `CUDA_VISIBLE_DEVICES` model:
-      # k8s does not account for these cards, so ALWAYS check `nvidia-smi` for free memory and pick
-      # idle indices explicitly — the node's 8 B300s are currently held by a vLLM TP8 serve at
-      # 263/275 GB each, which must not be disturbed.
+      # GPU access is via bind-mounted driver devices + privileged, NOT via the device plugin: the
+      # plugin's NVIDIA_VISIBLE_DEVICES restriction does not take effect for this pod shape (verified
+      # 08-25 — 4 UUIDs injected, `nvidia-smi -L` still 8). The `nvidia.com/gpu` request below exists
+      # only so the SCHEDULER stops handing these cards to someone else; it does not limit or select
+      # which cards the container sees. So ALWAYS check `nvidia-smi` for free memory and pick idle
+      # indices explicitly — see the GPU note in the header for why this request was added.
       securityContext:
         privileged: true
       resources:
         limits:
           memory: 200Gi
           cpu: "32"
+          # Extended resources require request == limit, so both are stated.
+          nvidia.com/gpu: 4
         requests:
           memory: 32Gi
           cpu: "4"
+          nvidia.com/gpu: 4
       volumeMounts:
         - { name: repo,          mountPath: /workspace/deeps }
         - { name: sys-packages,  mountPath: /opt/sys-packages,  readOnly: true }
