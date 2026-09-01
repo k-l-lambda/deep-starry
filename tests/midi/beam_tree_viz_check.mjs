@@ -88,18 +88,23 @@ ok(par.position === sample.pos.position - 1,
 // and the detail line reports 'root'.
 const uids = new Set(w.positions.flatMap(p => p.candidates.map(c => c.uid)).filter(u => u !== null));
 const first = w.positions[0].position;
-/* The loss key's presence must match meta.rank: an LM-only run has no adjudicator, so writing a null
-   loss on every candidate made the viewer report thousands of "abstained" verdicts on a run where
-   nothing was ever asked. Absent = not adjudicated; present-and-null = asked, no evidence. */
+/* The loss key's presence must match whether an ADJUDICATOR RAN -- meta.adjudicator, not meta.rank.
+   `--rank lm --inspect` scores every candidate and lets the model rank anyway, so an lm dump can
+   legitimately carry a loss on all of them; keying this on rank failed that dump. A null loss means
+   "asked, no evidence" and an absent key means "never asked", so the two must not be conflated. */
 {
 	const all = w.positions.flatMap(p => p.candidates);
 	const withKey = all.filter(c => 'loss' in c).length;
-	if (DATA.meta.rank === 'align')
+	// Older dumps predate the field; fall back to rank, which was the only signal then.
+	const ran = DATA.meta.adjudicator !== undefined
+		? DATA.meta.adjudicator !== null : DATA.meta.rank === 'align';
+	if (ran)
 		ok(withKey === all.length,
-			`an align dump carries a loss key on every candidate: ${withKey}/${all.length}`);
+			`an adjudicated dump (${DATA.meta.adjudicator || DATA.meta.rank}) carries a loss key on `
+			+ `every candidate: ${withKey}/${all.length}`);
 	else
 		ok(withKey === 0,
-			`an lm dump carries no loss key (nothing adjudicated): ${withKey}/${all.length}`);
+			`a dump with no adjudicator carries no loss key: ${withKey}/${all.length}`);
 }
 
 const orphans = w.positions.flatMap(p => p.candidates.map(c => ({ c, at: p.position })))

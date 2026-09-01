@@ -613,20 +613,31 @@ def report_beam (report, steps):
 		print(f'[beam] branch rate {branch_positions / positions:.3f} of positions, '
 			f'{beam_points / positions:.2f} beam-branches and '
 			f'{report.get("expanded", 0) / positions:.2f} candidates per position')
-	# Only when an adjudicator ran. `abstained` is not a failure line: early in a window there is no
-	# ratio and no residual yet, and abstaining is the honest answer -- but an adjudicator that
-	# abstains EVERYWHERE is indistinguishable from none, so the split has to be visible.
+	# Only when an adjudicator ran, and it has THREE outcomes per position, not two: it ordered the
+	# pool (`adjudicated`), it was asked and its verdicts were recorded while the model still ranked
+	# (`scored_only`, i.e. --rank lm --inspect), or it had no evidence (`abstained`). Keying this line
+	# on adjudicated/abstained alone reported a score-only run as "the LM-only run" while 2309 of its
+	# candidates carried a real loss.
 	adjudicated = report.get('adjudicated', 0)
+	scored_only = report.get('scored_only', 0)
 	abstained = report.get('abstained', 0)
-	if adjudicated or abstained:
-		total = adjudicated + abstained
-		print(f'[rank] alignment adjudicated {adjudicated} of {total} positions '
-			f'({adjudicated / total:.1%}), abstained at {abstained} for want of evidence; '
-			f'overturned the model\'s top candidate at {report.get("overturned", 0)} '
-			f'({report.get("overturned", 0) / adjudicated:.1%} of adjudicated)'
-			if adjudicated else
-			f'[rank] alignment abstained at all {abstained} positions: no ratio or residual was ever '
-			f'established, so this run is the LM-only run')
+	total = adjudicated + scored_only + abstained
+	if total:
+		evidenced = adjudicated + scored_only
+		if adjudicated:
+			overturned = report.get('overturned', 0)
+			print(f'[rank] alignment adjudicated {adjudicated} of {total} positions '
+				f'({adjudicated / total:.1%}), abstained at {abstained} for want of evidence; '
+				f"overturned the model's top candidate at {overturned} "
+				f'({overturned / adjudicated:.1%} of adjudicated)')
+		elif scored_only:
+			# The verdicts are in the dump but changed nothing: this is the model's own tree, annotated.
+			print(f'[rank] alignment SCORED {scored_only} of {total} positions '
+				f'({scored_only / total:.1%}) and abstained at {abstained}; the model ranked at every '
+				f'one of them, so the tree is the LM tree with the aligner\'s verdicts recorded on it')
+		else:
+			print(f'[rank] alignment abstained at all {abstained} positions: no ratio or residual was '
+				f'ever established, so this run is the LM-only run')
 		print(f'[rank] {report.get("forced_elapse", 0)} elapse candidates were enumerated that the '
 			f"model's top-k did not contain")
 
@@ -805,7 +816,12 @@ def main ():
 			input_mtime=int(os.path.getmtime(args.input)), beam=args.beam, branch_k=args.branch_k,
 			length_alpha=args.length_alpha, src_window=args.src_window, max_token=args.max_token,
 			advance_tokens=args.advance_tokens, pos_style=pos_style, rank=args.rank,
-			elapse_k=(args.elapse_k if args.rank == 'align' else None),
+			# Whether an aligner RAN is not derivable from `rank`: --rank lm --inspect scores every
+			# candidate and merely declines to rank on it. Keying either of the next two on `rank`
+			# reported elapse_k None on a run whose pool held 2748 forced elapse candidates, and made
+			# the dump-convention check demand that a scored run carry no loss key.
+			adjudicator=(None if adjudicator is None else ('ranking' if adjudicate else 'scoring')),
+			elapse_k=(args.elapse_k if adjudicator is not None else None),
 			positions=sum(len(w['positions']) for w in inspector.windows))
 		inspector.dump(json_path, meta)
 		size = os.path.getsize(json_path)
