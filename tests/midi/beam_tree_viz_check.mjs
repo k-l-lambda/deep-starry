@@ -88,6 +88,20 @@ ok(par.position === sample.pos.position - 1,
 // and the detail line reports 'root'.
 const uids = new Set(w.positions.flatMap(p => p.candidates.map(c => c.uid)).filter(u => u !== null));
 const first = w.positions[0].position;
+/* The loss key's presence must match meta.rank: an LM-only run has no adjudicator, so writing a null
+   loss on every candidate made the viewer report thousands of "abstained" verdicts on a run where
+   nothing was ever asked. Absent = not adjudicated; present-and-null = asked, no evidence. */
+{
+	const all = w.positions.flatMap(p => p.candidates);
+	const withKey = all.filter(c => 'loss' in c).length;
+	if (DATA.meta.rank === 'align')
+		ok(withKey === all.length,
+			`an align dump carries a loss key on every candidate: ${withKey}/${all.length}`);
+	else
+		ok(withKey === 0,
+			`an lm dump carries no loss key (nothing adjudicated): ${withKey}/${all.length}`);
+}
+
 const orphans = w.positions.flatMap(p => p.candidates.map(c => ({ c, at: p.position })))
 	.filter(({ c }) => c.parent !== null && !uids.has(c.parent));
 ok(orphans.every(o => o.at === first),

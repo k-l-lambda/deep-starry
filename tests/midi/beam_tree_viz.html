@@ -377,7 +377,7 @@ function renderTree () {
 			g.appendChild(el('title', {})).textContent =
 				`${c.token}  rank ${c.rank}  logp ${c.logprob}  cum ${c.cum}` +
 				(c.loss === undefined ? ''
-					: `\nalign loss: ${c.loss === null ? 'abstained' : c.loss}`) +
+					: `\nalign loss: ${c.loss === null ? 'abstained (no evidence)' : c.loss}`) +
 				(c.align ? `\nalign: ${c.align.src === null ? 'MISS' :
 					'src #' + c.align.src + ' @' + c.align.src_onset} self_cost ${c.align.self_cost}` : '');
 		});
@@ -588,10 +588,14 @@ function renderDetail () {
 	let html = kv('position', SEL.position) + kv('token', esc(SEL.token)) + kv('pool rank', SEL.rank)
 		+ kv('parent', par ? `${esc(par.token)} @${par.position} (cum ${par.cum})` : 'root')
 		+ kv('logp', SEL.logprob) + kv('cum logp', SEL.cum)
-		// The quantity the SEARCH ranked on under --rank align. Absent on an LM-only dump, and null at
-		// a position where the aligner abstained -- both are states worth telling apart from 0.
-		+ (SEL.loss === undefined ? ''
-			: kv('align loss', SEL.loss === null ? 'abstained' : SEL.loss))
+		// The quantity the SEARCH ranked on under --rank align. THREE states, all different: the key is
+		// absent when no adjudicator ran (an LM-only dump ranks on logprob alone and there is no loss
+		// to show), null when the aligner was asked and had no evidence to answer with, and a number
+		// when it ranked on it. Reporting the first two the same way reads as "the aligner declined
+		// 2393 times" on a run where it was never consulted.
+		+ (SEL.loss === undefined
+			? kv('align loss', `not adjudicated (rank ${esc(DATA.meta.rank || 'lm')})`)
+			: kv('align loss', SEL.loss === null ? 'abstained (no evidence)' : SEL.loss))
 		+ kv('status', SEL.kept ? (onWinner ? 'kept, on winning path' : 'kept, later dropped')
 			: (SEL.eos ? 'terminator' : 'CUT'))
 		+ kv('tick', SEL.tick);

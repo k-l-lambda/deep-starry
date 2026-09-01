@@ -465,8 +465,13 @@ class BeamInspector:
 	then dropped, so scoring the road not taken costs nothing permanent.
 	'''
 
-	def __init__ (self, tracker, limit=0):
+	def __init__ (self, tracker, limit=0, adjudicated=False):
 		self.tracker = tracker
+		# Whether an adjudicator ran AT ALL, which is not derivable from the losses: on an LM-only run
+		# every one is None, and writing that as a `loss` key makes the viewer report 2393 candidates
+		# as "abstained" when nothing was ever asked. Absent key = not adjudicated; present-and-null =
+		# asked and had no evidence. Two different facts about the run.
+		self.adjudicated = adjudicated
 		self.tk = tracker.tk
 		self.keywords = tracker.keywords
 		self.src_events = tracker.src_events
@@ -533,8 +538,9 @@ class BeamInspector:
 				si=_r(state['si'], 6),
 				# The align loss the SEARCH ranked on, distinct from `align` below: that is the verdict
 				# on a note this token closed (available only at a pitch), this is the forecast the
-				# elapse decision was actually taken on. None where the aligner abstained.
-				loss=_r(loss, 6),
+				# elapse decision was actually taken on. Null where the aligner ABSTAINED; the key is
+				# omitted entirely on a run that had no adjudicator, so the two are told apart.
+				**(dict(loss=_r(loss, 6)) if self.adjudicated else {}),
 				align=None if detail is None else dict(
 					src=detail.get('src'), self_cost=_r(detail.get('self_cost')),
 					cost=_r(detail.get('cost')), offset=_r(detail.get('offset')),
@@ -723,7 +729,7 @@ def main ():
 		if args.beam <= 1:
 			print('[note] --inspect with --beam 1 records a tree of width 1; there is nothing to '
 				'compare at a position')
-		inspector = BeamInspector(tracker, limit=args.inspect)
+		inspector = BeamInspector(tracker, limit=args.inspect, adjudicated=(args.rank == 'align'))
 		if args.inspect:
 			max_steps = 1
 		print(f'[inspect] recording {"the first window, " + str(args.inspect) + " positions" if args.inspect else "every window"}'
