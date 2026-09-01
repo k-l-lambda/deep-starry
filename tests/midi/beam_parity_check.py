@@ -29,8 +29,9 @@ import torch.nn.functional as F
 from starry.midi.beam import (BranchState, Beam, beam_search, branch_profile, BRANCH_NONE,
 	BRANCH_ELAPSE, BRANCH_PITCH)
 from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer
+from starry.midi.align import soft_indices
 from translateMidiseq2 import keyword_tokens
-from translateMidiseq2Beam import BeamTranslator
+from translateMidiseq2Beam import AlignAdjudicator, BeamTranslator, LineageTracker
 
 
 PASS, FAIL = [], []
@@ -464,6 +465,160 @@ def check_branch_profile (tk, keywords):
 		f'{total} note_on lines over {len(files)} files, {violations} without a $velocity')
 
 
+def check_adjudicator (tk, keywords):
+	'''The alignment adjudicator must reach the decision, and must abstain cleanly when blind.
+
+	Three claims, each a hole that had to be closed before the aligner's vote could matter:
+
+	  the elapse candidates are enumerated even when the model ranks none of them in its top-k
+	  (measured: 130 of 399 elapse branch points had no elapse token in the top-4 at all);
+	  the pool is ordered on the forecast with the model as tie-break, so a confidently-wrong delta
+	  can be overturned rather than merely weighted against;
+	  with no alignment evidence every loss is None and the run is the LM-only run, which is what
+	  makes level 3 an ablation of level 2 rather than a different search.
+	'''
+	i = tk.id_by_token
+	# The model is CERTAIN about a wrong continuation: note_off at +0 ticks, with every elapse buried.
+	# This is the shape of the real failure -- confident mass on the wrong delta -- so a finite penalty
+	# against its own confidence would not reliably beat it, and the ordering has to be lexicographic.
+	plan = {
+		tk.bos_id: {i['note_off']: 9.0, i['E3c0']: -6.0, i['E1e0']: -6.5, i['E140']: -7.0,
+			tk.eos_id: -8.0},
+		i['note_off']: {i['#3c']: 9.0, tk.eos_id: -8.0},
+		i['#3c']: {i['end_of_track']: 9.0, tk.eos_id: -8.0},
+		i['end_of_track']: {tk.eos_id: 8.0},
+	}
+	for tok in ('E3c0', 'E1e0', 'E140'):
+		plan[i[tok]] = {i['note_on']: 9.0, tk.eos_id: -8.0}
+	plan[i['note_on']] = {i['#3c']: 9.0, tk.eos_id: -8.0}
+
+	# A source arm spaced so exactly one onset is in reach and the elapse options bracket it. 960
+	# ticks apart mirrors the material this was built on (source onsets 2065 -> 2769).
+	src = [dict(onset=n * 960, pitch=60 + (n * 5) % 12) for n in range(24)]
+	for e, si in zip(src, soft_indices([x['onset'] for x in src])):
+		e['softIndex'] = si
+
+	def fresh_pair (elapse_k=8):
+		tracker = LineageTracker(tk, keywords, src)
+		return tracker, AlignAdjudicator(tracker, tk, elapse_k=elapse_k)
+
+	# --- enumeration: top-k among ELAPSE tokens, independent of the overall distribution
+	tracker, adj = fresh_pair()
+	row = torch.full((tk.vocab_size,), -20.0)
+	row[i['note_off']] = 0.0				# the overall argmax is not an elapse at all
+	for n, tok in enumerate(('E1e0', 'E140', 'E3c0')):
+		row[i[tok]] = -3.0 - n
+	ids = list(adj.elapse_ids(None, row))
+	got = [tk.tokens[t] for t in ids]
+	elapse_order = [t for t in got if t.startswith('E')][:3]
+	check('elapse candidates are enumerated from the elapse tokens, not from the overall top-k',
+		elapse_order == ['E1e0', 'E140', 'E3c0'] and got[-1] == 'note_on',
+		f'first three elapse ids {elapse_order}, last {got[-1]} (note_on as elapse-0)')
+
+	# --- abstention: nothing observed yet, so no candidate carries a loss
+	tracker, adj = fresh_pair()
+	class _Beam: uid = 1
+	cands = [(i['note_off'], 0.0), (i['E3c0'], -6.0), (i['note_on'], -7.0)]
+	check('with no alignment evidence every loss is None (level 3 degrades to level 2)',
+		all(x is None for x in adj.losses(_Beam(), cands)), 'all None')
+
+	# --- scoring and coverage, on a tracked alignment
+	tracker, adj = fresh_pair()
+	base = tracker.base(1)
+	for n in range(12):
+		base['align'].observe(src[n]['pitch'], src[n]['onset'], src[n]['softIndex'])
+	base['tick'] = src[11]['onset']
+	losses = adj.losses(_Beam(), cands)
+	scored = {tk.tokens[t]: L for (t, _lp), L in zip(cands, losses)}
+	# E3c0 = +960 lands exactly on the next unmatched onset, so it must be the cheapest, and the
+	# model's confident note_off must not be
+	elapse_only = {k: v for k, v in scored.items() if k.startswith('E') or k == 'note_on'}
+	check('among the candidates it can score, the forecast puts the elapse landing on the next onset first',
+		min(elapse_only, key=lambda k: elapse_only[k]) == 'E3c0'
+			and scored['E3c0'] < scored['note_on'],
+		f'E3c0 {scored["E3c0"]:.4f} < note_on (elapse-0) {scored["note_on"]:.4f}')
+
+	# note_off produces no onset, so the aligner genuinely has no claim on it: AlignState observes
+	# only note_on. As the model's argmax with nothing scored before it in that order, it inherits the
+	# nearest FOLLOWING scored loss MINUS epsilon and therefore keeps the position.
+	#
+	# MEASURED consequence, worth stating because it bounds what level 3 can do: on the committed
+	# dump the argmax at 203 of 399 elapse branch points (50.9%) is a token the aligner cannot score
+	# (note_off 29.6%, other non-onset tokens 21.3%), so at those the adjudication cannot change the
+	# outcome. That is mostly POSTPONEMENT rather than suppression -- a note_off at elapse zero fixes
+	# no onset, and the lineage reaches another elapse branch point two positions later, where the
+	# argmax is an elapse or a note_on and both are scored.
+	check('a candidate the aligner cannot see inherits along the model\'s order, never None',
+		all(L is not None for L in losses)
+			and abs((scored['E3c0'] - scored['note_off']) - adj.EPSILON) < 1e-12
+			and scored['note_off'] < scored['E3c0'],
+		f'note_off (LM argmax, unscorable) = E3c0 - epsilon = {scored["note_off"]:.6f}, so it keeps '
+		f'the position')
+
+	# --- siblings must not share their parent's AlignState
+	# One parent contributes several survivors at 11.5% of positions on the committed dump (up to 4),
+	# and 7 positions there had two or three of them each closing a note_on. Advancing the parent's
+	# state in place made the second sibling's verdict a function of the first sibling's note, and the
+	# adjudicator forecasts from that same object.
+	tracker, adj = fresh_pair()
+	base = tracker.base(1)
+	for n in range(12):
+		base['align'].observe(src[n]['pitch'], src[n]['onset'], src[n]['softIndex'])
+	base['tick'] = src[11]['onset']
+	# A lone pitch closes nothing: the walk has to be inside an open note_on first, exactly as it is
+	# at a real pitch branch point.
+	opened, _d = tracker.advance(base, i['note_on'], commit=True)
+	before = opened['align'].tgt_count
+	kids = [tracker.advance(opened, t, commit=True) for t in (i['#3c'], i['#40'], i['#43'])]
+	after = opened['align'].tgt_count
+	independent = all(st['align'] is not opened['align'] for st, _d in kids)
+	one_note_each = all(st['align'].tgt_count == before + 1 for st, _d in kids)
+	verdicts = [d is not None for _st, d in kids]
+	check('surviving siblings get independent alignments (the parent is not advanced in place)',
+		independent and one_note_each and after == before and all(verdicts),
+		f'parent tgt_count {before} -> {after} (unchanged); each of {len(kids)} children observed '
+		f'exactly one note and got its own verdict')
+
+	# --- end to end through the search: the adjudicated run must differ from the LM-only run
+	def run (rank_align):
+		tracker, adj = fresh_pair()
+		if rank_align:
+			b = tracker.base(1)
+			for n in range(12):
+				b['align'].observe(src[n]['pitch'], src[n]['onset'], src[n]['softIndex'])
+			b['tick'] = src[11]['onset']
+		tr = make_translator(tk, StubModel(tk.vocab_size, plan, i['note_on'], tk.eos_id),
+			beam_size=4, branch_k=4, length_alpha=0.0,
+			adjudicator=(adj if rank_align else None), elapse_k=(8 if rank_align else 0))
+		prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id]
+		out, _ = tr.generate(prefix, list(range(len(prefix))), 0.0, 0, 1.0, n_source=2)
+		return [tk.tokens[t] for t in out], tr.beam_report
+
+	lm_out, lm_rep = run(False)
+	al_out, al_rep = run(True)
+	check('the adjudicated run overturns the LM-only run',
+		lm_out != al_out and lm_out[0] == 'note_off' and al_out[0].startswith('E'),
+		f'LM took {lm_out[0]}, adjudicated took {al_out[0]}')
+	check('the search reports what the adjudicator did',
+		al_rep.get('adjudicated', 0) > 0 and al_rep.get('overturned', 0) > 0
+			and al_rep.get('forced_elapse', 0) > 0 and lm_rep.get('adjudicated', 0) == 0,
+		f'adjudicated {al_rep.get("adjudicated")}, overturned {al_rep.get("overturned")}, '
+		f'forced elapse {al_rep.get("forced_elapse")}; LM-only adjudicated '
+		f'{lm_rep.get("adjudicated", 0)}')
+
+	# --- an adjudicator that abstains everywhere must produce the LM-only output exactly
+	tracker, adj = fresh_pair()
+	tr = make_translator(tk, StubModel(tk.vocab_size, plan, i['note_on'], tk.eos_id),
+		beam_size=4, branch_k=4, length_alpha=0.0, adjudicator=adj, elapse_k=8)
+	prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id]
+	blind, _forced = tr.generate(prefix, list(range(len(prefix))), 0.0, 0, 1.0, n_source=2)
+	blind_out, blind_rep = [tk.tokens[t] for t in blind], tr.beam_report
+	check('a blind adjudicator reproduces the LM-only output token for token',
+		blind_out == lm_out and blind_rep.get('adjudicated', 0) == 0
+			and blind_rep.get('abstained', 0) > 0,
+		f'{len(blind_out)} tokens, abstained at {blind_rep.get("abstained")} positions')
+
+
 def main ():
 	tk = Midiseq2Tokenizer()
 	keywords = keyword_tokens(tk)
@@ -486,6 +641,8 @@ def main ():
 	check_seed_state(tk, keywords)
 	print()
 	check_length_alpha(tk, keywords)
+	print()
+	check_adjudicator(tk, keywords)
 
 	total = len(PASS) + len(FAIL)
 	print(f'\n{len(PASS)}/{total} checks passed')

@@ -82,6 +82,16 @@ ok(orphans.every(o => o.at === first),
 	`only the first position's candidates hang off the unrecorded seed beam `
 	+ `(${orphans.length} such, all at position ${first})`);
 
+// The `loss` field distinguishes three states the viewer must not conflate: absent (an LM-only dump,
+// --rank lm), null (the aligner abstained at that position) and a number (what the search ranked on).
+// The committed dump is LM-only, so absent is what it exercises; the other two are pinned by shape.
+const withLoss = w.positions.flatMap(p => p.candidates).filter(c => 'loss' in c);
+const lossKinds = new Set(withLoss.map(c => c.loss === null ? 'abstained' : typeof c.loss));
+ok(withLoss.length === 0 || [...lossKinds].every(k => k === 'abstained' || k === 'number'),
+	withLoss.length === 0
+		? 'dump carries no align loss (an LM-only run), which the viewer renders as absent'
+		: `align loss present on ${withLoss.length} candidates, kinds {${[...lossKinds].join(', ')}}`);
+
 // elapse detection, the branch the onset view keys its vertical rule on
 const re = /^E[0-9a-f]+$/i;
 const elapses = w.positions.flatMap(p => p.candidates.filter(c => re.test(c.token)));

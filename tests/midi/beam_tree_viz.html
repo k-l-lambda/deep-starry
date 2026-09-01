@@ -376,6 +376,8 @@ function renderTree () {
 			});
 			g.appendChild(el('title', {})).textContent =
 				`${c.token}  rank ${c.rank}  logp ${c.logprob}  cum ${c.cum}` +
+				(c.loss === undefined ? ''
+					: `\nalign loss: ${c.loss === null ? 'abstained' : c.loss}`) +
 				(c.align ? `\nalign: ${c.align.src === null ? 'MISS' :
 					'src #' + c.align.src + ' @' + c.align.src_onset} self_cost ${c.align.self_cost}` : '');
 		});
@@ -586,6 +588,10 @@ function renderDetail () {
 	let html = kv('position', SEL.position) + kv('token', esc(SEL.token)) + kv('pool rank', SEL.rank)
 		+ kv('parent', par ? `${esc(par.token)} @${par.position} (cum ${par.cum})` : 'root')
 		+ kv('logp', SEL.logprob) + kv('cum logp', SEL.cum)
+		// The quantity the SEARCH ranked on under --rank align. Absent on an LM-only dump, and null at
+		// a position where the aligner abstained -- both are states worth telling apart from 0.
+		+ (SEL.loss === undefined ? ''
+			: kv('align loss', SEL.loss === null ? 'abstained' : SEL.loss))
 		+ kv('status', SEL.kept ? (onWinner ? 'kept, on winning path' : 'kept, later dropped')
 			: (SEL.eos ? 'terminator' : 'CUT'))
 		+ kv('tick', SEL.tick);

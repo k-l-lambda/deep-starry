@@ -100,6 +100,13 @@ Config = dict(
 	# No mask until this many pairs have been observed: with no history there is no anchor, and a
 	# mask derived from nothing would be a mask derived from the defaults.
 	MinPairsForMask = 4,
+
+	# How many unmatched source notes ahead `forecast` offers as candidate pitches for a tick whose
+	# pitch is not yet chosen. It bounds an OPTIMISTIC estimate, so larger is not automatically
+	# better: past the local chord it starts offering notes a correct continuation would not reach
+	# yet, and every one of them can only lower the forecast. 6 covers a four-note chord plus the two
+	# following onsets on the test material; unswept.
+	ForecastLookahead = 6,
 )
 
 
@@ -673,6 +680,92 @@ class AlignState:
 			return None, None
 		half = max(Config['RatioResidualK'] * self.residual, Config['RatioResidualFloor'])
 		return predicted - half, predicted + half
+
+	# --- forecasting a tick, before its pitch exists -----------------------------------
+
+	def unmatched_ahead (self, limit):
+		"""Source indices not yet paired, from the last pairing forward, at most `limit` of them.
+
+		"Ahead" is in SOURCE STREAM ORDER, not in tick order around a predicted position: the
+		alignment is monotone by construction (`skip` charges for jumping over source notes), so the
+		notes this target can still legitimately claim are the ones after the last one it claimed.
+		Taking them in tick order instead would offer the forecast notes it has already passed.
+		"""
+		used = {index for index, _tsi, _ssi, _w in self.pairs}
+		start = (self.pairs[-1][0] + 1) if self.pairs else 0
+		out = []
+		for i in range(start, len(self.src_events)):
+			if i in used:
+				continue
+			out.append(i)
+			if len(out) >= limit:
+				break
+		return out
+
+	def forecast (self, tgt_tick, lookahead=None):
+		"""What the alignment would cost if the next onset landed at `tgt_tick`, pitch unknown.
+
+		The problem this solves: an elapse token decides a tick, but the pitch that would let
+		`observe` score it is one or two tokens away, so at the position where the rhythm is actually
+		chosen the aligner has nothing to say. MEASURED on a width-4 dump: of 554 elapse candidates,
+		0 carried an alignment verdict -- the decision that fixes the rhythm was taken on the language
+		model alone, and the model's elapse distribution is high-entropy (top-4 spanning 1.30 to 2.50
+		nats on the case that motivated this).
+
+		This is scored in TICK space, on `predict_tick`, and NOT through `observe`. That is not an
+		implementation preference, it is forced: `observe`'s self_cost is a function of the softIndex
+		offset, and soft_delta saturates (tanh(320/115) = 0.992, tanh(960/115) = 1.000), so every
+		elapse candidate past ~350 ticks lands on the same softIndex and an observe-based forecast is
+		FLAT across exactly the choices that need separating. Measured on the motivating case: 320,
+		480, 720 and 960 ticks all forecast 0.3963 through observe, while in tick space they are 226,
+		66, 174 and 414 ticks from the prediction. softIndex is the right instrument for a pitch
+		verdict (which note was matched) and the wrong one for a rhythm verdict (which tick).
+
+		The error is normalised by the mask's own half-width -- RatioResidualK times the EMA of the
+		model's recent prediction error -- so it is dimensionless, 1.0 at the band edge, and as
+		forgiving as the model has recently been inaccurate. Then bounded (by `x/(1+x)`, not tanh --
+		see below) and folded into the attenuated running cost, the same recursion `observe` uses, so
+		a forecast and a verdict live on one scale and the pool can be sorted on either.
+
+		Returns (cost, src_index, predicted_tick), or (None, None, None) when the aligner has NO
+		OPINION -- no ratio yet, no residual history, or nothing left unmatched ahead. That is the
+		honest answer and the caller must fall back to the language model rather than read the
+		absence as a judgement; a forecast derived from unmeasured defaults would be worse than none,
+		because its mis-rankings would be invisible.
+		"""
+		limit = Config['ForecastLookahead'] if lookahead is None else lookahead
+		ahead = self.unmatched_ahead(limit)
+		if not ahead or self.ratio is None or self.residual is None:
+			return None, None, None
+		half = max(Config['RatioResidualK'] * self.residual, Config['RatioResidualFloor'])
+		first = ahead[0]
+		best = None
+		for i in ahead:
+			predicted = self.predict_tick(self.src_events[i]['onset'])
+			if predicted is None:
+				continue
+			# Optimistic across the lookahead: this tick may legitimately be aiming at any upcoming
+			# onset, and it must not be charged for choosing the wrong one before a pitch exists. But
+			# reaching a LATER one means jumping the ones between, so charge for that exactly as
+			# `observe` does -- without this term a far tick can win by aiming past the notes it
+			# skipped (measured: E3c0 at 3200 ranked 2nd by aiming at source #14 and ignoring #10-13).
+			err = abs(tgt_tick - predicted) / half
+			# `x / (1 + x)` rather than tanh, and the reason is numerical rather than aesthetic: both
+			# are bounded by 1, but tanh is FLAT IN FLOAT past about 3 -- tanh(50) and tanh(100) are
+			# both exactly 1.0 -- so with a narrow band (a model tracking the source closely floors
+			# the half-width at RatioResidualFloor = 24 ticks) every candidate more than ~2 bands out
+			# ranks equal and the forecast silently stops discriminating. This form is strictly
+			# increasing everywhere and still distinguishes 50 from 100, which is exactly the range an
+			# elapse candidate can span. Same shape for the skip term, for the same reason.
+			skip = max(0, i - first) * Config['SkipCost']
+			term = err / (1.0 + err) + skip / (1.0 + skip)
+			if best is None or term < best[0]:
+				best = (term, i, predicted)
+		if best is None:
+			return None, None, None
+		term, index, predicted = best
+		cost = self.cost * Config['CostStepAttenuation'] + term
+		return cost, index, predicted
 
 	# --- ranking -----------------------------------------------------------------------
 

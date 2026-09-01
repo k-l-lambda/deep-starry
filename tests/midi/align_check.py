@@ -543,6 +543,113 @@ def check_miss_is_not_fatal ():
 	return ok
 
 
+def check_forecast_discriminates_ticks ():
+	'''The tick forecast must separate elapse candidates, and observe-based scoring must not.
+
+	This pins the reason `forecast` is built on predict_tick rather than on observe: soft_delta
+	saturates, so in softIndex space every elapse past ~350 ticks is the same place, and an
+	observe-based estimate is FLAT across exactly the choices the search needs separated. The
+	measured case is a source note ~530 ticks ahead of the current target tick, where the four elapse
+	options bracket it.
+	'''
+	# Spaced widely on purpose. The forecast is a MIN over the notes ahead, so it is not a function
+	# of the distance to any one of them -- a candidate that happens to land on a later onset will
+	# (correctly) aim there instead. Monotonicity in |tick error| is therefore a claim about
+	# candidates competing for the SAME note, which needs the neighbouring onsets kept out of range.
+	# 960 ticks apart mirrors the case that motivated this (source onsets 2065 -> 2769).
+	src = make_source(n=40, step=960)
+	sis = [x['softIndex'] for x in src]
+	st = AlignState(src)
+	# track the source exactly for a while, so a ratio and a residual exist
+	for i in range(12):
+		st.observe(src[i]['pitch'], src[i]['onset'], sis[i])
+	# the first UNMATCHED source note is #12: observing 0..11 leaves the walk starting at 12
+	target_src = src[12]['onset']
+	here = src[11]['onset']
+	options = [0, 240, 480, 720, 840, 960]
+
+	costs = [st.forecast(here + dt)[0] for dt in options]
+	no_opinion = [c is None for c in costs]
+	errs = [abs((here + dt) - st.predict_tick(target_src)) for dt in options]
+	# the forecast must be monotone in |tick error|: rank by cost == rank by error
+	by_cost = sorted(range(len(options)), key=lambda i: costs[i])
+	by_err = sorted(range(len(options)), key=lambda i: errs[i])
+	monotone = not any(no_opinion) and by_cost == by_err
+
+	# and the observe-based estimate must be shown FLAT over the saturated range, which is the whole
+	# reason tick space is used -- if this ever stops being flat the forecast could be simplified
+	soft_costs = []
+	for dt in options:
+		if dt < 350:
+			continue
+		probe = st.clone()
+		probe.observe(src[13]['pitch'], here + dt, sis[12] + soft_delta(dt))
+		soft_costs.append(probe.cost)
+	flat = len(soft_costs) >= 2 and (max(soft_costs) - min(soft_costs)) < 1e-6
+
+	ok = monotone and flat
+	print(f'{"ok  " if ok else "FAIL"} forecast is monotone in |tick error| where observe is flat: '
+		f'best dt {options[by_cost[0]]} (err {errs[by_cost[0]]:.0f}), '
+		f'worst dt {options[by_cost[-1]]} (err {errs[by_cost[-1]]:.0f}); '
+		f'observe spread over the saturated range {max(soft_costs) - min(soft_costs):.2e}')
+	if not ok:
+		print(f'  costs {[None if c is None else round(c, 4) for c in costs]}')
+		print(f'  errs  {[round(e) for e in errs]}')
+	return ok
+
+
+def check_forecast_charges_skipping ():
+	'''A far tick must not win by aiming past the source notes it skipped.
+
+	The forecast is optimistic across the lookahead on purpose -- a tick cannot be charged for a
+	pitch mistake not yet made -- but "optimistic" must not extend to ignoring the notes in between.
+	Without the skip term a candidate a whole phrase ahead can land near a LATER onset and outrank
+	the one that fits the next note.
+	'''
+	src = make_source(n=40, step=240)
+	sis = [x['softIndex'] for x in src]
+	st = AlignState(src)
+	for i in range(12):
+		st.observe(src[i]['pitch'], src[i]['onset'], sis[i])
+	near = st.forecast(src[12]['onset'])		# right at the next unmatched onset
+	far = st.forecast(src[17]['onset'])			# right at one five notes later
+	# The claim is NOT that the skip charge drags a far tick back onto the next note -- a tick a
+	# phrase ahead genuinely does correspond to a later onset, and `observe` reads it the same way.
+	# It is that landing on a later onset must cost MORE than landing on the next one, so a candidate
+	# cannot buy a good forecast by skipping the notes it owes.
+	ok = near[0] is not None and far[0] is not None and near[0] < far[0] and near[1] == 12
+	print(f'{"ok  " if ok else "FAIL"} skipping is charged: next-onset cost {near[0]:.4f} '
+		f'(aims #{near[1]}) < five-ahead cost {far[0]:.4f} (aims #{far[1]})')
+	return ok
+
+
+def check_forecast_has_no_opinion_early ():
+	'''With no ratio, no residual, or nothing unmatched ahead, the forecast must abstain.
+
+	The caller falls back to the language model on None. Returning a number here instead would be a
+	ranking derived from unmeasured defaults, and its mis-rankings would be invisible -- the same
+	argument that gates the mask interval.
+	'''
+	src = make_source(n=12, step=240)
+	sis = [x['softIndex'] for x in src]
+	fresh = AlignState(src)
+	c_fresh = fresh.forecast(0)[0]
+
+	one = AlignState(src)
+	one.observe(src[0]['pitch'], src[0]['onset'], sis[0])
+	c_one = one.forecast(240)[0]			# a pair, but no baseline yet -> no ratio
+
+	exhausted = AlignState(src)
+	for i in range(len(src)):
+		exhausted.observe(src[i]['pitch'], src[i]['onset'], sis[i])
+	c_done = exhausted.forecast(src[-1]['onset'] + 240)[0]
+
+	ok = c_fresh is None and c_one is None and c_done is None
+	print(f'{"ok  " if ok else "FAIL"} forecast abstains without evidence: fresh {c_fresh}, '
+		f'one pair {c_one}, source exhausted {c_done}')
+	return ok
+
+
 def main ():
 	ap = argparse.ArgumentParser()
 	ap.add_argument('--root', default=DEFAULT_ROOT)
@@ -566,6 +673,9 @@ def main ():
 		check_clone_independence(),
 		check_interval_evidence_gate(),
 		check_miss_is_not_fatal(),
+		check_forecast_discriminates_ticks(),
+		check_forecast_charges_skipping(),
+		check_forecast_has_no_opinion_early(),
 	]
 	failed = results.count(False)
 	print(f'\n{len(results) - failed}/{len(results)} checks passed')

@@ -24,9 +24,13 @@ pipeline that happens to agree.
   DETERMINISTIC  no temperature. Beam search and sampling answer different questions, and a sampled
                  beam is neither the model's argmax path nor a draw from its distribution.
 
-Ablation ladder this is step 2 of (1 = greedy, already the other script):
-  2. beam, LM-only ranking            <- HERE. --beam 4 --rank lm
-  3. beam + alignment ranking         --rank align   (reorders candidates; changes no token's legality)
+Ablation ladder (1 = greedy, already the other script):
+  2. beam, LM-only ranking            --beam 4 --rank lm
+  3. beam + alignment ranking         <- HERE. --beam 4 --rank align. The alignment FORECASTS the tick
+                                      an elapse candidate would fix and orders the pool on it, the
+                                      model breaking ties; changes no token's legality. Level 3 with
+                                      an alignment that abstains everywhere is exactly level 2, which
+                                      is asserted rather than assumed.
   4. beam + alignment mask            not yet wired: prunes infeasible elapse tokens
 Evaluate with tests/midi/translate_accuracy_check.py --skip-bars 6 --score-bars, PER FILE and paired
 against a greedy run of the same checkpoint. Never on means: the per-file spread on this task is
@@ -50,7 +54,7 @@ import torch
 import torch.nn.functional as F
 
 from starry.midi.beam import BranchState, beam_search, BRANCH_NAMES
-from starry.midi.align import AlignState, Config, soft_delta, soft_indices
+from starry.midi.align import AlignState, Config, elapse_value, soft_delta, soft_indices
 
 # The greedy translator is the base, not a template: these are the same objects it uses.
 from translateMidiseq2 import (DEFAULT_RUN, SlidingTranslator, SlidingEncDecTranslator,
@@ -69,13 +73,15 @@ class BeamMixin:
 	'''
 
 	def __init__ (self, *args, beam_size=1, branch_k=4, length_alpha=0.7, inspector=None,
-		position_cap=0, **kwargs):
+		position_cap=0, adjudicator=None, elapse_k=0, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.beam_size = max(1, int(beam_size))
 		self.branch_k = max(1, int(branch_k))
 		self.length_alpha = length_alpha
 		self.beam_report = {}		# accumulated across steps; read after translate() returns
 		self.inspector = inspector
+		self.adjudicator = adjudicator
+		self.elapse_k = max(0, int(elapse_k))
 		# --inspect N caps the tokens a window generates, not just the tokens recorded: generating
 		# 2000 and keeping 40 would spend the whole run to dump a fragment of its first window.
 		self.position_cap = max(0, int(position_cap))
@@ -163,6 +169,7 @@ class BeamMixin:
 		ids, forced, _rep = beam_search(step, self.tk.tokens, self.keywords, self.tk.eos_id,
 			max_new=room, beam_size=self.beam_size, branch_k=self.branch_k,
 			length_alpha=self.length_alpha, observer=observer,
+			adjudicator=self.adjudicator, elapse_k=self.elapse_k,
 			seed_state=self.seed_state(list(prefix_ids), n_source),
 			# Same first-position terminator ban as the greedy path, for the same measured reason: an
 			# <eos> logit of 13.16 against 7.71 for next-best is not something a finite penalty can be
@@ -239,6 +246,205 @@ class BeamEncDecTranslator (BeamMixin, SlidingEncDecTranslator):
 		return self.model.decode(memory, ids, masks, pos)[:, -1, :]
 
 
+class LineageTracker:
+	'''Per-hypothesis tick cursor, note_on walk state and AlignState, keyed on Beam.uid.
+
+	One table, shared by the adjudicator (which READS a parent's state to forecast a candidate,
+	before the cut) and the inspector (which ADVANCES it into the surviving children, after the cut).
+	They are deliberately not given a table each: two clocks over the same token stream that are
+	never compared is how a tick counter drifts away from the notes it is counting, and align.py
+	makes the same argument about GrammarState's accumulator versus note_on_events' absolute tick.
+
+	The ordering the search gives us is what makes the sharing safe -- enumerate (adjudicator reads
+	parents) -> sort -> cut -> observer (inspector writes children) -- so a parent's entry is still
+	present when the adjudicator asks for it, and pruning happens only after the children exist.
+
+	AlignState.clone() is what makes this affordable: a candidate that will be cut is scored on a
+	clone that is then dropped, so scoring the road not taken costs nothing permanent.
+	'''
+
+	def __init__ (self, tokenizer, keywords, src_events, seed_offset=0.0):
+		self.tk = tokenizer
+		self.keywords = keywords
+		self.src_events = src_events
+		self.seed_offset = seed_offset
+		self.table = {}					# uid -> lineage dict, pruned to the live set each position
+		self.root = self.fresh()
+
+	def fresh (self):
+		return dict(align=AlignState(self.src_events, seed_offset=self.seed_offset),
+			walk=None, tick=0, prev_onset=None, softindex=0.0, si=0.0)
+
+	def base (self, uid):
+		'''The lineage state for `uid`, defaulting to the carried root at a window's first position.'''
+		return self.table.setdefault(uid, self.root)
+
+	def advance (self, base, tid, commit=False):
+		'''Walk ONE token on top of `base` -> (new lineage dict, alignment verdict or None).
+
+		The verdict is None unless this token CLOSED a note_on: an elapse moves the clock but has
+		nothing to match yet, and a velocity or channel is not a musical event at all. So a node
+		carries an alignment score exactly when it created something the alignment can judge.
+
+		ALWAYS clones, and `commit` is now only about whether the caller stores the result. Advancing
+		the parent's AlignState in place was wrong: one parent can contribute SEVERAL survivors -- it
+		does at 11.5% of positions on the committed dump, up to 4 at once -- and each of them would
+		then fold its own note into the same object, so the second sibling would be scored against a
+		state already carrying the first sibling's note. MEASURED on that dump: 7 positions had one
+		parent with two or three surviving children that each closed a note_on, so every align figure
+		recorded after the first of them is against a polluted state. The adjudicator makes this worse
+		than a recording defect, since it FORECASTS from `base['align']`.
+
+		`commit` is kept in the signature because the recording still distinguishes a candidate that
+		became a lineage from one that was scored and dropped, and because the flag documents intent
+		at the call site.
+		'''
+		align = base['align'].clone()
+		events, tick, walk = note_on_events([tid], self.tk, self.keywords,
+			tick0=base['tick'], state=base['walk'])
+		prev_onset, softindex = base['prev_onset'], base['softindex']
+		detail = None
+		for e in events:
+			# softIndex is a sum of tanh steps over intervals, so it extends incrementally: the whole
+			# onset list is never needed, which is exactly what lets a PARTIAL hypothesis be scored.
+			if prev_onset is not None:
+				softindex += soft_delta(e['onset'] - prev_onset)
+			prev_onset = e['onset']
+			detail = dict(align.observe(e['pitch'], e['onset'], softindex))
+			detail.update(pitch=e['pitch'], onset=e['onset'], softIndex=softindex)
+			if detail.get('src') is not None:
+				src = self.src_events[detail['src']]
+				detail.update(src_onset=src['onset'], src_pitch=src['pitch'])
+		return dict(align=align, walk=walk, tick=tick, prev_onset=prev_onset,
+			softindex=softindex, si=softindex if prev_onset is None
+				else softindex + soft_delta(tick - prev_onset)), detail
+
+	def keep (self, uid, state):
+		self.table[uid] = state
+
+	def prune (self, alive):
+		'''Drop lineages nothing points at, so the table stays proportional to the beam width.'''
+		self.table = {u: v for u, v in self.table.items() if u in alive}
+
+	def carry (self, best_uid):
+		'''Adopt the winning lineage as the root the next window continues from.'''
+		self.root = self.table.get(best_uid, self.root)
+
+
+class AlignAdjudicator:
+	'''Lets the alignment, not the model's own distribution, order the candidates at an elapse point.
+
+	The defect this addresses, measured on the committed width-4 dump: of 554 elapse candidates, 0
+	carried an alignment verdict, because AlignState only observes a note_on and the pitch that would
+	let it score arrives one or two tokens after the elapse that fixed the rhythm. So the decision
+	that determines the timing was taken on the language model alone -- and the model's elapse
+	distribution is high-entropy (top-4 spanning 1.30 to 2.50 nats on the motivating case), which
+	makes the margins there noise rather than judgement. On that case the correct elapse lost by 0.15
+	nats while the aligner ranks it first by a clear margin.
+
+	Three things have to be true for the aligner's vote to reach the decision, and each was a hole:
+
+	  ENUMERATION  the model's top-k is not a superset of the choices worth considering. 130 of 399
+	               elapse branch points had no elapse token in the top-4 at all, and on the motivating
+	               case the correct one sat at rank 3 with logprob -5.36 against the argmax's -0.08.
+	               So the elapse candidates are enumerated by taking the top `elapse_k` AMONG elapse
+	               tokens, independently of where they fall in the overall distribution.
+	  SCORING      a tick has no pitch yet, so `observe` cannot be used. AlignState.forecast scores a
+	               tick against the source's next unmatched onsets in TICK space (see its docstring
+	               for why softIndex cannot work here: soft_delta saturates and the estimate goes flat
+	               across exactly the choices needing separation).
+	  COVERAGE     not every candidate at an elapse point fixes an onset. note_off, a controller and a
+	               velocity produce no onset, so the aligner has genuinely nothing to say about them,
+	               and inventing a number would be worse than the honest gap. They inherit instead --
+	               see `losses`.
+
+	A note_on is scored as ELAPSE ZERO, which is the substance of treating this as one decision: at a
+	position where an elapse is legal, emitting a type token instead is a choice that the next event
+	happens NOW, and it belongs on the same axis as the choice that it happens 480 ticks from now.
+	Ranking them separately is what let a nearly-free syntactic continuation outrank every real
+	rhythm option.
+	'''
+
+	# Separation given to a candidate that inherits its loss from a neighbour in the language model's
+	# order. Small enough not to reorder anything the aligner actually scored (forecast differences on
+	# real material are 1e-1), large enough to survive float addition and keep the inherited group in
+	# the model's own order rather than collapsing it into a tie.
+	EPSILON = 1e-4
+
+	def __init__ (self, tracker, tokenizer, elapse_k=8):
+		self.tracker = tracker
+		self.tk = tokenizer
+		self.elapse_k = max(1, int(elapse_k))
+		# token id -> elapse tick value, for every elapse token in the vocabulary. Built once: the
+		# alternative is parsing a token string per candidate per beam per position.
+		self.elapse_values = {}
+		for tid, tok in enumerate(tokenizer.tokens):
+			value = elapse_value(tok)
+			if value is not None:
+				self.elapse_values[tid] = value
+		self.note_on_id = None
+		for tid, tok in enumerate(tokenizer.tokens):
+			if tok == 'note_on':
+				self.note_on_id = tid
+				break
+
+	def elapse_ids (self, beam, logprob_row):
+		'''The top `elapse_k` elapse tokens by log-probability, plus note_on as the elapse-0 option.
+
+		Top-k among ELAPSE tokens specifically, not among all tokens -- that is the whole point, since
+		the overall top-k routinely contains no elapse at all. Deliberately NOT masked by
+		`feasible_elapse_tokens`: the hard feasibility mask is a separate ablation level, and folding
+		it in here would make it impossible to tell which of the two changed a result.
+		'''
+		ranked = sorted(self.elapse_values, key=lambda tid: -logprob_row[tid])
+		out = ranked[:self.elapse_k]
+		if self.note_on_id is not None:
+			out.append(self.note_on_id)
+		return out
+
+	def losses (self, beam, cands):
+		'''Align loss per candidate (lower better), or None where nothing could be inherited.
+
+		Two passes. The first forecasts every candidate that FIXES THE NEXT ONSET'S TICK: an elapse
+		token at `tick + value`, and a note_on at `tick` (elapse zero). The second fills in the rest
+		by inheriting along the language model's own ordering -- the nearest preceding scored
+		candidate's loss plus EPSILON, or, for the model's argmax which has nothing preceding it, the
+		nearest following one's loss minus EPSILON. The epsilon accumulates with distance in that
+		order, so a run of inheriting candidates keeps the model's ranking among themselves instead of
+		collapsing to one value.
+
+		The inheritance is a placement rule, not a measurement, and it is the honest shape for one:
+		it says "this candidate is worth about what the rhythm choice next to it is worth, and the
+		model prefers/disprefers it by a hair", which is exactly as much as is known about a token the
+		aligner cannot see. Returning None for all of them instead would drop them behind every scored
+		candidate, which would ban note_off at any position where an elapse was also legal.
+		'''
+		base = self.tracker.base(beam.uid)
+		align, tick = base['align'], base['tick']
+		out = [None] * len(cands)
+		for i, (tid, _lp) in enumerate(cands):
+			delta = self.elapse_values.get(tid)
+			if delta is not None:
+				out[i] = align.forecast(tick + delta)[0]
+			elif tid == self.note_on_id:
+				out[i] = align.forecast(tick)[0]			# elapse zero
+		order = sorted(range(len(cands)), key=lambda i: (-cands[i][1], i))
+		scored = [pos for pos, i in enumerate(order) if out[i] is not None]
+		if not scored:
+			return out			# the aligner abstained everywhere; the search falls back to the LM
+		for pos, i in enumerate(order):
+			if out[i] is not None:
+				continue
+			before = [p for p in scored if p < pos]
+			if before:
+				src = before[-1]
+				out[i] = out[order[src]] + self.EPSILON * (pos - src)
+			else:
+				src = scored[0]
+				out[i] = out[order[src]] - self.EPSILON * (src - pos)
+		return out
+
+
 class BeamInspector:
 	'''Records the search tree and what the alignment thinks of every candidate in it.
 
@@ -259,60 +465,16 @@ class BeamInspector:
 	then dropped, so scoring the road not taken costs nothing permanent.
 	'''
 
-	def __init__ (self, tokenizer, source_lines, source_eom, keywords=None, seed_offset=0.0, limit=0):
-		self.tk = tokenizer
-		# Derived here rather than taken from the translator: the source walk happens in this
-		# constructor, before a translator exists, and a walk with no keywords silently finds no
-		# note_ons at all -- an empty source arm against which every generated note is a miss.
-		self.keywords = keywords if keywords is not None else keyword_tokens(tokenizer)
+	def __init__ (self, tracker, limit=0):
+		self.tracker = tracker
+		self.tk = tracker.tk
+		self.keywords = tracker.keywords
+		self.src_events = tracker.src_events
 		self.limit = limit				# 0 = uncapped; else stop recording after N positions per window
-		# The source arm, walked once: its note_ons with softIndex, which is what AlignState matches
-		# against. Doing it here rather than per window keeps one source coordinate for the whole run.
-		src_ids = encode_lines(source_lines, tokenizer, source_eom)
-		self.src_events, _abst, _st = note_on_events(src_ids, tokenizer, self.keywords)
-		for e, si in zip(self.src_events, soft_indices([e['onset'] for e in self.src_events])):
-			e['softIndex'] = si
-		self.seed_offset = seed_offset
 		self.windows = []
 		self.window = None
-		self.lineage = {}				# uid -> lineage dict, pruned to the live set each position
-		self.root = self._fresh()
 		self.nodes = 0
 		self.truncated = False
-
-	def _fresh (self):
-		return dict(align=AlignState(self.src_events, seed_offset=self.seed_offset),
-			walk=None, tick=0, prev_onset=None, softindex=0.0, si=0.0)
-
-	def _advance (self, base, tid, commit):
-		'''Walk ONE token on top of `base` -> (new lineage dict, alignment verdict or None).
-
-		The verdict is None unless this token CLOSED a note_on: an elapse moves the clock but has
-		nothing to match yet, and a velocity or channel is not a musical event at all. So a node
-		carries an alignment score exactly when it created something the alignment can judge.
-
-		`commit` False scores on a clone and discards it, which is how a cut candidate is scored
-		without polluting the lineage that survived.
-		'''
-		align = base['align'] if commit else base['align'].clone()
-		events, tick, walk = note_on_events([tid], self.tk, self.keywords,
-			tick0=base['tick'], state=base['walk'])
-		prev_onset, softindex = base['prev_onset'], base['softindex']
-		detail = None
-		for e in events:
-			# softIndex is a sum of tanh steps over intervals, so it extends incrementally: the whole
-			# onset list is never needed, which is exactly what lets a PARTIAL hypothesis be scored.
-			if prev_onset is not None:
-				softindex += soft_delta(e['onset'] - prev_onset)
-			prev_onset = e['onset']
-			detail = dict(align.observe(e['pitch'], e['onset'], softindex))
-			detail.update(pitch=e['pitch'], onset=e['onset'], softIndex=softindex)
-			if detail.get('src') is not None:
-				src = self.src_events[detail['src']]
-				detail.update(src_onset=src['onset'], src_pitch=src['pitch'])
-		return dict(align=align, walk=walk, tick=tick, prev_onset=prev_onset,
-			softindex=softindex, si=softindex if prev_onset is None
-				else softindex + soft_delta(tick - prev_onset)), detail
 
 	def begin_window (self, step, n_source, prime_ids):
 		'''Open a tree for one sliding window.
@@ -333,7 +495,7 @@ class BeamInspector:
 		# greys out "what came after" has no baseline to grey out.
 		if self.window is not None:
 			self.window['best_uid'] = best_uid
-		self.root = self.lineage.get(best_uid, self.root)
+		self.tracker.carry(best_uid)
 		self.window = None
 
 	def observe (self, position, live, pool, kept, done):
@@ -343,25 +505,25 @@ class BeamInspector:
 			self.truncated = True
 			return
 		for beam in live:
-			self.lineage.setdefault(beam.uid, self.root)
+			self.tracker.base(beam.uid)
 		# Which pool entries became survivors, by the search's OWN rule: walk the sorted pool, and
 		# the first len(kept) non-terminator entries are the ones it kept. Derived rather than
 		# matched on token identity -- two beams can propose the same token at the same position, and
 		# a match on (token, prefix) would then attach the recording to the wrong lineage.
 		taken = 0
 		cands = []
-		for rank_i, (key, total, row, tid) in enumerate(pool):
+		for rank_i, (key, total, row, tid, loss) in enumerate(pool):
 			parent = live[row]
-			base = self.lineage[parent.uid]
+			base = self.tracker.base(parent.uid)
 			child = None
 			if tid == self.tk.eos_id:
 				pass				# went to `done`; it never becomes a live child
 			elif taken < len(kept):
 				child = kept[taken]
 				taken += 1
-			state, detail = self._advance(base, tid, child is not None)
+			state, detail = self.tracker.advance(base, tid, child is not None)
 			if child is not None:
-				self.lineage[child.uid] = state
+				self.tracker.keep(child.uid, state)
 			self.nodes += 1
 			cands.append(dict(
 				uid=child.uid if child is not None else None, parent=parent.uid, rank=rank_i,
@@ -369,6 +531,10 @@ class BeamInspector:
 				logprob=_r(total - parent.logprob), cum=_r(total), key=_r(key),
 				kept=child is not None, eos=(tid == self.tk.eos_id), tick=state['tick'],
 				si=_r(state['si'], 6),
+				# The align loss the SEARCH ranked on, distinct from `align` below: that is the verdict
+				# on a note this token closed (available only at a pitch), this is the forecast the
+				# elapse decision was actually taken on. None where the aligner abstained.
+				loss=_r(loss, 6),
 				align=None if detail is None else dict(
 					src=detail.get('src'), self_cost=_r(detail.get('self_cost')),
 					cost=_r(detail.get('cost')), offset=_r(detail.get('offset')),
@@ -380,8 +546,7 @@ class BeamInspector:
 				kind=BRANCH_NAMES[b.state.branch_kind()]) for b in live]))
 		# A lineage nothing points at cannot be reached again. Pruning keeps the table proportional to
 		# the beam width instead of to every node ever created.
-		alive = {b.uid for b in kept} | {b.uid for b in done}
-		self.lineage = {u: v for u, v in self.lineage.items() if u in alive}
+		self.tracker.prune({b.uid for b in kept} | {b.uid for b in done})
 
 	def dump (self, path, meta):
 		meta = dict(meta, nodes=self.nodes, truncated=self.truncated,
@@ -419,6 +584,22 @@ def report_beam (report, steps):
 		print(f'[beam] branch rate {branch_positions / positions:.3f} of positions, '
 			f'{beam_points / positions:.2f} beam-branches and '
 			f'{report.get("expanded", 0) / positions:.2f} candidates per position')
+	# Only when an adjudicator ran. `abstained` is not a failure line: early in a window there is no
+	# ratio and no residual yet, and abstaining is the honest answer -- but an adjudicator that
+	# abstains EVERYWHERE is indistinguishable from none, so the split has to be visible.
+	adjudicated = report.get('adjudicated', 0)
+	abstained = report.get('abstained', 0)
+	if adjudicated or abstained:
+		total = adjudicated + abstained
+		print(f'[rank] alignment adjudicated {adjudicated} of {total} positions '
+			f'({adjudicated / total:.1%}), abstained at {abstained} for want of evidence; '
+			f'overturned the model\'s top candidate at {report.get("overturned", 0)} '
+			f'({report.get("overturned", 0) / adjudicated:.1%} of adjudicated)'
+			if adjudicated else
+			f'[rank] alignment abstained at all {abstained} positions: no ratio or residual was ever '
+			f'established, so this run is the LM-only run')
+		print(f'[rank] {report.get("forced_elapse", 0)} elapse candidates were enumerated that the '
+			f"model's top-k did not contain")
 
 
 def main ():
@@ -438,8 +619,13 @@ def main ():
 		help='length-normalisation exponent when comparing FINISHED hypotheses (default 0.7); '
 			'0 = raw logprob, which favours whichever window ended soonest')
 	ap.add_argument('--rank', choices=['lm', 'align'], default='lm',
-		help="candidate ranking: 'lm' = model logprob only (ablation level 2). 'align' is level 3 "
-			'and is not wired up yet')
+		help="candidate ranking: 'lm' = model logprob only (ablation level 2). 'align' = level 3, "
+			'the alignment forecast orders the candidates at an elapse point and the model is the '
+			'tie-break')
+	ap.add_argument('--elapse-k', type=int, default=8,
+		help='with --rank align, how many elapse tokens are enumerated per branch point, taken as '
+			'the top-k AMONG elapse tokens rather than from the overall top-k (default 8). The '
+			"overall top-k routinely contains no elapse at all, which is why this is separate")
 	ap.add_argument('--max-token', type=int, default=2048,
 		help='total-T ceiling; pass the training max_tokens (default 2048)')
 	ap.add_argument('--src-window', type=int, default=640,
@@ -463,8 +649,6 @@ def main ():
 	ap.add_argument('--verbose', action='store_true')
 	args = ap.parse_args()
 
-	if args.rank == 'align':
-		ap.error('--rank align is ablation level 3 and is not implemented yet; use --rank lm')
 
 	if args.threads:
 		torch.set_num_threads(args.threads)
@@ -512,13 +696,34 @@ def main ():
 	# recorded, so an inspection run costs N positions instead of generating a whole file to keep a
 	# fragment of it. Bare --inspect (N == 0) leaves the run alone and records all of it.
 	max_steps = args.max_steps
+	# ONE lineage table, shared by whichever of the two consumers exist. Built here because both need
+	# the same source walk and the same per-hypothesis clocks: giving them a table each is how two
+	# tick counters over the same token stream drift apart without either being wrong on its own.
+	tracker = None
+	if args.inspect is not None or args.rank == 'align':
+		keywords = keyword_tokens(tokenizer)
+		src_ids = encode_lines(lines, tokenizer, bool(data_args.get('source_eom')))
+		src_events, _abst, _st = note_on_events(src_ids, tokenizer, keywords)
+		for e, si in zip(src_events, soft_indices([e['onset'] for e in src_events])):
+			e['softIndex'] = si
+		tracker = LineageTracker(tokenizer, keywords, src_events)
+
+	adjudicator = None
+	if args.rank == 'align':
+		if args.beam <= 1:
+			print('[note] --rank align with --beam 1 changes nothing: width 1 has no candidate to '
+				'reorder, and the greedy code path is taken')
+		adjudicator = AlignAdjudicator(tracker, tokenizer, elapse_k=args.elapse_k)
+		print(f'[rank] alignment adjudication on, elapse-k {args.elapse_k} '
+			f'({len(adjudicator.elapse_values)} elapse tokens in the vocabulary), '
+			f'forecast lookahead {Config["ForecastLookahead"]}')
+
 	inspector = None
 	if args.inspect is not None:
 		if args.beam <= 1:
 			print('[note] --inspect with --beam 1 records a tree of width 1; there is nothing to '
 				'compare at a position')
-		inspector = BeamInspector(tokenizer, lines, bool(data_args.get('source_eom')),
-			limit=args.inspect)
+		inspector = BeamInspector(tracker, limit=args.inspect)
 		if args.inspect:
 			max_steps = 1
 		print(f'[inspect] recording {"the first window, " + str(args.inspect) + " positions" if args.inspect else "every window"}'
@@ -530,7 +735,8 @@ def main ():
 		temperature=0.0, source_eom=bool(data_args.get('source_eom')),
 		advance_tokens=args.advance_tokens, prime_window=args.prime_window,
 		beam_size=args.beam, branch_k=args.branch_k, length_alpha=args.length_alpha,
-		inspector=inspector, position_cap=args.inspect or 0)
+		inspector=inspector, position_cap=args.inspect or 0,
+		adjudicator=adjudicator, elapse_k=args.elapse_k if adjudicator is not None else 0)
 	print(f'[beam] width {args.beam}, branch-k {args.branch_k} at elapse/pitch, '
 		f'length-alpha {args.length_alpha}, rank {args.rank}'
 		+ ('   (width 1 = the greedy code path)' if args.beam <= 1 else ''))
