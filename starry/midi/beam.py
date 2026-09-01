@@ -166,8 +166,16 @@ class Beam:
 		# beam_search's second return value rather than copied onto every hypothesis.
 		self.forced = forced
 
-	def clone (self):
-		return Beam(list(self.ids), self.logprob, self.state.clone(), self.finished, self.forced)
+	def clone (self, uid=None):
+		'''A fresh hypothesis with the same tokens. A NEW uid by default, because the caller is about
+		to append a token and the result is a new node.
+
+		Pass `uid` to keep an identity: a finished hypothesis appends nothing (the terminator is not
+		kept), so it IS its parent's token sequence and must carry the parent's uid, or `best_uid`
+		names a node no observer ever saw and every consumer that walks the tree from it -- the
+		lineage carry, the viewer's winning path -- comes up empty.
+		'''
+		return Beam(list(self.ids), self.logprob, self.state.clone(), self.finished, self.forced, uid)
 
 	def score (self, alpha):
 		'''Length-normalised score, for comparing hypotheses of DIFFERENT length.
@@ -336,7 +344,7 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 			if tid == eos_id:
 				# The terminator is not kept: it ends this window, and the caller's output stream is
 				# one continuous piece, so a mid-stream terminator would be a stray token.
-				fin = parent.clone()
+				fin = parent.clone(uid=parent.uid)
 				fin.finished = True
 				fin.logprob = total
 				done.append(fin)

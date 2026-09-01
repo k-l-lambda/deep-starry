@@ -382,6 +382,58 @@ def check_forced_eos (tk, keywords):
 			f'forced={forced}, {[tk.tokens[t] for t in got]}')
 
 
+def check_finished_uid (tk, keywords):
+	'''A finished hypothesis keeps its parent's uid, so best_uid names a node an observer recorded.
+
+	The terminator is not appended, so `fin` IS its parent's token sequence. When clone() minted it a
+	fresh uid, best_uid could name a beam that was never a candidate anywhere: the dump had no node
+	for it, the viewer's winning path came up empty, and the lineage carry silently fell back to the
+	window root. Only reachable when a hypothesis actually terminates, which is why no earlier check
+	caught it -- the long runs it was read on finished nothing.
+	'''
+	i = tk.id_by_token
+	# terminate at the third generated position, after note_on #3c, so there is a real lineage above
+	# the finished beam rather than the seed.
+	plan = {
+		tk.bos_id: {i['note_on']: 5.0, i['note_off']: 1.0},
+		i['note_on']: {i['#3c']: 5.0, i['#3e']: 1.0},
+		i['#3c']: {tk.eos_id: 9.0, i['E0f0']: 1.0},
+		i['#3e']: {tk.eos_id: 9.0},
+	}
+	prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id]
+	# width 1 delegates to the greedy path (that is the parity claim), so it runs no search and files
+	# no report; only a real beam width can have a best_uid at all.
+	for width in (2, 4):
+		m = StubModel(tk.vocab_size, plan, i['note_on'], tk.eos_id)
+		tr = make_translator(tk, m, beam_size=width, branch_k=4)
+		# a stub inspector, because `observer` is wired only when one is present; this records the
+		# uids a real dump would have nodes for.
+		seen = set()
+		class Spy:
+			def begin_window (self, *a):
+				pass
+			def observe (self, pos, live, pool, nxt, done):
+				for b in list(live) + list(nxt):
+					seen.add(b.uid)
+			def end_window (self, best_uid):
+				pass
+		tr.inspector = Spy()
+		got, _forced = tr.generate(prefix, list(range(len(prefix))), 0.0, 0, 1.0, n_source=2)
+		rep = tr.beam_report
+		best = rep.get('best_uid')
+		check(f'beam {width}: best_uid of a finished run resolves to an observed beam',
+			rep.get('finished', 0) >= 1 and best in seen,
+			f'finished {rep.get("finished")}, best_uid {best}, '
+			f'{"in" if best in seen else "NOT in"} {len(seen)} observed uids')
+
+	# and the identity claim directly: a terminator clone carries the parent uid, a token clone does not
+	parent = Beam(ids=[1, 2], logprob=-1.0)
+	fin, child = parent.clone(uid=parent.uid), parent.clone()
+	check('clone keeps a uid when asked and mints one otherwise',
+		fin.uid == parent.uid and child.uid != parent.uid,
+		f'parent {parent.uid}, finished {fin.uid}, child {child.uid}')
+
+
 def check_seed_state (tk, keywords):
 	'''The seed state comes from the target half of the prefix, not from nothing.
 
@@ -638,6 +690,7 @@ def main ():
 	print()
 	check_forced_eos(tk, keywords)
 	print()
+	check_finished_uid(tk, keywords)
 	check_seed_state(tk, keywords)
 	print()
 	check_length_alpha(tk, keywords)
