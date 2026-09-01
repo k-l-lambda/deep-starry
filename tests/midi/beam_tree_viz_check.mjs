@@ -42,9 +42,21 @@ let contiguous = true, prevParent = null;
 for (let i = 1; i < path.length; i++)
 	if (path[i].parent !== path[i - 1].uid) contiguous = false;
 ok(contiguous, 'each winning node\'s parent is the previous winning node (no broken links)');
-ok(path.length === w.positions.length,
-	`winning path covers every position: ${path.length} == ${w.positions.length}`);
-ok(path.every(c => c.kept), 'every node on the winning path was kept');
+/* The winner spans every recorded position ONLY when nothing terminated: a finished hypothesis
+   stops where it saw <eos>, while the search keeps recording until beam_size of them finish, so its
+   path is legitimately shorter than the dump. Both cases are checked, neither is waived. */
+const finished = path.length !== w.positions.length;
+if (finished)
+	ok(path.length < w.positions.length,
+		`winner terminated early, so its path is shorter than the dump: ${path.length} < ${w.positions.length}`);
+else
+	ok(path.length === w.positions.length,
+		`no hypothesis finished, so the winning path covers every position: ${path.length} == ${w.positions.length}`);
+/* A finished winner's last node is the one <eos> followed, and a candidate that <eos> beat is never
+   in `nxt`, so `kept` is false on it -- every EARLIER node still had to be kept. */
+const spine = finished ? path.slice(0, -1) : path;
+ok(spine.every(c => c.kept), 'every node on the winning path was kept'
+	+ (finished ? ' (excluding the terminated leaf)' : ''));
 
 // the path's tokens must equal the emitted output for the window
 const notes = pathNotes(path);
