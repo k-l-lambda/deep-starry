@@ -761,9 +761,15 @@ def main ():
 	if inspector is not None:
 		json_path = args.inspect_json or os.path.splitext(out_path)[0] + '.beamtree.json'
 		meta = dict(run=os.path.basename(args.run.rstrip('/')), checkpoint=os.path.basename(checkpoint),
-			input=os.path.basename(args.input), beam=args.beam, branch_k=args.branch_k,
+			# The FULL path, plus token count and mtime: a basename cannot identify an input, and two
+			# files named I-YIgmEZ0ss.midiseq2.txt (a 2505-token corpus entry and a 1024-token excerpt)
+			# have already been mistaken for each other across two dumps. n_source cannot separate them
+			# either -- it caps at src_window + 1 for any input over the window.
+			input=os.path.abspath(args.input), input_tokens=sum(len(l.split()) for l in lines),
+			input_mtime=int(os.path.getmtime(args.input)), beam=args.beam, branch_k=args.branch_k,
 			length_alpha=args.length_alpha, src_window=args.src_window, max_token=args.max_token,
 			advance_tokens=args.advance_tokens, pos_style=pos_style, rank=args.rank,
+			elapse_k=(args.elapse_k if args.rank == 'align' else None),
 			positions=sum(len(w['positions']) for w in inspector.windows))
 		inspector.dump(json_path, meta)
 		size = os.path.getsize(json_path)
