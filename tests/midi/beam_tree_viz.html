@@ -254,8 +254,11 @@ function winningPath () {
 function ancestry (node) {
 	const w = win();
 	const byUid = new Map();
+	// carry the position onto each entry: a candidate object does not know its own, and a caller that
+	// wants to NAME an ancestor (rather than only walk past it) needs it
 	for (const pos of w.positions)
-		for (const c of pos.candidates) if (c.uid !== null) byUid.set(c.uid, c);
+		for (const c of pos.candidates)
+			if (c.uid !== null) byUid.set(c.uid, { ...c, position: pos.position });
 	const chain = [];
 	let uid = node.parent;
 	while (uid != null && byUid.has(uid)) {
@@ -302,6 +305,11 @@ function renderTree () {
 	svg.setAttribute('width', W); svg.setAttribute('height', H);
 	svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
+	// The selection's PARENT, so the node the selected candidate branched off is identifiable at a
+	// glance. A cut candidate has uid null, so the parent is addressed by uid (which every PARENT
+	// has by construction -- it was kept) rather than by the (position, rank) rule sameNode uses.
+	const selParent = SEL ? SEL.parent : null;
+
 	// where each uid was drawn, so an edge can be joined to its parent
 	const at = new Map();
 	const cols = positions.map((pos, ci) => {
@@ -320,10 +328,13 @@ function renderTree () {
 			if (!p) return;
 			const x = PADL + ci * COLW, y = PADT + ri * ROWH;
 			const live = c.kept && onPath.has(c.uid);
+			const isSelEdge = SEL && sameNode(SEL, c, cols[ci].pos);
 			el('path', {
 				d: `M${p.x + 46},${p.y + 6.5} C${p.x + 60},${p.y + 6.5} ${x - 14},${y + 6.5} ${x},${y + 6.5}`,
-				fill: 'none', stroke: live ? C.match : (c.kept ? '#8899aa' : C.line),
-				'stroke-width': live ? 1.6 : 1, opacity: c.kept ? 0.85 : 0.5,
+				fill: 'none',
+				stroke: isSelEdge ? C.out : (live ? C.match : (c.kept ? '#8899aa' : C.line)),
+				'stroke-width': isSelEdge ? 2 : (live ? 1.6 : 1),
+				opacity: isSelEdge ? 1 : (c.kept ? 0.85 : 0.5),
 			}, svg);
 		});
 	}
@@ -336,11 +347,17 @@ function renderTree () {
 			const y = PADT + ri * ROWH;
 			const live = c.kept && onPath.has(c.uid);
 			const g = el('g', { class: 'node' }, svg);
+			const isSel = SEL && sameNode(SEL, c, pos);
+			// The parent is outlined dashed rather than solid so it reads as context, not as a second
+			// selection. `selParent != null` guards the root, whose parent uid is null -- without it
+			// every cut candidate (uid null) would match and the whole column would light up.
+			const isSelParent = !isSel && selParent != null && c.uid === selParent;
 			g.appendChild(el('rect', {
 				x, y, width: 46, height: 13, rx: 2.5,
 				fill: live ? C.match : (c.kept ? '#8899aa' : '#fff'),
-				stroke: SEL && sameNode(SEL, c, pos) ? C.out : (c.kept ? 'none' : C.mute),
-				'stroke-width': SEL && sameNode(SEL, c, pos) ? 2 : 1,
+				stroke: isSel || isSelParent ? C.out : (c.kept ? 'none' : C.mute),
+				'stroke-width': isSel ? 2 : (isSelParent ? 1.6 : 1),
+				'stroke-dasharray': isSelParent ? '3 2' : null,
 				opacity: c.kept ? 1 : 0.75,
 			}));
 			g.appendChild(el('text', {
@@ -562,7 +579,12 @@ function renderDetail () {
 	const a = SEL.align;
 	const path = winningPath();
 	const onWinner = SEL.uid !== null && path.some(c => c.uid === SEL.uid);
+	// Name the parent explicitly: the pool is sorted over ALL beams, so which hypothesis a candidate
+	// hangs off is what decides whether it survived on its own merit or on its lineage's lead.
+	const anc = ancestry(SEL);
+	const par = anc.length ? anc[anc.length - 1] : null;
 	let html = kv('position', SEL.position) + kv('token', esc(SEL.token)) + kv('pool rank', SEL.rank)
+		+ kv('parent', par ? `${esc(par.token)} @${par.position} (cum ${par.cum})` : 'root')
 		+ kv('logp', SEL.logprob) + kv('cum logp', SEL.cum)
 		+ kv('status', SEL.kept ? (onWinner ? 'kept, on winning path' : 'kept, later dropped')
 			: (SEL.eos ? 'terminator' : 'CUT'))

@@ -51,10 +51,23 @@ BRANCH_PITCH = 2
 
 BRANCH_NAMES = {BRANCH_NONE: 'none', BRANCH_ELAPSE: 'elapse', BRANCH_PITCH: 'pitch'}
 
-# Events whose pitch argument is a branch point. note_off is included because its pitch has to match
-# the note_on that opened the note: a wrong one leaves that note hanging and silently changes the
-# duration of whichever note it closes instead.
+# Events that take a pitch argument. This is a GRAMMAR fact (it decides where `pitch_pending`
+# holds), not a branch policy -- see BRANCH_PITCH_EVENTS for the policy.
 PITCH_EVENTS = ('note_on', 'note_off')
+
+# Events whose pitch argument is a BRANCH POINT. note_off is excluded: its pitch is determined by
+# which notes are open, and the alignment never observes a note_off, so neither the model nor the
+# aligner has an opinion to search over. MEASURED on a width-4 dump (window 0 of I-YIgmEZ0ss, 200
+# positions): 116 note_off-pitch branch points spent 464 of 2741 pool slots (16.9%) and a non-argmax
+# note_off pitch survived the cut 0 times, against 10 survivals for note_on pitch. The model is also
+# near-certain there (mean top-1 logprob -0.0711, >-0.05 at 75% of them) with the runners-up 8.8 nats
+# behind, so those slots were spent re-deriving one answer and displacing real competitors.
+#
+# Like VELOCITY_AFTER_PITCH this only ever REMOVES a branch point; it bans no token and cannot make
+# an output illegal. A wrong note_off pitch leaving a note hanging is a MASK concern (the argument
+# the old comment here made), and a mask is where it belongs -- widening cannot fix it, since the
+# beam only ever picked the argmax at those positions anyway.
+BRANCH_PITCH_EVENTS = ('note_on',)
 
 # Events whose pitch is ALWAYS followed by a `$` velocity, so the position after that pitch is not a
 # decision at all. Measured over the test corpus (20 files): note_on is `#$` in 22199/22199 lines and
@@ -99,7 +112,11 @@ class BranchState:
 		cases cannot both hold and the order of these tests is not a tie-break.
 		'''
 		if self.pitch_pending:
-			return BRANCH_PITCH
+			# Policy, not grammar: a pitch is still PENDING after note_off (the grammar owes one), but
+			# only note_on's pitch is worth fanning out on. `open_keyword` is the keyword that opened
+			# this event and is still set while its pitch is pending.
+			return (BRANCH_PITCH if self.grammar.open_keyword in BRANCH_PITCH_EVENTS
+				else BRANCH_NONE)
 		if self.velocity_pending:
 			# A note_on owes a velocity here and velocity does not enter the alignment at any point,
 			# so there is nothing to search: measured 0 of 14392 note_on pitches were followed by an

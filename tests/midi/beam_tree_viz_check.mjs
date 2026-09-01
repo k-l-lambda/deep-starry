@@ -63,6 +63,25 @@ ok(anc.length === sample.pos.position,
 	`a cut node's ancestry length equals its position: ${anc.length} == ${sample.pos.position}`);
 ok(anc.every(c => c.kept), 'a cut node\'s ancestors were all kept (it hangs off a live lineage)');
 
+// The detail line NAMES the parent, and the tree outlines it. Both need more than a uid: the
+// position to label it by and the cum that says whether the child survived on its lineage's lead.
+const par = anc[anc.length - 1];
+ok(par !== undefined && Number.isInteger(par.position) && Number.isFinite(par.cum),
+	`ancestry names the parent: ${par && par.token} @${par && par.position} cum ${par && par.cum}`);
+ok(par.position === sample.pos.position - 1,
+	`the parent sits one position earlier: ${par.position} == ${sample.pos.position - 1}`);
+// The tree addresses the parent by uid, so a parent uid must resolve to a drawn node -- EXCEPT at
+// the window's first position, whose parent is the seed beam. That beam predates the first decode
+// position, so it was never a candidate and is legitimately absent; the tree draws no outline for it
+// and the detail line reports 'root'.
+const uids = new Set(w.positions.flatMap(p => p.candidates.map(c => c.uid)).filter(u => u !== null));
+const first = w.positions[0].position;
+const orphans = w.positions.flatMap(p => p.candidates.map(c => ({ c, at: p.position })))
+	.filter(({ c }) => c.parent !== null && !uids.has(c.parent));
+ok(orphans.every(o => o.at === first),
+	`only the first position's candidates hang off the unrecorded seed beam `
+	+ `(${orphans.length} such, all at position ${first})`);
+
 // elapse detection, the branch the onset view keys its vertical rule on
 const re = /^E[0-9a-f]+$/i;
 const elapses = w.positions.flatMap(p => p.candidates.filter(c => re.test(c.token)));

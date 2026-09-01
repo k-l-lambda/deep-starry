@@ -143,17 +143,26 @@ def check_branch_state (tk, keywords):
 	check('control_change pitch stays a branch point (arity genuinely varies)',
 		cc.branch_kind() == BRANCH_ELAPSE, f'{cc.branch_kind()}')
 
-	# note_off's pitch is a branch point too: a wrong one closes the wrong note
+	# note_off's pitch is NOT a branch point: it is determined by which notes are open, the alignment
+	# never observes a note_off, and measured on a width-4 dump a non-argmax note_off pitch survived
+	# the cut 0 of 116 times while spending 16.9% of all pool slots. The grammar still owes a pitch
+	# there (pitch_pending holds) -- this is policy, so the two must be checked separately.
 	s2 = BranchState()
 	s2.feed('note_off', keywords)
 	k_off = s2.branch_kind()
+	s2on = BranchState()
+	s2on.feed('note_on', keywords)
+	k_on = s2on.branch_kind()
 	# control_change owes an argument as well, but it is NOT a pitch: no `#` belongs there
 	s3 = BranchState()
 	s3.feed('control_change', keywords)
 	k_cc = s3.branch_kind()
-	check('pitch branch is note_on/note_off only, not every keyword',
-		k_off == BRANCH_PITCH and k_cc == BRANCH_NONE,
-		f'note_off {k_off} (pitch), control_change {k_cc} (none)')
+	check('pitch branch is note_on only; note_off and other keywords do not fan out',
+		k_on == BRANCH_PITCH and k_off == BRANCH_NONE and k_cc == BRANCH_NONE,
+		f'note_on {k_on} (pitch), note_off {k_off} (none), control_change {k_cc} (none)')
+	check('note_off still OWES a pitch in the grammar (policy did not corrupt the state)',
+		s2.pitch_pending and s2.grammar.open_keyword == 'note_off',
+		f'pitch_pending {s2.pitch_pending}, open_keyword {s2.grammar.open_keyword!r}')
 
 	# inside an open elapse run the next E token continues it -- still an elapse decision
 	s4 = BranchState()
