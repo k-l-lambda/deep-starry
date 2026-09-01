@@ -242,6 +242,12 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 			child = parent.clone()
 			child.ids.append(tid)
 			child.logprob = total
+			# An id past the vocab degrades to '<unknown>' rather than raising: a vocab/checkpoint
+			# mismatch should not crash a run mid-file. The cost is that '<unknown>' classes as
+			# CLS_SPECIAL, after which an elapse token is legal, so a stream full of them branches at
+			# EVERY position -- an observed run on a checkpoint whose lm_head was 838 wide against a
+			# 582-token vocab reported a branch rate of 1.000 for exactly this reason. Read a rate at
+			# or near 1.000 as a vocab mismatch to go fix, not as the branch policy's behaviour.
 			child.state.feed(tokens[tid] if 0 <= tid < len(tokens) else '<unknown>', keywords)
 			nxt.append(child)
 		live = nxt
