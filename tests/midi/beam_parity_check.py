@@ -648,7 +648,7 @@ def check_adjudicator (tk, keywords):
 
 
 	# --- end to end through the search: the adjudicated run must differ from the LM-only run
-	def run (rank_align):
+	def run (rank_align, adjudicate=True):
 		tracker, adj = fresh_pair()
 		if rank_align:
 			b = tracker.base(1)
@@ -657,13 +657,29 @@ def check_adjudicator (tk, keywords):
 			b['tick'] = src[11]['onset']
 		tr = make_translator(tk, StubModel(tk.vocab_size, plan, i['note_on'], tk.eos_id),
 			beam_size=4, branch_k=4, length_alpha=0.0,
-			adjudicator=(adj if rank_align else None), elapse_k=(8 if rank_align else 0))
+			adjudicator=(adj if rank_align else None), elapse_k=(8 if rank_align else 0),
+			adjudicate=adjudicate)
 		prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id]
 		out, _ = tr.generate(prefix, list(range(len(prefix))), 0.0, 0, 1.0, n_source=2)
 		return [tk.tokens[t] for t in out], tr.beam_report
 
 	lm_out, lm_rep = run(False)
 	al_out, al_rep = run(True)
+	# SCORE-ONLY: an adjudicator that is asked but does not RANK must change nothing. A dump is only
+	# diagnostic if the tree in it is the tree the model builds; if score-only quietly ranked on the
+	# loss, every "why did the model pick this" reading would be off a different search. This
+	# regressed once already -- `adjudicate` reached beam_search but the construction site never
+	# passed it, so an --rank lm run silently ran full adjudication and reported 88 overturns.
+	so_out, so_rep = run(True, adjudicate=False)
+	check('score-only: an adjudicator that does not rank reproduces the LM run token for token',
+		so_out == lm_out and so_rep.get('overturned', 0) == 0 and so_rep.get('adjudicated', 0) == 0,
+		f'{len(so_out)} tokens, identical to LM: {so_out == lm_out}; '
+		f"scored_only {so_rep.get('scored_only')}, adjudicated {so_rep.get('adjudicated')}, "
+		f"overturned {so_rep.get('overturned')}")
+	check('score-only actually SCORED (the branch fired rather than the aligner abstaining)',
+		so_rep.get('scored_only', 0) > 0,
+		f"scored_only {so_rep.get('scored_only')} positions (adjudicated run: {al_rep.get('adjudicated')})")
+
 	check('the adjudicated run overturns the LM-only run',
 		lm_out != al_out and lm_out[0] == 'note_off' and al_out[0].startswith('E'),
 		f'LM took {lm_out[0]}, adjudicated took {al_out[0]}')
@@ -685,6 +701,7 @@ def check_adjudicator (tk, keywords):
 		blind_out == lm_out and blind_rep.get('adjudicated', 0) == 0
 			and blind_rep.get('abstained', 0) > 0,
 		f'{len(blind_out)} tokens, abstained at {blind_rep.get("abstained")} positions')
+
 
 
 def main ():

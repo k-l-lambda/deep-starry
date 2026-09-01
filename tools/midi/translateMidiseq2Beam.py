@@ -771,7 +771,8 @@ def main ():
 		advance_tokens=args.advance_tokens, prime_window=args.prime_window,
 		beam_size=args.beam, branch_k=args.branch_k, length_alpha=args.length_alpha,
 		inspector=inspector, position_cap=args.inspect or 0,
-		adjudicator=adjudicator, elapse_k=args.elapse_k if adjudicator is not None else 0)
+		adjudicator=adjudicator, elapse_k=args.elapse_k if adjudicator is not None else 0,
+		adjudicate=adjudicate)
 	print(f'[beam] width {args.beam}, branch-k {args.branch_k} at elapse/pitch, '
 		f'length-alpha {args.length_alpha}, rank {args.rank}'
 		+ ('   (width 1 = the greedy code path)' if args.beam <= 1 else ''))
