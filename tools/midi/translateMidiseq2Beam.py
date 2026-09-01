@@ -38,6 +38,7 @@ Run:
 '''
 
 import argparse
+import json
 import os
 import sys
 
@@ -49,11 +50,12 @@ import torch
 import torch.nn.functional as F
 
 from starry.midi.beam import BranchState, beam_search, BRANCH_NAMES
+from starry.midi.align import AlignState, Config, soft_delta, soft_indices
 
 # The greedy translator is the base, not a template: these are the same objects it uses.
 from translateMidiseq2 import (DEFAULT_RUN, SlidingTranslator, SlidingEncDecTranslator,
 	resolve_checkpoint, resolve_tokenizer, load_model, render_lines, compose_output, write_output,
-	report_output, source_header)
+	report_output, source_header, encode_lines, note_on_events, keyword_tokens)
 from starry.utils.config import Configuration
 
 
@@ -66,12 +68,18 @@ class BeamMixin:
 	it IS greedy, running the same lines.
 	'''
 
-	def __init__ (self, *args, beam_size=1, branch_k=4, length_alpha=0.7, **kwargs):
+	def __init__ (self, *args, beam_size=1, branch_k=4, length_alpha=0.7, inspector=None,
+		position_cap=0, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.beam_size = max(1, int(beam_size))
 		self.branch_k = max(1, int(branch_k))
 		self.length_alpha = length_alpha
 		self.beam_report = {}		# accumulated across steps; read after translate() returns
+		self.inspector = inspector
+		# --inspect N caps the tokens a window generates, not just the tokens recorded: generating
+		# 2000 and keeping 40 would spend the whole run to dump a fragment of its first window.
+		self.position_cap = max(0, int(position_cap))
+		self.step_index = 0
 
 	def seed_state (self, prefix_ids, n_source=None):
 		'''Grammar state at the first generated position, walked over the TARGET half of the prefix.
@@ -145,15 +153,27 @@ class BeamMixin:
 		# generates nothing, which is a parity break rather than a safety net. translate() already
 		# refuses to call generate when the prefix has filled the budget.
 		room = self.max_token - len(prefix_ids)
+		if self.position_cap:
+			room = min(room, self.position_cap)
+		observer = None
+		if self.inspector is not None:
+			self.inspector.begin_window(self.step_index, n_source,
+				list(prefix_ids[n_source:]) if n_source else [])
+			observer = self.inspector.observe
 		ids, forced, _rep = beam_search(step, self.tk.tokens, self.keywords, self.tk.eos_id,
 			max_new=room, beam_size=self.beam_size, branch_k=self.branch_k,
-			length_alpha=self.length_alpha,
+			length_alpha=self.length_alpha, observer=observer,
 			seed_state=self.seed_state(list(prefix_ids), n_source),
 			# Same first-position terminator ban as the greedy path, for the same measured reason: an
 			# <eos> logit of 13.16 against 7.71 for next-best is not something a finite penalty can be
 			# tuned against. `forced` must keep flowing back, because translate() keys its
 			# end-of-piece detection on it.
 			ban_first=(self.tk.eos_id,), rank=self.rank_fn(), report=self.beam_report)
+		if self.inspector is not None:
+			# Which hypothesis won, taken from the search's own report rather than re-derived here, so
+			# the next window's alignment continues from the lineage the output actually took.
+			self.inspector.end_window(self.beam_report.get('best_uid'))
+		self.step_index += 1
 		return ids, forced
 
 
@@ -219,6 +239,164 @@ class BeamEncDecTranslator (BeamMixin, SlidingEncDecTranslator):
 		return self.model.decode(memory, ids, masks, pos)[:, -1, :]
 
 
+class BeamInspector:
+	'''Records the search tree and what the alignment thinks of every candidate in it.
+
+	Two questions an LM-only run cannot answer about itself: WHERE did the search have a real choice,
+	and at those places, did the model's ranking agree with the alignment's? Both need the CUT
+	candidates. A tree of survivors shows the path taken and nothing about the paths available, which
+	is precisely the part under suspicion when a beam run scores worse than the greedy run it
+	contains.
+
+	Read-only with respect to the search. This is passed as beam_search's `observer`, which fires
+	AFTER the cut, so nothing here can change which token was chosen: an inspected run and a plain
+	run produce the same output. That is the only reason the recording is worth reading.
+
+	Per-lineage state, keyed on Beam.uid: each hypothesis owns its tick cursor, its note_on walk
+	state and its AlignState, because all three are functions of the tokens THAT hypothesis emitted.
+	Sharing one would score every candidate against whichever beam happened to be walked last.
+	AlignState.clone() is what makes it affordable -- a cut candidate is scored on a clone that is
+	then dropped, so scoring the road not taken costs nothing permanent.
+	'''
+
+	def __init__ (self, tokenizer, source_lines, source_eom, keywords=None, seed_offset=0.0, limit=0):
+		self.tk = tokenizer
+		# Derived here rather than taken from the translator: the source walk happens in this
+		# constructor, before a translator exists, and a walk with no keywords silently finds no
+		# note_ons at all -- an empty source arm against which every generated note is a miss.
+		self.keywords = keywords if keywords is not None else keyword_tokens(tokenizer)
+		self.limit = limit				# 0 = uncapped; else stop recording after N positions per window
+		# The source arm, walked once: its note_ons with softIndex, which is what AlignState matches
+		# against. Doing it here rather than per window keeps one source coordinate for the whole run.
+		src_ids = encode_lines(source_lines, tokenizer, source_eom)
+		self.src_events, _abst, _st = note_on_events(src_ids, tokenizer, self.keywords)
+		for e, si in zip(self.src_events, soft_indices([e['onset'] for e in self.src_events])):
+			e['softIndex'] = si
+		self.seed_offset = seed_offset
+		self.windows = []
+		self.window = None
+		self.lineage = {}				# uid -> lineage dict, pruned to the live set each position
+		self.root = self._fresh()
+		self.nodes = 0
+		self.truncated = False
+
+	def _fresh (self):
+		return dict(align=AlignState(self.src_events, seed_offset=self.seed_offset),
+			walk=None, tick=0, prev_onset=None, softindex=0.0)
+
+	def _advance (self, base, tid, commit):
+		'''Walk ONE token on top of `base` -> (new lineage dict, alignment verdict or None).
+
+		The verdict is None unless this token CLOSED a note_on: an elapse moves the clock but has
+		nothing to match yet, and a velocity or channel is not a musical event at all. So a node
+		carries an alignment score exactly when it created something the alignment can judge.
+
+		`commit` False scores on a clone and discards it, which is how a cut candidate is scored
+		without polluting the lineage that survived.
+		'''
+		align = base['align'] if commit else base['align'].clone()
+		events, tick, walk = note_on_events([tid], self.tk, self.keywords,
+			tick0=base['tick'], state=base['walk'])
+		prev_onset, softindex = base['prev_onset'], base['softindex']
+		detail = None
+		for e in events:
+			# softIndex is a sum of tanh steps over intervals, so it extends incrementally: the whole
+			# onset list is never needed, which is exactly what lets a PARTIAL hypothesis be scored.
+			if prev_onset is not None:
+				softindex += soft_delta(e['onset'] - prev_onset)
+			prev_onset = e['onset']
+			detail = dict(align.observe(e['pitch'], e['onset'], softindex))
+			detail.update(pitch=e['pitch'], onset=e['onset'], softIndex=softindex)
+			if detail.get('src') is not None:
+				src = self.src_events[detail['src']]
+				detail.update(src_onset=src['onset'], src_pitch=src['pitch'])
+		return dict(align=align, walk=walk, tick=tick, prev_onset=prev_onset,
+			softindex=softindex), detail
+
+	def begin_window (self, step, n_source, prime_ids):
+		'''Open a tree for one sliding window.
+
+		The primer is NOT replayed into the alignment. It is a re-presentation of output the previous
+		window already produced and already scored; folding it in again would count those notes
+		twice and drag the running cost with it. The carried `root` is the winning lineage from the
+		previous window, which is the state the new tokens actually continue.
+		'''
+		self.window = dict(step=step, n_source=n_source, best_uid=None,
+			prime_tokens=[self.tk.tokens[t] for t in prime_ids
+				if 0 <= t < len(self.tk.tokens)], positions=[])
+		self.windows.append(self.window)
+
+	def end_window (self, best_uid):
+		# Recorded on the window, because the winning PATH is the tree's spine: without it a reader
+		# cannot tell which of the kept branches the output actually came from, and every view that
+		# greys out "what came after" has no baseline to grey out.
+		if self.window is not None:
+			self.window['best_uid'] = best_uid
+		self.root = self.lineage.get(best_uid, self.root)
+		self.window = None
+
+	def observe (self, position, live, pool, kept, done):
+		if self.window is None:
+			return
+		if self.limit and len(self.window['positions']) >= self.limit:
+			self.truncated = True
+			return
+		for beam in live:
+			self.lineage.setdefault(beam.uid, self.root)
+		# Which pool entries became survivors, by the search's OWN rule: walk the sorted pool, and
+		# the first len(kept) non-terminator entries are the ones it kept. Derived rather than
+		# matched on token identity -- two beams can propose the same token at the same position, and
+		# a match on (token, prefix) would then attach the recording to the wrong lineage.
+		taken = 0
+		cands = []
+		for rank_i, (key, total, row, tid) in enumerate(pool):
+			parent = live[row]
+			base = self.lineage[parent.uid]
+			child = None
+			if tid == self.tk.eos_id:
+				pass				# went to `done`; it never becomes a live child
+			elif taken < len(kept):
+				child = kept[taken]
+				taken += 1
+			state, detail = self._advance(base, tid, child is not None)
+			if child is not None:
+				self.lineage[child.uid] = state
+			self.nodes += 1
+			cands.append(dict(
+				uid=child.uid if child is not None else None, parent=parent.uid, rank=rank_i,
+				token=self.tk.tokens[tid] if 0 <= tid < len(self.tk.tokens) else '<unknown>',
+				logprob=_r(total - parent.logprob), cum=_r(total), key=_r(key),
+				kept=child is not None, eos=(tid == self.tk.eos_id), tick=state['tick'],
+				align=None if detail is None else dict(
+					src=detail.get('src'), self_cost=_r(detail.get('self_cost')),
+					cost=_r(detail.get('cost')), offset=_r(detail.get('offset')),
+					skip=detail.get('skip'), pitch=detail.get('pitch'),
+					onset=detail.get('onset'), softIndex=_r(detail.get('softIndex')),
+					src_onset=detail.get('src_onset'), src_pitch=detail.get('src_pitch'))))
+		self.window['positions'].append(dict(position=position, candidates=cands,
+			live=[dict(uid=b.uid, logprob=_r(b.logprob),
+				kind=BRANCH_NAMES[b.state.branch_kind()]) for b in live]))
+		# A lineage nothing points at cannot be reached again. Pruning keeps the table proportional to
+		# the beam width instead of to every node ever created.
+		alive = {b.uid for b in kept} | {b.uid for b in done}
+		self.lineage = {u: v for u, v in self.lineage.items() if u in alive}
+
+	def dump (self, path, meta):
+		meta = dict(meta, nodes=self.nodes, truncated=self.truncated,
+			windows=len(self.windows), simultaneous_ticks=Config['SIMULTANEOUS_TICKS'])
+		payload = dict(meta=meta, windows=self.windows,
+			source=[dict(onset=e['onset'], pitch=e['pitch'], softIndex=_r(e['softIndex'], 6))
+				for e in self.src_events])
+		with open(path, 'w', encoding='utf-8') as f:
+			json.dump(payload, f, separators=(',', ':'))
+		return path
+
+
+def _r (x, n=5):
+	'''Round for the dump, passing None through: a miss has no offset, and 0.0 would read as one.'''
+	return None if x is None else round(float(x), n)
+
+
 def report_beam (report, steps):
 	'''What the search actually did, so the branch policy stays checkable rather than asserted.'''
 	if not report:
@@ -270,6 +448,12 @@ def main ():
 		help='minimum target tokens retired per step, rounded up to the next <eom> (default 1)')
 	ap.add_argument('--prime-window', type=int, default=2048,
 		help='internal target-view safety ceiling in tokens; not the step stride (default 2048)')
+	ap.add_argument('--inspect', nargs='?', type=int, const=0, default=None, metavar='N',
+		help='dump the search tree + per-candidate alignment scores as JSON. Bare --inspect records '
+			'the whole run; --inspect N records only the FIRST window and caps it at N decode '
+			'positions, which is the size a tree view can actually be read at')
+	ap.add_argument('--inspect-json', default=None,
+		help='where to write it (default: alongside the output, .beamtree.json)')
 	ap.add_argument('--max-steps', type=int, default=0, help='stop after N windows (0 = whole file)')
 	ap.add_argument('--seed', type=int, default=0)
 	ap.add_argument('--threads', type=int, default=0)
@@ -322,17 +506,34 @@ def main ():
 	print(f'[in]  {os.path.basename(args.input)}: {len(lines)} lines, '
 		f'pos_style {pos_style}, src_window {args.src_window}, max_token {args.max_token}')
 
+	# --inspect N means "one window, N positions": the cap applies to GENERATION, not just to what is
+	# recorded, so an inspection run costs N positions instead of generating a whole file to keep a
+	# fragment of it. Bare --inspect (N == 0) leaves the run alone and records all of it.
+	max_steps = args.max_steps
+	inspector = None
+	if args.inspect is not None:
+		if args.beam <= 1:
+			print('[note] --inspect with --beam 1 records a tree of width 1; there is nothing to '
+				'compare at a position')
+		inspector = BeamInspector(tokenizer, lines, bool(data_args.get('source_eom')),
+			limit=args.inspect)
+		if args.inspect:
+			max_steps = 1
+		print(f'[inspect] recording {"the first window, " + str(args.inspect) + " positions" if args.inspect else "every window"}'
+			f'; {len(inspector.src_events)} source note_on to align against')
+
 	Translator = BeamEncDecTranslator if model_type == 'MidiTranslatorEncDec' else BeamTranslator
 	translator = Translator(model, tokenizer, pos_style=pos_style, src_window=args.src_window,
 		max_token=args.max_token, device=args.device, prime=not args.no_prime,
 		temperature=0.0, source_eom=bool(data_args.get('source_eom')),
 		advance_tokens=args.advance_tokens, prime_window=args.prime_window,
-		beam_size=args.beam, branch_k=args.branch_k, length_alpha=args.length_alpha)
+		beam_size=args.beam, branch_k=args.branch_k, length_alpha=args.length_alpha,
+		inspector=inspector, position_cap=args.inspect or 0)
 	print(f'[beam] width {args.beam}, branch-k {args.branch_k} at elapse/pitch, '
 		f'length-alpha {args.length_alpha}, rank {args.rank}'
 		+ ('   (width 1 = the greedy code path)' if args.beam <= 1 else ''))
 
-	output_ids, stats = translator.translate(lines, verbose=args.verbose, max_steps=args.max_steps)
+	output_ids, stats = translator.translate(lines, verbose=args.verbose, max_steps=max_steps)
 	print(f'[out] {stats["steps"]} steps, {stats["output_tokens"]} tokens, '
 		f'{stats["consumed_lines"]}/{stats["source_lines"]} source lines consumed, '
 		f'{stats["elapsed"]:.1f}s'
@@ -348,6 +549,19 @@ def main ():
 	write_output(out_path, out_lines)
 	report_output(body, stats)
 	print(f'[out] wrote {out_path}')
+
+	if inspector is not None:
+		json_path = args.inspect_json or os.path.splitext(out_path)[0] + '.beamtree.json'
+		meta = dict(run=os.path.basename(args.run.rstrip('/')), checkpoint=os.path.basename(checkpoint),
+			input=os.path.basename(args.input), beam=args.beam, branch_k=args.branch_k,
+			length_alpha=args.length_alpha, src_window=args.src_window, max_token=args.max_token,
+			advance_tokens=args.advance_tokens, pos_style=pos_style, rank=args.rank,
+			positions=sum(len(w['positions']) for w in inspector.windows))
+		inspector.dump(json_path, meta)
+		size = os.path.getsize(json_path)
+		print(f'[inspect] {meta["positions"]} positions, {inspector.nodes} nodes over '
+			f'{len(inspector.windows)} window(s) -> {json_path} ({size / 1e6:.2f} MB)')
+		print(f'[inspect] view it: open tests/midi/beam_tree_viz.html and drop the JSON on it')
 	return 0
 
 

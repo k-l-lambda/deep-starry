@@ -1,0 +1,496 @@
+<!--
+Beam-search inspector for midiseq2 translation.
+
+Input: the JSON written by `tools/midi/translateMidiseq2Beam.py --inspect [N]`. Drop it on the page;
+nothing is uploaded and there is no server -- the file is read locally with FileReader.
+
+Two linked views, because the question this is built for spans both:
+
+  TREE     one column per decode position, one row per pool rank. Kept candidates are solid and
+           joined to their parent; CUT candidates are hollow -- they are the point of the whole
+           recording, since a tree of survivors shows the path taken and nothing about the paths
+           that were available.
+  ONSETS   the align_match_viz geometry: source lane above, generated lane below, a link per
+           matched note. The WINNING path is the base map. Selecting a node greys out everything
+           the winner produced after that position ("we are here; the rest is not decided yet"),
+           and draws the selected candidate itself -- a vertical rule at its tick for an elapse, a
+           highlighted onset for a pitch.
+
+Colours follow align_match_viz so the two read as the same instrument: source #2f5f9f, generated
+#a5432f, matched #1f7a4d, miss #d81f1f (that green/red pair was checked for protan/deutan
+separation, dE 11.5 / 10.8 OKLab x100, so it survives the common dichromacies).
+-->
+<meta charset="utf-8">
+<title>Beam Tree Inspector</title>
+<style>
+	:root {
+		--src: #2f5f9f; --out: #a5432f; --match: #1f7a4d; --miss: #d81f1f;
+		--ink: #1c1c1e; --ink2: #5c5c62; --mute: #9a9aa2;
+		--line: #e2e2e6; --bg: #fbfbfc; --panel: #fff;
+	}
+	* { box-sizing: border-box; }
+	body { margin: 0; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+		color: var(--ink); background: var(--bg); }
+	header { padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+		display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+	h1 { font-size: 14px; font-weight: 600; margin: 0; }
+	#meta { color: var(--ink2); font-size: 12px; }
+	#meta b { font-weight: 600; color: var(--ink); }
+	.wrap { padding: 12px 16px 40px; }
+	.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+		margin-bottom: 12px; }
+	.phead { padding: 7px 12px; border-bottom: 1px solid var(--line); display: flex;
+		align-items: center; gap: 12px; flex-wrap: wrap; }
+	.ptitle { font-weight: 600; font-size: 12px; }
+	.hint { color: var(--mute); font-size: 11px; }
+	.scroll { overflow-x: auto; }
+	#drop { margin: 40px auto; max-width: 640px; padding: 44px 24px; text-align: center;
+		border: 2px dashed #c8c8d0; border-radius: 10px; color: var(--ink2); background: var(--panel); }
+	#drop.over { border-color: var(--src); background: #f2f6fc; color: var(--src); }
+	#drop code { background: #f0f0f3; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+	#drop input { display: none; }
+	#drop label { color: var(--src); text-decoration: underline; cursor: pointer; }
+	select, button { font: inherit; padding: 3px 7px; border: 1px solid var(--line);
+		border-radius: 4px; background: #fff; color: var(--ink); }
+	button:hover { background: #f4f4f7; }
+	button:disabled { color: var(--mute); }
+	#detail { font-size: 12px; color: var(--ink2); padding: 8px 12px; border-top: 1px solid var(--line);
+		font-variant-numeric: tabular-nums; }
+	#detail b { color: var(--ink); font-weight: 600; }
+	#detail .kv { display: inline-block; margin-right: 18px; }
+	.hidden { display: none; }
+	svg text { -webkit-user-select: none; user-select: none; }
+	.node { cursor: pointer; }
+	.legend { display: flex; gap: 14px; align-items: center; font-size: 11px; color: var(--ink2);
+		margin-left: auto; }
+	.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+		margin-right: 4px; vertical-align: -1px; }
+</style>
+
+<header>
+	<h1>Beam Tree Inspector</h1>
+	<div id="meta"></div>
+</header>
+
+<div class="wrap">
+	<div id="drop">
+		<p style="margin:0 0 8px;font-size:14px">Drop a <b>.beamtree.json</b> here</p>
+		<p style="margin:0 0 14px" class="hint">or <label for="file">choose a file</label> — read locally, nothing is uploaded</p>
+		<input id="file" type="file" accept=".json,application/json">
+		<p style="margin:0" class="hint">produced by <code>translateMidiseq2Beam.py --inspect N</code></p>
+	</div>
+
+	<div id="views" class="hidden">
+		<div class="panel">
+			<div class="phead">
+				<span class="ptitle">Search tree</span>
+				<label class="hint">window
+					<select id="window"></select>
+				</label>
+				<label class="hint"><input type="checkbox" id="onlyBranch"> only branching positions</label>
+				<label class="hint"><input type="checkbox" id="showCut" checked> show cut candidates</label>
+				<span class="legend">
+					<span><i style="background:var(--match)"></i>kept, on winning path</span>
+					<span><i style="background:#8899aa"></i>kept, off path</span>
+					<span><i style="background:#fff;border:1px solid var(--mute)"></i>cut</span>
+				</span>
+			</div>
+			<div class="scroll"><svg id="tree"></svg></div>
+			<div id="detail">select a node</div>
+		</div>
+
+		<div class="panel">
+			<div class="phead">
+				<span class="ptitle">Onset correspondence</span>
+				<span class="hint">winning path is the base map; selecting a node greys what follows it</span>
+				<button id="clearSel" style="margin-left:auto">clear selection</button>
+			</div>
+			<div class="scroll"><svg id="onsets"></svg></div>
+		</div>
+	</div>
+</div>
+
+<script>
+'use strict';
+
+const SVGNS = 'http://www.w3.org/2000/svg';
+const C = { src: '#2f5f9f', out: '#a5432f', match: '#1f7a4d', miss: '#d81f1f',
+	ink: '#1c1c1e', ink2: '#5c5c62', mute: '#9a9aa2', line: '#e2e2e6' };
+
+let DATA = null, WIN = 0, SEL = null;
+
+function el (name, attrs, parent) {
+	const n = document.createElementNS(SVGNS, name);
+	for (const k in attrs) if (attrs[k] !== undefined && attrs[k] !== null)
+		n.setAttribute(k, attrs[k]);
+	if (parent) parent.appendChild(n);
+	return n;
+}
+
+// --- loading ---------------------------------------------------------------------------
+
+const drop = document.getElementById('drop');
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => {
+	e.preventDefault(); drop.classList.add('over');
+}));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => {
+	e.preventDefault(); drop.classList.remove('over');
+}));
+drop.addEventListener('drop', e => {
+	const f = e.dataTransfer.files[0];
+	if (f) read(f);
+});
+document.getElementById('file').addEventListener('change', e => {
+	if (e.target.files[0]) read(e.target.files[0]);
+});
+// The whole page is a drop target too, so a second file can be dropped without scrolling back up.
+['dragover', 'drop'].forEach(t => document.addEventListener(t, e => e.preventDefault()));
+document.addEventListener('drop', e => {
+	if (e.target.closest('#drop')) return;
+	const f = e.dataTransfer && e.dataTransfer.files[0];
+	if (f) read(f);
+});
+
+function read (file) {
+	const r = new FileReader();
+	r.onload = () => {
+		let d;
+		try { d = JSON.parse(r.result); }
+		catch (err) { alert('Not valid JSON: ' + err.message); return; }
+		if (!d.windows || !d.source) { alert('Not a beamtree dump: expected {meta, windows, source}'); return; }
+		load(d, file.name);
+	};
+	r.readAsText(file);
+}
+
+function load (d, name) {
+	DATA = d; WIN = 0; SEL = null;
+	const m = d.meta || {};
+	document.getElementById('meta').innerHTML =
+		`<b>${esc(name)}</b> — beam <b>${m.beam}</b>, branch-k <b>${m.branch_k}</b>, ` +
+		`length-alpha ${m.length_alpha}, rank ${m.rank ?? 'lm'} · ` +
+		`<b>${m.positions}</b> positions, <b>${m.nodes}</b> nodes, ${m.windows} window(s)` +
+		(m.truncated ? ' <span style="color:' + C.miss + '">(recording truncated)</span>' : '') +
+		`<br>${esc(m.run || '')} · ${esc(m.checkpoint || '')} · src_window ${m.src_window}` +
+		`, advance ${m.advance_tokens} · input ${esc(m.input || '')}`;
+	const sel = document.getElementById('window');
+	sel.innerHTML = '';
+	d.windows.forEach((w, i) => {
+		const o = document.createElement('option');
+		o.value = i;
+		o.textContent = `${i} — ${w.positions.length} positions`;
+		sel.appendChild(o);
+	});
+	drop.classList.add('hidden');
+	document.getElementById('views').classList.remove('hidden');
+	render();
+}
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+document.getElementById('window').addEventListener('change', e => {
+	WIN = +e.target.value; SEL = null; render();
+});
+document.getElementById('onlyBranch').addEventListener('change', render);
+document.getElementById('showCut').addEventListener('change', render);
+document.getElementById('clearSel').addEventListener('click', () => { SEL = null; render(); });
+
+// --- model ----------------------------------------------------------------------------
+
+function win () { return DATA.windows[WIN]; }
+
+/* The winning path: walk PARENT links back from the window's reported winner.
+   Derived from best_uid rather than from "the top-ranked kept node at each position", because those
+   are not the same path -- the winner is chosen once at the end, and a rank-0 node can belong to a
+   lineage that was later dropped. */
+function winningPath () {
+	const w = win();
+	const byUid = new Map();
+	for (const pos of w.positions)
+		for (const c of pos.candidates) if (c.uid !== null) byUid.set(c.uid, c);
+	const chain = [];
+	let uid = w.best_uid;
+	while (uid != null && byUid.has(uid)) {
+		const c = byUid.get(uid);
+		chain.push(c);
+		uid = c.parent;
+	}
+	chain.reverse();
+	return chain;
+}
+
+/* Ancestors of a node, nearest-last, so a selection can be located on (or off) the winning path. */
+function ancestry (node) {
+	const w = win();
+	const byUid = new Map();
+	for (const pos of w.positions)
+		for (const c of pos.candidates) if (c.uid !== null) byUid.set(c.uid, c);
+	const chain = [];
+	let uid = node.parent;
+	while (uid != null && byUid.has(uid)) {
+		const c = byUid.get(uid);
+		chain.push(c);
+		uid = c.parent;
+	}
+	chain.reverse();
+	return chain;
+}
+
+/* Notes the winning path produced: one per candidate that closed a note_on, in emission order. */
+function pathNotes (chain) {
+	const out = [];
+	chain.forEach((c, i) => {
+		if (c.align) out.push({ cand: c, depth: i, align: c.align });
+	});
+	return out;
+}
+
+function visiblePositions () {
+	const w = win();
+	const onlyBranch = document.getElementById('onlyBranch').checked;
+	return w.positions.filter(p => !onlyBranch || p.candidates.length > p.live.length);
+}
+
+// --- tree view ------------------------------------------------------------------------
+
+function render () { renderTree(); renderOnsets(); renderDetail(); }
+
+function renderTree () {
+	const svg = document.getElementById('tree');
+	svg.innerHTML = '';
+	const positions = visiblePositions();
+	const showCut = document.getElementById('showCut').checked;
+	const path = winningPath();
+	const onPath = new Set(path.map(c => c.uid));
+
+	const COLW = 74, ROWH = 19, PADL = 52, PADT = 26, PADB = 14;
+	const maxRows = Math.max(1, ...positions.map(p =>
+		showCut ? p.candidates.length : p.candidates.filter(c => c.kept).length));
+	const W = PADL + Math.max(1, positions.length) * COLW + 20;
+	const H = PADT + maxRows * ROWH + PADB;
+	svg.setAttribute('width', W); svg.setAttribute('height', H);
+	svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+	// where each uid was drawn, so an edge can be joined to its parent
+	const at = new Map();
+	const cols = positions.map((pos, ci) => {
+		const rows = (showCut ? pos.candidates : pos.candidates.filter(c => c.kept));
+		rows.forEach((c, ri) => {
+			const x = PADL + ci * COLW, y = PADT + ri * ROWH;
+			if (c.uid !== null) at.set(c.uid, { x, y, ci });
+		});
+		return { pos, rows, ci };
+	});
+
+	// edges first, so nodes sit on top of them
+	for (const { rows, ci } of cols) {
+		rows.forEach((c, ri) => {
+			const p = at.get(c.parent);
+			if (!p) return;
+			const x = PADL + ci * COLW, y = PADT + ri * ROWH;
+			const live = c.kept && onPath.has(c.uid);
+			el('path', {
+				d: `M${p.x + 46},${p.y + 6.5} C${p.x + 60},${p.y + 6.5} ${x - 14},${y + 6.5} ${x},${y + 6.5}`,
+				fill: 'none', stroke: live ? C.match : (c.kept ? '#8899aa' : C.line),
+				'stroke-width': live ? 1.6 : 1, opacity: c.kept ? 0.85 : 0.5,
+			}, svg);
+		});
+	}
+
+	for (const { pos, rows, ci } of cols) {
+		const x = PADL + ci * COLW;
+		el('text', { x: x + 23, y: 15, 'text-anchor': 'middle', 'font-size': 10,
+			fill: C.mute }, svg).textContent = pos.position;
+		rows.forEach((c, ri) => {
+			const y = PADT + ri * ROWH;
+			const live = c.kept && onPath.has(c.uid);
+			const g = el('g', { class: 'node' }, svg);
+			g.appendChild(el('rect', {
+				x, y, width: 46, height: 13, rx: 2.5,
+				fill: live ? C.match : (c.kept ? '#8899aa' : '#fff'),
+				stroke: SEL && sameNode(SEL, c, pos) ? C.out : (c.kept ? 'none' : C.mute),
+				'stroke-width': SEL && sameNode(SEL, c, pos) ? 2 : 1,
+				opacity: c.kept ? 1 : 0.75,
+			}));
+			g.appendChild(el('text', {
+				x: x + 23, y: y + 9.7, 'text-anchor': 'middle', 'font-size': 9.5,
+				fill: c.kept ? '#fff' : C.ink2,
+				'font-family': 'ui-monospace, SFMono-Regular, Menlo, monospace',
+			})).textContent = c.token.length > 8 ? c.token.slice(0, 7) + '…' : c.token;
+			// an alignment verdict, when this node closed a note: a dot on the left edge
+			if (c.align) g.appendChild(el('circle', {
+				cx: x - 4, cy: y + 6.5, r: 2.6,
+				fill: c.align.src === null ? C.miss : C.match,
+			}));
+			g.addEventListener('click', () => {
+				SEL = { ...c, position: pos.position };
+				render();
+			});
+			g.appendChild(el('title', {})).textContent =
+				`${c.token}  rank ${c.rank}  logp ${c.logprob}  cum ${c.cum}` +
+				(c.align ? `\nalign: ${c.align.src === null ? 'MISS' :
+					'src #' + c.align.src + ' @' + c.align.src_onset} self_cost ${c.align.self_cost}` : '');
+		});
+	}
+	el('text', { x: 6, y: PADT + 9, 'font-size': 10, fill: C.mute }, svg).textContent = 'rank 0';
+	if (!positions.length)
+		el('text', { x: PADL, y: PADT + 10, 'font-size': 12, fill: C.mute }, svg)
+			.textContent = 'no positions match the filter';
+}
+
+function sameNode (a, b, pos) {
+	return a.position === pos.position && a.rank === b.rank;
+}
+
+// --- onset view -----------------------------------------------------------------------
+
+function renderOnsets () {
+	const svg = document.getElementById('onsets');
+	svg.innerHTML = '';
+	const path = winningPath();
+	const notes = pathNotes(path);
+	const src = DATA.source;
+
+	// The selection acts as a cursor along the winning path: everything the winner produced at a
+	// LATER depth is greyed, which is what makes the view read as "we are here, the rest is open".
+	// A cut node has uid null, which must not match anything: findIndex on a null would land on the
+	// first candidate that also has none. Only a kept node can BE on the path.
+	const cursor = (SEL && SEL.uid !== null) ? path.findIndex(c => c.uid === SEL.uid) : -1;
+	const selDepth = SEL ? (cursor >= 0 ? cursor : ancestry(SEL).length) : Infinity;
+
+	const matchedSrc = new Set(notes.filter(n => n.depth <= selDepth && n.align.src !== null)
+		.map(n => n.align.src));
+
+	const PADL = 46, PADR = 16, PADT = 20, LANE = 96, GAP = 62;
+	const H = PADT + LANE * 2 + GAP + 34;
+	const spanW = Math.max(760, Math.min(2600, (src.length + notes.length) * 3.4));
+	const W = PADL + spanW + PADR;
+	svg.setAttribute('width', W); svg.setAttribute('height', H);
+	svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+	const ons = a => a.map(v => v);
+	const srcOn = src.map(e => e.onset);
+	const outOn = notes.map(n => n.align.onset);
+	// Each lane over its OWN extent, matching align_match_viz: normalising both by the alignment's
+	// own conclusion would make every link vertical by construction and hide the drift.
+	const ext = a => a.length ? [Math.min(...a), Math.max(...a)] : [0, 1];
+	const [sLo, sHi] = ext(srcOn);
+	const selTicks = [];
+	if (SEL) {
+		if (SEL.tick !== undefined && SEL.tick !== null) selTicks.push(SEL.tick);
+		if (SEL.align && SEL.align.onset !== undefined) selTicks.push(SEL.align.onset);
+	}
+	let [oLo, oHi] = ext(outOn.concat(selTicks));
+	const nx = (t, lo, hi) => PADL + (hi <= lo ? 0.5 : (t - lo) / (hi - lo)) * spanW;
+	const xs = t => nx(t, sLo, sHi), xo = t => nx(t, oLo, oHi);
+
+	const pitches = src.map(e => e.pitch).concat(notes.map(n => n.align.pitch));
+	const [pLo, pHi] = ext(pitches);
+	const pad = Math.max(2, (pHi - pLo) * 0.08);
+	const yOf = (p, top) => top + LANE - (p - pLo + pad) / (pHi - pLo + pad * 2) * LANE;
+	const topS = PADT, topO = PADT + LANE + GAP;
+
+	for (const [top, label, col] of [[topS, 'source', C.src], [topO, 'generated', C.out]]) {
+		el('rect', { x: PADL, y: top, width: spanW, height: LANE, fill: 'none',
+			stroke: col, 'stroke-width': 0.7, opacity: 0.5 }, svg);
+		el('text', { x: 6, y: top + 11, 'font-size': 10, fill: col }, svg).textContent = label;
+	}
+
+	// links, drawn before the marks so a dot always sits on top of its own line
+	notes.forEach(n => {
+		if (n.align.src === null) return;
+		const dim = n.depth > selDepth;
+		el('line', {
+			x1: xs(n.align.src_onset), y1: yOf(n.align.src_pitch, topS) + 0,
+			x2: xo(n.align.onset), y2: yOf(n.align.pitch, topO),
+			stroke: dim ? '#d8d8dc' : C.match, 'stroke-width': dim ? 0.5 : 0.9,
+			opacity: dim ? 0.5 : 0.5,
+		}, svg);
+	});
+
+	src.forEach((e, i) => {
+		const hit = matchedSrc.has(i);
+		el('circle', { cx: xs(e.onset), cy: yOf(e.pitch, topS), r: hit ? 3 : 2.1,
+			fill: hit ? C.src : 'none', stroke: C.src,
+			'stroke-width': 0.7, opacity: hit ? 0.95 : 0.4 }, svg);
+	});
+
+	notes.forEach(n => {
+		const dim = n.depth > selDepth;
+		const miss = n.align.src === null;
+		el('circle', { cx: xo(n.align.onset), cy: yOf(n.align.pitch, topO),
+			r: dim ? 2 : 3, fill: dim ? '#e4e4e8' : (miss ? C.miss : C.match),
+			stroke: dim ? '#cfcfd6' : 'none', 'stroke-width': 0.7 }, svg);
+	});
+
+	// the selected candidate itself
+	if (SEL) {
+		const isElapse = /^E[0-9a-f]+$/i.test(SEL.token);
+		if (isElapse) {
+			// a rule at the tick this elapse lands on -- the decision an elapse token makes is WHEN,
+			// so it has an x and no pitch
+			const x = xo(SEL.tick);
+			el('line', { x1: x, y1: topO - 8, x2: x, y2: topO + LANE + 8,
+				stroke: C.out, 'stroke-width': 1.6, 'stroke-dasharray': '4 3' }, svg);
+			el('text', { x: x + 4, y: topO - 12, 'font-size': 10, fill: C.out,
+				'font-family': 'ui-monospace, Menlo, monospace' }, svg)
+				.textContent = `${SEL.token} → tick ${SEL.tick}`;
+		} else if (SEL.align) {
+			const x = xo(SEL.align.onset), y = yOf(SEL.align.pitch, topO);
+			el('circle', { cx: x, cy: y, r: 6.5, fill: 'none', stroke: C.out,
+				'stroke-width': 2 }, svg);
+			el('circle', { cx: x, cy: y, r: 3, fill: SEL.align.src === null ? C.miss : C.match }, svg);
+			if (SEL.align.src !== null) {
+				const sx = xs(SEL.align.src_onset), sy = yOf(SEL.align.src_pitch, topS);
+				el('circle', { cx: sx, cy: sy, r: 6.5, fill: 'none', stroke: C.out,
+					'stroke-width': 2 }, svg);
+				el('line', { x1: sx, y1: sy, x2: x, y2: y, stroke: C.out, 'stroke-width': 1.8 }, svg);
+			}
+			el('text', { x: x + 9, y: y - 8, 'font-size': 10, fill: C.out,
+				'font-family': 'ui-monospace, Menlo, monospace' }, svg)
+				.textContent = `${SEL.token}${SEL.align.src === null ? ' (miss)' : ''}`;
+		} else {
+			// a token with nothing for the alignment to judge (velocity, channel, keyword): mark the
+			// clock position it inherits, so the selection is still locatable
+			const x = xo(SEL.tick);
+			el('line', { x1: x, y1: topO + LANE - 6, x2: x, y2: topO + LANE + 6,
+				stroke: C.mute, 'stroke-width': 1.4 }, svg);
+			el('text', { x: x + 4, y: topO + LANE + 18, 'font-size': 10, fill: C.mute,
+				'font-family': 'ui-monospace, Menlo, monospace' }, svg)
+				.textContent = `${SEL.token} (no onset)`;
+		}
+	}
+
+	el('text', { x: PADL, y: topS + LANE + 14, 'font-size': 10, fill: C.src }, svg)
+		.textContent = `source onset ${sLo}..${sHi} ticks, ${src.length} note_on`;
+	el('text', { x: PADL, y: topO + LANE + 30, 'font-size': 10, fill: C.out }, svg)
+		.textContent = `generated onset ${oLo}..${oHi} ticks, ${notes.length} note_on on the winning path`
+			+ (SEL ? ` · ${notes.filter(n => n.depth > selDepth).length} greyed after the selection` : '');
+}
+
+// --- detail ---------------------------------------------------------------------------
+
+function renderDetail () {
+	const d = document.getElementById('detail');
+	if (!SEL) { d.textContent = 'select a node'; return; }
+	const kv = (k, v) => `<span class="kv">${k} <b>${v}</b></span>`;
+	const a = SEL.align;
+	const path = winningPath();
+	const onWinner = SEL.uid !== null && path.some(c => c.uid === SEL.uid);
+	let html = kv('position', SEL.position) + kv('token', esc(SEL.token)) + kv('pool rank', SEL.rank)
+		+ kv('logp', SEL.logprob) + kv('cum logp', SEL.cum)
+		+ kv('status', SEL.kept ? (onWinner ? 'kept, on winning path' : 'kept, later dropped')
+			: (SEL.eos ? 'terminator' : 'CUT'))
+		+ kv('tick', SEL.tick);
+	if (a) {
+		html += '<br>' + kv('align', a.src === null ? 'MISS' : `source #${a.src}`)
+			+ kv('self_cost', a.self_cost) + kv('running cost', a.cost)
+			+ kv('offset', a.offset === null ? '—' : a.offset) + kv('skip', a.skip)
+			+ kv('pitch', '0x' + Number(a.pitch).toString(16))
+			+ (a.src === null ? '' : kv('source onset', a.src_onset));
+	} else {
+		html += '<br><span class="hint">this token closed no note_on, so the alignment has nothing to score at it</span>';
+	}
+	d.innerHTML = html;
+}
+</script>

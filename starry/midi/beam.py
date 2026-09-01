@@ -39,6 +39,7 @@ confidence test does not flag exactly that case -- so consulting the distributio
 correct the distribution would be circular AND would fail where it matters.
 '''
 
+import itertools
 import math
 
 from .align import GrammarState, CLS_ELAPSE, CLS_KEYWORD, CLS_SPECIAL
@@ -125,12 +126,20 @@ class BranchState:
 		return cls
 
 
+# Lineage identity for an observer. The search itself never reads it -- a beam is defined by its
+# ids and its score, not by a name -- but an inspector needs a stable handle to hang per-beam state
+# (an alignment, a tick cursor) off, and `id()` is not one: a pruned beam is collected and the next
+# allocation can reuse its address, silently grafting one hypothesis's history onto another.
+_UID = itertools.count(1)
+
+
 class Beam:
 	'''One hypothesis: its generated tokens, its score, and the state that goes with them.'''
 
-	__slots__ = ('ids', 'logprob', 'state', 'finished', 'forced')
+	__slots__ = ('ids', 'logprob', 'state', 'finished', 'forced', 'uid')
 
-	def __init__ (self, ids=None, logprob=0.0, state=None, finished=False, forced=False):
+	def __init__ (self, ids=None, logprob=0.0, state=None, finished=False, forced=False, uid=None):
+		self.uid = next(_UID) if uid is None else uid
 		self.ids = ids if ids is not None else []
 		self.logprob = logprob			# sum of log p over generated tokens, NOT length-normalised
 		self.state = state if state is not None else BranchState()
@@ -157,7 +166,7 @@ class Beam:
 
 
 def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=4,
-	length_alpha=0.7, seed_state=None, ban_first=(), rank=None, report=None):
+	length_alpha=0.7, seed_state=None, ban_first=(), rank=None, report=None, observer=None):
 	'''Run the search. Returns (best ids, forced, report).
 
 	step(rows) -> log-probability rows. `rows` is a list of generated-id lists, one per live beam,
@@ -173,6 +182,13 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 	rank(beam, tid, logprob) -> float, optional. Added to the pool key, so alignment evidence can
 	reorder candidates without touching this function. None = pure LM ranking, which is the
 	ablation baseline.
+
+	observer(position, live, pool, kept, done) -> None, optional. Called once per decode position
+	AFTER the cut, with the beams that were expanded, the whole sorted pool (kept and cut alike) and
+	the survivors. Read-only by contract: it exists so an inspector can record the search without
+	being able to change it, which is what makes an inspected run and a plain run the same run. The
+	cut candidates are the point -- a tree that shows only the survivors cannot answer why the
+	search went the way it did.
 	'''
 	beam_size = max(1, int(beam_size))
 	branch_k = max(1, int(branch_k))
@@ -250,6 +266,8 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 			# or near 1.000 as a vocab mismatch to go fix, not as the branch policy's behaviour.
 			child.state.feed(tokens[tid] if 0 <= tid < len(tokens) else '<unknown>', keywords)
 			nxt.append(child)
+		if observer is not None:
+			observer(len(live[0].ids) if live else 0, live, pool, nxt, done)
 		live = nxt
 		if len(done) >= beam_size:
 			# Enough finished hypotheses that no live one can be needed: each live beam already
@@ -263,12 +281,20 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 	pool = done + live
 	rep['considered'] = len(pool)
 	rep['finished'] = len(done)
+	# Who won, decided by the same expression that picks the return value below -- not re-derived by a
+	# caller. length_alpha can decide this when finished hypotheses of different length are in play,
+	# so a caller guessing "the top kept candidate" would name the wrong lineage exactly when the
+	# normalisation mattered.
+	if pool:
+		rep['best_uid'] = max(pool, key=lambda b: b.score(length_alpha)).uid
 	if report is not None:
 		for key, value in rep.items():
 			if key == 'kinds':
 				for k, v in value.items():
 					report.setdefault('kinds', {})
 					report['kinds'][k] = report['kinds'].get(k, 0) + v
+			elif key == 'best_uid':
+				report[key] = value			# an identity, not a count: summing it would be nonsense
 			else:
 				report[key] = report.get(key, 0) + value
 	if not pool:
