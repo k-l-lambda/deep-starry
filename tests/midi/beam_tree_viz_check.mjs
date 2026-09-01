@@ -78,5 +78,29 @@ let mono = true;
 for (let i = 1; i < path.length; i++) if (path[i].tick < path[i - 1].tick) mono = false;
 ok(mono, 'tick never decreases along the winning path');
 
+// --- the shared-scale contract -------------------------------------------------------
+// Both lanes are plotted on ONE scale in either unit, so every candidate needs a finite coordinate
+// in BOTH. An elapse has no softIndex of its own (softIndex only advances when a note happens), so
+// the dump carries a provisional `si` -- without it an elapse's rule has nowhere to land.
+const cands = w.positions.flatMap(p => p.candidates);
+ok(cands.every(c => typeof c.si === 'number' && isFinite(c.si)),
+	`every candidate carries a finite si: ${cands.length} candidates`);
+ok(cands.every(c => typeof c.tick === 'number' && isFinite(c.tick)),
+	'every candidate carries a finite tick');
+const drift = cands.filter(c => c.align)
+	.map(c => Math.abs(c.si - c.align.softIndex));
+ok(drift.every(d => d < 1e-4),
+	`a pitch candidate's provisional si equals its align.softIndex (max delta ${
+		drift.length ? Math.max(...drift).toExponential(1) : 0})`);
+let siMono = true;
+for (let i = 1; i < path.length; i++) if (path[i].si < path[i - 1].si - 1e-9) siMono = false;
+ok(siMono, 'si never decreases along the winning path');
+const ssi = DATA.source.map(e => e.softIndex);
+let srcMono = true;
+for (let i = 1; i < ssi.length; i++) if (ssi[i] < ssi[i - 1] - 1e-9) srcMono = false;
+ok(srcMono, `source softIndex is non-decreasing (0..${ssi[ssi.length - 1]})`);
+ok(DATA.source.every(e => typeof e.softIndex === 'number'),
+	'every source event carries softIndex, so the source lane can be drawn in either unit');
+
 console.log(fails ? `\n${fails} check(s) FAILED` : '\nall checks passed');
 process.exit(fails ? 1 : 0);

@@ -102,7 +102,14 @@ separation, dE 11.5 / 10.8 OKLab x100, so it survives the common dichromacies).
 		<div class="panel">
 			<div class="phead">
 				<span class="ptitle">Onset correspondence</span>
-				<span class="hint">winning path is the base map; selecting a node greys what follows it</span>
+				<label class="hint">x axis
+					<select id="unit">
+						<option value="tick">tick</option>
+						<option value="si">softIndex</option>
+					</select>
+				</label>
+				<span class="hint">both lanes on ONE scale, 40px per <span id="blockLabel">480 ticks</span>; scroll for the rest</span>
+				<label class="hint"><input type="checkbox" id="fullSrc"> whole source</label>
 				<button id="clearSel" style="margin-left:auto">clear selection</button>
 			</div>
 			<div class="scroll"><svg id="onsets"></svg></div>
@@ -194,6 +201,30 @@ document.getElementById('window').addEventListener('change', e => {
 document.getElementById('onlyBranch').addEventListener('change', render);
 document.getElementById('showCut').addEventListener('change', render);
 document.getElementById('clearSel').addEventListener('click', () => { SEL = null; render(); });
+document.getElementById('fullSrc').addEventListener('change', renderOnsets);
+document.getElementById('unit').addEventListener('change', () => {
+	document.getElementById('blockLabel').textContent =
+		unit() === 'tick' ? '480 ticks' : '1 softIndex';
+	renderOnsets();
+});
+
+const unit = () => document.getElementById('unit').value;
+
+/* One block of x. 480 ticks is a beat at the corpus's ticks_per_beat, and 1 softIndex is one
+   saturated interval -- so a block is a musically meaningful unit in either mode, which is what
+   makes a fixed px-per-block honest rather than arbitrary. */
+const BLOCK = () => (unit() === 'tick' ? 480 : 1);
+const PX_PER_BLOCK = 40;
+
+/* Where a thing sits on the x axis, in the current unit.
+
+   In softIndex mode an elapse uses the PROVISIONAL si the dump records: softIndex only advances
+   when a note happens, so an elapse has none of its own -- what it has is where the next note would
+   land if it happened at the new tick. For a pitch candidate that provisional value equals its
+   align.softIndex by construction, so the two modes stay consistent with each other. */
+const posOfCand = c => (unit() === 'tick' ? c.tick : c.si);
+const posOfNote = a => (unit() === 'tick' ? a.onset : a.softIndex);
+const posOfSrc = e => (unit() === 'tick' ? e.onset : e.softIndex);
 
 // --- model ----------------------------------------------------------------------------
 
@@ -350,45 +381,86 @@ function renderOnsets () {
 	const path = winningPath();
 	const notes = pathNotes(path);
 	const src = DATA.source;
+	const U = unit(), blk = BLOCK();
 
-	// The selection acts as a cursor along the winning path: everything the winner produced at a
-	// LATER depth is greyed, which is what makes the view read as "we are here, the rest is open".
-	// A cut node has uid null, which must not match anything: findIndex on a null would land on the
-	// first candidate that also has none. Only a kept node can BE on the path.
+	// The selection is a cursor along the winning path: everything the winner produced at a LATER
+	// depth is greyed, which is what makes the view read as "we are here, the rest is open".
 	const cursor = (SEL && SEL.uid !== null) ? path.findIndex(c => c.uid === SEL.uid) : -1;
 	const selDepth = SEL ? (cursor >= 0 ? cursor : ancestry(SEL).length) : Infinity;
-
 	const matchedSrc = new Set(notes.filter(n => n.depth <= selDepth && n.align.src !== null)
 		.map(n => n.align.src));
 
-	const PADL = 46, PADR = 16, PADT = 20, LANE = 96, GAP = 62;
-	const H = PADT + LANE * 2 + GAP + 34;
-	const spanW = Math.max(760, Math.min(2600, (src.length + notes.length) * 3.4));
+	const PADL = 54, PADR = 20, PADT = 22, LANE = 104, GAP = 66, AXIS = 30;
+	const H = PADT + LANE * 2 + GAP + AXIS;
+
+	/* ONE scale for both lanes, over the union of what either arm reaches. Not the per-lane
+	   normalisation align_match_viz uses: there, each lane spanning its own extent is what keeps the
+	   alignment's conclusion out of the geometry, but it also means the two x axes are not
+	   comparable. Sharing the scale makes drift directly visible -- if the generated arm runs fast,
+	   its notes crowd left of the source notes they matched and every link tilts the same way -- at
+	   the cost of the generated arm occupying only part of the width when the source is longer.
+	   That is what the scroll bar is for. */
+	const srcPos = src.map(posOfSrc);
+	const outPos = notes.map(n => posOfNote(n.align));
+	const selPos = [];
+	if (SEL) {
+		const p = posOfCand(SEL);
+		if (p !== undefined && p !== null) selPos.push(p);
+		if (SEL.align) selPos.push(posOfNote(SEL.align));
+	}
+	/* By default the range is what the GENERATED arm reaches, padded -- not the union with the whole
+	   source. A window-scoped dump has a source spanning the entire file and a generated arm covering
+	   its first few bars (9% of it on the run this was built against), so the union would leave the
+	   generated lane a sliver at the far left of a canvas that is 90% empty. Matched source positions
+	   are folded in so a link never points off-screen, and `whole source` restores the union for when
+	   the question is where in the file this window sits. */
+	const full = document.getElementById('fullSrc').checked;
+	const matchedPos = notes.filter(n => n.align.src !== null).map(n => posOfSrc(src[n.align.src]));
+	const focus = outPos.concat(matchedPos, selPos);
+	const all = (full || !focus.length) ? srcPos.concat(outPos, selPos) : focus;
+	let lo = all.length ? Math.min(...all) : 0, hi = all.length ? Math.max(...all) : blk;
+	if (!full && focus.length) {
+		const padv = Math.max(blk * 2, (hi - lo) * 0.08);
+		lo -= padv; hi += padv;
+	}
+	// snap outward to block boundaries so a gridline lands on a round number
+	lo = Math.floor(lo / blk) * blk;
+	hi = Math.ceil(hi / blk) * blk;
+	if (hi <= lo) hi = lo + blk;
+	const blocks = Math.round((hi - lo) / blk);
+	// A fixed px per block, so a distance on screen means the same thing everywhere and between
+	// files. The width follows from the span; when it exceeds the viewport the container scrolls.
+	const spanW = Math.max(blocks * PX_PER_BLOCK, 320);
 	const W = PADL + spanW + PADR;
 	svg.setAttribute('width', W); svg.setAttribute('height', H);
 	svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
-	const ons = a => a.map(v => v);
-	const srcOn = src.map(e => e.onset);
-	const outOn = notes.map(n => n.align.onset);
-	// Each lane over its OWN extent, matching align_match_viz: normalising both by the alignment's
-	// own conclusion would make every link vertical by construction and hide the drift.
-	const ext = a => a.length ? [Math.min(...a), Math.max(...a)] : [0, 1];
-	const [sLo, sHi] = ext(srcOn);
-	const selTicks = [];
-	if (SEL) {
-		if (SEL.tick !== undefined && SEL.tick !== null) selTicks.push(SEL.tick);
-		if (SEL.align && SEL.align.onset !== undefined) selTicks.push(SEL.align.onset);
-	}
-	let [oLo, oHi] = ext(outOn.concat(selTicks));
-	const nx = (t, lo, hi) => PADL + (hi <= lo ? 0.5 : (t - lo) / (hi - lo)) * spanW;
-	const xs = t => nx(t, sLo, sHi), xo = t => nx(t, oLo, oHi);
+	const x = v => PADL + ((v - lo) / (hi - lo)) * spanW;
 
-	const pitches = src.map(e => e.pitch).concat(notes.map(n => n.align.pitch));
+	const pitches = src.filter(e => { const q = posOfSrc(e); return q >= lo && q <= hi; })
+		.map(e => e.pitch).concat(notes.map(n => n.align.pitch));
+	const ext = a => a.length ? [Math.min(...a), Math.max(...a)] : [60, 61];
 	const [pLo, pHi] = ext(pitches);
 	const pad = Math.max(2, (pHi - pLo) * 0.08);
 	const yOf = (p, top) => top + LANE - (p - pLo + pad) / (pHi - pLo + pad * 2) * LANE;
 	const topS = PADT, topO = PADT + LANE + GAP;
+
+	// gridlines through BOTH lanes: shared scale means one vertical is the same instant in each
+	const labelEvery = Math.max(1, Math.ceil(60 / PX_PER_BLOCK));
+	for (let b = 0; b <= blocks; b++) {
+		const v = lo + b * blk, gx = x(v);
+		el('line', { x1: gx, y1: topS, x2: gx, y2: topO + LANE,
+			stroke: b % labelEvery === 0 ? '#e8e8ec' : '#f4f4f7', 'stroke-width': 1 }, svg);
+		if (b % labelEvery === 0)
+			el('text', { x: gx, y: topO + LANE + 16, 'text-anchor': 'middle', 'font-size': 9.5,
+				fill: C.mute, 'font-variant-numeric': 'tabular-nums' }, svg)
+				.textContent = U === 'tick' ? v : v.toFixed(0);
+	}
+	el('text', { x: PADL, y: topO + LANE + 27, 'font-size': 9.5, fill: C.mute }, svg)
+		.textContent = U === 'tick'
+			? `tick (${lo}..${hi}, ${blocks} beats at 480/beat, ${PX_PER_BLOCK}px each)`
+			: `softIndex (${lo}..${hi}, ${PX_PER_BLOCK}px per unit) — tanh(interval/`
+				+ `${(DATA.meta && DATA.meta.simultaneous_ticks) || 115}) per step, so a chord is one position`;
 
 	for (const [top, label, col] of [[topS, 'source', C.src], [topO, 'generated', C.out]]) {
 		el('rect', { x: PADL, y: top, width: spanW, height: LANE, fill: 'none',
@@ -396,76 +468,89 @@ function renderOnsets () {
 		el('text', { x: 6, y: top + 11, 'font-size': 10, fill: col }, svg).textContent = label;
 	}
 
-	// links, drawn before the marks so a dot always sits on top of its own line
+	// links before the marks, so a dot always sits on top of its own line
 	notes.forEach(n => {
 		if (n.align.src === null) return;
 		const dim = n.depth > selDepth;
-		el('line', {
-			x1: xs(n.align.src_onset), y1: yOf(n.align.src_pitch, topS) + 0,
-			x2: xo(n.align.onset), y2: yOf(n.align.pitch, topO),
-			stroke: dim ? '#d8d8dc' : C.match, 'stroke-width': dim ? 0.5 : 0.9,
-			opacity: dim ? 0.5 : 0.5,
-		}, svg);
+		const sp = posOfSrc(src[n.align.src]);
+		el('line', { x1: x(sp), y1: yOf(n.align.src_pitch, topS),
+			x2: x(posOfNote(n.align)), y2: yOf(n.align.pitch, topO),
+			stroke: dim ? '#d8d8dc' : C.match, 'stroke-width': dim ? 0.5 : 0.9, opacity: 0.5 }, svg);
 	});
 
+	let offscreen = 0;
 	src.forEach((e, i) => {
+		const sp = posOfSrc(e);
+		if (sp < lo || sp > hi) { offscreen++; return; }
 		const hit = matchedSrc.has(i);
-		el('circle', { cx: xs(e.onset), cy: yOf(e.pitch, topS), r: hit ? 3 : 2.1,
-			fill: hit ? C.src : 'none', stroke: C.src,
-			'stroke-width': 0.7, opacity: hit ? 0.95 : 0.4 }, svg);
+		el('circle', { cx: x(sp), cy: yOf(e.pitch, topS), r: hit ? 3 : 2.1,
+			fill: hit ? C.src : 'none', stroke: C.src, 'stroke-width': 0.7,
+			opacity: hit ? 0.95 : 0.4 }, svg);
 	});
 
 	notes.forEach(n => {
 		const dim = n.depth > selDepth;
 		const miss = n.align.src === null;
-		el('circle', { cx: xo(n.align.onset), cy: yOf(n.align.pitch, topO),
+		el('circle', { cx: x(posOfNote(n.align)), cy: yOf(n.align.pitch, topO),
 			r: dim ? 2 : 3, fill: dim ? '#e4e4e8' : (miss ? C.miss : C.match),
 			stroke: dim ? '#cfcfd6' : 'none', 'stroke-width': 0.7 }, svg);
 	});
 
-	// the selected candidate itself
+	let focusX = null;
 	if (SEL) {
 		const isElapse = /^E[0-9a-f]+$/i.test(SEL.token);
 		if (isElapse) {
-			// a rule at the tick this elapse lands on -- the decision an elapse token makes is WHEN,
-			// so it has an x and no pitch
-			const x = xo(SEL.tick);
-			el('line', { x1: x, y1: topO - 8, x2: x, y2: topO + LANE + 8,
+			// An elapse decides WHEN, so it has an x and no pitch: a rule at the position it moves the
+			// clock to.
+			const gx = x(posOfCand(SEL));
+			focusX = gx;
+			el('line', { x1: gx, y1: topO - 10, x2: gx, y2: topO + LANE + 8,
 				stroke: C.out, 'stroke-width': 1.6, 'stroke-dasharray': '4 3' }, svg);
-			el('text', { x: x + 4, y: topO - 12, 'font-size': 10, fill: C.out,
+			el('text', { x: gx + 4, y: topO - 14, 'font-size': 10, fill: C.out,
 				'font-family': 'ui-monospace, Menlo, monospace' }, svg)
-				.textContent = `${SEL.token} → tick ${SEL.tick}`;
+				.textContent = `${SEL.token} → ${U === 'tick' ? 'tick ' + SEL.tick : 'si ' + SEL.si}`;
 		} else if (SEL.align) {
-			const x = xo(SEL.align.onset), y = yOf(SEL.align.pitch, topO);
-			el('circle', { cx: x, cy: y, r: 6.5, fill: 'none', stroke: C.out,
-				'stroke-width': 2 }, svg);
-			el('circle', { cx: x, cy: y, r: 3, fill: SEL.align.src === null ? C.miss : C.match }, svg);
+			const gx = x(posOfNote(SEL.align)), gy = yOf(SEL.align.pitch, topO);
+			focusX = gx;
+			el('circle', { cx: gx, cy: gy, r: 6.5, fill: 'none', stroke: C.out, 'stroke-width': 2 }, svg);
+			el('circle', { cx: gx, cy: gy, r: 3,
+				fill: SEL.align.src === null ? C.miss : C.match }, svg);
 			if (SEL.align.src !== null) {
-				const sx = xs(SEL.align.src_onset), sy = yOf(SEL.align.src_pitch, topS);
+				const sx = x(posOfSrc(src[SEL.align.src])), sy = yOf(SEL.align.src_pitch, topS);
 				el('circle', { cx: sx, cy: sy, r: 6.5, fill: 'none', stroke: C.out,
 					'stroke-width': 2 }, svg);
-				el('line', { x1: sx, y1: sy, x2: x, y2: y, stroke: C.out, 'stroke-width': 1.8 }, svg);
+				el('line', { x1: sx, y1: sy, x2: gx, y2: gy, stroke: C.out, 'stroke-width': 1.8 }, svg);
 			}
-			el('text', { x: x + 9, y: y - 8, 'font-size': 10, fill: C.out,
+			el('text', { x: gx + 9, y: gy - 8, 'font-size': 10, fill: C.out,
 				'font-family': 'ui-monospace, Menlo, monospace' }, svg)
 				.textContent = `${SEL.token}${SEL.align.src === null ? ' (miss)' : ''}`;
 		} else {
-			// a token with nothing for the alignment to judge (velocity, channel, keyword): mark the
-			// clock position it inherits, so the selection is still locatable
-			const x = xo(SEL.tick);
-			el('line', { x1: x, y1: topO + LANE - 6, x2: x, y2: topO + LANE + 6,
+			// nothing for the alignment to judge (velocity, channel, keyword): mark the clock it
+			// inherits, so the selection is still locatable
+			const gx = x(posOfCand(SEL));
+			focusX = gx;
+			el('line', { x1: gx, y1: topO + LANE - 7, x2: gx, y2: topO + LANE + 7,
 				stroke: C.mute, 'stroke-width': 1.4 }, svg);
-			el('text', { x: x + 4, y: topO + LANE + 18, 'font-size': 10, fill: C.mute,
+			el('text', { x: gx + 4, y: topO + LANE + 27, 'font-size': 10, fill: C.mute,
 				'font-family': 'ui-monospace, Menlo, monospace' }, svg)
 				.textContent = `${SEL.token} (no onset)`;
 		}
 	}
 
-	el('text', { x: PADL, y: topS + LANE + 14, 'font-size': 10, fill: C.src }, svg)
-		.textContent = `source onset ${sLo}..${sHi} ticks, ${src.length} note_on`;
-	el('text', { x: PADL, y: topO + LANE + 30, 'font-size': 10, fill: C.out }, svg)
-		.textContent = `generated onset ${oLo}..${oHi} ticks, ${notes.length} note_on on the winning path`
-			+ (SEL ? ` · ${notes.filter(n => n.depth > selDepth).length} greyed after the selection` : '');
+	el('text', { x: PADL + spanW, y: topS - 8, 'text-anchor': 'end', 'font-size': 10,
+		fill: C.ink2 }, svg).textContent =
+		`${src.length - offscreen}/${src.length} source note_on shown · ${notes.length} on the winning path`
+		+ (offscreen ? ` · ${offscreen} source outside this range` : '')
+		+ (SEL ? ` · ${notes.filter(n => n.depth > selDepth).length} greyed after the selection` : '');
+
+	// Bring the selection into view rather than leaving it off-screen on a scrolled canvas: a click
+	// in the tree that appears to do nothing is indistinguishable from a bug.
+	if (focusX !== null) {
+		const box = svg.parentElement;
+		const want = focusX - box.clientWidth / 2;
+		if (focusX < box.scrollLeft + 40 || focusX > box.scrollLeft + box.clientWidth - 40)
+			box.scrollLeft = Math.max(0, want);
+	}
 }
 
 // --- detail ---------------------------------------------------------------------------

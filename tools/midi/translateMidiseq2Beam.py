@@ -282,7 +282,7 @@ class BeamInspector:
 
 	def _fresh (self):
 		return dict(align=AlignState(self.src_events, seed_offset=self.seed_offset),
-			walk=None, tick=0, prev_onset=None, softindex=0.0)
+			walk=None, tick=0, prev_onset=None, softindex=0.0, si=0.0)
 
 	def _advance (self, base, tid, commit):
 		'''Walk ONE token on top of `base` -> (new lineage dict, alignment verdict or None).
@@ -311,7 +311,8 @@ class BeamInspector:
 				src = self.src_events[detail['src']]
 				detail.update(src_onset=src['onset'], src_pitch=src['pitch'])
 		return dict(align=align, walk=walk, tick=tick, prev_onset=prev_onset,
-			softindex=softindex), detail
+			softindex=softindex, si=softindex if prev_onset is None
+				else softindex + soft_delta(tick - prev_onset)), detail
 
 	def begin_window (self, step, n_source, prime_ids):
 		'''Open a tree for one sliding window.
@@ -367,11 +368,12 @@ class BeamInspector:
 				token=self.tk.tokens[tid] if 0 <= tid < len(self.tk.tokens) else '<unknown>',
 				logprob=_r(total - parent.logprob), cum=_r(total), key=_r(key),
 				kept=child is not None, eos=(tid == self.tk.eos_id), tick=state['tick'],
+				si=_r(state['si'], 6),
 				align=None if detail is None else dict(
 					src=detail.get('src'), self_cost=_r(detail.get('self_cost')),
 					cost=_r(detail.get('cost')), offset=_r(detail.get('offset')),
 					skip=detail.get('skip'), pitch=detail.get('pitch'),
-					onset=detail.get('onset'), softIndex=_r(detail.get('softIndex')),
+					onset=detail.get('onset'), softIndex=_r(detail.get('softIndex'), 6),
 					src_onset=detail.get('src_onset'), src_pitch=detail.get('src_pitch'))))
 		self.window['positions'].append(dict(position=position, candidates=cands,
 			live=[dict(uid=b.uid, logprob=_r(b.logprob),
