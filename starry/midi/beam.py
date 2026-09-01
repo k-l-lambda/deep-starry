@@ -192,7 +192,7 @@ class Beam:
 
 def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=4,
 	length_alpha=0.7, seed_state=None, ban_first=(), rank=None, report=None, observer=None,
-	adjudicator=None, elapse_k=0):
+	adjudicator=None, elapse_k=0, adjudicate=True):
 	'''Run the search. Returns (best ids, forced, report).
 
 	step(rows) -> log-probability rows. `rows` is a list of generated-id lists, one per live beam,
@@ -253,7 +253,7 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 		# how often the aligner actually had an opinion, and how often it overturned the model. Both
 		# are the numbers that say whether level 3 did anything, so they are counted rather than
 		# asserted -- an adjudicator that silently abstains everywhere looks identical to none.
-		adjudicated=0, abstained=0, overturned=0, forced_elapse=0)
+		adjudicated=0, abstained=0, overturned=0, forced_elapse=0, scored_only=0)
 	forced = False
 	ban_first = tuple(ban_first or ())
 
@@ -304,7 +304,12 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 					extra += 1
 				rep['forced_elapse'] += extra
 			losses = None
-			if adjudicator is not None:
+			# Only at a real elapse branch point, for the SAME reason the enumeration above is gated:
+			# elsewhere the elapse is not what is being decided. Ungated, the epsilon rule reorders
+			# positions where the grammar owes an argument -- measured on a 93-position run, 10 of 16
+			# overturns were an argument token (#4c, a digit) displaced by another lineage's token on a
+			# loss difference of ~1e-4, which is not a rhythm verdict at all.
+			if adjudicator is not None and kind == BRANCH_ELAPSE:
 				losses = adjudicator.losses(beam, cands)
 				if any(x is not None for x in losses):
 					any_loss = True
@@ -321,7 +326,16 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 		# (row, tid) so a run is reproducible and beam_size=1 does not depend on the sort being
 		# stable across float equality.
 		lm_order = sorted(pool, key=lambda item: (-item[0], item[2], item[3]))
-		if any_loss:
+		if any_loss and not adjudicate:
+			# SCORE-ONLY: the adjudicator was asked and its verdicts are recorded for the observer, but
+			# the search still ranks on the model. This is what makes a dump diagnostic rather than a
+			# different run -- the tree is the one the model actually builds, annotated with what the
+			# aligner thought of each candidate in it. Ranking on the loss changes which nodes exist,
+			# so the two questions ("what does the aligner think of this tree" and "what tree does the
+			# aligner build") cannot be answered by one run.
+			rep['scored_only'] += 1
+			pool = lm_order
+		elif any_loss:
 			# Alignment first, the model as the tie-break. A candidate the aligner abstained on sorts
 			# after every one it scored rather than at an invented value: `losses` fills the abstained
 			# entries whose neighbours it can reach (that is the caller's job), so a None surviving to

@@ -631,6 +631,22 @@ def check_adjudicator (tk, keywords):
 		f'parent tgt_count {before} -> {after} (unchanged); each of {len(kids)} children observed '
 		f'exactly one note and got its own verdict')
 
+	# A terminator must NOT inherit: it settles no onset, so anchoring it to a neighbour's rhythm
+	# verdict prices the model's objection at EPSILON. Measured before this: <eos> sat 2e-4 behind the
+	# anchor while the model rated it 14.17 nats worse, took pool rank 2 into `done`, and four such
+	# terminations cut a 200-position run to 93 with one measure emitted.
+	term_cands = [(i['note_off'], -0.01), (adj.note_on_id, -4.8), (tk.eos_id, -14.17), (i['E1e0'], -2.0)]
+	term_out = adj.losses(_Beam(), term_cands)
+	eos_pos = [n for n, (tid, _lp) in enumerate(term_cands) if tid == tk.eos_id][0]
+	others = [term_out[n] for n in range(len(term_cands)) if n != eos_pos]
+	check('a terminator never inherits a loss (it settles no onset)',
+		term_out[eos_pos] is None and all(x is not None for x in others),
+		f'<eos> -> {term_out[eos_pos]}, others -> {[None if x is None else round(x, 4) for x in others]}')
+	check('<eos> and <eom> are both recognised as terminators',
+		{tk.tokens[t] for t in adj.terminator_ids if t < len(tk.tokens)} >= {'<eos>', '<eom>'},
+		f'{sorted(tk.tokens[t] for t in adj.terminator_ids if t < len(tk.tokens))}')
+
+
 	# --- end to end through the search: the adjudicated run must differ from the LM-only run
 	def run (rank_align):
 		tracker, adj = fresh_pair()

@@ -73,7 +73,7 @@ class BeamMixin:
 	'''
 
 	def __init__ (self, *args, beam_size=1, branch_k=4, length_alpha=0.7, inspector=None,
-		position_cap=0, adjudicator=None, elapse_k=0, **kwargs):
+		position_cap=0, adjudicator=None, elapse_k=0, adjudicate=True, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.beam_size = max(1, int(beam_size))
 		self.branch_k = max(1, int(branch_k))
@@ -81,6 +81,11 @@ class BeamMixin:
 		self.beam_report = {}		# accumulated across steps; read after translate() returns
 		self.inspector = inspector
 		self.adjudicator = adjudicator
+		# Whether the adjudicator's verdicts ORDER the pool, as opposed to merely being recorded. An
+		# inspection run wants them recorded unconditionally -- the whole point of a dump is to ask
+		# what the aligner thought of every candidate -- but ranking on them builds a DIFFERENT tree,
+		# so the two are separate decisions and only --rank align makes the second one.
+		self.adjudicate = adjudicate
 		self.elapse_k = max(0, int(elapse_k))
 		# --inspect N caps the tokens a window generates, not just the tokens recorded: generating
 		# 2000 and keeping 40 would spend the whole run to dump a fragment of its first window.
@@ -169,7 +174,7 @@ class BeamMixin:
 		ids, forced, _rep = beam_search(step, self.tk.tokens, self.keywords, self.tk.eos_id,
 			max_new=room, beam_size=self.beam_size, branch_k=self.branch_k,
 			length_alpha=self.length_alpha, observer=observer,
-			adjudicator=self.adjudicator, elapse_k=self.elapse_k,
+			adjudicator=self.adjudicator, elapse_k=self.elapse_k, adjudicate=self.adjudicate,
 			seed_state=self.seed_state(list(prefix_ids), n_source),
 			# Same first-position terminator ban as the greedy path, for the same measured reason: an
 			# <eos> logit of 13.16 against 7.71 for next-best is not something a finite penalty can be
@@ -387,6 +392,14 @@ class AlignAdjudicator:
 			if tok == 'note_on':
 				self.note_on_id = tid
 				break
+		# Tokens that END a stream rather than place an event in it. Excluded from the inheritance pass
+		# below; see the note there for the measurement that made this necessary.
+		self.terminator_ids = {tid for tid, tok in enumerate(tokenizer.tokens)
+			if tok in ('<eos>', '<eom>')}
+		for attr in ('eos_id', 'eom_id'):
+			tid = getattr(tokenizer, attr, None)
+			if tid is not None:
+				self.terminator_ids.add(int(tid))
 
 	def elapse_ids (self, beam, logprob_row):
 		'''The top `elapse_k` elapse tokens by log-probability, plus note_on as the elapse-0 option.
@@ -428,7 +441,17 @@ class AlignAdjudicator:
 				out[i] = align.forecast(tick + delta)[0]
 			elif tid == self.note_on_id:
 				out[i] = align.forecast(tick)[0]			# elapse zero
-		order = sorted(range(len(cands)), key=lambda i: (-cands[i][1], i))
+		# A TERMINATOR never inherits. Inheriting is defensible for a token that stands in for a rhythm
+		# choice -- note_off at elapse zero postpones the decision two positions and comes back to it --
+		# but <eos>/<eom> end the stream and settle no onset, so anchoring one to a neighbour's rhythm
+		# verdict prices the model's objection to it at EPSILON. Measured: at one position <eos> sat
+		# 2e-4 behind the anchor while the model rated it 14.17 nats worse, which put it second in the
+		# pool, into `done`, and four such terminations stopped the search at 93 of 200 positions with
+		# one measure emitted. Left as None it sorts behind every scored candidate, which is the honest
+		# placement: the aligner has nothing to say about ending the piece.
+		blocked = {i for i, (tid, _lp) in enumerate(cands) if tid in self.terminator_ids}
+		order = [i for i in sorted(range(len(cands)), key=lambda i: (-cands[i][1], i))
+			if i not in blocked]
 		scored = [pos for pos, i in enumerate(order) if out[i] is not None]
 		if not scored:
 			return out			# the aligner abstained everywhere; the search falls back to the LM
@@ -624,8 +647,8 @@ def main ():
 	ap.add_argument('--length-alpha', type=float, default=0.7,
 		help='length-normalisation exponent when comparing FINISHED hypotheses (default 0.7); '
 			'0 = raw logprob, which favours whichever window ended soonest')
-	ap.add_argument('--rank', choices=['lm', 'align'], default='lm',
-		help="candidate ranking: 'lm' = model logprob only (ablation level 2). 'align' = level 3, "
+	ap.add_argument('--rank', choices=['lm', 'align'], default='align',
+		help="candidate ranking (default align): 'lm' = model logprob only (ablation level 2), and an inspection run still RECORDS the alignment's verdicts, it just does not rank on them. 'align' = level 3, "
 			'the alignment forecast orders the candidates at an elapse point and the model is the '
 			'tie-break')
 	ap.add_argument('--elapse-k', type=int, default=8,
@@ -714,13 +737,19 @@ def main ():
 			e['softIndex'] = si
 		tracker = LineageTracker(tokenizer, keywords, src_events)
 
+	# An inspection run ALWAYS scores: a dump exists to answer "what did the aligner think of the tree
+	# the model built", and withholding the verdict unless it also ranks would leave every candidate
+	# unexplained. --rank align is the separate decision to let those verdicts order the pool, which
+	# builds a different tree. So: adjudicator whenever either is wanted, `adjudicate` only for align.
+	adjudicate = args.rank == 'align'
 	adjudicator = None
-	if args.rank == 'align':
-		if args.beam <= 1:
+	if adjudicate or args.inspect is not None:
+		if adjudicate and args.beam <= 1:
 			print('[note] --rank align with --beam 1 changes nothing: width 1 has no candidate to '
 				'reorder, and the greedy code path is taken')
 		adjudicator = AlignAdjudicator(tracker, tokenizer, elapse_k=args.elapse_k)
-		print(f'[rank] alignment adjudication on, elapse-k {args.elapse_k} '
+		print(f'[rank] alignment {"adjudication on (it ORDERS the pool)" if adjudicate else "scoring on (recorded only; the model still ranks)"}, '
+			f'elapse-k {args.elapse_k} '
 			f'({len(adjudicator.elapse_values)} elapse tokens in the vocabulary), '
 			f'forecast lookahead {Config["ForecastLookahead"]}')
 
@@ -729,7 +758,7 @@ def main ():
 		if args.beam <= 1:
 			print('[note] --inspect with --beam 1 records a tree of width 1; there is nothing to '
 				'compare at a position')
-		inspector = BeamInspector(tracker, limit=args.inspect, adjudicated=(args.rank == 'align'))
+		inspector = BeamInspector(tracker, limit=args.inspect, adjudicated=adjudicator is not None)
 		if args.inspect:
 			max_steps = 1
 		print(f'[inspect] recording {"the first window, " + str(args.inspect) + " positions" if args.inspect else "every window"}'
