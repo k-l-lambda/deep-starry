@@ -406,8 +406,13 @@ class AlignAdjudicator:
 
 		Top-k among ELAPSE tokens specifically, not among all tokens -- that is the whole point, since
 		the overall top-k routinely contains no elapse at all. Deliberately NOT masked by
-		`feasible_elapse_tokens`: the hard feasibility mask is a separate ablation level, and folding
-		it in here would make it impossible to tell which of the two changed a result.
+		`feasible_elapse_tokens`: that mask needs a target INTERVAL, it is a separate ablation level,
+		and folding it in here would make it impossible to tell which of the two changed a result.
+
+		The GRAMMAR mask is not in that category and is not optional: `[E1000]* [Exxx]? [Ex]?` holds
+		whatever the rhythm argues, and beam_search has already set the inadmissible ids to -inf in
+		the row passed here, so proposing one is a no-op (it also drops them explicitly). Ranking on
+		the masked row means a proposal is never spent on a token that cannot be taken.
 		'''
 		ranked = sorted(self.elapse_values, key=lambda tid: -logprob_row[tid])
 		out = ranked[:self.elapse_k]

@@ -42,7 +42,7 @@ correct the distribution would be circular AND would fail where it matters.
 import itertools
 import math
 
-from .align import GrammarState, CLS_ELAPSE, CLS_KEYWORD, CLS_SPECIAL
+from .align import GrammarState, CLS_ELAPSE, CLS_KEYWORD, CLS_SPECIAL, elapse_value
 
 
 BRANCH_NONE = 0
@@ -253,9 +253,16 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 		# how often the aligner actually had an opinion, and how often it overturned the model. Both
 		# are the numbers that say whether level 3 did anything, so they are counted rather than
 		# asserted -- an adjudicator that silently abstains everywhere looks identical to none.
-		adjudicated=0, abstained=0, overturned=0, forced_elapse=0, scored_only=0)
+		adjudicated=0, abstained=0, overturned=0, forced_elapse=0, scored_only=0,
+		# summed over (position, beam): how much of the vocabulary the automaton ruled out. 0 on a
+		# run that never opened a mid-run branch, which is why it is counted rather than assumed.
+		grammar_masked=0)
 	forced = False
 	ban_first = tuple(ban_first or ())
+	# (token id, tick value) for every elapse token in the vocabulary, so the grammar mask below can
+	# be applied without re-parsing token strings at each step.
+	elapse_table = [(tid, v) for tid, tok in enumerate(tokens)
+		if (v := elapse_value(tok)) is not None]
 
 	while live and len(live[0].ids) < max_new:
 		first = not live[0].ids		# every live beam has the same length, so one test covers all
@@ -281,8 +288,23 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 				rep['branch_points'] += 1
 				widened_here = True
 				rep['kinds'][BRANCH_NAMES[kind]] = rep['kinds'].get(BRANCH_NAMES[kind], 0) + 1
+			# GRAMMAR MASK. An elapse run is `[E1000]* [Exxx]? [Ex]?`, so at STAGE_MID only a LOW may
+			# follow and at STAGE_LOW nothing may. Enforced on the DISTRIBUTION rather than left to
+			# the branch kind, because `branch_kind` only decides whether extra candidates are
+			# enumerated -- the model's own top-k reaches the pool either way, and so did the
+			# adjudicator's forced elapse tokens. Unmasked, a --rank align run emitted `E160 E010` and
+			# `E1 E1 E1 E1 E1 E1`: 10 of 23 runs malformed, every one of them overriding a LEGAL model
+			# argmax at logprob ~-0.0000 with an illegal token at -5 to -21. The model is not the
+			# problem here -- an LM-ranked run of the same checkpoint emitted 0 of 17 malformed.
+			row_lp = logprobs[row]
+			banned = [tid for tid, value in elapse_table if not beam.state.grammar.admits(value)]
+			if banned:
+				row_lp = row_lp.clone()		# never in place: the other rows share this tensor
+				for tid in banned:
+					row_lp[tid] = float('-inf')
+				rep['grammar_masked'] += len(banned)
 			k = min(width, vocab)
-			top = logprobs[row].topk(k)
+			top = row_lp.topk(k)
 			if k > 1:
 				rep['widened'] += 1
 			cands = [(int(tid), lp)
@@ -295,9 +317,13 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 					and kind == BRANCH_ELAPSE):
 				seen = {tid for tid, _ in cands}
 				extra = 0
-				for tid in adjudicator.elapse_ids(beam, logprobs[row]):
+				for tid in adjudicator.elapse_ids(beam, row_lp):
 					tid = int(tid)
 					if tid in seen or not (0 <= tid < vocab):
+						continue
+					# The mask is not advice. An adjudicator proposes on rhythm evidence and has no
+					# view on the automaton, so without this a forced token walked straight past it.
+					if row_lp[tid].item() == float('-inf'):
 						continue
 					seen.add(tid)
 					cands.append((tid, float(logprobs[row][tid].item())))

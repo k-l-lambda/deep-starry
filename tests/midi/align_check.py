@@ -29,7 +29,7 @@ sys.path.insert(0, REPO_ROOT)
 
 from starry.midi.align import (BIG, STAGE_BIG, STAGE_MID, STAGE_LOW, Config, AlignState,
 	GrammarState, CLS_ELAPSE, CLS_KEYWORD, CLS_FIELD, CLS_SPECIAL,
-	anchor_from_votes, canonical_run, elapse_class, elapse_value, feasible_elapse_tokens,
+	anchor_from_votes, canonical_run, elapse_class, elapse_value, feasible_elapse_tokens, stage_admits,
 	reachable_range, soft_delta, soft_indices, token_class, walk_grammar)
 from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer
 
@@ -273,6 +273,13 @@ def check_elapse_after_keyword ():
 		(['E010'], True, 'inside run'),
 		(['<eom>'], True, 'after <eom>'),
 		(['<sep>'], True, 'after <sep>'),
+		# the run automaton, which elapse_allowed used to ignore entirely
+		(['E1000'], True, 'after BIG (MID or LOW may still come)'),
+		(['E1000', 'E1000'], True, 'after BIG BIG'),
+		(['E010'], True, 'after MID (a LOW may still come)'),
+		(['E5'], False, 'after LOW -- the run is CLOSED'),
+		(['E010', 'E5'], False, 'after MID LOW'),
+		(['E1000', 'E010', 'E5'], False, 'after a complete BIG MID LOW'),
 	]
 	ok = True
 	for toks, want, label in cases:
@@ -280,8 +287,67 @@ def check_elapse_after_keyword ():
 		if state.elapse_allowed != want:
 			ok = False
 			print(f'  FAIL elapse_allowed {label}: got {state.elapse_allowed}, want {want}')
-	print(f'{"ok  " if ok else "FAIL"} elapse legality by previous token class '
-		f'(banned only after a keyword)')
+	print(f'{"ok  " if ok else "FAIL"} elapse legality by previous token class and run stage '
+		f'(banned after a keyword, and after a run has closed)')
+	return ok
+
+
+def check_stage_admits ():
+	'''`[E1000]* [Exxx]? [Ex]?`, as a table over (stage, class). The rule the decoder mask enforces.'''
+	want = {
+		(STAGE_BIG, STAGE_BIG): True,  (STAGE_BIG, STAGE_MID): True,  (STAGE_BIG, STAGE_LOW): True,
+		(STAGE_MID, STAGE_BIG): False, (STAGE_MID, STAGE_MID): False, (STAGE_MID, STAGE_LOW): True,
+		(STAGE_LOW, STAGE_BIG): False, (STAGE_LOW, STAGE_MID): False, (STAGE_LOW, STAGE_LOW): False,
+	}
+	ok = True
+	for (stage, cls), w in want.items():
+		got = stage_admits(stage, cls)
+		if got != w:
+			ok = False
+			print(f'  FAIL stage_admits({stage}, {cls}): got {got}, want {w}')
+	if stage_admits(STAGE_BIG, None):
+		ok = False
+		print('  FAIL stage_admits admits an off-automaton class')
+	print(f'{"ok  " if ok else "FAIL"} stage_admits is the automaton: BIG admits all three, '
+		f'MID only LOW, LOW nothing')
+	return ok
+
+
+def check_illegal_runs_rejected ():
+	'''GrammarState.admits must reject every malformed run, and feed must never rewind the stage.
+
+	The second half is the sharper one: assigning the incoming token's class outright let `E140 E1000`
+	walk MID -> BIG and `E5 E140` walk LOW -> MID, REOPENING a closed run so that the token after the
+	illegal one looked legal again. A malformed stream must stay malformed.
+	'''
+	tk = Midiseq2Tokenizer()
+	kw = keyword_tokens(tk)
+	cases = [
+		(['E1000', 'E1000', 'E140', 'E5'], None, 'BIG BIG MID LOW is canonical'),
+		(['E140', 'E030'], 'E030', 'two MIDs'),
+		(['E5', 'E3'], 'E3', 'two LOWs'),
+		(['E140', 'E5', 'E2'], 'E2', 'MID LOW LOW'),
+		(['E5', 'E140'], 'E140', 'a MID after the run closed'),
+		(['E140', 'E1000'], 'E1000', 'a BIG after a MID'),
+		(['E1000', 'E5', 'E1000'], 'E1000', 'a BIG after the run closed'),
+	]
+	ok = True
+	for toks, want_bad, label in cases:
+		state = GrammarState()
+		first_bad = None
+		for tok in toks:
+			if first_bad is None and not state.admits(elapse_value(tok)):
+				first_bad = tok
+			state.feed(tok, kw)
+		if first_bad != want_bad:
+			ok = False
+			print(f'  FAIL {label}: first rejected {first_bad!r}, want {want_bad!r}')
+		# whatever happened, an illegal run must have CLOSED rather than reopened
+		if want_bad is not None and state.stage != STAGE_LOW:
+			ok = False
+			print(f'  FAIL {label}: stage rewound to {state.stage}, want STAGE_LOW')
+	print(f'{"ok  " if ok else "FAIL"} malformed elapse runs are rejected and never rewind the '
+		f'stage ({len(cases)} cases)')
 	return ok
 
 
@@ -666,6 +732,8 @@ def main ():
 		check_empty_interval_falls_back(),
 		check_grammar_state_classes(),
 		check_elapse_after_keyword(),
+		check_stage_admits(),
+		check_illegal_runs_rejected(),
 		check_grammar_walk_incremental(args.root, args.samples),
 		check_soft_index(),
 		check_anchor_vote(),

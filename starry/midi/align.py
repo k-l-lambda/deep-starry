@@ -163,6 +163,30 @@ def elapse_class (value):
 	return None
 
 
+def stage_admits (stage, cls):
+	'''May an elapse token of class `cls` follow a run at `stage`? PURE GRAMMAR -- no target interval.
+
+	The automaton above written as a predicate:
+
+	  STAGE_BIG  BIG, MID or LOW may follow      (BIG^n, then at most one MID and one LOW)
+	  STAGE_MID  only LOW                        (one MID per run, and no BIG after it)
+	  STAGE_LOW  nothing                         (the run is closed)
+
+	This is the half of `feasible_elapse_tokens` that needs NO alignment evidence, and it is separated
+	out because it must hold on every run, including one with no adjudicator: `[E1000]* [Exxx]? [Ex]?`
+	is the grammar, so `E160 E010` is malformed whatever the rhythm argues. Keeping it here rather
+	than re-deriving it at the two call sites is what stops the decoder mask and the feasibility mask
+	from disagreeing about what the automaton says.
+	'''
+	if cls is None:
+		return False
+	if stage == STAGE_LOW:
+		return False
+	if stage == STAGE_MID:
+		return cls == STAGE_LOW
+	return True
+
+
 def reachable_range (run_delta, stage):
 	'''Totals still reachable from an in-run state, as (lo, hi) with hi None meaning unbounded.
 
@@ -318,13 +342,38 @@ class GrammarState:
 
 	@property
 	def elapse_allowed (self):
-		'''May an elapse token appear at this position?
+		'''May ANY elapse token appear at this position?
 
-		No directly after a keyword (`note_on E10` is malformed — the event owes an argument). Yes at
-		a boundary, inside an open run, and after a field: `note_on #3b` may legitimately continue
-		with `$22` OR end there and start a delta, and only the model can say which.
+		Two rules, and it used to enforce only the first:
+
+		  - Not directly after a keyword (`note_on E10` is malformed — the event owes an argument).
+		    Yes at a boundary and after a field: `note_on #3b` may legitimately continue with `$22`
+		    OR end there and start a delta, and only the model can say which.
+		  - Not after a run has closed. A run is `[E1000]* [Exxx]? [Ex]?`, so once a LOW is emitted
+		    nothing may follow; at STAGE_MID only a LOW may. Ignoring the stage let the decoder emit
+		    `E160 E010` and `E1 E1 E1 E1 E1 E1` -- MEASURED at 10 of 23 runs on a --rank align dump,
+		    while the model's own top choice at those positions was a LEGAL token at logprob ~-0.0000.
+
+		`admits` is the per-token form and is what a mask needs; this stays a boolean because callers
+		use it to decide whether an elapse BRANCH exists at all.
 		'''
-		return self.prev_class != CLS_KEYWORD
+		if self.prev_class == CLS_KEYWORD:
+			return False
+		return self.stage != STAGE_LOW if self.in_run else True
+
+	def admits (self, value):
+		'''May the elapse token with tick `value` follow here? The mask's per-token predicate.
+
+		Outside an open run every class is admissible (a fresh run starts at STAGE_BIG); inside one,
+		`stage_admits` decides. An off-automaton value is never admissible -- it has no canonical
+		prefix, so no legal run contains it.
+		'''
+		if self.prev_class == CLS_KEYWORD:
+			return False
+		cls = elapse_class(value)
+		if cls is None:
+			return False
+		return stage_admits(self.stage, cls) if self.in_run else True
 
 	def feed (self, tok, keywords):
 		'''Commit one token string, advancing the state. Returns its class.'''
@@ -338,8 +387,15 @@ class GrammarState:
 			self.run_delta += value
 			# An off-automaton value (not in the vocab's three classes) would leave `stage` alone;
 			# clamp to STAGE_LOW so the run closes rather than accepting further tokens on a state
-			# no canonical prefix can produce.
-			self.stage = cls_slot if cls_slot is not None else STAGE_LOW
+			# no canonical prefix can produce. A token the stage does not admit gets the same
+			# treatment: assigning its class outright let `E140 E1000` walk MID -> BIG and `E5 E140`
+			# LOW -> MID, REOPENING a closed run so the next illegal token looked legal. feed accepts
+			# whatever it is given (it must be able to walk a malformed stream, e.g. to report on one),
+			# but it may only ever move the stage FORWARD.
+			if cls_slot is None or not stage_admits(self.stage, cls_slot):
+				self.stage = STAGE_LOW
+			else:
+				self.stage = cls_slot
 			self.prev_class = cls
 			self.open_keyword = None
 			return cls

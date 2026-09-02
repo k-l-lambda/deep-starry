@@ -29,7 +29,8 @@ import torch.nn.functional as F
 from starry.midi.beam import (BranchState, Beam, beam_search, branch_profile, BRANCH_NONE,
 	BRANCH_ELAPSE, BRANCH_PITCH)
 from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer
-from starry.midi.align import soft_indices
+from starry.midi.align import (soft_indices, elapse_value, elapse_class, stage_admits,
+	STAGE_BIG)
 from translateMidiseq2 import keyword_tokens
 from translateMidiseq2Beam import AlignAdjudicator, BeamTranslator, LineageTracker
 
@@ -679,6 +680,64 @@ def check_adjudicator (tk, keywords):
 	check('score-only actually SCORED (the branch fired rather than the aligner abstaining)',
 		so_rep.get('scored_only', 0) > 0,
 		f"scored_only {so_rep.get('scored_only')} positions (adjudicated run: {al_rep.get('adjudicated')})")
+
+	# GRAMMAR MASK. `[E1000]* [Exxx]? [Ex]?` -- the automaton must hold even when the model puts all
+	# its mass on a malformed continuation, because the thing being defended against is exactly that.
+	# Measured before the mask: a --rank align run emitted 10 malformed runs of 23, among them
+	# `E160 E010` and `E1 E1 E1 E1 E1 E1`, each overriding a LEGAL model argmax at logprob ~-0.0000.
+	def run_greedy_illegal (want_second):
+		'''A model that wants `E140` then `want_second`. Returns the tokens actually emitted.'''
+		mid, second = i['E140'], i[want_second]
+		plan = {
+			tk.bos_id: {mid: 8.0},
+			mid: {second: 8.0},				# the illegal (or legal) continuation, near-certain
+			second: {tk.eos_id: 8.0},
+		}
+		tr = make_translator(tk, StubModel(tk.vocab_size, plan, i['note_on'], tk.eos_id),
+			beam_size=4, branch_k=4, length_alpha=0.0)
+		prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id]
+		out, _ = tr.generate(prefix, list(range(len(prefix))), 0.0, 0, 1.0, n_source=2)
+		return [tk.tokens[t] for t in out]
+
+	legal = run_greedy_illegal('E5')			# MID then LOW -- canonical
+	illegal = run_greedy_illegal('E030')		# MID then MID -- must not survive the mask
+	check('a legal MID LOW run is untouched by the grammar mask',
+		legal[:2] == ['E140', 'E5'], f'emitted {legal[:3]}')
+	check('the grammar mask blocks a second MID even when the model is certain of it',
+		illegal[:2] != ['E140', 'E030'] and 'E030' not in illegal,
+		f'model wanted E140 E030 at logit 8.0, emitted {illegal[:3]}')
+
+	# And the automaton is enforced over the WHOLE output of the adjudicated run, which is where the
+	# malformed runs actually came from: the aligner proposes on rhythm evidence and has no view on
+	# the grammar, so an unmasked forced token walked straight into the pool.
+	def malformed_runs (toks):
+		runs, cur = [], []
+		for t in toks:
+			if elapse_value(t) is not None:
+				cur.append(t)
+			else:
+				if cur:
+					runs.append(cur)
+				cur = []
+		if cur:
+			runs.append(cur)
+		bad = []
+		for r in runs:
+			stage = STAGE_BIG
+			for t in r:
+				cls = elapse_class(elapse_value(t))
+				if cls is None or not stage_admits(stage, cls):
+					bad.append(' '.join(r))
+					break
+				stage = cls
+		return runs, bad
+	al_runs, al_bad = malformed_runs(al_out)
+	check('the adjudicated run emits no malformed elapse run',
+		not al_bad, f'{len(al_runs)} elapse run(s), {len(al_bad)} malformed'
+		+ (f': {al_bad[:2]}' if al_bad else ''))
+	check('the mask reports how much it blocked',
+		al_rep.get('grammar_masked', 0) > 0,
+		f"grammar_masked {al_rep.get('grammar_masked')} (token, beam) pairs")
 
 	check('the adjudicated run overturns the LM-only run',
 		lm_out != al_out and lm_out[0] == 'note_off' and al_out[0].startswith('E'),
