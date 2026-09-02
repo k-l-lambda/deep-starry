@@ -707,6 +707,38 @@ def check_adjudicator (tk, keywords):
 		illegal[:2] != ['E140', 'E030'] and 'E030' not in illegal,
 		f'model wanted E140 E030 at logit 8.0, emitted {illegal[:3]}')
 
+	# A BARE digit after an elapse token is the other malformed shape that reached the output
+	# (`E1a0 5 5 #53`): a digit belonging to no event. Same test shape -- the model is made certain of
+	# it, and must still not be able to emit it.
+	def run_after_elapse (second):
+		plan = {tk.bos_id: {i['E140']: 8.0}, i['E140']: {i[second]: 8.0},
+			i[second]: {tk.eos_id: 8.0}}
+		tr = make_translator(tk, StubModel(tk.vocab_size, plan, i['note_on'], tk.eos_id),
+			beam_size=4, branch_k=4, length_alpha=0.0)
+		prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id]
+		out, _ = tr.generate(prefix, list(range(len(prefix))), 0.0, 0, 1.0, n_source=2)
+		return [tk.tokens[t] for t in out]
+
+	for tok, label in (('5', 'a bare digit'), ('#4c', 'an orphan #pitch'), ('C4', 'an orphan channel')):
+		got = run_after_elapse(tok)
+		check(f'the grammar mask blocks {label} directly after an elapse token',
+			tok not in got, f'model wanted E140 {tok} at logit 8.0, emitted {got[:3]}')
+	kept = run_after_elapse('note_off')
+	check('a keyword after an elapse token is untouched',
+		kept[:2] == ['E140', 'note_off'], f'emitted {kept[:3]}')
+
+	# The bare-digit rule is a PREDECESSOR rule, not a ban: where a digit is the argument of the
+	# keyword that owes one, it must still be reachable.
+	plan_arg = {tk.bos_id: {i['set_tempo']: 8.0}, i['set_tempo']: {i['7']: 8.0},
+		i['7']: {i['a']: 8.0}, i['a']: {tk.eos_id: 8.0}}
+	tr_arg = make_translator(tk, StubModel(tk.vocab_size, plan_arg, i['note_on'], tk.eos_id),
+		beam_size=4, branch_k=4, length_alpha=0.0)
+	pre = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id]
+	arg_out, _ = tr_arg.generate(pre, list(range(len(pre))), 0.0, 0, 1.0, n_source=2)
+	arg_toks = [tk.tokens[t] for t in arg_out]
+	check('a digit that IS an argument is still reachable (set_tempo 7 a)',
+		arg_toks[:3] == ['set_tempo', '7', 'a'], f'emitted {arg_toks[:4]}')
+
 	# And the automaton is enforced over the WHOLE output of the adjudicated run, which is where the
 	# malformed runs actually came from: the aligner proposes on rhythm evidence and has no view on
 	# the grammar, so an unmasked forced token walked straight into the pool.

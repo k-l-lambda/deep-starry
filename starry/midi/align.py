@@ -282,6 +282,15 @@ CLS_ELAPSE = 'elapse'
 CLS_KEYWORD = 'keyword'
 CLS_FIELD = 'field'
 CLS_SPECIAL = 'special'
+# A BARE hex digit (or `_`), which is an argument DIGIT rather than a typed field: `set_tempo 7 a 1 2
+# 0`, `ticks_per_beat 1 e 0`. Split out of CLS_FIELD because its legal predecessors are a strictly
+# smaller set than a typed field's -- see `bare_allowed`.
+CLS_BARE = 'bare'
+# The channel token `C1`..`Cf`. Also split out, because it is the one non-keyword that a bare digit
+# may follow (`pitchwheel C4 2 0 0 0`), MEASURED at 849 of 8936 bare tokens.
+CLS_CHANNEL = 'channel'
+
+_BARE_CHARS = frozenset('0123456789abcdef_')
 
 
 def token_class (tok, keywords):
@@ -292,7 +301,27 @@ def token_class (tok, keywords):
 		return CLS_ELAPSE
 	if tok in keywords:
 		return CLS_KEYWORD
+	if len(tok) == 1 and tok in _BARE_CHARS:
+		return CLS_BARE
+	if len(tok) == 2 and tok[0] == 'C' and tok[1] in _BARE_CHARS and tok[1] != '_':
+		return CLS_CHANNEL
 	return CLS_FIELD
+
+
+# What may legally FOLLOW an elapse token. A positive allowlist, not a ban list, because the evidence
+# is exhaustive in that direction: over 1,316,346 elapse-to-next transitions in the 507-file corpus,
+# the successor was a KEYWORD (68.7%) or another ELAPSE (31.3%) and NOTHING else -- no bare digit, no
+# #pitch, no $vel, no channel. Those would each be an argument with no event to belong to (`E140 #4c`,
+# `E140 C4`). CLS_SPECIAL is admitted on structural grounds rather than corpus evidence: these source
+# files carry no @measure, so <eom> never appears in them, but <eom>/<eos> close a measure or the
+# piece and time may certainly have passed first (the model's own argmax after an elapse run was
+# <eom> at one measured position).
+ELAPSE_SUCCESSORS = frozenset({CLS_ELAPSE, CLS_KEYWORD, CLS_SPECIAL})
+
+# What a BARE digit may follow: a keyword whose argument it is (`set_tempo 7`), another digit in the
+# same argument (`7 a 1 2 0`), or a channel token (`pitchwheel C4 2`). MEASURED over 8936 bare tokens:
+# BARE 6357, KEYWORD 1730, CHANNEL 849, everything else 0.
+BARE_PREDECESSORS = frozenset({CLS_BARE, CLS_KEYWORD, CLS_CHANNEL})
 
 
 class GrammarState:
@@ -374,6 +403,40 @@ class GrammarState:
 		if cls is None:
 			return False
 		return stage_admits(self.stage, cls) if self.in_run else True
+
+	@property
+	def bare_allowed (self):
+		'''May a BARE hex digit appear here?
+
+		Only as the argument of something that takes one: right after its keyword (`set_tempo 7`),
+		continuing an argument already started (`7 a 1 2 0`), or after a channel (`pitchwheel C4 2`).
+		Never after an elapse token, which is the case that reached the output as `E1a0 5 5 #53` --
+		a digit there belongs to no event at all.
+		'''
+		return self.prev_class in BARE_PREDECESSORS
+
+	def admits_class (self, cls, value=None):
+		'''May a token of class `cls` follow here? The general per-token gate the decoder mask uses.
+
+		Three rules, in the order they bind:
+
+		  - After an ELAPSE token only `ELAPSE_SUCCESSORS` may come. A run is time, and the only
+		    things that may follow time are more time, the event that time was leading to, or the end
+		    of the measure.
+		  - An ELAPSE token additionally answers to the run automaton, via `admits`.
+		  - A BARE digit answers to `bare_allowed`.
+
+		Anything not named by a rule is admitted: the mask exists to remove what the grammar forbids,
+		not to whitelist a generation policy, and a position this class cannot decide belongs to the
+		model.
+		'''
+		if self.in_run and cls not in ELAPSE_SUCCESSORS:
+			return False
+		if cls == CLS_ELAPSE:
+			return self.admits(value)
+		if cls == CLS_BARE:
+			return self.bare_allowed
+		return True
 
 	def feed (self, tok, keywords):
 		'''Commit one token string, advancing the state. Returns its class.'''

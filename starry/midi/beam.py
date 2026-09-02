@@ -42,7 +42,8 @@ correct the distribution would be circular AND would fail where it matters.
 import itertools
 import math
 
-from .align import GrammarState, CLS_ELAPSE, CLS_KEYWORD, CLS_SPECIAL, elapse_value
+from .align import (GrammarState, CLS_ELAPSE, CLS_KEYWORD, CLS_SPECIAL, CLS_BARE, elapse_value,
+	token_class)
 
 
 BRANCH_NONE = 0
@@ -259,10 +260,18 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 		grammar_masked=0)
 	forced = False
 	ban_first = tuple(ban_first or ())
-	# (token id, tick value) for every elapse token in the vocabulary, so the grammar mask below can
-	# be applied without re-parsing token strings at each step.
-	elapse_table = [(tid, v) for tid, tok in enumerate(tokens)
-		if (v := elapse_value(tok)) is not None]
+	# The vocabulary indexed the way the grammar mask below needs it: ids grouped by token class, and
+	# for elapse tokens their tick values too (the automaton is per-value, not per-class). Built once
+	# -- re-deriving the class of 582 tokens at every position of every beam is the same answer every
+	# time, and the mask has to be cheap enough that nobody is tempted to make it optional.
+	class_ids = {}
+	elapse_table = []
+	for tid, tok in enumerate(tokens):
+		cls = token_class(tok, keywords)
+		class_ids.setdefault(cls, []).append(tid)
+		value = elapse_value(tok)
+		if value is not None:
+			elapse_table.append((tid, value))
 
 	while live and len(live[0].ids) < max_new:
 		first = not live[0].ids		# every live beam has the same length, so one test covers all
@@ -296,8 +305,19 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 			# `E1 E1 E1 E1 E1 E1`: 10 of 23 runs malformed, every one of them overriding a LEGAL model
 			# argmax at logprob ~-0.0000 with an illegal token at -5 to -21. The model is not the
 			# problem here -- an LM-ranked run of the same checkpoint emitted 0 of 17 malformed.
+			# A digit is masked for a SECOND reason: `[0-9a-f_]` is an argument digit, legal only after
+			# the keyword whose argument it is, another digit of the same argument, or a channel
+			# (`set_tempo 7 a 1 2 0`, `pitchwheel C4 2`). MEASURED over 8936 bare tokens in the corpus:
+			# 6357 after a digit, 1730 after a keyword, 849 after a channel, 0 anywhere else. Unmasked
+			# it reached the output as `E1a0 5 5 #53` -- digits belonging to no event.
 			row_lp = logprobs[row]
-			banned = [tid for tid, value in elapse_table if not beam.state.grammar.admits(value)]
+			grammar = beam.state.grammar
+			banned = [tid for tid, value in elapse_table if not grammar.admits(value)]
+			for cls, ids in class_ids.items():
+				if cls == CLS_ELAPSE:
+					continue		# per-value, handled by the automaton above
+				if not grammar.admits_class(cls):
+					banned.extend(ids)
 			if banned:
 				row_lp = row_lp.clone()		# never in place: the other rows share this tensor
 				for tid in banned:

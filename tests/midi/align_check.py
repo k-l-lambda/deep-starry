@@ -28,7 +28,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 sys.path.insert(0, REPO_ROOT)
 
 from starry.midi.align import (BIG, STAGE_BIG, STAGE_MID, STAGE_LOW, Config, AlignState,
-	GrammarState, CLS_ELAPSE, CLS_KEYWORD, CLS_FIELD, CLS_SPECIAL,
+	GrammarState, CLS_ELAPSE, CLS_KEYWORD, CLS_FIELD, CLS_SPECIAL, CLS_BARE, CLS_CHANNEL,
 	anchor_from_votes, canonical_run, elapse_class, elapse_value, feasible_elapse_tokens, stage_admits,
 	reachable_range, soft_delta, soft_indices, token_class, walk_grammar)
 from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer
@@ -358,13 +358,78 @@ def check_grammar_state_classes ():
 	counts = {}
 	for tok in tk.tokens:
 		counts[token_class(tok, kw)] = counts.get(token_class(tok, kw), 0) + 1
+	# The partition, pinned exactly: 271 elapse + 16 keyword + 8 special + 17 bare + 15 channel
+	# + 255 field (127 #pitch, 127 $vel, one `-`) = 582. Pinned rather than described because
+	# splitting CLS_FIELD is what makes the bare-digit rule expressible, and a token drifting between
+	# CLS_BARE and CLS_FIELD would silently widen or narrow that rule.
 	ok = (counts.get(CLS_ELAPSE) == 271 and counts.get(CLS_KEYWORD) == 16
-		and counts.get(CLS_SPECIAL) == 8)
+		and counts.get(CLS_SPECIAL) == 8 and counts.get(CLS_BARE) == 17
+		and counts.get(CLS_CHANNEL) == 15 and counts.get(CLS_FIELD) == 255
+		and sum(counts.values()) == len(tk.tokens))
 	if not ok:
 		print(f'  FAIL classes: {counts}')
 	print(f'{"ok  " if ok else "FAIL"} token_class over vocab: {counts.get(CLS_ELAPSE)} elapse, '
 		f'{counts.get(CLS_KEYWORD)} keyword, {counts.get(CLS_SPECIAL)} special, '
-		f'{counts.get(CLS_FIELD)} field')
+		f'{counts.get(CLS_BARE)} bare, {counts.get(CLS_CHANNEL)} channel, '
+		f'{counts.get(CLS_FIELD)} field = {sum(counts.values())}')
+	return ok
+
+
+def check_elapse_successors ():
+	'''Only more time, the event the time led to, or the end of a measure may follow an elapse token.
+
+	The allowlist is corpus-exhaustive in that direction: 1,316,346 elapse-to-next transitions across
+	507 files, successors KEYWORD (68.7%) and ELAPSE (31.3%) and nothing else. A #pitch, $vel, channel
+	or bare digit there is an argument with no event to belong to -- `E1a0 5 5 #53` is what actually
+	reached the output before this was enforced.
+	'''
+	tk = Midiseq2Tokenizer()
+	kw = keyword_tokens(tk)
+	state = walk_grammar(['E140'], kw)
+	want = {CLS_ELAPSE: True, CLS_KEYWORD: True, CLS_SPECIAL: True,
+		CLS_BARE: False, CLS_FIELD: False, CLS_CHANNEL: False}
+	ok = True
+	for cls, w in want.items():
+		got = state.admits_class(cls, 0x5 if cls == CLS_ELAPSE else None)
+		if got != w:
+			ok = False
+			print(f'  FAIL after an elapse token, admits_class({cls}): got {got}, want {w}')
+	# and NOT in a run, a field is fine again (`note_on #4c` -> `$50`)
+	if not walk_grammar(['note_on', '#4c'], kw).admits_class(CLS_FIELD):
+		ok = False
+		print('  FAIL a field is refused outside a run')
+	print(f'{"ok  " if ok else "FAIL"} only elapse/keyword/special may follow an elapse token '
+		f'(no orphan argument)')
+	return ok
+
+
+def check_bare_predecessors ():
+	'''A bare hex digit is an argument digit: legal only after a keyword, another digit, or a channel.
+
+	MEASURED over 8936 bare tokens in the 507-file corpus: 6357 after a digit, 1730 after a keyword,
+	849 after a channel (`pitchwheel C4 2 0 0 0`), 0 after anything else.
+	'''
+	tk = Midiseq2Tokenizer()
+	kw = keyword_tokens(tk)
+	cases = [
+		(['set_tempo'], True, 'after its keyword'),
+		(['set_tempo', '7'], True, 'after another digit'),
+		(['set_tempo', '7', 'a', '1'], True, 'deep in an argument'),
+		(['pitchwheel', 'C4'], True, 'after a channel'),
+		(['E140'], False, 'after an elapse token'),
+		(['E1000', 'E140', 'E5'], False, 'after a complete elapse run'),
+		(['note_on', '#4c'], False, 'after a #pitch'),
+		(['note_on', '#4c', '$50'], False, 'after a $vel'),
+	]
+	ok = True
+	for toks, w, label in cases:
+		state = walk_grammar(toks, kw)
+		got = state.admits_class(CLS_BARE)
+		if got != w:
+			ok = False
+			print(f'  FAIL bare {label}: got {got}, want {w}')
+	print(f'{"ok  " if ok else "FAIL"} a bare digit follows only a keyword, a digit or a channel '
+		f'({len(cases)} cases)')
 	return ok
 
 
@@ -734,6 +799,8 @@ def main ():
 		check_elapse_after_keyword(),
 		check_stage_admits(),
 		check_illegal_runs_rejected(),
+		check_elapse_successors(),
+		check_bare_predecessors(),
 		check_grammar_walk_incremental(args.root, args.samples),
 		check_soft_index(),
 		check_anchor_vote(),
