@@ -88,11 +88,17 @@ separation, dE 11.5 / 10.8 OKLab x100, so it survives the common dichromacies).
 					<select id="window"></select>
 				</label>
 				<label class="hint"><input type="checkbox" id="onlyBranch"> only branching positions</label>
-				<label class="hint"><input type="checkbox" id="showCut" checked> show cut candidates</label>
+				<label class="hint">cut candidates
+					<select id="showCut">
+						<option value="focus" selected>under the path &amp; selection</option>
+						<option value="all">all</option>
+						<option value="none">none</option>
+					</select></label>
 				<span class="legend">
 					<span><i style="background:var(--match)"></i>kept, on winning path</span>
 					<span><i style="background:#8899aa"></i>kept, off path</span>
-					<span><i style="background:#fff;border:1px solid var(--mute)"></i>cut</span>
+					<span><i style="background:#fff;border:1px solid var(--mute)"></i>cut (only under a green
+						node or the selection, unless the control above says otherwise)</span>
 				</span>
 			</div>
 			<div class="scroll"><svg id="tree"></svg></div>
@@ -293,13 +299,26 @@ function renderTree () {
 	const svg = document.getElementById('tree');
 	svg.innerHTML = '';
 	const positions = visiblePositions();
-	const showCut = document.getElementById('showCut').checked;
+	const cutMode = document.getElementById('showCut').value;
 	const path = winningPath();
 	const onPath = new Set(path.map(c => c.uid));
 
-	const COLW = 74, ROWH = 19, PADL = 52, PADT = 26, PADB = 14;
-	const maxRows = Math.max(1, ...positions.map(p =>
-		showCut ? p.candidates.length : p.candidates.filter(c => c.kept).length));
+	/* Which CUT candidates to draw. A full tree is ~5k nodes over 200 positions, so drawing every cut
+	   sibling buries the thing the tree is for: what the search chose over what. 'focus' keeps a cut
+	   node only where its parent is the branch point you are actually reading -- a node on the winning
+	   path, or the current selection. Kept nodes are never filtered: they ARE the search's state, and
+	   hiding one would break the edge from its children to a parent that is no longer drawn. */
+	const visible = c => {
+		if (c.kept) return true;
+		if (cutMode === 'all') return true;
+		if (cutMode === 'none') return false;
+		// A cut node has uid null, so it is addressed by its parent -- which is always a kept node.
+		return onPath.has(c.parent) || (SEL !== null && SEL.uid !== null && c.parent === SEL.uid);
+	};
+	let hidden = 0;
+
+	const COLW = 74, ROWH = 19, PADL = 52, PADT = 26, PADB = 18;   // PADB leaves room for the hidden-count line
+	const maxRows = Math.max(1, ...positions.map(p => p.candidates.filter(visible).length));
 	const W = PADL + Math.max(1, positions.length) * COLW + 20;
 	const H = PADT + maxRows * ROWH + PADB;
 	svg.setAttribute('width', W); svg.setAttribute('height', H);
@@ -313,7 +332,8 @@ function renderTree () {
 	// where each uid was drawn, so an edge can be joined to its parent
 	const at = new Map();
 	const cols = positions.map((pos, ci) => {
-		const rows = (showCut ? pos.candidates : pos.candidates.filter(c => c.kept));
+		const rows = pos.candidates.filter(visible);
+		hidden += pos.candidates.length - rows.length;
 		rows.forEach((c, ri) => {
 			const x = PADL + ci * COLW, y = PADT + ri * ROWH;
 			if (c.uid !== null) at.set(c.uid, { x, y, ci });
@@ -383,6 +403,12 @@ function renderTree () {
 		});
 	}
 	el('text', { x: 6, y: PADT + 9, 'font-size': 10, fill: C.mute }, svg).textContent = 'rank 0';
+	// Say so when nodes are filtered out: a tree that silently omits candidates reads as a tree whose
+	// search never expanded them, which is a different claim entirely.
+	if (hidden)
+		el('text', { x: PADL, y: H - 3, 'font-size': 10, fill: C.mute }, svg).textContent =
+			`${hidden} cut candidate${hidden === 1 ? '' : 's'} hidden`
+			+ (cutMode === 'focus' ? ' (not under the winning path or the selection)' : '');
 	if (!positions.length)
 		el('text', { x: PADL, y: PADT + 10, 'font-size': 12, fill: C.mute }, svg)
 			.textContent = 'no positions match the filter';
