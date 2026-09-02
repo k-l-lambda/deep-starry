@@ -781,6 +781,93 @@ def check_forecast_has_no_opinion_early ():
 	return ok
 
 
+def check_reuse_cost ():
+	'''A match must be able to be charged for RE-USING a source note, and chords must stay free.
+
+	The defect: `skip = max(0, index - pairs[-1][0] - 1)` charges only for jumping too far AHEAD, so
+	re-using a source note cost nothing. MEASURED on a fresh state with three notes folded in,
+	re-matching the same source note, advancing to the next, and going two back all returned
+	self_cost 0.0, skip 0, cost 0.0 -- three different musical claims priced identically.
+
+	Harmless while the PITCH was ranked by the language model, which carried the note forward on its
+	own distribution. Fatal once the pitch is adjudicated: re-use is then strictly the cheapest thing
+	available, and cheapest for a specific reason -- advancing to the right note CHANGES THE OFFSET,
+	which `self_cost = (bias * coeff)**2` charges, while standing on the same note keeps the offset
+	constant at self_cost 0.0. MEASURED on the first pitch-adjudicated run: 4 distinct source notes
+	matched 51 times (src 1 alone 29), one endless chord, 0 measures, against 19 distinct of 22 on the
+	score-only control.
+
+	RE-USE, not index order, and this is the load-bearing distinction. A chord's notes may be emitted
+	in any order, so a fresh source note arriving at a LOWER index than the last one is normal music:
+	MEASURED on the score-only winning path, 7 of its 8 non-advancing steps were within a chord (same
+	generated onset, distinct source notes). An index-order charge punishes those, and did -- the first
+	attempt made the run worse, sitting on src 3 for 45 of 51 notes at a charge of 0.25.
+
+	The DEFAULT must stay 0.0: how hard to charge is a ranking-policy choice, and a default that
+	silently repriced every existing run would make two dumps incomparable.
+	'''
+	# Two notes per onset, so a chord can be emitted in either order, and the pitches repeat so a
+	# re-use is always available as a candidate.
+	src = make_source(n=8, step=480, pitches=[60 + (i % 4) for i in range(8)])
+	for i, e in enumerate(src):
+		e['onset'] = (i // 2) * 480
+	for e, si in zip(src, soft_indices([x['onset'] for x in src])):
+		e['softIndex'] = si
+
+	def probe (cost):
+		saved = Config['ReuseCost']
+		Config['ReuseCost'] = cost
+		try:
+			st = AlignState(src)
+			for n in (0, 1, 2):
+				st.observe(src[n]['pitch'], src[n]['onset'], src[n]['softIndex'])
+			out = {}
+			# fresh note, forward
+			c = st.clone()
+			out['fresh'] = c.observe(src[3]['pitch'], src[3]['onset'], src[3]['softIndex'])
+			# re-use of the note just matched
+			c = st.clone()
+			out['reuse'] = c.observe(src[2]['pitch'], src[2]['onset'], src[2]['softIndex'])
+			# a SECOND re-use of the same note, which must cost more than the first
+			c = st.clone()
+			c.observe(src[2]['pitch'], src[2]['onset'], src[2]['softIndex'])
+			out['reuse2'] = c.observe(src[2]['pitch'], src[2]['onset'], src[2]['softIndex'])
+			return out
+		finally:
+			Config['ReuseCost'] = saved
+
+	default_off = Config['ReuseCost'] == 0.0
+	off = probe(0.0)
+	same = off['fresh']['cost'] == off['reuse']['cost']
+	on = probe(1.0)
+	charged = on['fresh']['reuse'] == 0 and on['reuse']['reuse'] == 1 and on['reuse2']['reuse'] == 2
+	ordered = on['fresh']['cost'] < on['reuse']['cost'] < on['reuse2']['cost']
+	bounded = on['reuse2']['cost'] < 2.0 / (1.0 - Config['CostStepAttenuation'])
+
+	# Chord reordering must be free: a fresh source note at a LOWER index than the last match, at the
+	# same generated onset, is the ordinary case and pays nothing for the ordering.
+	saved = Config['ReuseCost']
+	Config['ReuseCost'] = 1.0
+	try:
+		st = AlignState(src)
+		st.observe(src[0]['pitch'], src[0]['onset'], src[0]['softIndex'])
+		st.observe(src[3]['pitch'], src[3]['onset'], src[3]['softIndex'])	# jump ahead
+		c = st.clone()
+		back_fresh = c.observe(src[2]['pitch'], src[2]['onset'], src[2]['softIndex'])	# lower index
+	finally:
+		Config['ReuseCost'] = saved
+	chord_free = back_fresh['src'] == 2 and back_fresh['reuse'] == 0
+
+	ok = default_off and same and charged and ordered and bounded and chord_free
+	if not ok:
+		print(f'  FAIL reuse: default {Config["ReuseCost"]} off-equal {same} counted {charged} '
+			f'ordered {ordered} bounded {bounded} chord-free {chord_free}')
+	print(f'{"ok  " if ok else "FAIL"} reuse charge: default 0.0 keeps fresh and re-use equal; at 1.0 '
+		f'fresh {on["fresh"]["cost"]:.4f} < reuse {on["reuse"]["cost"]:.4f} < reuse-again '
+		f'{on["reuse2"]["cost"]:.4f}, and a fresh note out of index order (a chord) pays nothing')
+	return ok
+
+
 def main ():
 	ap = argparse.ArgumentParser()
 	ap.add_argument('--root', default=DEFAULT_ROOT)
@@ -811,6 +898,7 @@ def main ():
 		check_forecast_discriminates_ticks(),
 		check_forecast_charges_skipping(),
 		check_forecast_has_no_opinion_early(),
+		check_reuse_cost(),
 	]
 	failed = results.count(False)
 	print(f'\n{len(results) - failed}/{len(results)} checks passed')

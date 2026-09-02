@@ -53,7 +53,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import torch
 import torch.nn.functional as F
 
-from starry.midi.beam import BranchState, beam_search, BRANCH_NAMES
+from starry.midi.beam import (BranchState, beam_search, BRANCH_NAMES, BRANCH_ELAPSE, BRANCH_PITCH)
 from starry.midi.align import AlignState, Config, elapse_value, soft_delta, soft_indices
 
 # The greedy translator is the base, not a template: these are the same objects it uses.
@@ -73,7 +73,8 @@ class BeamMixin:
 	'''
 
 	def __init__ (self, *args, beam_size=1, branch_k=4, length_alpha=0.7, inspector=None,
-		position_cap=0, adjudicator=None, elapse_k=0, adjudicate=True, **kwargs):
+		position_cap=0, adjudicator=None, elapse_k=0, adjudicate=True, greedy_first=True,
+		align_from_first_elapse=True, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.beam_size = max(1, int(beam_size))
 		self.branch_k = max(1, int(branch_k))
@@ -87,6 +88,16 @@ class BeamMixin:
 		# so the two are separate decisions and only --rank align makes the second one.
 		self.adjudicate = adjudicate
 		self.elapse_k = max(0, int(elapse_k))
+		# Take the model's argmax at each window's first generated position and do not branch there.
+		# The aligner has no pairs at that position and abstains outright, so the extra slots go to
+		# continuations nothing can adjudicate: MEASURED at position 0 of the align dump, the argmax was
+		# `ticks_per_beat` at logprob -0.00000 and the other three slots went to tokens the model rated
+		# 16.77, 18.05 and 19.11 nats worse, all with loss None.
+		self.greedy_first = bool(greedy_first)
+		# Hold the aligner off until the piece has a note_on AND an elapse token after it. The second
+		# half is not cosmetic: until a tick advances, `_update_ratio` cannot form a ratio and every
+		# forecast is None, so the branches before it were being asked a question with no answer.
+		self.align_from_first_elapse = bool(align_from_first_elapse)
 		# --inspect N caps the tokens a window generates, not just the tokens recorded: generating
 		# 2000 and keeping 40 would spend the whole run to dump a fragment of its first window.
 		self.position_cap = max(0, int(position_cap))
@@ -180,7 +191,9 @@ class BeamMixin:
 			# <eos> logit of 13.16 against 7.71 for next-best is not something a finite penalty can be
 			# tuned against. `forced` must keep flowing back, because translate() keys its
 			# end-of-piece detection on it.
-			ban_first=(self.tk.eos_id,), rank=self.rank_fn(), report=self.beam_report)
+			ban_first=(self.tk.eos_id,), greedy_first=self.greedy_first,
+			align_from_first_elapse=self.align_from_first_elapse,
+			rank=self.rank_fn(), report=self.beam_report)
 		if self.inspector is not None:
 			# Which hypothesis won, taken from the search's own report rather than re-derived here, so
 			# the next window's alignment continues from the lineage the output actually took.
@@ -337,7 +350,14 @@ class LineageTracker:
 
 
 class AlignAdjudicator:
-	'''Lets the alignment, not the model's own distribution, order the candidates at an elapse point.
+	'''Lets the alignment, not the model's own distribution, order the candidates at a branch point.
+
+	BOTH branch kinds, and they are asymmetric. At an ELAPSE point nothing has been placed, so the
+	candidates are scored by forecast; at a PITCH point the tick is already settled and `observe`
+	applies directly, so they are scored by verdict. The elapse case came first and the rest of this
+	docstring is about it; the pitch case is in `_pitch_losses`, and the short version is that leaving
+	the pitch to the language model meant the note itself -- the one thing the alignment exists to
+	judge -- was the only decision the aligner never saw.
 
 	The defect this addresses, measured on the committed width-4 dump: of 554 elapse candidates, 0
 	carried an alignment verdict, because AlignState only observes a note_on and the pitch that would
@@ -361,7 +381,8 @@ class AlignAdjudicator:
 	  COVERAGE     not every candidate at an elapse point fixes an onset. note_off, a controller and a
 	               velocity produce no onset, so the aligner has genuinely nothing to say about them,
 	               and inventing a number would be worse than the honest gap. They inherit instead --
-	               see `losses`.
+	               see `_inherit`. This is the one hole a PITCH point does not have: every pitch
+	               candidate is measurable, misses included.
 
 	A note_on is scored as ELAPSE ZERO, which is the substance of treating this as one decision: at a
 	position where an elapse is legal, emitting a type token instead is a choice that the next event
@@ -392,6 +413,11 @@ class AlignAdjudicator:
 			if tok == 'note_on':
 				self.note_on_id = tid
 				break
+		# The `#XX` tokens, for the pitch branch. A pitch is the ONLY candidate class the alignment can
+		# judge directly -- `observe` needs a (pitch, tick) pair and the tick is already fixed by the
+		# elapse run behind it -- so this set is exactly the set that gets a measured loss there.
+		self.pitch_ids = {tid for tid, tok in enumerate(tokenizer.tokens)
+			if len(tok) > 1 and tok[0] == '#'}
 		# Tokens that END a stream rather than place an event in it. Excluded from the inheritance pass
 		# below; see the note there for the measurement that made this necessary.
 		self.terminator_ids = {tid for tid, tok in enumerate(tokenizer.tokens)
@@ -420,22 +446,37 @@ class AlignAdjudicator:
 			out.append(self.note_on_id)
 		return out
 
-	def losses (self, beam, cands):
+	def losses (self, beam, cands, kind=BRANCH_ELAPSE):
 		'''Align loss per candidate (lower better), or None where nothing could be inherited.
 
-		Two passes. The first forecasts every candidate that FIXES THE NEXT ONSET'S TICK: an elapse
-		token at `tick + value`, and a note_on at `tick` (elapse zero). The second fills in the rest
-		by inheriting along the language model's own ordering -- the nearest preceding scored
-		candidate's loss plus EPSILON, or, for the model's argmax which has nothing preceding it, the
-		nearest following one's loss minus EPSILON. The epsilon accumulates with distance in that
-		order, so a run of inheriting candidates keeps the model's ranking among themselves instead of
-		collapsing to one value.
+		Two passes, and the FIRST one is what `kind` selects -- the branch kind decides which quantity
+		is measurable at this position:
 
-		The inheritance is a placement rule, not a measurement, and it is the honest shape for one:
-		it says "this candidate is worth about what the rhythm choice next to it is worth, and the
-		model prefers/disprefers it by a hair", which is exactly as much as is known about a token the
-		aligner cannot see. Returning None for all of them instead would drop them behind every scored
-		candidate, which would ban note_off at any position where an elapse was also legal.
+		  BRANCH_ELAPSE  a FORECAST. Nothing has been placed yet, so each candidate is scored by the
+		                 tick it would fix: an elapse token at `tick + value`, a note_on at `tick`
+		                 (elapse zero). See `_elapse_losses`.
+		  BRANCH_PITCH   a VERDICT. The tick is already fixed by the elapse run behind this position,
+		                 so a pitch candidate is scored by actually placing the note -- which is the
+		                 alignment's native question, not a forecast of it. See `_pitch_losses`.
+
+		Both land in one whole-pool sort across beams (a position can have a pitch-branching beam and
+		an elapse-branching beam at once -- measured, pos 140 of the committed dump had exactly that),
+		which is sound because both are `AlignState.cost * CostStepAttenuation + <bounded term>`: one
+		recursion, one scale, one bound.
+
+		The SECOND pass is shared and fills in the rest by inheriting along the language model's own
+		ordering -- see `_inherit`.
+		'''
+		out = (self._pitch_losses(beam, cands) if kind == BRANCH_PITCH
+			else self._elapse_losses(beam, cands))
+		return self._inherit(cands, out)
+
+	def _elapse_losses (self, beam, cands):
+		'''Forecast pass: the tick each candidate would fix, scored against the source's next onsets.
+
+		COVERAGE is a real gap here and the honest shape for it is None: note_off, a controller and a
+		velocity produce no onset, so the aligner has genuinely nothing to say about them. They go to
+		`_inherit`.
 		'''
 		base = self.tracker.base(beam.uid)
 		align, tick = base['align'], base['tick']
@@ -446,6 +487,54 @@ class AlignAdjudicator:
 				out[i] = align.forecast(tick + delta)[0]
 			elif tid == self.note_on_id:
 				out[i] = align.forecast(tick)[0]			# elapse zero
+		return out
+
+	def _pitch_losses (self, beam, cands):
+		'''Verdict pass: place each candidate pitch on the already-fixed tick and take its cost.
+
+		This is the branch the search was missing. An elapse point had to be forecast because no note
+		exists yet, but by the time a pitch is being chosen the tick is settled and `observe` -- the
+		function the whole alignment is built around -- applies directly. Leaving it to the LM meant
+		the note itself, the one thing the alignment exists to judge, was the one decision it never
+		saw: MEASURED at pos 140 of the committed align dump, `#4a` had self_cost 4e-05 and cost
+		0.13734 (the best at that position, against 0.8099 for the best SCORED candidate) AND a better
+		logprob than the token that won, and was cut at rank 10 -- because `loss is None` is the first
+		sort key, so an unmeasured candidate is not neutral, it is last.
+
+		No EPSILON is needed for the misses. `observe` prices an unmatched note at
+		`cost * CostStepAttenuation + MissCost`, on the same recursion as a match, so a candidate with
+		no source counterpart sorts behind any decent match by construction rather than by a placement
+		rule -- which settles the question of what to do with the `src=None` pitches (pos 140 had three
+		of them at cost 1.13731 against the matched 0.13734).
+
+		`tracker.advance` ALWAYS clones the AlignState, so scoring a candidate that will be cut leaves
+		nothing behind. A pitch that somehow closes no event (a `#` under note_off, which cannot reach
+		here because BRANCH_PITCH_EVENTS is note_on only) yields None and inherits.
+		'''
+		base = self.tracker.base(beam.uid)
+		out = [None] * len(cands)
+		for i, (tid, _lp) in enumerate(cands):
+			if tid not in self.pitch_ids:
+				continue
+			_state, detail = self.tracker.advance(base, tid)
+			if detail is not None:
+				out[i] = detail['cost']
+		return out
+
+	def _inherit (self, cands, out):
+		'''Fill the unmeasured entries by inheriting along the model's own order, +/- EPSILON per rank.
+
+		The nearest preceding scored candidate's loss plus EPSILON, or, for the model's argmax which
+		has nothing preceding it, the nearest following one's loss minus EPSILON. The epsilon
+		accumulates with distance in that order, so a run of inheriting candidates keeps the model's
+		ranking among themselves instead of collapsing to one value.
+
+		This is a placement rule, not a measurement, and it is the honest shape for one: it says "this
+		candidate is worth about what the rhythm choice next to it is worth, and the model
+		prefers/disprefers it by a hair", which is exactly as much as is known about a token the
+		aligner cannot see. Returning None for all of them instead would drop them behind every scored
+		candidate, which would ban note_off at any position where an elapse was also legal.
+		'''
 		# A TERMINATOR never inherits. Inheriting is defensible for a token that stands in for a rhythm
 		# choice -- note_off at elapse zero postpones the decision two positions and comes back to it --
 		# but <eos>/<eom> end the stream and settle no onset, so anchoring one to a neighbour's rhythm
@@ -572,7 +661,13 @@ class BeamInspector:
 				align=None if detail is None else dict(
 					src=detail.get('src'), self_cost=_r(detail.get('self_cost')),
 					cost=_r(detail.get('cost')), offset=_r(detail.get('offset')),
-					skip=detail.get('skip'), pitch=detail.get('pitch'),
+					skip=detail.get('skip'),
+					# How many times this lineage had ALREADY paired this source note. Dumped because a
+					# degenerate run is invisible in every other figure -- a re-match reads as
+					# self_cost 0.0, skip 0, cost 0.0, i.e. as a PERFECT match, which is exactly how
+					# the first pitch-adjudicated run looked while it was emitting one endless chord
+					# over 4 distinct source notes.
+					reuse=detail.get('reuse'), pitch=detail.get('pitch'),
 					onset=detail.get('onset'), softIndex=_r(detail.get('softIndex'), 6),
 					src_onset=detail.get('src_onset'), src_pitch=detail.get('src_pitch'))))
 		self.window['positions'].append(dict(position=position, candidates=cands,
@@ -584,7 +679,8 @@ class BeamInspector:
 
 	def dump (self, path, meta):
 		meta = dict(meta, nodes=self.nodes, truncated=self.truncated,
-			windows=len(self.windows), simultaneous_ticks=Config['SIMULTANEOUS_TICKS'])
+			windows=len(self.windows), simultaneous_ticks=Config['SIMULTANEOUS_TICKS'],
+			reuse_cost=Config['ReuseCost'])
 		payload = dict(meta=meta, windows=self.windows,
 			source=[dict(onset=e['onset'], pitch=e['pitch'], softIndex=_r(e['softIndex'], 6))
 				for e in self.src_events])
@@ -645,6 +741,15 @@ def report_beam (report, steps):
 				f'ever established, so this run is the LM-only run')
 		print(f'[rank] {report.get("forced_elapse", 0)} elapse candidates were enumerated that the '
 			f"model's top-k did not contain")
+		# Reported separately from `abstained` on purpose: these are branches the aligner was never
+		# ASKED about, because the lineage had not yet reached its first note_on and an elapse token
+		# after it. A run that shows a large number here has spent its opening on the model alone --
+		# which is the intent, but it is the kind of intent that should be visible rather than inferred
+		# from a flat `adjudicated` count.
+		pre_align = report.get('pre_align', 0)
+		if pre_align:
+			print(f'[rank] {pre_align} branch points before the piece\'s first note_on and the elapse '
+				f'token after it were left to the model: no header opinion, and no tick ratio yet')
 
 
 def main ():
@@ -671,6 +776,33 @@ def main ():
 		help='with --rank align, how many elapse tokens are enumerated per branch point, taken as '
 			'the top-k AMONG elapse tokens rather than from the overall top-k (default 8). The '
 			"overall top-k routinely contains no elapse at all, which is why this is separate")
+	ap.add_argument('--branch-first', action='store_true',
+		help='branch at each window\'s FIRST generated position too. Off by default, i.e. that position '
+			'takes the model argmax: the aligner has no pairs there and abstains outright, so the extra '
+			'slots go to continuations nothing can adjudicate -- MEASURED at position 0, the argmax was '
+			'`ticks_per_beat` at logprob -0.00000 while the other three slots took tokens rated 16.77, '
+			'18.05 and 19.11 nats worse, every one with loss None. This flag restores the old behaviour '
+			'for ablation')
+	ap.add_argument('--align-from-first-token', action='store_true',
+		help='let the aligner rank from a window\'s first position instead of waiting for the piece\'s '
+			'first note_on AND the first elapse token after it. Off by default, for two reasons. Before '
+			'a note_on the file is still its header, and the alignment has no view on whether a header '
+			'gets written at all -- MEASURED, with ranking from position 0 the winning lineage descended '
+			'from `Eb40` at logprob -19.11, a token that skips the header entirely, and it scored well '
+			'only because compose_output substitutes the source header when the body carries none. And '
+			'before the first elapse the aligner cannot have a view at all: `_update_ratio` fits a slope '
+			'behind `if slope > 0`, so with every target tick still 0 no ratio forms and forecast returns '
+			'None -- MEASURED, all 47 elapse branches on the committed dump\'s winning chain abstained. '
+			'This flag restores the old behaviour for ablation')
+	ap.add_argument('--reuse-cost', type=float, default=None,
+		help='charge for a match that RE-USES a source note this lineage already paired, per prior '
+			'pairing (align.Config ReuseCost, default 0.0 = off, which is the historical behaviour). '
+			'`observe` charges `skip` only for jumping too far AHEAD, so re-using a note was free; '
+			'harmless while the pitch is ranked by the language model, an attractor once the pitch is '
+			'adjudicated, because re-use is then the cheapest thing on offer -- advancing changes the '
+			'offset and self_cost charges the drift, while standing still keeps it at 0. Deliberately '
+			'NOT an index-order charge: a chord may be emitted in any order, and 7 of 8 non-advancing '
+			'steps on the score-only path were exactly that')
 	ap.add_argument('--max-token', type=int, default=2048,
 		help='total-T ceiling; pass the training max_tokens (default 2048)')
 	ap.add_argument('--src-window', type=int, default=640,
@@ -698,6 +830,14 @@ def main ():
 	if args.threads:
 		torch.set_num_threads(args.threads)
 	torch.manual_seed(args.seed)
+
+	# Set BEFORE the tracker or any AlignState exists: Config is read per call inside observe, but
+	# setting it after a run has folded notes in would make one file's early notes priced differently
+	# from its late ones.
+	if args.reuse_cost is not None:
+		Config['ReuseCost'] = args.reuse_cost
+		print(f'[rank] reuse cost {args.reuse_cost} (a match is charged tanh(prior_pairings * this) '
+			f'for re-using a source note; a fresh note is free even out of index order)')
 
 	# Setup follows translateMidiseq2.main step for step, including the validations and the EncDec id
 	# assignment. Paraphrasing it is how a beam run ends up on a different pos_style or a differently
@@ -788,10 +928,19 @@ def main ():
 		beam_size=args.beam, branch_k=args.branch_k, length_alpha=args.length_alpha,
 		inspector=inspector, position_cap=args.inspect or 0,
 		adjudicator=adjudicator, elapse_k=args.elapse_k if adjudicator is not None else 0,
-		adjudicate=adjudicate)
+		adjudicate=adjudicate, greedy_first=not args.branch_first,
+		align_from_first_elapse=not args.align_from_first_token)
 	print(f'[beam] width {args.beam}, branch-k {args.branch_k} at elapse/pitch, '
+		f'{"BRANCHING at" if args.branch_first else "greedy at"} each window\'s first position, '
 		f'length-alpha {args.length_alpha}, rank {args.rank}'
 		+ ('   (width 1 = the greedy code path)' if args.beam <= 1 else ''))
+	# The other opening policy, on the same line of reasoning: it is a default, so a log that does not
+	# name it cannot be told apart from one produced before it existed.
+	if adjudicator is not None:
+		print('[beam] align ranking ' + ('from each window\'s first position (ablation)'
+			if args.align_from_first_token
+			else 'held off until the piece\'s first note_on AND the elapse token after it: '
+				'no header opinion, and no ratio to forecast with before the tick moves'))
 
 	output_ids, stats = translator.translate(lines, verbose=args.verbose, max_steps=max_steps)
 	print(f'[out] {stats["steps"]} steps, {stats["output_tokens"]} tokens, '
@@ -821,6 +970,11 @@ def main ():
 			input_mtime=int(os.path.getmtime(args.input)), beam=args.beam, branch_k=args.branch_k,
 			length_alpha=args.length_alpha, src_window=args.src_window, max_token=args.max_token,
 			advance_tokens=args.advance_tokens, pos_style=pos_style, rank=args.rank,
+			# Both opening policies, recorded because they are DEFAULTS: a dump that predates them
+			# looks identical in every other key while having been built by a different search, and one
+			# such dump has already been read as if it were current.
+			greedy_first=not args.branch_first,
+			align_from_first_elapse=not args.align_from_first_token,
 			# Whether an aligner RAN is not derivable from `rank`: --rank lm --inspect scores every
 			# candidate and merely declines to rank on it. Keying either of the next two on `rank`
 			# reported elapse_k None on a run whose pool held 2748 forced elapse candidates, and made

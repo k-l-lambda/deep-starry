@@ -92,18 +92,54 @@ class BranchState:
 	reachable.
 	'''
 
-	__slots__ = ('grammar', 'pitch_pending', 'velocity_pending')
+	__slots__ = ('grammar', 'pitch_pending', 'velocity_pending', 'saw_note_on',
+		'saw_elapse_after_note_on')
 
-	def __init__ (self, grammar=None, pitch_pending=False, velocity_pending=False):
+	def __init__ (self, grammar=None, pitch_pending=False, velocity_pending=False,
+		saw_note_on=False, saw_elapse_after_note_on=False):
 		self.grammar = grammar if grammar is not None else GrammarState()
 		# True between a note_on/note_off keyword and its `#XX`: exactly the positions where a pitch
 		# token is the expected next thing.
 		self.pitch_pending = pitch_pending
 		# True between a note_on's pitch and its velocity, where nothing is being decided.
 		self.velocity_pending = velocity_pending
+		# Has this lineage emitted a note_on yet? A LATCH -- once set it never clears, because it marks
+		# a phase of the file and not a property of the current position.
+		#
+		# It is the FIRST half of the align-ranking gate: before the first note_on the file is still in
+		# its header and the aligner has nothing to say, so the language model decides alone. MEASURED
+		# on the run that motivated this: with the aligner ranking from position 0, `Eb40` (logprob
+		# -19.11, the model hates it because it declines to write a header at all) beat `ticks_per_beat`
+		# (-0.00000), and the search went straight to the notes -- which scored WELL, since
+		# compose_output supplies the source's header as a fallback. Good numbers by a route that is not
+		# a translation decision: whether to emit a header is not something the alignment is entitled to
+		# an opinion about.
+		#
+		# Scopes itself to the piece's opening with no cross-window state, because seed_state walks the
+		# prefix's target half through `feed`: any window primed mid-piece starts with the latch set.
+		self.saw_note_on = saw_note_on
+		# Has an elapse token been committed AFTER that first note_on? The SECOND half of the gate, and
+		# a latch for the same reason. Ordered strictly after `saw_note_on`, hence the name: an elapse
+		# in the header does not count, because the header's elapse decisions are the ones the first
+		# half is there to keep the aligner out of.
+		#
+		# It exists because the aligner's elapse opinion is NOT MERELY unhelpful before the first real
+		# tick advance -- it is undefined. `AlignState.forecast` needs a tick ratio, `_update_ratio`
+		# fits `slope = d_tgt / d_src` behind an `if slope > 0` guard, and with every target tick still
+		# at 0 that guard never passes, so `ratio` stays None and `forecast` returns (None, None, None)
+		# forever. MEASURED on the committed dump: the aligner abstained at all 47 elapse branches on
+		# the winning chain, and all 37 candidates at the first post-note_on elapse branch carried
+		# `loss None`. Asking it there produced nothing but the appearance of having been consulted.
+		#
+		# So the gate now opens only once the tick has actually moved, which is exactly the condition
+		# under which the ratio can exist. Note this makes the FIRST elapse after the header the model's
+		# alone by construction, which is intended: it is the observation that bootstraps the ratio, and
+		# there is nothing yet for the aligner to have an opinion with.
+		self.saw_elapse_after_note_on = saw_elapse_after_note_on
 
 	def clone (self):
-		return BranchState(self.grammar.clone(), self.pitch_pending, self.velocity_pending)
+		return BranchState(self.grammar.clone(), self.pitch_pending, self.velocity_pending,
+			self.saw_note_on, self.saw_elapse_after_note_on)
 
 	def branch_kind (self):
 		'''What kind of branch point the NEXT position is, from committed tokens only.
@@ -129,6 +165,13 @@ class BranchState:
 		'''Commit one token string. Returns its grammar class.'''
 		open_kw = self.grammar.open_keyword		# read BEFORE feed clears it
 		cls = self.grammar.feed(tok, keywords)
+		if tok == 'note_on':
+			self.saw_note_on = True
+		elif cls == CLS_ELAPSE and self.saw_note_on:
+			# `elif` costs nothing (no token is both) but says the thing: these two latches are ordered,
+			# and an elapse reaching here with `saw_note_on` still clear is a header elapse that must NOT
+			# open the gate.
+			self.saw_elapse_after_note_on = True
 		if cls == CLS_KEYWORD:
 			self.pitch_pending = tok in PITCH_EVENTS
 			self.velocity_pending = False
@@ -193,6 +236,7 @@ class Beam:
 
 def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=4,
 	length_alpha=0.7, seed_state=None, ban_first=(), rank=None, report=None, observer=None,
+	greedy_first=True, align_from_first_elapse=True,
 	adjudicator=None, elapse_k=0, adjudicate=True):
 	'''Run the search. Returns (best ids, forced, report).
 
@@ -205,6 +249,49 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 	here. `forced` reports whether the argmax at that position was banned, because the caller keys
 	its end-of-piece detection on that having happened -- a ban that hid itself would leave the
 	caller unable to tell a finished piece from a stalled one.
+
+	greedy_first: take the model's argmax at the first generated position and do not branch there,
+	default True. SAME SCOPE as ban_first -- the first position of each beam_search call, i.e. of each
+	window, since `live` is rebuilt from seed_state per call.
+
+	The reason is that the aligner has nothing to say at that position and the model has everything to
+	say. MEASURED on the committed align dump's position 0: the argmax was `ticks_per_beat` at
+	logprob -0.00000 and the other three beam slots went to `format_type` (-16.77), `#52` (-18.05) and
+	`Eb40` (-19.11), while EVERY candidate's loss was None -- AlignState has no pairs yet, so it
+	abstains outright. Three of four slots spent on continuations the model rates 17 to 19 nats worse,
+	with no alignment evidence to justify the spend, and those lineages then persist and compete for
+	slots at later positions where the evidence does exist.
+
+	align_from_first_elapse: hold the adjudicator OFF until a lineage has emitted its first note_on
+	AND THEN an elapse token, default True. TWO latches on BranchState, not position tests, so they
+	survive the grammar wandering back through header-shaped tokens, and because seed_state replays
+	the primer through `feed` they scope to the PIECE's opening rather than to each window's.
+
+	Same reasoning as greedy_first, two steps further, and the two steps are different reasons.
+
+	The note_on half: before the first note_on the file is still its header, and the alignment's only
+	opinion there is an accident. With ranking from position 0 the winning lineage descended from that
+	`Eb40` at -19.11 -- a token that declines to write a header at all and goes straight to the music,
+	reaching scoreable pitches by position 2 and scoring well from there. Well, but by a route the
+	aligner is not entitled to choose: `compose_output` supplies the SOURCE's header whenever the body
+	carries none, so the good numbers were bought with a decision about the header that no alignment
+	evidence bears on.
+
+	The elapse half: after the header but before any tick advance, the aligner's elapse opinion is not
+	merely unhelpful, it is UNDEFINED. `forecast` needs a tick ratio; `_update_ratio` fits
+	`slope = d_tgt / d_src` behind an `if slope > 0` guard; with every target tick still 0 that guard
+	never passes, so `ratio` stays None and `forecast` returns (None, None, None) for the rest of the
+	run. MEASURED on the committed dump: the aligner abstained at ALL 47 elapse branches on the winning
+	chain, and all 37 candidates at the first post-note_on elapse branch carried `loss None` while the
+	model put -0.0000 on elapse-zero against -8.9749 for the cheapest real elapse. Consulting it there
+	bought nothing but the appearance of having consulted it -- and, before the enumeration was gated
+	too, a pool full of forced candidates the LM then ordered.
+
+	So the gate opens exactly when the ratio can exist. This makes the first elapse after the header
+	the model's alone BY CONSTRUCTION, which is the intent: that token is the observation that
+	bootstraps the ratio, and until it lands there is nothing for the aligner to have an opinion with.
+
+	Set False to measure all of this (the ablation).
 
 	rank(beam, tid, logprob) -> float, optional. Added to the pool key, so alignment evidence can
 	reorder candidates without touching this function. None = pure LM ranking, which is the
@@ -222,10 +309,13 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 	      case that motivated this the correct elapse sat at rank 3 of 4 with logprob -5.36 against
 	      the argmax's -0.08. Harvesting from the top-k would leave the aligner nothing to vote on
 	      exactly where its vote decides the rhythm.
-	  losses(beam, cands) -> a list parallel to `cands` of floats (lower is better) or None. None
-	      means the aligner has no opinion about that candidate. If EVERY loss at a position is None
-	      the pool falls back to pure log-probability order, so a run with an adjudicator that cannot
-	      see anything is the same run as one without.
+	  losses(beam, cands, kind=...) -> a list parallel to `cands` of floats (lower is better) or
+	      None. None means the aligner has no opinion about that candidate. If EVERY loss at a
+	      position is None the pool falls back to pure log-probability order, so a run with an
+	      adjudicator that cannot see anything is the same run as one without. `kind` is the branch
+	      kind this row was gated on (BRANCH_ELAPSE or BRANCH_PITCH) and it selects WHICH quantity is
+	      measured -- a tick forecast or a placed-note verdict. It is passed rather than re-derived
+	      from `beam.state` so the value cannot drift from the one the gate used.
 
 	The pool is then ordered on (loss, -logprob): alignment first, the model as the tie-break. It is
 	deliberately not a weighted sum -- there is no lambda to fit, and the failure being corrected is
@@ -255,6 +345,12 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 		# are the numbers that say whether level 3 did anything, so they are counted rather than
 		# asserted -- an adjudicator that silently abstains everywhere looks identical to none.
 		adjudicated=0, abstained=0, overturned=0, forced_elapse=0, scored_only=0,
+		# (position, beam) pairs at a real branch where the aligner was DELIBERATELY not consulted
+		# because the lineage had not yet reached its first note_on AND an elapse token after it.
+		# Distinct from `abstained`, which means the aligner WAS asked and had no evidence -- collapsing
+		# the two would hide the gate, and the whole point of the elapse half is that it suppresses
+		# branches that would otherwise have abstained anyway.
+		pre_align=0,
 		# summed over (position, beam): how much of the vocabulary the automaton ruled out. 0 on a
 		# run that never opened a mid-run branch, which is why it is counted rather than assumed.
 		grammar_masked=0)
@@ -290,9 +386,13 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 		widened_here = False
 		vocab = int(logprobs.shape[-1])
 		any_loss = False
+		# The first position takes the model's argmax and nothing else: the aligner abstains there (no
+		# pairs yet) so widening spends beam slots on continuations nothing can adjudicate. See
+		# `greedy_first` in the docstring for the measurement.
+		wide_here = beam_size > 1 and not (first and greedy_first)
 		for row, beam in enumerate(live):
 			kind = beam.state.branch_kind()
-			width = branch_k if (kind != BRANCH_NONE and beam_size > 1) else 1
+			width = branch_k if (kind != BRANCH_NONE and wide_here) else 1
 			if width > 1:
 				rep['branch_points'] += 1
 				widened_here = True
@@ -323,6 +423,11 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 				for tid in banned:
 					row_lp[tid] = float('-inf')
 				rep['grammar_masked'] += len(banned)
+			# Is the aligner allowed to act on this beam at all? One test, read twice below -- once by
+			# the forced-elapse enumeration and once by the ranking -- because the two must agree: a
+			# candidate enumerated for the aligner's benefit and then ranked by the model is the worst
+			# of both, and that is exactly what an ungated enumeration produced in the header.
+			gated = align_from_first_elapse and not beam.state.saw_elapse_after_note_on
 			k = min(width, vocab)
 			top = row_lp.topk(k)
 			if k > 1:
@@ -333,8 +438,19 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 			# Added only at a real elapse branch point: elsewhere an elapse is either illegal (after a
 			# keyword) or not what is being decided, and forcing one in would search a position the
 			# grammar has already settled.
-			if (adjudicator is not None and elapse_k and beam_size > 1
-					and kind == BRANCH_ELAPSE):
+			# `wide_here`, not `beam_size > 1`: a forced elapse proposal is a widening like any other,
+			# and at the first position it would reopen exactly what greedy_first just closed.
+			#
+			# And gated on the same latch as the ranking below, for the same reason and then one more.
+			# The reason: these candidates exist ONLY to give the aligner something to rank, so
+			# enumerating them where the aligner is not allowed to rank spends beam slots on tokens
+			# nothing will adjudicate -- the model already declined to rank them itself. The one more:
+			# in the header they are actively harmful. MEASURED on the committed dump, 21 branch points
+			# before the gate opened drew forced elapse candidates into a pool the LM then ordered,
+			# so header positions competed against elapse tokens the model rated 14+ nats worse, and
+			# the surviving lineages carried that spend forward to positions where evidence did exist.
+			if (adjudicator is not None and elapse_k and wide_here
+					and kind == BRANCH_ELAPSE and not gated):
 				seen = {tid for tid, _ in cands}
 				extra = 0
 				for tid in adjudicator.elapse_ids(beam, row_lp):
@@ -350,15 +466,38 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 					extra += 1
 				rep['forced_elapse'] += extra
 			losses = None
-			# Only at a real elapse branch point, for the SAME reason the enumeration above is gated:
-			# elsewhere the elapse is not what is being decided. Ungated, the epsilon rule reorders
-			# positions where the grammar owes an argument -- measured on a 93-position run, 10 of 16
-			# overturns were an argument token (#4c, a digit) displaced by another lineage's token on a
-			# loss difference of ~1e-4, which is not a rhythm verdict at all.
-			if adjudicator is not None and kind == BRANCH_ELAPSE:
-				losses = adjudicator.losses(beam, cands)
+			# At a real BRANCH point only -- elapse or pitch -- and never elsewhere. Ungated, the
+			# epsilon rule reorders positions where the grammar owes an argument that the aligner has
+			# no view on: measured on a 93-position run, 10 of 16 overturns were an argument token
+			# (#4c, a digit) displaced by another lineage's token on a loss difference of ~1e-4, which
+			# is not a rhythm verdict at all. A pitch branch is not in that category -- the pitch IS
+			# the thing the alignment judges, and `observe` scores every one of them including a miss.
+			#
+			# The two kinds are scored on DIFFERENT quantities (a forecast against the next source
+			# onsets in tick space, versus a verdict on a note actually placed) and land in the SAME
+			# whole-pool sort, because both are `AlignState.cost * CostStepAttenuation + <bounded
+			# term>` -- one recursion, one scale. See AlignState.forecast's docstring, which makes the
+			# claim explicitly, and align_check.py, which asserts the shared bound.
+			#
+			# And not before this lineage's first note_on, nor before the first elapse token after it.
+			# Until the note_on the file is still in its header, where the alignment has nothing to say
+			# and the language model is nearly certain: ranking there let `Eb40` at logprob -19.11 beat
+			# `ticks_per_beat` at -0.00000 and skip the header entirely -- which scored WELL, because
+			# compose_output then supplies the source's header as a fallback, so the alignment was
+			# buying good numbers with a decision that is not its to make.
+			#
+			# And until that first elapse the aligner's answer here is not a judgement but a None:
+			# `forecast` needs a tick ratio, and `_update_ratio` cannot form one while every target tick
+			# is still 0 (`slope = d_tgt / d_src` sits behind `if slope > 0`). MEASURED: all 47 elapse
+			# branches on the committed dump's winning chain abstained. Both are latches on BranchState
+			# and seed_state walks the primer through `feed`, so this restricts the piece's OPENING and
+			# not every window's opening.
+			if adjudicator is not None and kind in (BRANCH_ELAPSE, BRANCH_PITCH) and not gated:
+				losses = adjudicator.losses(beam, cands, kind=kind)
 				if any(x is not None for x in losses):
 					any_loss = True
+			elif adjudicator is not None and kind in (BRANCH_ELAPSE, BRANCH_PITCH) and gated:
+				rep['pre_align'] += 1
 			for i, (tid, lp) in enumerate(cands):
 				total = beam.logprob + lp
 				key = total + (rank(beam, tid, lp) if rank is not None else 0.0)

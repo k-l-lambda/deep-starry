@@ -76,6 +76,37 @@ Config = dict(
 	# than derived: there is no offset to measure when nothing matched.
 	MissCost = 1.0,
 
+	# Charged when a match RE-USES a source note this lineage has already paired. Nothing charged for
+	# that before: `skip` charges only for jumping too far AHEAD, so MEASURED on a fresh state with
+	# three notes folded in, re-matching the same source note, advancing to the next, and going two
+	# back all returned self_cost 0.0, skip 0, cost 0.0 -- three different musical claims priced
+	# identically.
+	#
+	# RE-USE, not index order, is the right quantity, and that distinction is the whole design here.
+	# A chord's notes may legitimately be emitted in any order, so a match that lands on a LOWER index
+	# than the last one is perfectly normal: MEASURED on the score-only winning path, 7 of its 8
+	# non-advancing steps were within a chord (same generated onset, distinct source notes) and only 1
+	# was a genuine backward step. An index-order charge punishes the chords, which is why the first
+	# attempt at this made the run worse rather than better (at 0.25 the path sat on src 3 for 45 of
+	# its 51 notes).
+	#
+	# It only became load-bearing once the PITCH branch was adjudicated. While the pitch was ranked by
+	# the language model, re-use was penalised only indirectly and the model's own distribution carried
+	# the note forward. Ranked on this cost, re-use is strictly the cheapest thing available and the
+	# search finds it -- and it is cheapest for a specific reason worth writing down: advancing to the
+	# right note CHANGES THE OFFSET, which `self_cost = (bias * coeff)**2` charges, while standing on
+	# the same note keeps the offset constant at self_cost 0.0. So this charge has to be big enough to
+	# dominate the drift term, not merely nonzero. MEASURED on the first pitch-adjudicated run: 4
+	# distinct source notes matched 51 times (src 1 alone 29), one endless chord, 0 measures, against
+	# 19 distinct of 22 on the score-only control.
+	#
+	# Charged per PRIOR pairing, so a second use is cheaper than a fifth, and bounded by tanh like
+	# every other term in the recursion.
+	#
+	# DEFAULT 0.0 = exactly the old behaviour, because how hard to charge is a ranking-policy choice
+	# and not something to change silently. `translateMidiseq2Beam.py --reuse-cost` sets it.
+	ReuseCost = 0.0,
+
 	# prior = tanh(value * PriorValue) - tanh(cost * PriorCost). Matcher's form: saturating evidence
 	# gain minus saturating inconsistency, so neither term can dominate without bound.
 	PriorValue = 0.12,
@@ -583,13 +614,17 @@ class AlignState:
 
 	__slots__ = ('src_events', 'src_by_pitch', 'pairs', 'cost', 'value', 'misses', 'matched',
 		'last_offset', 'tgt_count', 'ratio', 'ratio_pairs', 'residual', 'residual_n',
-		'seed_offset')
+		'seed_offset', 'used')
 
 	def __init__ (self, src_events=None, seed_offset=None):
 		# src_events: list of dicts with at least onset/pitch/softIndex, in stream order
 		self.src_events = []
 		self.src_by_pitch = {}
 		self.pairs = []			# (src_index, tgt_softIndex, src_softIndex, weight)
+		# src_index -> how many times THIS lineage has paired it. Derivable from `pairs`, kept
+		# separately because it is read once per candidate per beam per position and a scan of pairs
+		# there would make the per-note work grow with the length of the piece.
+		self.used = {}
 		self.cost = 0.0
 		self.value = 0.0
 		self.misses = 0
@@ -628,6 +663,7 @@ class AlignState:
 		out.src_events = self.src_events
 		out.src_by_pitch = self.src_by_pitch
 		out.pairs = list(self.pairs)
+		out.used = dict(self.used)
 		out.cost = self.cost
 		out.value = self.value
 		out.misses = self.misses
@@ -713,17 +749,21 @@ class AlignState:
 			skip = 0
 			if self.pairs:
 				skip = max(0, index - self.pairs[-1][0] - 1)
+			# How many times this lineage has ALREADY paired this source note. 0 for a fresh note --
+			# including one arriving out of index order, which is a chord and is free.
+			reuse = self.used.get(index, 0)
 			total = (self.cost * Config['CostStepAttenuation']
 				+ math.tanh(skip * Config['SkipCost'])
+				+ math.tanh(reuse * Config['ReuseCost'])
 				+ math.tanh(self_cost * Config['SelfCostScale']))
 			if best is None or total < best[0]:
-				best = (total, index, offset, self_cost, skip)
+				best = (total, index, offset, self_cost, skip, reuse)
 		if best is None:
 			self.misses += 1
 			self.cost = self.cost * Config['CostStepAttenuation'] + Config['MissCost']
-			return dict(src=None, self_cost=None, offset=None, skip=0, cost=self.cost,
+			return dict(src=None, self_cost=None, offset=None, skip=0, reuse=0, cost=self.cost,
 				prior=self.prior)
-		total, index, offset, self_cost, skip = best
+		total, index, offset, self_cost, skip, reuse = best
 		self.cost = total
 		self.value += 1.0 - math.tanh(self_cost * Config['SelfCostScale'])
 		self.last_offset = offset
@@ -731,10 +771,11 @@ class AlignState:
 		# weight the ballot by how consistent this pairing was, so a strained match votes weakly
 		weight = 1.0 - math.tanh(self_cost * Config['SelfCostScale'])
 		self.pairs.append((index, tgt_softindex, self.src_events[index]['softIndex'], weight))
+		self.used[index] = self.used.get(index, 0) + 1
 		self._update_ratio(self.src_events[index]['softIndex'],
 			self.src_events[index]['onset'], tgt_tick)
-		return dict(src=index, self_cost=self_cost, offset=offset, skip=skip, cost=self.cost,
-			prior=self.prior)
+		return dict(src=index, self_cost=self_cost, offset=offset, skip=skip, reuse=reuse,
+			cost=self.cost, prior=self.prior)
 
 	# --- tempo ratio and the tick interval ---------------------------------------------
 

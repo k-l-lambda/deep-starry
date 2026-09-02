@@ -30,7 +30,7 @@ from starry.midi.beam import (BranchState, Beam, beam_search, branch_profile, BR
 	BRANCH_ELAPSE, BRANCH_PITCH)
 from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer
 from starry.midi.align import (soft_indices, elapse_value, elapse_class, stage_admits,
-	STAGE_BIG)
+	STAGE_BIG, Config as AlignConfig)
 from translateMidiseq2 import keyword_tokens
 from translateMidiseq2Beam import AlignAdjudicator, BeamTranslator, LineageTracker
 
@@ -284,15 +284,20 @@ def check_beam_overturns (tk, keywords):
 	come from resolving the model's own uncertainty a token or two later.
 	'''
 	i = tk.id_by_token
-	# Keyed on <bos>, because that is the prefix's LAST token and therefore what decides the FIRST
-	# generated position. The target half here is just <bos>, so that position is a boundary -- an
-	# ELAPSE branch point -- which is also the case the whole design is aimed at: a delta that looks
-	# locally right and puts every following note in the wrong bar.
+	# The decisive branch is at the SECOND generated position, not the first. `greedy_first` (on by
+	# default) takes the model's argmax at position 0 and does not widen there, so a fixture whose
+	# whole point is at position 0 can no longer demonstrate anything -- this one used to be keyed on
+	# <bos> directly and started FAILing when that default landed. The throwaway must leave the state at
+	# a BOUNDARY -- an elapse may not directly follow a keyword, so `control_change` there gets E200/E100
+	# masked to -inf and the fixture tests nothing. `<eom>` is a special, so an elapse is legal after it
+	# and position 1 is an ELAPSE branch point: a delta that looks locally right and puts every
+	# following note in the wrong bar, which is the shape the whole design is aimed at.
 	# eight near-equal continuations: whichever is taken costs about log(1/8)
 	flat = {i[t]: 2.0 for t in ('note_off', 'note_on', 'control_change', 'set_tempo',
 		'pitchwheel', 'aftertouch', 'polytouch', 'program_change')}
 	plan = {
-		tk.bos_id: {i['E200']: 4.0, i['E100']: 3.6, tk.eos_id: -8.0},
+		tk.bos_id: {i['<eom>']: 9.0, tk.eos_id: -8.0},
+		i['<eom>']: {i['E200']: 4.0, i['E100']: 3.6, tk.eos_id: -8.0},
 		i['E200']: {**flat, tk.eos_id: -8.0},				# dead end: high entropy
 		i['E100']: {i['note_on']: 9.0, tk.eos_id: -8.0},	# the payoff: near-certain
 		i['note_on']: {i['#3c']: 9.0, tk.eos_id: -8.0},
@@ -314,11 +319,14 @@ def check_beam_overturns (tk, keywords):
 	tr = make_translator(tk, StubModel(tk.vocab_size, plan, i['note_on'], tk.eos_id),
 		beam_size=2, branch_k=2, length_alpha=0.0)
 	got, _ = tr.generate(prefix, positions, 0.0, 0, 1.0, n_source=2)
-	greedy_first = tk.tokens[ref[0]] if ref else None
-	beam_first = tk.tokens[got[0]] if got else None
+	# Position 1, not 0: position 0 is the greedy_first throwaway and is `<eom>` in both runs
+	# by construction. Reading [0] here is what made this check pass vacuously once the fixture moved.
+	greedy_pick = tk.tokens[ref[1]] if len(ref) > 1 else None
+	beam_pick = tk.tokens[got[1]] if len(got) > 1 else None
 	check('a beam overturns a locally-best-but-doomed branch',
-		ref != got and beam_first == 'E100' and greedy_first == 'E200',
-		f'greedy took {greedy_first}, beam took {beam_first}')
+		ref != got and beam_pick == 'E100' and greedy_pick == 'E200',
+		f'greedy took {greedy_pick}, beam took {beam_pick} (at position 1; position 0 is the '
+		f'greedy_first argmax <eom> in both)')
 
 	# ...and it is genuinely the better path by total logprob, not merely a different one
 	def total (ids):
@@ -534,8 +542,23 @@ def check_adjudicator (tk, keywords):
 	# The model is CERTAIN about a wrong continuation: note_off at +0 ticks, with every elapse buried.
 	# This is the shape of the real failure -- confident mass on the wrong delta -- so a finite penalty
 	# against its own confidence would not reliably beat it, and the ordering has to be lexicographic.
+	# The decisive adjudication is at the SECOND generated position. `greedy_first` (on by default)
+	# takes the model's argmax at position 0 and does not widen there -- correctly, since AlignState has
+	# no pairs at that position and abstains -- so a fixture keyed on <bos> tests nothing and this one
+	# started FAILing when that default landed. `<eom>` is the throwaway: a special, so an elapse is
+	# still legal after it and position 1 is a genuine elapse branch point (a keyword there would get
+	# every elapse masked to -inf instead).
+	#
+	# The primer's TARGET half is `note_on #3c $50 E140 note_on #3c $50` for the same class of reason.
+	# This fixture hands the lineage 12 observed pairs, i.e. it is mid-piece, and
+	# `align_from_first_elapse` (also on by default) will not let the aligner rank until the lineage has
+	# passed a note_on AND an elapse token after it -- so a primer without both described a state no
+	# real run reaches, and every adjudication here was gated off. `seed_state` walks that half through
+	# `BranchState.feed`, so the first note_on sets one latch, `E140` sets the other, and the trailing
+	# `$50` closes the event, leaving position 0 at a boundary exactly as before.
 	plan = {
-		tk.bos_id: {i['note_off']: 9.0, i['E3c0']: -6.0, i['E1e0']: -6.5, i['E140']: -7.0,
+		i['$50']: {i['<eom>']: 9.0, tk.eos_id: -8.0},
+		i['<eom>']: {i['note_off']: 9.0, i['E3c0']: -6.0, i['E1e0']: -6.5, i['E140']: -7.0,
 			tk.eos_id: -8.0},
 		i['note_off']: {i['#3c']: 9.0, tk.eos_id: -8.0},
 		i['#3c']: {i['end_of_track']: 9.0, tk.eos_id: -8.0},
@@ -660,7 +683,8 @@ def check_adjudicator (tk, keywords):
 			beam_size=4, branch_k=4, length_alpha=0.0,
 			adjudicator=(adj if rank_align else None), elapse_k=(8 if rank_align else 0),
 			adjudicate=adjudicate)
-		prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id]
+		prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id,
+			i['note_on'], i['#3c'], i['$50'], i['E140'], i['note_on'], i['#3c'], i['$50']]
 		out, _ = tr.generate(prefix, list(range(len(prefix))), 0.0, 0, 1.0, n_source=2)
 		return [tk.tokens[t] for t in out], tr.beam_report
 
@@ -771,9 +795,13 @@ def check_adjudicator (tk, keywords):
 		al_rep.get('grammar_masked', 0) > 0,
 		f"grammar_masked {al_rep.get('grammar_masked')} (token, beam) pairs")
 
+	# Position 1, not 0: position 0 is the greedy_first throwaway `<eom>` in both runs by construction.
 	check('the adjudicated run overturns the LM-only run',
-		lm_out != al_out and lm_out[0] == 'note_off' and al_out[0].startswith('E'),
-		f'LM took {lm_out[0]}, adjudicated took {al_out[0]}')
+		lm_out != al_out and len(lm_out) > 1 and len(al_out) > 1
+			and lm_out[1] == 'note_off' and al_out[1].startswith('E'),
+		f'LM took {lm_out[1] if len(lm_out) > 1 else None}, adjudicated took '
+		f'{al_out[1] if len(al_out) > 1 else None} (at position 1; position 0 is the greedy_first '
+		f'argmax <eom> in both)')
 	check('the search reports what the adjudicator did',
 		al_rep.get('adjudicated', 0) > 0 and al_rep.get('overturned', 0) > 0
 			and al_rep.get('forced_elapse', 0) > 0 and lm_rep.get('adjudicated', 0) == 0,
@@ -785,7 +813,8 @@ def check_adjudicator (tk, keywords):
 	tracker, adj = fresh_pair()
 	tr = make_translator(tk, StubModel(tk.vocab_size, plan, i['note_on'], tk.eos_id),
 		beam_size=4, branch_k=4, length_alpha=0.0, adjudicator=adj, elapse_k=8)
-	prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id]
+	prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id,
+		i['note_on'], i['#3c'], i['$50'], i['E140'], i['note_on'], i['#3c'], i['$50']]
 	blind, _forced = tr.generate(prefix, list(range(len(prefix))), 0.0, 0, 1.0, n_source=2)
 	blind_out, blind_rep = [tk.tokens[t] for t in blind], tr.beam_report
 	check('a blind adjudicator reproduces the LM-only output token for token',
@@ -793,6 +822,330 @@ def check_adjudicator (tk, keywords):
 			and blind_rep.get('abstained', 0) > 0,
 		f'{len(blind_out)} tokens, abstained at {blind_rep.get("abstained")} positions')
 
+
+
+def check_pitch_adjudication (tk, keywords):
+	'''The PITCH branch must be adjudicated too, and on the verdict rather than a forecast.
+
+	The hole: at an elapse point the aligner had to forecast because no note exists yet, but by the
+	time a pitch is being chosen the tick is already settled and `observe` -- the function the whole
+	alignment is built around -- applies directly. It was not being called, so the note itself, the
+	one thing the alignment exists to judge, was the only decision taken on the language model alone.
+
+	MEASURED on the committed align dump, pos 140: `#4a` carried self_cost 4e-05 and cost 0.13734 --
+	the best figure at that position, against 0.8099 for the best SCORED candidate -- and a better
+	logprob than the token that won, and it was cut at rank 10. Not a missed overturn but an active
+	cull, because `loss is None` is the FIRST sort key: an unmeasured candidate is not neutral, it is
+	last.
+
+	Three claims here:
+
+	  a pitch that is really at the next onset beats one that is not, EVEN when the model prefers the
+	  wrong one (the whole point of adjudicating);
+	  a miss is MEASURED, not inherited -- `observe` prices it at cost*attenuation + MissCost, so the
+	  `src=None` pitches need no epsilon policy of their own (pos 140 had three of them at 1.13731
+	  against the matched 0.13734);
+	  a non-pitch candidate at a pitch point still inherits, so nothing is banned.
+	'''
+	i = tk.id_by_token
+	src = [dict(onset=n * 960, pitch=60 + (n * 5) % 12) for n in range(24)]
+	for e, si in zip(src, soft_indices([x['onset'] for x in src])):
+		e['softIndex'] = si
+	tracker = LineageTracker(tk, keywords, src)
+	adj = AlignAdjudicator(tracker, tk, elapse_k=8)
+	base = tracker.base(1)
+	for n in range(12):
+		base['align'].observe(src[n]['pitch'], src[n]['onset'], src[n]['softIndex'])
+	# Park the lineage ON the next source onset with note_on open, awaiting its pitch -- which is
+	# exactly the state BRANCH_PITCH reports. `walk` is the note_on_events walk state, so setting its
+	# open keyword is what makes the candidate pitch close an event.
+	base['tick'] = src[12]['onset']
+	base['walk'] = ('note_on', src[12]['onset'], 0)
+	base['prev_onset'] = src[11]['onset']
+	base['softindex'] = src[11]['softIndex']
+
+	right = src[12]['pitch']
+	wrong = 60 + ((right - 60) + 6) % 12		# a tritone away: not at this onset
+	tok_r, tok_w = '#%02x' % right, '#%02x' % wrong
+	filler = '$50' if '$50' in i else 'note_off'
+	# The model is CONFIDENT about the wrong pitch, which is the shape being corrected.
+	cands = [(i[tok_w], 0.0), (i[tok_r], -2.0), (i[filler], -5.0)]
+
+	class _Beam: uid = 1
+	losses = adj.losses(_Beam(), cands, kind=BRANCH_PITCH)
+	got = {tk.tokens[t]: L for (t, _lp), L in zip(cands, losses)}
+	check('the pitch branch is scored on the VERDICT: the pitch really at the next onset wins',
+		got[tok_r] < got[tok_w],
+		f'{tok_r} (at the onset, lp -2.00) {got[tok_r]:.5f} < {tok_w} (LM argmax, lp 0.00) '
+		f'{got[tok_w]:.5f}')
+	check('a pitch MISS is measured at MissCost, not inherited at epsilon',
+		abs(got[tok_w] - AlignConfig['MissCost']) < 1e-9,
+		f'{tok_w} = cost*attenuation + MissCost = {got[tok_w]:.5f}, so src=None needs no epsilon '
+		f'policy of its own')
+	check('a non-pitch candidate at a pitch point still inherits, so nothing is banned',
+		got[filler] is not None
+			and abs((got[filler] - got[tok_r]) - adj.EPSILON) < 1e-12,
+		f'{filler} = {tok_r} + epsilon = {got[filler]:.6f}')
+
+	# The gate must pick the axis, not merely fire: forecasting a PITCH candidate is meaningless (a
+	# pitch token has no tick value and is not note_on), so the elapse pass would score none of these.
+	elapse_pass = adj.losses(_Beam(), cands, kind=BRANCH_ELAPSE)
+	check('the branch kind selects the axis: the forecast pass has nothing to say about a pitch',
+		all(x is None for x in adj._elapse_losses(_Beam(), cands))
+			and all(x is None for x in elapse_pass),
+		'elapse pass abstains on all three pitch/argument candidates, so the whole position falls '
+		'back to the LM -- which is what it did before this change')
+
+
+def check_greedy_first (tk, keywords):
+	'''The first generated position must take the model argmax and not widen, by default.
+
+	The aligner has nothing to say there and the model has everything to say. MEASURED at position 0
+	of the committed align dump: the argmax was `ticks_per_beat` at logprob -0.00000 while the other
+	three beam slots went to `format_type` (-16.77), `#52` (-18.05) and `Eb40` (-19.11), and EVERY
+	candidate's loss was None -- AlignState has no pairs yet, so it abstains outright. Three of four
+	slots spent on continuations the model rates 17 to 19 nats worse with nothing able to adjudicate
+	them, and those lineages then persist and compete at later positions where evidence does exist.
+
+	Two claims, plus the ablation escape hatch:
+
+	  at position 0 exactly ONE candidate is expanded, however branchy the state is;
+	  branching resumes at position 1, so this closes one position and not the search;
+	  greedy_first=False restores the old behaviour, or the ablation cannot be run.
+	'''
+	i = tk.id_by_token
+	# A boundary at position 0 (an elapse branch point) and another at position 1, so both positions
+	# WOULD widen. `<eom>` keeps the state at a boundary; a keyword would make the elapse illegal.
+	plan = {
+		tk.bos_id: {i['<eom>']: 9.0, i['E140']: 3.0, i['E1e0']: 2.5, tk.eos_id: -8.0},
+		i['<eom>']: {i['E140']: 4.0, i['E1e0']: 3.6, i['E3c0']: 3.2, tk.eos_id: -8.0},
+		i['E140']: {i['note_on']: 9.0, tk.eos_id: -8.0},
+		i['E1e0']: {i['note_on']: 9.0, tk.eos_id: -8.0},
+		i['E3c0']: {i['note_on']: 9.0, tk.eos_id: -8.0},
+		i['note_on']: {i['#3c']: 9.0, tk.eos_id: -8.0},
+		i['#3c']: {i['$50']: 9.0, tk.eos_id: -8.0},
+		i['$50']: {i['end_of_track']: 9.0, tk.eos_id: -8.0},
+		i['end_of_track']: {tk.eos_id: 8.0},
+	}
+	prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id]
+
+	def go (greedy_first):
+		rep = {}
+		tr = make_translator(tk, StubModel(tk.vocab_size, plan, i['note_on'], tk.eos_id),
+			beam_size=4, branch_k=4, length_alpha=0.0, greedy_first=greedy_first)
+		out, _ = tr.generate(prefix, list(range(len(prefix))), 0.0, 0, 1.0, n_source=2)
+		return [tk.tokens[t] for t in out], tr.beam_report
+
+	on_out, on_rep = go(True)
+	off_out, off_rep = go(False)
+
+	# The state at position 0 is a branch point in both runs, so the difference is the gate and not
+	# the grammar: with the gate off it widens, with it on it does not.
+	check('greedy_first closes the first position: fewer branch points than with it off',
+		on_rep.get('branch_points', 0) < off_rep.get('branch_points', 0),
+		f"branch points {on_rep.get('branch_points')} with the gate on vs "
+		f"{off_rep.get('branch_points')} with it off, over {on_rep.get('steps')} steps")
+	check('greedy_first takes the model argmax at the first position',
+		on_out and on_out[0] == '<eom>',
+		f'emitted {on_out[:3]} (argmax at position 0 was <eom> at logit 9.0)')
+	check('greedy_first closes ONE position, not the search: it still branches later',
+		on_rep.get('branch_points', 0) > 0 and on_rep.get('expanded', 0) > len(on_out),
+		f"{on_rep.get('branch_points')} branch points and {on_rep.get('expanded')} candidates "
+		f'expanded for {len(on_out)} emitted tokens')
+	check('greedy_first=False restores the old behaviour, so the ablation is runnable',
+		off_rep.get('branch_points', 0) > on_rep.get('branch_points', 0),
+		f"{off_rep.get('branch_points')} branch points with the gate off")
+
+
+def check_align_from_first_elapse (tk, keywords):
+	"""Align ranking must be held off until a lineage has emitted its first note_on AND, after it, an
+	elapse token.
+
+	Two latches, two different reasons.
+
+	The note_on half: before it the file is still its header, and the alignment's only opinion there is
+	an accident. MEASURED with ranking from position 0: the winning lineage descended from `Eb40` at
+	logprob -19.11, a token that declines to write a header at all and goes straight to the music,
+	reaching scoreable pitches by position 2. It scored well from there -- but only because
+	`compose_output` substitutes the SOURCE's header whenever the body carries none, so the good numbers
+	were bought with a decision about the header that no alignment evidence bears on.
+
+	The elapse half: after the header but before any tick advance the aligner's answer is not a
+	judgement, it is a None. `forecast` needs a tick ratio; `_update_ratio` fits `slope = d_tgt / d_src`
+	behind an `if slope > 0` guard; with every target tick still 0 that guard never passes, so `ratio`
+	stays None for the rest of the run. MEASURED on the committed dump: all 47 elapse branches on the
+	winning chain abstained, and all 37 candidates at the first post-note_on elapse branch carried
+	`loss None` while the model put -0.0000 on elapse-zero against -8.9749 for the cheapest real elapse.
+
+	The adjudicator here is a SPY that always has an opinion and always overturns the model. A real
+	AlignState abstains on its own in exactly this region, which would make the gate look like it worked
+	when nothing was gating -- the spy separates the two.
+
+	  the latch pair itself: a note_on alone does NOT open the gate, and a header elapse does not either;
+	  no `losses` call until an elapse lands after the first note_on, so the LM ranks the opening alone;
+	  the pitch branch immediately after the first note_on -- which the note_on-only gate DID adjudicate
+	  -- is now suppressed, which is the whole content of this change;
+	  ranking resumes after that first elapse, so this gates the opening and not the search;
+	  the suppressed branches are counted as `pre_align` and NOT as `abstained`, since the aligner was
+	  never asked and "asked, no evidence" is a different fact;
+	  align_from_first_elapse=False restores the old behaviour, or the ablation cannot be run.
+	"""
+	i = tk.id_by_token
+
+	# --- the latch pair, read straight off BranchState, with no search in the way
+	st = BranchState()
+	for tok in ('E140',):
+		st.feed(tok, keywords)
+	header_elapse = (st.saw_note_on, st.saw_elapse_after_note_on)
+	for tok in ('note_on', '#3c', '$50'):
+		st.feed(tok, keywords)
+	after_note_on = (st.saw_note_on, st.saw_elapse_after_note_on)
+	st.feed('E140', keywords)
+	after_elapse = (st.saw_note_on, st.saw_elapse_after_note_on)
+	check('the two latches are ORDERED: a header elapse does not count, a note_on alone does not open',
+		header_elapse == (False, False) and after_note_on == (True, False)
+			and after_elapse == (True, True),
+		f'after a header E140 {header_elapse}, after note_on #3c $50 {after_note_on}, '
+		f'after the elapse following it {after_elapse}')
+	# The latches are a phase of the FILE, so they must survive clone or a surviving sibling would
+	# reopen a gate its parent had closed.
+	kid = st.clone()
+	check('both latches survive clone, so a sibling cannot reopen the gate',
+		kid.saw_note_on and kid.saw_elapse_after_note_on,
+		f'clone -> saw_note_on {kid.saw_note_on}, saw_elapse_after_note_on '
+		f'{kid.saw_elapse_after_note_on}')
+
+	# --- through the search. Branch points on both sides of both latches in one run: an elapse
+	# boundary at 0 and 1, the pitch at 2, then an elapse at 4 once note_on #3c $50 has been emitted.
+	plan = {
+		tk.bos_id: {i['<eom>']: 9.0, i['E140']: 3.0, i['E1e0']: 2.5, tk.eos_id: -8.0},
+		i['<eom>']: {i['note_on']: 9.0, i['E140']: 4.0, i['E1e0']: 3.6, tk.eos_id: -8.0},
+		i['note_on']: {i['#3c']: 9.0, i['#40']: 4.0, i['#43']: 3.5, tk.eos_id: -8.0},
+		i['$50']: {i['E140']: 9.0, i['E1e0']: 5.0, i['note_on']: 4.0, tk.eos_id: -8.0},
+		i['E140']: {i['note_on']: 9.0, i['E1e0']: 3.0, tk.eos_id: -8.0},
+		i['E1e0']: {i['note_on']: 9.0, i['E140']: 3.0, tk.eos_id: -8.0},
+	}
+	for tok in ('#3c', '#40', '#43'):
+		plan[i[tok]] = {i['$50']: 9.0, tk.eos_id: -8.0}
+	model = StubModel(tk.vocab_size, plan, i['note_on'], tk.eos_id)
+	prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id]
+
+	class Spy:
+		def __init__ (self):
+			self.asked = []
+			self.pos = 0
+
+		def elapse_ids (self, beam, row):
+			return ()
+
+		def losses (self, beam, cands, kind=BRANCH_ELAPSE):
+			self.asked.append((self.pos, BRANCH_PITCH if kind == BRANCH_PITCH else BRANCH_ELAPSE))
+			# A real opinion at every position, so an absent call is the GATE and never abstention.
+			# Reversed against the model's order, so an ungated call also overturns it visibly.
+			return [float(len(cands) - n) for n in range(len(cands))]
+
+	def go (gate):
+		spy, rep = Spy(), {}
+		def step_fn (ids_batch):
+			full = [prefix + list(ids) for ids in ids_batch]
+			rows = []
+			for ids in full:
+				out = model(torch.tensor([ids]), None, torch.tensor([list(range(len(ids)))]))
+				rows.append(torch.log_softmax(out[0, -1, :].float(), dim=-1))
+			spy.pos = len(ids_batch[0])
+			return torch.stack(rows)
+		out = beam_search(step_fn, tk.tokens, keywords, tk.eos_id, 10, beam_size=4, branch_k=4,
+			length_alpha=0.0, ban_first=(tk.eos_id,), report=rep, adjudicator=spy, elapse_k=0,
+			adjudicate=True, greedy_first=True, align_from_first_elapse=gate)
+		ids = out[0] if isinstance(out, tuple) else out
+		return [tk.tokens[t] for t in ids], spy.asked, rep
+
+	_on_out, on_asked, on_rep = go(True)
+	_off_out, off_asked, off_rep = go(False)
+	on_pos = {p for p, _k in on_asked}
+	off_pos = {p for p, _k in off_asked}
+
+	# 5 is the earliest position any lineage can be asked at, and it is worth tracing because it is
+	# derived rather than observed: `greedy_first` fixes position 0 to the argmax `<eom>`, so the first
+	# note_on cannot land before 1; its pitch is 2 and its velocity 3, so the first elapse after it
+	# cannot land before 4; and the gate is read at the position AFTER the token that opens it. A
+	# lineage that spends position 1 on a header elapse instead reaches its own first post-note_on
+	# elapse later still, never earlier.
+	check('align ranking is held off until an elapse lands after the first note_on',
+		on_pos and min(on_pos) == 5,
+		f'earliest adjudicated position {min(on_pos) if on_pos else None} with the gate on '
+		f'(note_on >= 1, its pitch 2, its velocity 3, the elapse >= 4, so the first open read is 5); '
+		f'asked at {sorted(on_pos)}')
+	# THE point of this change, stated as the one position that separates the two gates. Position 2 is
+	# the pitch branch immediately after the first note_on: `saw_note_on` is already set there, so the
+	# previous gate adjudicated it, and there is still no tick advance so the aligner's forecast could
+	# not have been anything but None.
+	check('the pitch branch right after the first note_on is now suppressed (the note_on-only gate '
+			'adjudicated it)',
+		2 not in on_pos and 2 in off_pos,
+		f'position 2 asked with the gate off ({sorted((p, k) for p, k in off_asked if p == 2)}), '
+		f'not asked with it on')
+	check('ranking RESUMES after that first elapse, so the gate closes the opening not the search',
+		len(on_asked) > 0 and on_rep.get('adjudicated', 0) > 0,
+		f"{len(on_asked)} calls, {on_rep.get('adjudicated')} positions adjudicated after both latches "
+		f'set')
+	# The distinction the viewer needs: never-asked is not the same fact as asked-with-no-evidence.
+	check('suppressed branch points are counted as pre_align, not folded into abstained',
+		on_rep.get('pre_align', 0) > 0 and off_rep.get('pre_align', 0) == 0,
+		f"pre_align {on_rep.get('pre_align')} with the gate on, {off_rep.get('pre_align')} with it off")
+	check('align_from_first_elapse=False restores the old behaviour, so the ablation is runnable',
+		0 in off_pos and len(off_asked) > len(on_asked),
+		f'{len(off_asked)} calls from position 0 with the gate off vs {len(on_asked)} with it on')
+
+	# The FORCED-ELAPSE half of the same gate. These candidates exist only to give the aligner
+	# something to rank, so enumerating them where it may not rank hands the model extra tokens it had
+	# already declined -- measured as 21 header branch points drawing forced elapses into an
+	# LM-ordered pool. `elapse_ids` is what the search calls for them, so counting its calls is the
+	# direct test; the spy above returns () from it, so this needs one that returns something.
+	class ProposingSpy (Spy):
+		def __init__ (self):
+			super().__init__()
+			self.proposed = []
+
+		def elapse_ids (self, beam, row):
+			self.proposed.append(self.pos)
+			# Tokens the model never ranks, so every one of these is a genuine ADDITION to the pool.
+			# `E140`/`E1e0` are already in the plan's top-4 after `$50`, so proposing those counted 0
+			# forced candidates and the check read as a regression when nothing had regressed.
+			return (i['E3c0'], i['E290'])
+
+	def go_forced (gate):
+		spy, rep = ProposingSpy(), {}
+		def step_fn (ids_batch):
+			full = [prefix + list(ids) for ids in ids_batch]
+			rows = []
+			for ids in full:
+				out = model(torch.tensor([ids]), None, torch.tensor([list(range(len(ids)))]))
+				rows.append(torch.log_softmax(out[0, -1, :].float(), dim=-1))
+			spy.pos = len(ids_batch[0])
+			return torch.stack(rows)
+		out = beam_search(step_fn, tk.tokens, keywords, tk.eos_id, 10, beam_size=4, branch_k=4,
+			length_alpha=0.0, ban_first=(tk.eos_id,), report=rep, adjudicator=spy, elapse_k=8,
+			adjudicate=True, greedy_first=True, align_from_first_elapse=gate)
+		ids = out[0] if isinstance(out, tuple) else out
+		return [tk.tokens[t] for t in ids], spy.proposed, rep
+
+	_f_on_out, f_on_prop, f_on_rep = go_forced(True)
+	_f_off_out, f_off_prop, f_off_rep = go_forced(False)
+	check('no forced elapse candidates are enumerated before the gate opens',
+		f_on_prop and min(f_on_prop) >= 5,
+		f'elapse_ids called at {sorted(set(f_on_prop))} with the gate on (earliest possible open '
+		f'read is 5)')
+	# Position 0 is NOT the discriminator: `greedy_first` closes it in both runs, so neither
+	# enumerates there. What separates them is the positions in between -- with the gate off the
+	# enumeration reaches the header and the post-note_on pitch, with it on it does not.
+	check('forced elapse enumeration RESUMES after the gate opens, and the ablation restores it',
+		len(f_on_prop) > 0 and f_on_rep.get('forced_elapse', 0) > 0
+			and f_off_prop and min(f_off_prop) < 5
+			and f_off_rep.get('forced_elapse', 0) > f_on_rep.get('forced_elapse', 0),
+		f"forced_elapse {f_on_rep.get('forced_elapse')} with the gate on vs "
+		f"{f_off_rep.get('forced_elapse')} with it off; with it off the enumeration reaches "
+		f'position {min(f_off_prop) if f_off_prop else None}')
 
 
 def main ():
@@ -820,6 +1173,12 @@ def main ():
 	check_length_alpha(tk, keywords)
 	print()
 	check_adjudicator(tk, keywords)
+	print()
+	check_pitch_adjudication(tk, keywords)
+	print()
+	check_greedy_first(tk, keywords)
+	print()
+	check_align_from_first_elapse(tk, keywords)
 
 	total = len(PASS) + len(FAIL)
 	print(f'\n{len(PASS)}/{total} checks passed')
