@@ -307,10 +307,17 @@ function renderTree () {
 	   sibling buries the thing the tree is for: what the search chose over what. 'focus' keeps a cut
 	   node only where its parent is the branch point you are actually reading -- a node on the winning
 	   path, or the current selection. Kept nodes are never filtered: they ARE the search's state, and
-	   hiding one would break the edge from its children to a parent that is no longer drawn. */
-	const visible = c => {
+	   hiding one would break the edge from its children to a parent that is no longer drawn.
+
+	   THE SELECTION ITSELF is always drawn, whatever else the filter says. Without that clause a cut
+	   node vanished at the moment it was clicked: selecting an off-path kept node reveals its cut
+	   children, but clicking one of those moves SEL off the parent, so the child no longer had a
+	   visible parent NOR was it the selection, and it disappeared while the detail panel went on
+	   describing it. `sameNode` addresses it by (position, rank) because a cut node's uid is null. */
+	const visible = (c, pos) => {
 		if (c.kept) return true;
 		if (cutMode === 'all') return true;
+		if (SEL !== null && sameNode(SEL, c, pos)) return true;
 		if (cutMode === 'none') return false;
 		// A cut node has uid null, so it is addressed by its parent -- which is always a kept node.
 		return onPath.has(c.parent) || (SEL !== null && SEL.uid !== null && c.parent === SEL.uid);
@@ -318,7 +325,7 @@ function renderTree () {
 	let hidden = 0;
 
 	const COLW = 74, ROWH = 19, PADL = 52, PADT = 26, PADB = 18;   // PADB leaves room for the hidden-count line
-	const maxRows = Math.max(1, ...positions.map(p => p.candidates.filter(visible).length));
+	const maxRows = Math.max(1, ...positions.map(p => p.candidates.filter(c => visible(c, p)).length));
 	const W = PADL + Math.max(1, positions.length) * COLW + 20;
 	const H = PADT + maxRows * ROWH + PADB;
 	svg.setAttribute('width', W); svg.setAttribute('height', H);
@@ -332,7 +339,7 @@ function renderTree () {
 	// where each uid was drawn, so an edge can be joined to its parent
 	const at = new Map();
 	const cols = positions.map((pos, ci) => {
-		const rows = pos.candidates.filter(visible);
+		const rows = pos.candidates.filter(c => visible(c, pos));
 		hidden += pos.candidates.length - rows.length;
 		rows.forEach((c, ri) => {
 			const x = PADL + ci * COLW, y = PADT + ri * ROWH;
