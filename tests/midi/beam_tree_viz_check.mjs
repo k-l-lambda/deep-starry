@@ -162,5 +162,61 @@ ok(srcMono, `source softIndex is non-decreasing (0..${ssi[ssi.length - 1]})`);
 ok(DATA.source.every(e => typeof e.softIndex === 'number'),
 	'every source event carries softIndex, so the source lane can be drawn in either unit');
 
+/* --- click-to-toggle -----------------------------------------------------------------------
+   Clicking the selected node must CLEAR the selection. Two things have to hold together, and the
+   failure mode of the pair is silent: the toggle has to test the same thing the outline does, and it
+   cannot test object identity. SEL is a spread COPY of the candidate (`{ ...c, position }`), so a
+   toggle written `SEL === c` would never fire and the node would just re-select itself -- no error,
+   no visible break, only a gesture that quietly does nothing. */
+// `.trim()` is load-bearing: grab() returns the match with its leading newline, and
+// `return \nfunction …` is `return;` by automatic semicolon insertion -- the Function would hand back
+// undefined and every check below would throw instead of failing.
+const sameNode = new Function('return ' + grab('sameNode').trim())();
+{
+	const pos = { position: 7 };
+	const c = { rank: 2, uid: 41, token: 'E140' };
+	const SELcopy = { ...c, position: pos.position };
+	ok(sameNode(SELcopy, c, pos) === true,
+		'sameNode matches a spread COPY of the candidate, so the toggle can recognise the selection');
+	ok(sameNode({ ...c, position: 8 }, c, pos) === false
+		&& sameNode({ ...c, rank: 3, position: 7 }, c, pos) === false,
+		'sameNode separates a different position and a different rank');
+	// A cut candidate carries uid null, so a uid-keyed predicate would collapse every cut node in the
+	// column into one. Rank still separates them.
+	const cutA = { rank: 5, uid: null, token: 'Eb40' }, cutB = { rank: 6, uid: null, token: 'E290' };
+	ok(sameNode({ ...cutA, position: 7 }, cutA, pos) === true
+		&& sameNode({ ...cutA, position: 7 }, cutB, pos) === false,
+		'a cut node (uid null) is still identifiable, so cut nodes toggle individually');
+}
+// The handler itself is inline in a forEach, so it is checked by source: it must assign from `isSel`
+// (the outline's own variable) and must not compare SEL to the candidate by identity.
+{
+	const h = html.match(/g\.addEventListener\('click',[\s\S]*?\}\);/);
+	ok(!!h && /SEL = isSel \? null :/.test(h[0]),
+		'the click handler toggles off `isSel`, the same variable that draws the selected outline');
+	// Comments stripped first: the handler's own comment NAMES the identity comparison in order to say
+	// why it is wrong, and scanning the raw text made this check fail on the explanation.
+	const code = h ? h[0].replace(/\/\/[^\n]*/g, '') : '';
+	ok(!!h && !/SEL === c|c === SEL/.test(code),
+		'the click handler does not compare SEL to the candidate by identity (SEL is a copy)');
+}
+
+/* --- the x-axis default ---------------------------------------------------------------------
+   The `blockLabel` text is markup, rewritten only by the unit control's `change` handler, so it must
+   already agree with whichever option carries `selected`. A mismatch is silent: the page opens
+   claiming a unit it is not drawing in, and stays wrong until the user touches the control. */
+{
+	const optM = html.match(/<select id="unit">([\s\S]*?)<\/select>/);
+	ok(!!optM, 'the unit control is present');
+	const selOpt = optM && optM[1].match(/<option value="(\w+)"[^>]*\bselected\b/);
+	ok(!!selOpt && selOpt[1] === 'si',
+		`the x axis defaults to softIndex (selected option: ${selOpt ? selOpt[1] : 'none'})`);
+	const lblM = html.match(/<span id="blockLabel">([^<]*)<\/span>/);
+	// The pairing the handler enforces at runtime: 'tick' -> '480 ticks', 'si' -> '1 softIndex'.
+	const want = selOpt && selOpt[1] === 'tick' ? '480 ticks' : '1 softIndex';
+	ok(!!lblM && lblM[1] === want,
+		`the static block label matches that default: "${lblM ? lblM[1] : 'missing'}" == "${want}"`);
+}
+
 console.log(fails ? `\n${fails} check(s) FAILED` : '\nall checks passed');
 process.exit(fails ? 1 : 0);

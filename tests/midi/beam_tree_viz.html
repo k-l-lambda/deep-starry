@@ -111,10 +111,10 @@ separation, dE 11.5 / 10.8 OKLab x100, so it survives the common dichromacies).
 				<label class="hint">x axis
 					<select id="unit">
 						<option value="tick">tick</option>
-						<option value="si">softIndex</option>
+						<option value="si" selected>softIndex</option>
 					</select>
 				</label>
-				<span class="hint">both lanes on ONE scale, 40px per <span id="blockLabel">480 ticks</span>; scroll for the rest</span>
+				<span class="hint">both lanes on ONE scale, 40px per <span id="blockLabel">1 softIndex</span>; scroll for the rest</span>
 				<label class="hint"><input type="checkbox" id="fullSrc"> whole source</label>
 				<button id="clearSel" style="margin-left:auto">clear selection</button>
 			</div>
@@ -398,7 +398,12 @@ function renderTree () {
 				fill: c.align.src === null ? C.miss : C.match,
 			}));
 			g.addEventListener('click', () => {
-				SEL = { ...c, position: pos.position };
+				// Clicking the selected node clears it, so the same gesture that opened a node closes
+				// it and the mouse alone can get back to the unselected view. Keyed on the SAME
+				// `sameNode` predicate that drew the outline, not on object identity: SEL is a spread
+				// COPY of the candidate, so `SEL === c` is never true and a toggle written that way
+				// would silently never fire.
+				SEL = isSel ? null : { ...c, position: pos.position };
 				render();
 			});
 			g.appendChild(el('title', {})).textContent =
