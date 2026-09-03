@@ -30,7 +30,7 @@ from starry.midi.beam import (BranchState, Beam, beam_search, branch_profile, BR
 	BRANCH_ELAPSE, BRANCH_PITCH)
 from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer
 from starry.midi.align import (soft_indices, elapse_value, elapse_class, stage_admits,
-	STAGE_BIG, Config as AlignConfig)
+	STAGE_BIG, STAGE_LOW, Config as AlignConfig)
 from translateMidiseq2 import keyword_tokens
 from translateMidiseq2Beam import AlignAdjudicator, BeamTranslator, LineageTracker
 
@@ -591,6 +591,28 @@ def check_adjudicator (tk, keywords):
 		elapse_order == ['E1e0', 'E140', 'E3c0'] and got[-1] == 'note_on',
 		f'first three elapse ids {elapse_order}, last {got[-1]} (note_on as elapse-0)')
 
+	# --- a LOW is never REINFORCED: not by a proposal, and not by a branch point of its own.
+	tracker, adj = fresh_pair()
+	prop_toks = {tk.tokens[t] for t in adj.proposal_ids}
+	lows = {f'E{n:x}' for n in range(1, 16)}
+	check('the proposal set excludes every LOW and keeps everything else',
+		len(adj.proposal_ids) == len(adj.elapse_values) - 15 and not (prop_toks & lows),
+		f'{len(adj.proposal_ids)} proposable of {len(adj.elapse_values)} elapse tokens; '
+		f'lows among them {sorted(prop_toks & lows)}')
+
+	# The model is made to PREFER lows, so a low reaching the proposals could only be the ranking's
+	# own choice rather than the distribution's.
+	row_mid_ok = torch.full((tk.vocab_size,), -20.0)
+	for n, tok in enumerate(('Ec', 'E4', 'Ea', 'E1')):
+		row_mid_ok[i[tok]] = -1.0 - n
+	row_mid_ok[i['E3c0']] = -9.0
+	prop_ok = [tk.tokens[t] for t in adj.elapse_ids(None, row_mid_ok)]
+	lows_in = [t for t in prop_ok if elapse_value(t) is not None
+		and elapse_class(elapse_value(t)) == STAGE_LOW]
+	check('no proposal is ever spent on a LOW, even when the model ranks lows above every mid',
+		not lows_in and 'E3c0' in prop_ok,
+		f'model ranked Ec E4 Ea E1 above E3c0; proposals {prop_ok[:5]}, lows among them {lows_in}')
+
 	# --- abstention: nothing observed yet, so no candidate carries a loss
 	tracker, adj = fresh_pair()
 	class _Beam: uid = 1
@@ -795,13 +817,18 @@ def check_adjudicator (tk, keywords):
 		al_rep.get('grammar_masked', 0) > 0,
 		f"grammar_masked {al_rep.get('grammar_masked')} (token, beam) pairs")
 
-	# Position 1, not 0: position 0 is the greedy_first throwaway `<eom>` in both runs by construction.
-	check('the adjudicated run overturns the LM-only run',
-		lm_out != al_out and len(lm_out) > 1 and len(al_out) > 1
-			and lm_out[1] == 'note_off' and al_out[1].startswith('E'),
-		f'LM took {lm_out[1] if len(lm_out) > 1 else None}, adjudicated took '
-		f'{al_out[1] if len(al_out) > 1 else None} (at position 1; position 0 is the greedy_first '
-		f'argmax <eom> in both)')
+	# The aligner must change the OUTPUT, and it must be the ranking that did it -- not the position
+	# it happens at, which is a property of this fixture and moved once already. It used to close the
+	# run as `E3c0 E8`, a MID plus a LOW; with STAGE_MID no longer a branch point that LOW is gone, so
+	# the difference now shows up as an elapse the LM-only run never reaches at all (it terminates).
+	# What must NOT weaken: the runs differ, the aligner overturned at least once, and the token it
+	# won with is an elapse -- the whole point of the adjudicator is placing those.
+	al_elapse = [t for t in al_out if elapse_value(t) is not None]
+	lm_elapse = [t for t in lm_out if elapse_value(t) is not None]
+	check('the adjudicated run overturns the LM-only run and places an elapse it never reaches',
+		lm_out != al_out and al_rep.get('overturned', 0) > 0 and al_elapse and not lm_elapse,
+		f'LM {lm_out} (elapse {lm_elapse}) vs adjudicated {al_out} (elapse {al_elapse}); '
+		f'overturned {al_rep.get("overturned")}')
 	check('the search reports what the adjudicator did',
 		al_rep.get('adjudicated', 0) > 0 and al_rep.get('overturned', 0) > 0
 			and al_rep.get('forced_elapse', 0) > 0 and lm_rep.get('adjudicated', 0) == 0,
@@ -957,6 +984,129 @@ def check_greedy_first (tk, keywords):
 		f"{off_rep.get('branch_points')} branch points with the gate off")
 
 
+def check_logprob_margin (tk, keywords):
+	"""A candidate rated more than `logprob_margin` nats below its row's own best is pruned.
+
+	`branch_k` is a fixed width, so without a margin the search spends the whole width at every branch
+	point however certain the model is there. MEASURED on the committed align dump: at the first elapse
+	branch after the header the four rows put -0.0000/-0.0000/-0.0002/-0.0003 on elapse-zero with the
+	next candidate 8.97 nats or worse -- three slots per row on continuations already ruled out.
+
+	  the margin drops exactly the candidates outside it and keeps the ones inside;
+	  a row is never pruned empty, since the argmax's own margin is 0;
+	  it cannot fire at width 1, so greedy/beam-1 parity is safe BY CONSTRUCTION and not by luck;
+	  the adjudicator's forced elapse proposals are EXEMPT -- they exist because the model ranked them
+	  badly, so a margin over them would delete the adjudicator's whole input;
+	  logprob_margin=None disables it, or the ablation cannot be run.
+	"""
+	i = tk.id_by_token
+	# Gaps of 1.0 and 3.0 nats in LOGIT space around the argmax. After log_softmax the differences are
+	# preserved exactly (softmax is shift-invariant), so a margin of 2.0 must keep the first and drop
+	# the second whichever space it is read in.
+	plan = {
+		tk.bos_id: {i['<eom>']: 9.0, i['E140']: 8.0, i['E1e0']: 6.0, i['E3c0']: 5.0,
+			tk.eos_id: -8.0},
+		i['<eom>']: {i['note_on']: 9.0, i['E140']: 8.0, i['E1e0']: 6.0, i['E3c0']: 5.0,
+			tk.eos_id: -8.0},
+		i['note_on']: {i['#3c']: 9.0, tk.eos_id: -8.0},
+		i['#3c']: {i['$50']: 9.0, tk.eos_id: -8.0},
+		i['$50']: {i['E140']: 9.0, i['E1e0']: 8.0, i['E3c0']: 6.0, tk.eos_id: -8.0},
+		# Back to a fresh event, so the run reaches a SECOND elapse branch. It has to: after a mid
+		# token like `E140` the automaton admits only the 15 low tokens (verified -- `E3c0` is another
+		# mid and is correctly masked to -inf there), so a proposal of one at that position tests the
+		# mask, not the margin. Only once `note_on #3c $50` has closed does the full elapse vocabulary
+		# become legal again.
+		i['E140']: {i['note_on']: 9.0, tk.eos_id: -8.0},
+		i['E1e0']: {i['note_on']: 9.0, tk.eos_id: -8.0},
+		i['E3c0']: {i['note_on']: 9.0, tk.eos_id: -8.0},
+	}
+	model = StubModel(tk.vocab_size, plan, i['note_on'], tk.eos_id)
+	prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id]
+
+	# Read the pool the search actually built, rather than inferring it from the output: an observer
+	# sees every candidate at every position, which is exactly the quantity under test.
+	def go (margin, adjudicator=None, elapse_k=0):
+		seen, rep = [], {}
+		def obs (position, row, beam, cands, **kw):
+			seen.append((position, [tk.tokens[t] for t, _lp in cands]))
+		def step_fn (ids_batch):
+			rows = []
+			for ids in [prefix + list(x) for x in ids_batch]:
+				out = model(torch.tensor([ids]), None, torch.tensor([list(range(len(ids)))]))
+				rows.append(torch.log_softmax(out[0, -1, :].float(), dim=-1))
+			return torch.stack(rows)
+		out = beam_search(step_fn, tk.tokens, keywords, tk.eos_id, 10, beam_size=4, branch_k=4,
+			length_alpha=0.0, ban_first=(tk.eos_id,), report=rep, greedy_first=False,
+			logprob_margin=margin, adjudicator=adjudicator, elapse_k=elapse_k,
+			adjudicate=bool(adjudicator))
+		ids = out[0] if isinstance(out, tuple) else out
+		return [tk.tokens[t] for t in ids], rep
+
+	_o2, rep2 = go(2.0)
+	_oN, repN = go(None)
+	# Position 0 with greedy_first off is a branch point with the 1.0/3.0/4.0 ladder on it: <eom> and
+	# E140 are inside a margin of 2.0, E1e0 and E3c0 are outside.
+	check('the margin prunes the candidates outside it and keeps the ones inside',
+		rep2.get('margin_pruned', 0) > 0 and repN.get('margin_pruned', 0) == 0,
+		f"margin_pruned {rep2.get('margin_pruned')} at margin 2.0 vs "
+		f"{repN.get('margin_pruned')} with it disabled")
+	check('logprob_margin=None disables the prune, so the ablation is runnable',
+		repN.get('margin_pruned', 0) == 0 and repN.get('expanded', 0) > rep2.get('expanded', 0),
+		f"{repN.get('expanded')} candidates expanded with no margin vs {rep2.get('expanded')} at 2.0")
+
+	# The exact arithmetic, straight off one row, so the check does not depend on which lineage won.
+	row = torch.log_softmax(torch.tensor(
+		[9.0, 8.0, 6.0, 5.0] + [-20.0] * 4).float(), dim=-1)
+	best = float(row[0])
+	inside = [n for n in range(4) if best - float(row[n]) <= 2.0]
+	check('the margin is read in logprob space, where softmax shift-invariance preserves the gaps',
+		inside == [0, 1],
+		f'gaps from the row max: {[round(best - float(row[n]), 4) for n in range(4)]} -> '
+		f'kept {inside} at margin 2.0')
+
+	# Width 1 never reaches the prune (`len(cands) > 1` is false), which is what makes the
+	# greedy/beam-1 byte-identity above safe under a non-None default rather than lucky.
+	rep1 = {}
+	def step1 (ids_batch):
+		rows = []
+		for ids in [prefix + list(x) for x in ids_batch]:
+			out = model(torch.tensor([ids]), None, torch.tensor([list(range(len(ids)))]))
+			rows.append(torch.log_softmax(out[0, -1, :].float(), dim=-1))
+		return torch.stack(rows)
+	beam_search(step1, tk.tokens, keywords, tk.eos_id, 6, beam_size=1, branch_k=4,
+		length_alpha=0.0, ban_first=(tk.eos_id,), report=rep1, logprob_margin=2.0)
+	check('the margin cannot fire at width 1, so greedy/beam-1 parity is safe by construction',
+		rep1.get('margin_pruned', 0) == 0,
+		f"margin_pruned {rep1.get('margin_pruned')} at beam_size=1")
+
+	# --- the forced-elapse exemption
+	class Proposer:
+		def __init__ (self):
+			self.proposed = 0
+
+		def elapse_ids (self, beam, row):
+			# Only where a fresh elapse is actually legal. The automaton, not the margin, is what
+			# rejects a second mid token straight after `E140`, and a proposal there would make this
+			# check pass or fail on the mask instead of on the thing under test.
+			if row[i['E3c0']].item() == float('-inf'):
+				return ()
+			self.proposed += 1
+			# Far outside any useful margin, which is the whole point: this is the shape of a real
+			# proposal (measured 8.97 nats behind the argmax), so if the prune covered these it would
+			# drop every one.
+			return (i['E3c0'], i['E290'])
+
+		def losses (self, beam, cands, kind=BRANCH_ELAPSE):
+			return [None] * len(cands)
+
+	prop = Proposer()
+	_op, repp = go(2.0, adjudicator=prop, elapse_k=8)
+	check('forced elapse proposals survive the margin (they exist BECAUSE the model rated them low)',
+		prop.proposed > 0 and repp.get('forced_elapse', 0) > 0,
+		f"{repp.get('forced_elapse')} forced candidates kept at margin 2.0 over "
+		f'{prop.proposed} proposal calls; each sits far outside the margin by construction')
+
+
 def check_align_from_first_elapse (tk, keywords):
 	"""Align ranking must be held off until a lineage has emitted its first note_on AND, after it, an
 	elapse token.
@@ -1065,16 +1215,19 @@ def check_align_from_first_elapse (tk, keywords):
 	on_pos = {p for p, _k in on_asked}
 	off_pos = {p for p, _k in off_asked}
 
-	# 5 is the earliest position any lineage can be asked at, and it is worth tracing because it is
+	# 6 is the earliest position any lineage can be asked at, and it is worth tracing because it is
 	# derived rather than observed: `greedy_first` fixes position 0 to the argmax `<eom>`, so the first
 	# note_on cannot land before 1; its pitch is 2 and its velocity 3, so the first elapse after it
-	# cannot land before 4; and the gate is read at the position AFTER the token that opens it. A
-	# lineage that spends position 1 on a header elapse instead reaches its own first post-note_on
-	# elapse later still, never earlier.
+	# cannot land before 4; the gate is read at the position AFTER the token that opens it, so 5 -- but
+	# that elapse is a MID, which puts 5 at STAGE_MID, and `branch_kind` returns BRANCH_NONE there (a
+	# LOW is the only elapse the automaton still admits and a LOW is never a branch point), so the
+	# first position that can be ASKED is 6. A lineage that spends position 1 on a header elapse
+	# instead reaches its own first post-note_on elapse later still, never earlier.
 	check('align ranking is held off until an elapse lands after the first note_on',
-		on_pos and min(on_pos) == 5,
+		on_pos and min(on_pos) == 6,
 		f'earliest adjudicated position {min(on_pos) if on_pos else None} with the gate on '
-		f'(note_on >= 1, its pitch 2, its velocity 3, the elapse >= 4, so the first open read is 5); '
+		f'(note_on >= 1, its pitch 2, its velocity 3, the elapse >= 4, gate opens at 5, and 5 is '
+		f'STAGE_MID so the first askable position is 6); '
 		f'asked at {sorted(on_pos)}')
 	# THE point of this change, stated as the one position that separates the two gates. Position 2 is
 	# the pitch branch immediately after the first note_on: `saw_note_on` is already set there, so the
@@ -1179,6 +1332,8 @@ def main ():
 	check_greedy_first(tk, keywords)
 	print()
 	check_align_from_first_elapse(tk, keywords)
+	print()
+	check_logprob_margin(tk, keywords)
 
 	total = len(PASS) + len(FAIL)
 	print(f'\n{len(PASS)}/{total} checks passed')

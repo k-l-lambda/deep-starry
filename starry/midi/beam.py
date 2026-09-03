@@ -42,8 +42,8 @@ correct the distribution would be circular AND would fail where it matters.
 import itertools
 import math
 
-from .align import (GrammarState, CLS_ELAPSE, CLS_KEYWORD, CLS_SPECIAL, CLS_BARE, elapse_value,
-	token_class)
+from .align import (GrammarState, CLS_ELAPSE, CLS_KEYWORD, CLS_SPECIAL, CLS_BARE, STAGE_MID,
+	elapse_value, token_class)
 
 
 BRANCH_NONE = 0
@@ -159,7 +159,22 @@ class BranchState:
 			# so there is nothing to search: measured 0 of 14392 note_on pitches were followed by an
 			# elapse token. Branching here would spend the whole batch re-deriving `$`.
 			return BRANCH_NONE
-		return BRANCH_ELAPSE if self.grammar.elapse_allowed else BRANCH_NONE
+		if not self.grammar.elapse_allowed:
+			return BRANCH_NONE
+		if self.grammar.in_run and self.grammar.stage == STAGE_MID:
+			# STAGE_MID is NOT an elapse branch point. The only elapse token the automaton still admits
+			# here is a LOW (0x1..0xf), and a LOW is a 1..15 tick rounding correction against a 480-tick
+			# beat -- there is no rhythmic choice left to search, the coarse one was made by the MID
+			# behind this position. So this is an ordinary position: no fan-out, no forced proposals, no
+			# align ranking. A LOW still reaches the output whenever the model itself puts one at the
+			# argmax; it is simply never reinforced.
+			#
+			# MEASURED before this, on the committed 200-token dump: 109 of 248 proposal-drawing rows
+			# were at STAGE_MID, and every one of them spent all 8 slots on lows the model rated 2 to 22
+			# nats below its own best. 82 of the 84 lows that reached the winning path could ONLY have
+			# arrived as forced proposals -- the logprob margin would have cut every one.
+			return BRANCH_NONE
+		return BRANCH_ELAPSE
 
 	def feed (self, tok, keywords):
 		'''Commit one token string. Returns its grammar class.'''
@@ -236,7 +251,7 @@ class Beam:
 
 def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=4,
 	length_alpha=0.7, seed_state=None, ban_first=(), rank=None, report=None, observer=None,
-	greedy_first=True, align_from_first_elapse=True,
+	greedy_first=True, align_from_first_elapse=True, logprob_margin=2.0,
 	adjudicator=None, elapse_k=0, adjudicate=True):
 	'''Run the search. Returns (best ids, forced, report).
 
@@ -292,6 +307,25 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 	bootstraps the ratio, and until it lands there is nothing for the aligner to have an opinion with.
 
 	Set False to measure all of this (the ablation).
+
+	logprob_margin: drop any candidate rated more than this many nats below its OWN ROW's best,
+	default 2.0. None disables it.
+
+	`branch_k` is a fixed width, so without this the search spends the full width at every branch point
+	however certain the model is there. MEASURED on the committed align dump's first elapse branch after
+	the header: the four rows put -0.0000/-0.0000/-0.0002/-0.0003 on elapse-zero and the next candidate
+	was 8.97 nats or worse, so three of four slots per row went to continuations already ruled out.
+
+	Per ROW, not per pool: each live beam keeps its own plausible continuations, so a beam the model
+	likes less overall is not silently pruned to a narrower width than its neighbours. A row can never
+	be emptied, since the argmax's own margin is 0. And it cannot fire at width 1 (`len(cands) > 1` is
+	false), which is what makes greedy/beam-1 byte-identity safe by construction rather than by luck.
+
+	The adjudicator's forced elapse proposals are EXEMPT, because they are appended after this and by
+	design sit far outside any useful margin -- the case that motivated the whole adjudicator had the
+	correct elapse at -5.36 against the argmax's -0.08, and the dump's cheapest real elapse was 8.97
+	nats back. A margin over those would delete the aligner's entire input while still reporting that an
+	adjudicator ran.
 
 	rank(beam, tid, logprob) -> float, optional. Added to the pool key, so alignment evidence can
 	reorder candidates without touching this function. None = pure LM ranking, which is the
@@ -351,6 +385,10 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 		# the two would hide the gate, and the whole point of the elapse half is that it suppresses
 		# branches that would otherwise have abstained anyway.
 		pre_align=0,
+		# candidates the logprob margin dropped, summed over (position, beam). Counted because the
+		# margin is a DEFAULT: a run that prunes nothing and a run without the margin are the same run,
+		# and only this number tells them apart.
+		margin_pruned=0,
 		# summed over (position, beam): how much of the vocabulary the automaton ruled out. 0 on a
 		# run that never opened a mid-run branch, which is why it is counted rather than assumed.
 		grammar_masked=0)
@@ -434,12 +472,26 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 				rep['widened'] += 1
 			cands = [(int(tid), lp)
 				for lp, tid in zip(top.values.tolist(), top.indices.tolist())]
+			# Against this ROW's own best, which is cands[0] -- topk returns sorted, so no max() is
+			# needed and the argmax always survives with a margin of exactly 0. `-inf` entries (fewer
+			# legal tokens than k after the grammar mask) fail the test and go too, which is the same
+			# thing the old `math.isfinite` guard downstream did.
+			if logprob_margin is not None and len(cands) > 1:
+				floor = cands[0][1] - logprob_margin
+				kept = [c for c in cands if c[1] >= floor]
+				rep['margin_pruned'] += len(cands) - len(kept)
+				cands = kept
 			# The elapse tokens the aligner wants considered, whether or not the model ranked them.
 			# Added only at a real elapse branch point: elsewhere an elapse is either illegal (after a
 			# keyword) or not what is being decided, and forcing one in would search a position the
 			# grammar has already settled.
 			# `wide_here`, not `beam_size > 1`: a forced elapse proposal is a widening like any other,
 			# and at the first position it would reopen exactly what greedy_first just closed.
+			#
+			# Appended AFTER the logprob margin and deliberately exempt from it: a proposal exists
+			# because the model ranked the token badly (the dump's cheapest real elapse sat 8.97 nats
+			# behind the argmax), so a margin over these would delete the aligner's whole input and
+			# quietly turn an adjudicated run back into an LM-only one.
 			#
 			# And gated on the same latch as the ranking below, for the same reason and then one more.
 			# The reason: these candidates exist ONLY to give the aligner something to rank, so

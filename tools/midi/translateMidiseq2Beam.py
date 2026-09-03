@@ -54,7 +54,8 @@ import torch
 import torch.nn.functional as F
 
 from starry.midi.beam import (BranchState, beam_search, BRANCH_NAMES, BRANCH_ELAPSE, BRANCH_PITCH)
-from starry.midi.align import AlignState, Config, elapse_value, soft_delta, soft_indices
+from starry.midi.align import (AlignState, Config, STAGE_LOW, elapse_class, elapse_value,
+	soft_delta, soft_indices)
 
 # The greedy translator is the base, not a template: these are the same objects it uses.
 from translateMidiseq2 import (DEFAULT_RUN, SlidingTranslator, SlidingEncDecTranslator,
@@ -74,7 +75,7 @@ class BeamMixin:
 
 	def __init__ (self, *args, beam_size=1, branch_k=4, length_alpha=0.7, inspector=None,
 		position_cap=0, adjudicator=None, elapse_k=0, adjudicate=True, greedy_first=True,
-		align_from_first_elapse=True, **kwargs):
+		align_from_first_elapse=True, logprob_margin=2.0, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.beam_size = max(1, int(beam_size))
 		self.branch_k = max(1, int(branch_k))
@@ -98,6 +99,11 @@ class BeamMixin:
 		# half is not cosmetic: until a tick advances, `_update_ratio` cannot form a ratio and every
 		# forecast is None, so the branches before it were being asked a question with no answer.
 		self.align_from_first_elapse = bool(align_from_first_elapse)
+		# Drop a candidate rated more than this many nats below its own row's best. `branch_k` is a
+		# fixed width, so without it the search spends the full width wherever the model is certain --
+		# MEASURED at the dump's first post-header elapse branch, all four rows put ~-0.0000 on
+		# elapse-zero with the next candidate 8.97 nats back. None disables it.
+		self.logprob_margin = logprob_margin
 		# --inspect N caps the tokens a window generates, not just the tokens recorded: generating
 		# 2000 and keeping 40 would spend the whole run to dump a fragment of its first window.
 		self.position_cap = max(0, int(position_cap))
@@ -193,6 +199,7 @@ class BeamMixin:
 			# end-of-piece detection on it.
 			ban_first=(self.tk.eos_id,), greedy_first=self.greedy_first,
 			align_from_first_elapse=self.align_from_first_elapse,
+			logprob_margin=self.logprob_margin,
 			rank=self.rank_fn(), report=self.beam_report)
 		if self.inspector is not None:
 			# Which hypothesis won, taken from the search's own report rather than re-derived here, so
@@ -408,6 +415,20 @@ class AlignAdjudicator:
 			value = elapse_value(tok)
 			if value is not None:
 				self.elapse_values[tid] = value
+		# What `elapse_ids` may PROPOSE from: every elapse token EXCEPT the 15 lows (0x1..0xf).
+		# `elapse_values` above stays complete, because a low still reaches the pool whenever the
+		# model's own top-k contains one and must remain scorable -- this set only bounds what the
+		# aligner REINFORCES.
+		#
+		# A low advances the tick by 1..15, which against a 480-tick beat is a rounding correction and
+		# not a rhythmic choice, so a proposal slot spent on one buys no option worth a beam slot.
+		# MEASURED on the pre-change 200-token dump: of 248 (position, beam) rows that drew proposals,
+		# 29 spent a slot on a low while a MID was still legal, and 109 were at STAGE_MID where a low
+		# is all the automaton admits. `BranchState.branch_kind` now returns BRANCH_NONE at STAGE_MID,
+		# so those 109 rows are no longer branch points at all and never reach here -- which is why
+		# this set needs no stage test of its own.
+		self.proposal_ids = [tid for tid, value in self.elapse_values.items()
+			if elapse_class(value) != STAGE_LOW]
 		self.note_on_id = None
 		for tid, tok in enumerate(tokenizer.tokens):
 			if tok == 'note_on':
@@ -428,10 +449,12 @@ class AlignAdjudicator:
 				self.terminator_ids.add(int(tid))
 
 	def elapse_ids (self, beam, logprob_row):
-		'''The top `elapse_k` elapse tokens by log-probability, plus note_on as the elapse-0 option.
+		'''The top `elapse_k` non-LOW elapse tokens by log-probability, plus note_on as the elapse-0 option.
 
 		Top-k among ELAPSE tokens specifically, not among all tokens -- that is the whole point, since
-		the overall top-k routinely contains no elapse at all. Deliberately NOT masked by
+		the overall top-k routinely contains no elapse at all. LOW tokens (0x1..0xf) are never
+		proposed: see `proposal_ids`. A low still reaches the pool whenever the model's own top-k
+		contains one, and is always scorable -- it is only never reinforced. Deliberately NOT masked by
 		`feasible_elapse_tokens`: that mask needs a target INTERVAL, it is a separate ablation level,
 		and folding it in here would make it impossible to tell which of the two changed a result.
 
@@ -440,7 +463,7 @@ class AlignAdjudicator:
 		the row passed here, so proposing one is a no-op (it also drops them explicitly). Ranking on
 		the masked row means a proposal is never spent on a token that cannot be taken.
 		'''
-		ranked = sorted(self.elapse_values, key=lambda tid: -logprob_row[tid])
+		ranked = sorted(self.proposal_ids, key=lambda tid: -logprob_row[tid])
 		out = ranked[:self.elapse_k]
 		if self.note_on_id is not None:
 			out.append(self.note_on_id)
@@ -714,6 +737,12 @@ def report_beam (report, steps):
 		print(f'[beam] branch rate {branch_positions / positions:.3f} of positions, '
 			f'{beam_points / positions:.2f} beam-branches and '
 			f'{report.get("expanded", 0) / positions:.2f} candidates per position')
+		# The margin is a DEFAULT, so a run that pruned nothing and a run built before the margin
+		# existed produce the same tree and the same counts -- this line is the only thing that tells
+		# them apart in a log.
+		if report.get('margin_pruned'):
+			print(f"[beam] {report['margin_pruned']} candidates pruned by the logprob margin "
+				f'(rated too far below their own row\'s best to be worth a slot)')
 	# Only when an adjudicator ran, and it has THREE outcomes per position, not two: it ordered the
 	# pool (`adjudicated`), it was asked and its verdicts were recorded while the model still ranked
 	# (`scored_only`, i.e. --rank lm --inspect), or it had no evidence (`abstained`). Keying this line
@@ -794,6 +823,18 @@ def main ():
 			'behind `if slope > 0`, so with every target tick still 0 no ratio forms and forecast returns '
 			'None -- MEASURED, all 47 elapse branches on the committed dump\'s winning chain abstained. '
 			'This flag restores the old behaviour for ablation')
+	ap.add_argument('--logprob-margin', type=float, default=2.0,
+		help='drop any candidate rated more than this many nats below its OWN ROW\'s best (default '
+			'2.0; 0 or less disables it). `--branch-k` is a fixed width, so without this the search '
+			'spends the full width at every branch point however certain the model is -- MEASURED at '
+			'the committed dump\'s first post-header elapse branch, the four rows put '
+			'-0.0000/-0.0000/-0.0002/-0.0003 on elapse-zero while the next candidate was 8.97 nats or '
+			'worse, so three of four slots per row went to continuations already ruled out. Per ROW, so '
+			'a beam the model likes less overall is not pruned to a narrower width than its neighbours; '
+			'a row can never be emptied, since the argmax\'s own margin is 0; and it cannot fire at '
+			'width 1, so greedy/beam-1 byte-identity is safe by construction. The adjudicator\'s '
+			'forced elapse proposals are EXEMPT -- they exist because the model ranked them badly, so a '
+			'margin over them would delete the aligner\'s whole input')
 	ap.add_argument('--reuse-cost', type=float, default=None,
 		help='charge for a match that RE-USES a source note this lineage already paired, per prior '
 			'pairing (align.Config ReuseCost, default 0.0 = off, which is the historical behaviour). '
@@ -906,7 +947,9 @@ def main ():
 		adjudicator = AlignAdjudicator(tracker, tokenizer, elapse_k=args.elapse_k)
 		print(f'[rank] alignment {"adjudication on (it ORDERS the pool)" if adjudicate else "scoring on (recorded only; the model still ranks)"}, '
 			f'elapse-k {args.elapse_k} '
-			f'({len(adjudicator.elapse_values)} elapse tokens in the vocabulary), '
+			f'(proposed from {len(adjudicator.proposal_ids)} of the vocabulary\'s '
+			f'{len(adjudicator.elapse_values)} elapse tokens; the 15 LOW ones are never proposed, '
+			f'and STAGE_MID is not a branch point at all), '
 			f'forecast lookahead {Config["ForecastLookahead"]}')
 
 	inspector = None
@@ -929,7 +972,10 @@ def main ():
 		inspector=inspector, position_cap=args.inspect or 0,
 		adjudicator=adjudicator, elapse_k=args.elapse_k if adjudicator is not None else 0,
 		adjudicate=adjudicate, greedy_first=not args.branch_first,
-		align_from_first_elapse=not args.align_from_first_token)
+		align_from_first_elapse=not args.align_from_first_token,
+		logprob_margin=(args.logprob_margin if args.logprob_margin > 0 else None))
+	print('[beam] logprob margin ' + (f'{args.logprob_margin:g} nats below each row\'s own best is '
+		'pruned' if args.logprob_margin > 0 else 'disabled (the full branch-k everywhere)'))
 	print(f'[beam] width {args.beam}, branch-k {args.branch_k} at elapse/pitch, '
 		f'{"BRANCHING at" if args.branch_first else "greedy at"} each window\'s first position, '
 		f'length-alpha {args.length_alpha}, rank {args.rank}'
@@ -970,11 +1016,12 @@ def main ():
 			input_mtime=int(os.path.getmtime(args.input)), beam=args.beam, branch_k=args.branch_k,
 			length_alpha=args.length_alpha, src_window=args.src_window, max_token=args.max_token,
 			advance_tokens=args.advance_tokens, pos_style=pos_style, rank=args.rank,
-			# Both opening policies, recorded because they are DEFAULTS: a dump that predates them
-			# looks identical in every other key while having been built by a different search, and one
-			# such dump has already been read as if it were current.
+			# The search policies, recorded because they are DEFAULTS: a dump that predates them looks
+			# identical in every other key while having been built by a different search, and one such
+			# dump has already been read as if it were current.
 			greedy_first=not args.branch_first,
 			align_from_first_elapse=not args.align_from_first_token,
+			logprob_margin=(args.logprob_margin if args.logprob_margin > 0 else None),
 			# Whether an aligner RAN is not derivable from `rank`: --rank lm --inspect scores every
 			# candidate and merely declines to rank on it. Keying either of the next two on `rank`
 			# reported elapse_k None on a run whose pool held 2748 forced elapse candidates, and made
