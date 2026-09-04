@@ -60,7 +60,7 @@ from starry.midi.align import (AlignState, Config, STAGE_LOW, elapse_class, elap
 # The greedy translator is the base, not a template: these are the same objects it uses.
 from translateMidiseq2 import (DEFAULT_RUN, SlidingTranslator, SlidingEncDecTranslator,
 	resolve_checkpoint, resolve_tokenizer, load_model, render_lines, compose_output, write_output,
-	report_output, source_header, encode_lines, note_on_events, keyword_tokens)
+	report_output, source_header, encode_lines, note_on_events, keyword_tokens, is_elapse)
 from starry.utils.config import Configuration
 
 
@@ -75,7 +75,8 @@ class BeamMixin:
 
 	def __init__ (self, *args, beam_size=1, branch_k=4, length_alpha=0.7, inspector=None,
 		position_cap=0, adjudicator=None, elapse_k=0, adjudicate=True, greedy_first=True,
-		align_from_first_elapse=True, logprob_margin=2.0, tracker=None, **kwargs):
+		align_from_first_elapse=True, logprob_margin=2.0, tracker=None,
+		window_loss_limit=0.0, align_crop=True, trim_bad_tail=True, bad_self_cost=0.5, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.beam_size = max(1, int(beam_size))
 		self.branch_k = max(1, int(branch_k))
@@ -111,6 +112,24 @@ class BeamMixin:
 		# on any run that has a tracker at all, and taking it from `inspector.tracker` is exactly how
 		# that came to depend on --inspect.
 		self.tracker = tracker
+		# --- the three alignment-driven window policies -------------------------------------------
+		# All keyed on the SAME per-note verdicts, replayed off the winning lineage once per window.
+		# `_step` carries them from `generate` to the three window hooks below; nothing else may read
+		# it, and each hook falls back to the inherited behaviour when it is absent, so a width-1 run
+		# (which never enters `generate` here) is untouched.
+		self.window_loss_limit = max(0.0, float(window_loss_limit))
+		self.align_crop = bool(align_crop)
+		self.trim_bad_tail = bool(trim_bad_tail)
+		self.bad_self_cost = float(bad_self_cost)
+		self._step = None
+		self._note_lines = None		# note_on line indices, cached per file
+		# Latched when a crop failed to advance the source cursor. Read by `source_window`, which is
+		# the only hook that can END the inherited loop: `translate` breaks on an empty window, while
+		# its no-advance guard fires unconditionally AFTER `advance_source_by_onsets` returns and would
+		# override any cursor we handed back. See `source_window`.
+		self._stalled = None
+		self.window_report = dict(capped=0, cropped=0, crop_fallback=0, trimmed_notes=0,
+			trimmed_tokens=0, trims=0, stalled=0)
 		self.step_index = 0
 
 	def seed_state (self, prefix_ids, n_source=None):
@@ -199,6 +218,16 @@ class BeamMixin:
 		elif self.tracker is not None:
 			observer = lambda position, live, pool, kept, done: self.tracker.walk(
 				live, pool, kept, done)
+		# The per-window cost cap. Tested on the LEADING survivor -- pool position 0, i.e. the
+		# hypothesis the aligner (or, where it abstained, the model) currently ranks best -- because
+		# that is the one most likely to be returned, and waiting for EVERY survivor to exceed the cap
+		# would let the window run on inside a beam that is already being discarded.
+		stop_fn = None
+		if self.window_loss_limit > 0 and self.tracker is not None:
+			def stop_fn (position, live, done):
+				lead = self.tracker.table.get(live[0].uid)
+				return lead is not None and lead.get('wcost', 0.0) >= self.window_loss_limit
+		root_before = self.tracker.root if self.tracker is not None else None
 		ids, forced, _rep = beam_search(step, self.tk.tokens, self.keywords, self.tk.eos_id,
 			max_new=room, beam_size=self.beam_size, branch_k=self.branch_k,
 			length_alpha=self.length_alpha, observer=observer,
@@ -211,17 +240,214 @@ class BeamMixin:
 			ban_first=(self.tk.eos_id,), greedy_first=self.greedy_first,
 			align_from_first_elapse=self.align_from_first_elapse,
 			logprob_margin=self.logprob_margin,
-			rank=self.rank_fn(), report=self.beam_report)
+			rank=self.rank_fn(), report=self.beam_report, stop_fn=stop_fn)
 		# Which hypothesis won, taken from the search's own report rather than re-derived here, so the
 		# next window's alignment continues from the lineage the output actually took. Unconditional,
 		# because a window boundary is a lineage event: the inspector merely also wants to note it.
 		best_uid = self.beam_report.get('best_uid')
 		if self.tracker is not None:
+			# `carry` first, so the root is the winner's own state on any path that does not replay --
+			# then REPLAY it from the pre-window root to recover the per-note verdicts. The live table
+			# is pruned to the beam width at every position, so by here the winner's history is gone
+			# and only its final state remains; the window hooks need the notes, one at a time, with
+			# the token offset that produced each. Replaying is exact rather than an approximation:
+			# alignment is a function of the ids alone. See `LineageTracker.replay`.
 			self.tracker.carry(best_uid)
+			state, records = self.tracker.replay(root_before, ids)
+			self.tracker.open_window(state)
+			self._step = dict(root=root_before, ids=list(ids), records=records)
+		else:
+			self._step = None
 		if self.inspector is not None:
 			self.inspector.end_window(best_uid)
 		self.step_index += 1
 		return ids, forced
+
+	# --- the three window hooks ------------------------------------------------------------------
+	# Overrides of `SlidingTranslator`, so the inherited `translate` drives all of this and no
+	# sliding-window code is forked. They run in the order translate calls them:
+	#   advance_output   -> trim the bad tail, THEN compute the stride over what is left
+	#   trim_prime       -> (unchanged behaviour) note the final prime_start
+	#   advance_source_by_onsets -> crop the source on the alignment instead of the onset count
+	# Each falls back to the inherited behaviour when `self._step` is absent, which is what a width-1
+	# run is: it returns out of `generate` before the replay, so greedy stays byte-for-byte.
+
+	def _bad (self, detail):
+		"""Is this note a SIGNIFICANT error? A miss, or a match that landed far off.
+
+		A miss is the primary signal and it is not a threshold at all: `observe` returns self_cost None
+		and charges MissCost, meaning no source note of that pitch was reachable. MEASURED over the 10
+		translated yt-piano files, 72 of 321 generated notes (22.4%) were misses.
+
+		self_cost is the secondary signal and needs a HIGH threshold, because on matched notes it
+		barely separates anything: median 0.0014 over those same files, 87.6% of matched notes below
+		0.1. The default 0.5 sits at about p97 (8 of 249) -- i.e. it fires on "matched, but the offset
+		it implies is far from the one the rest of the window agrees on", which is the case a miss
+		cannot catch.
+		"""
+		if detail.get('self_cost') is None:
+			return True
+		return detail['self_cost'] > self.bad_self_cost
+
+	def _tail_cut (self, ids, records, floor):
+		"""Where to truncate `ids` to drop the trailing run of significant errors. None = do not.
+
+		Scans the records BACKWARDS and stops at the first good note, so an error surrounded by good
+		notes is left alone: the point is to hand the next window a primer that does not end in a
+		passage the model will simply continue.
+
+		The cut is not the pitch token -- deleting that alone would leave a dangling `note_on` the
+		grammar owes an argument to. It is the earliest bad note's `note_on` keyword, and then back
+		past any elapse tokens immediately before it, so the tick those advanced is removed with the
+		notes they were timing. Within a chord only the leading member is preceded by an elapse, so
+		trimming one member of a chord takes no time with it while trimming the whole chord does.
+
+		`floor` bounds it: the cut may not reach into tokens generated by earlier windows, and it must
+		leave at least one token of THIS window, or the step would produce nothing and `translate`'s
+		stride could not advance -- which is the loop's termination invariant.
+		"""
+		bad = []
+		for offset, detail in reversed(records):
+			if not self._bad(detail):
+				break
+			bad.append(offset)
+		if not bad:
+			return None
+		cut = min(bad)
+		vocab = self.tk.tokens
+		# back to the `note_on` that owns this pitch (channel may sit between them)
+		while cut > floor and vocab[ids[cut]] != 'note_on':
+			cut -= 1
+		# then back past the elapse run that timed it
+		while cut > floor and is_elapse(vocab[ids[cut - 1]]):
+			cut -= 1
+		if cut <= floor:
+			return None
+		return cut, len(bad)
+
+	def advance_output (self, output, prime_start):
+		"""Trim the trailing significant-error run off this step's generation, then stride as usual.
+
+		Mutates `output` in place, which is what lets this be a hook rather than a fork of `translate`:
+		the caller holds that same list and computes `rolled` from it after we return.
+
+		Truncating invalidates the tracker root -- `carry`/`open_window` installed the winner's state,
+		which folded in the notes just deleted -- so the root is re-derived by replaying the RETAINED
+		ids from the pre-window root. Without this the next window would align against notes that are
+		no longer in the file.
+		"""
+		step = self._step
+		if step is not None and self.trim_bad_tail and step['records']:
+			ids = step['ids']
+			out_base = len(output) - len(ids)
+			if out_base >= 0 and output[out_base:] == ids:
+				cut = self._tail_cut(ids, step['records'], floor=0)
+				if cut is not None:
+					at, notes = cut
+					dropped = len(ids) - at
+					del output[out_base + at:]
+					kept = ids[:at]
+					state, records = self.tracker.replay(step['root'], kept)
+					self.tracker.open_window(state)
+					step['ids'] = kept
+					step['records'] = records
+					self.window_report['trims'] += 1
+					self.window_report['trimmed_notes'] += notes
+					self.window_report['trimmed_tokens'] += dropped
+		return super().advance_output(output, prime_start)
+
+	def trim_prime (self, output, prime_start):
+		"""Unchanged, but the final prime_start is noted: the crop needs to know what ROLLED OUT."""
+		prime_start = super().trim_prime(output, prime_start)
+		if self._step is not None:
+			self._step['prime_start'] = prime_start
+			self._step['out_len'] = len(output)
+		return prime_start
+
+	def source_window (self, lines, cursor):
+		"""The inherited window, except that a STALLED crop ends the run here.
+
+		`translate` breaks on an empty source window, so returning one is how a hook stops the loop.
+		It has to be done from here rather than from `advance_source_by_onsets`, because the inherited
+		loop's no-advance guard runs unconditionally after that call and rewrites whatever cursor it
+		returned -- `cursor = min(next_cursor, len(lines)) if next_cursor > src_before else
+		src_before + 1`. So a stall is latched there and acted on here, one iteration later. That
+		iteration generates nothing: this is the first call in the loop body and it breaks immediately.
+
+		The alternative the guard implements -- force the cursor forward by one line and keep going --
+		is what this replaces when the alignment is the thing that stalled. A crop that cannot advance
+		means the rolled-out passage matched no source note the cursor is not already past, and grinding
+		forward a line at a time from there produces output with no alignment evidence behind it.
+		"""
+		if self._stalled is not None:
+			return [], cursor
+		return super().source_window(lines, cursor)
+
+	def note_line_index (self, lines):
+		"""note_on line numbers, in order, so a source EVENT index maps to a source LINE.
+
+		Valid because the two are 1:1: `note_on_events` emits one event per `#XX` token under an open
+		`note_on`, and the canonical text puts exactly one event on a line. VERIFIED on the corpus --
+		225 note_on lines against 225 events on 2AX6vPPVGMw, and no line carrying two.
+		"""
+		if self._note_lines is None:
+			self._note_lines = [i for i, line in enumerate(lines) if line.startswith('note_on')]
+		return self._note_lines
+
+	def advance_source_by_onsets (self, lines, cursor, onsets):
+		"""Crop the source on the ALIGNMENT rather than by counting note_on lines.
+
+		The inherited scheme counts the note_on events that rolled out of the primer and consumes that
+		many source note_on lines. It is a fallback and says so: the two arms do not share the count
+		(across the corpus only 3 of 99 files have equal note_on totals, median relative delta 2.1%,
+		max 27.4%), so the cursor drifts by construction.
+
+		The alignment knows better, and by here it has said so: every note that rolled out carries the
+		SOURCE INDEX it matched, or a miss. So the next window starts after the last note the rolled
+		段落 actually matched -- `pairs` in source coordinates, not a count in target ones.
+
+		Chosen over "the highest matched index" deliberately: a chord may be emitted in any order, so
+		the last matched note is the one the target stream has actually reached, while the maximum
+		could sit a few notes ahead inside that chord and skip source notes the next window still
+		needs to see.
+
+		Falls back to the inherited count when the rolled段落 matched NOTHING -- a window that missed
+		everything has no alignment evidence to crop on, and standing still there would repeat the
+		same window forever.
+		"""
+		step = self._step
+		if not (self.align_crop and step is not None and 'prime_start' in step):
+			return super().advance_source_by_onsets(lines, cursor, onsets)
+		out_len, prime_start = step['out_len'], step['prime_start']
+		ids = step['ids']
+		out_base = out_len - len(ids)
+		# records whose pitch token ROLLED OUT of the primer, i.e. is now behind prime_start
+		last_src = None
+		for offset, detail in step['records']:
+			if out_base + offset >= prime_start:
+				break
+			if detail.get('src') is not None:
+				last_src = detail['src']
+		if last_src is None:
+			self.window_report['crop_fallback'] += 1
+			return super().advance_source_by_onsets(lines, cursor, onsets)
+		index = self.note_line_index(lines)
+		if last_src >= len(index):
+			self.window_report['crop_fallback'] += 1
+			return super().advance_source_by_onsets(lines, cursor, onsets)
+		self.window_report['cropped'] += 1
+		# +1: stop AFTER the matched line, leaving the trailing note_off/elapse tail to the next
+		# window exactly as the inherited scheme does.
+		nxt = index[last_src] + 1
+		# A crop that did not advance ends the run, rather than being forced forward a line at a time
+		# by the inherited guard. It means the passage that rolled out matched nothing the cursor is
+		# not already past, so there is no alignment evidence for the source ahead -- and the guard's
+		# alternative is to keep generating anyway. Latched rather than returned, because the guard
+		# rewrites this return value; `source_window` acts on it next iteration.
+		if nxt <= cursor:
+			self._stalled = dict(step=self.step_index, cursor=cursor, crop=nxt, last_src=last_src)
+			self.window_report['stalled'] = 1
+		return nxt
 
 
 class BeamTranslator (BeamMixin, SlidingTranslator):
@@ -313,7 +539,7 @@ class LineageTracker:
 
 	def fresh (self):
 		return dict(align=AlignState(self.src_events, seed_offset=self.seed_offset),
-			walk=None, tick=0, prev_onset=None, softindex=0.0, si=0.0)
+			walk=None, tick=0, prev_onset=None, softindex=0.0, si=0.0, wcost=0.0)
 
 	def base (self, uid):
 		'''The lineage state for `uid`, defaulting to the carried root at a window's first position.'''
@@ -343,6 +569,7 @@ class LineageTracker:
 		events, tick, walk = note_on_events([tid], self.tk, self.keywords,
 			tick0=base['tick'], state=base['walk'])
 		prev_onset, softindex = base['prev_onset'], base['softindex']
+		wcost = base.get('wcost', 0.0)
 		detail = None
 		for e in events:
 			# softIndex is a sum of tanh steps over intervals, so it extends incrementally: the whole
@@ -352,12 +579,17 @@ class LineageTracker:
 			prev_onset = e['onset']
 			detail = dict(align.observe(e['pitch'], e['onset'], softindex))
 			detail.update(pitch=e['pitch'], onset=e['onset'], softIndex=softindex)
+			# Per-WINDOW accumulation of the same quantity the pitch branch ranks on. Reset at each
+			# window boundary by `open_window`, so it answers "how wrong has THIS window gone" rather
+			# than restating the whole piece -- which is what a cap has to be keyed on, since a cap on
+			# a whole-piece total would fire once and then fire at every position forever after.
+			wcost += detail['cost']
 			if detail.get('src') is not None:
 				src = self.src_events[detail['src']]
 				detail.update(src_onset=src['onset'], src_pitch=src['pitch'])
 		return dict(align=align, walk=walk, tick=tick, prev_onset=prev_onset,
 			softindex=softindex, si=softindex if prev_onset is None
-				else softindex + soft_delta(tick - prev_onset)), detail
+				else softindex + soft_delta(tick - prev_onset), wcost=wcost), detail
 
 	def walk (self, live, pool, kept, done, record=False):
 		'''Advance the lineages one decode position. Returns per-candidate rows when `record`.
@@ -416,6 +648,42 @@ class LineageTracker:
 	def carry (self, best_uid):
 		'''Adopt the winning lineage as the root the next window continues from.'''
 		self.root = self.table.get(best_uid, self.root)
+
+	def replay (self, base, ids):
+		'''Walk `ids` on top of `base` -> (final state, records). The pure-function escape hatch.
+
+		Alignment is a function of the token stream alone -- `observe` reads pitch, tick and softIndex,
+		every one of them determined by the ids -- so replaying a finished sequence on the state it
+		started from reproduces exactly the state the search arrived at. That is what makes this usable
+		for two jobs the live table cannot do:
+
+		  - reading a window's per-note verdicts AFTER the window is over, which is what the source
+		    crop and the bad-tail trim are keyed on. The live table is pruned to the beam width at
+		    every position, so the losing lineages are gone and the winner's own history was never
+		    retained -- only its current state.
+		  - re-deriving the root after the output has been TRUNCATED. `carry` adopts the winner's
+		    state, which includes the notes the trim just deleted; replaying the retained ids from the
+		    pre-window root is the only way to get a state that matches the tokens actually kept.
+
+		`records` is (offset in `ids`, detail) for every token that closed a note_on, so a caller can
+		map a verdict back onto the token that produced it.
+		'''
+		state = base
+		records = []
+		for i, tid in enumerate(ids):
+			state, detail = self.advance(state, int(tid))
+			if detail is not None:
+				records.append((i, detail))
+		return state, records
+
+	def open_window (self, state):
+		'''Install `state` as the root of the NEXT window, with the per-window cost zeroed.
+
+		The zeroing is the whole point of the method: `wcost` accumulates across the window and the cap
+		is tested against it, so carrying a finished window's total into the next one would arm the cap
+		before that window has generated anything.
+		'''
+		self.root = dict(state, wcost=0.0)
 
 
 class AlignAdjudicator:
@@ -945,6 +1213,35 @@ def main ():
 			'offset and self_cost charges the drift, while standing still keeps it at 0. Deliberately '
 			'NOT an index-order charge: a chord may be emitted in any order, and 7 of 8 non-advancing '
 			'steps on the score-only path were exactly that')
+	ap.add_argument('--window-loss-limit', type=float, default=30.0,
+		help='end a window once the accumulated align cost of its pitch nodes reaches this (default '
+			'30; 0 disables). The SAME quantity the pitch branch ranks on -- AlignState.cost, a '
+			'decayed running sum -- accumulated over the window and reset at each boundary, so it is '
+			'not readable as a count of wrong notes: a decayed sum re-counts each note, attenuated, in '
+			'every later one. Tested on the leading survivor, since that is the hypothesis most likely '
+			'to be returned. '
+			'30 rather than 10 because the accumulated figure grows with the NOTE COUNT even when the '
+			'alignment is good, so a threshold this side of it doubles as a token cap -- MEASURED on '
+			'1Z1u-SKsxSM, a well-aligned stretch costs 0.1 to 0.3 per note while one miss costs about '
+			'2.5 in total (1/(1 - CostStepAttenuation), the decayed sum re-counting it in every later '
+			'note). At 10 the cap was reached at the 22nd note and fired in ALL 5 windows of that run, '
+			'i.e. it had become the routine way a window ends rather than a guard against one going '
+			'wrong. At 30 a well-aligned window needs 100+ notes, while one missing a note in three '
+			'reaches it in about 35')
+	ap.add_argument('--no-align-crop', action='store_true',
+		help='crop the next source window by COUNTING note_on lines (the inherited fallback) instead '
+			'of by the alignment. On by default: the count is a fallback and drifts by construction, '
+			'since the two arms do not share it -- across the corpus only 3 of 99 files have equal '
+			'note_on totals, median relative delta 2.1%%, max 27.4%%. With the alignment, the next '
+			'window starts after the last source note the rolled-out passage actually MATCHED')
+	ap.add_argument('--no-trim-bad-tail', action='store_true',
+		help='keep a window\'s trailing run of significantly-wrong notes instead of deleting it before '
+			'the next window continues. On by default: the primer is what the next window continues '
+			'FROM, so a primer ending in a bad passage is a prompt to write more of it')
+	ap.add_argument('--bad-self-cost', type=float, default=0.5,
+		help='a MATCHED note counts as a significant error above this self_cost (default 0.5). A miss '
+			'is always one. High on purpose -- over the 10 translated yt-piano files the median '
+			'matched self_cost was 0.0014 and 87.6%% sat below 0.1, so 0.5 is about p97')
 	ap.add_argument('--max-token', type=int, default=2048,
 		help='total-T ceiling; pass the training max_tokens (default 2048)')
 	ap.add_argument('--src-window', type=int, default=640,
@@ -1079,7 +1376,16 @@ def main ():
 		adjudicate=adjudicate, greedy_first=not args.branch_first,
 		align_from_first_elapse=not args.align_from_first_token,
 		logprob_margin=(args.logprob_margin if args.logprob_margin > 0 else None),
-		tracker=tracker)
+		tracker=tracker, window_loss_limit=args.window_loss_limit,
+		align_crop=not args.no_align_crop, trim_bad_tail=not args.no_trim_bad_tail,
+		bad_self_cost=args.bad_self_cost)
+	print('[window] source crop ' + ('by the ALIGNMENT (next window starts after the last source note '
+		'the rolled-out passage matched)' if not args.no_align_crop
+		else 'by note_on COUNT (the inherited fallback)')
+		+ '; loss limit ' + (f'{args.window_loss_limit:g} accumulated align cost per window'
+			if args.window_loss_limit > 0 else 'disabled')
+		+ '; bad tail ' + (f'trimmed (miss, or matched above self_cost {args.bad_self_cost:g})'
+			if not args.no_trim_bad_tail else 'kept'))
 	print('[beam] logprob margin ' + (f'{args.logprob_margin:g} nats below each row\'s own best is '
 		'pruned' if args.logprob_margin > 0 else 'disabled (the full branch-k everywhere)'))
 	print(f'[beam] width {args.beam}, branch-k {args.branch_k} at elapse/pitch, '
@@ -1102,6 +1408,19 @@ def main ():
 		+ (f', {stats["eos_forced"]} forced <eos>' if stats['eos_forced'] else '')
 		+ ('' if stats['done'] else ', DID NOT reach end_of_track'))
 	report_beam(translator.beam_report, stats['steps'])
+	wr = translator.window_report
+	capped = translator.beam_report.get('loss_capped', 0)
+	if stats['steps'] and (capped or wr['cropped'] or wr['trims'] or wr['crop_fallback']):
+		print(f'[window] {capped} window(s) ended on the loss limit, '
+			f'{wr["cropped"]} cropped on the alignment '
+			f'({wr["crop_fallback"]} fell back to the onset count), '
+			f'{wr["trims"]} bad tail(s) trimmed '
+			f'({wr["trimmed_notes"]} notes, {wr["trimmed_tokens"]} tokens)')
+	if translator._stalled is not None:
+		st = translator._stalled
+		print(f'[window] STOPPED at step {st["step"]}: the crop did not advance the source cursor '
+			f'(line {st["cursor"]}, crop wanted {st["crop"]}, last matched source note '
+			f'{st["last_src"]}). Output is what had been generated up to there')
 
 	body = render_lines(output_ids, tokenizer, translator.keywords)
 	out_lines = compose_output(body, source_header(lines))

@@ -252,7 +252,7 @@ class Beam:
 def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=4,
 	length_alpha=0.7, seed_state=None, ban_first=(), rank=None, report=None, observer=None,
 	greedy_first=True, align_from_first_elapse=True, logprob_margin=2.0,
-	adjudicator=None, elapse_k=0, adjudicate=True):
+	adjudicator=None, elapse_k=0, adjudicate=True, stop_fn=None):
 	'''Run the search. Returns (best ids, forced, report).
 
 	step(rows) -> log-probability rows. `rows` is a list of generated-id lists, one per live beam,
@@ -366,6 +366,21 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 	being able to change it, which is what makes an inspected run and a plain run the same run. The
 	cut candidates are the point -- a tree that shows only the survivors cannot answer why the
 	search went the way it did.
+
+	stop_fn(position, live, done) -> bool, optional. Called once per decode position AFTER the cut and
+	after the observer, i.e. with `live` already the survivors. True ends the window here, leaving
+	those survivors to compete for the return value on the same score as a finished hypothesis.
+
+	This is how a caller ends a window on a criterion the search itself has no view on -- the
+	accumulated alignment cost of the window so far, which lives in the caller's lineage table. It is
+	deliberately NOT the observer: the observer is read-only by contract, which is what makes an
+	inspected run and a plain run the same run, and a hook that could stop the search would break
+	that. And it runs after the observer so a dump records the position that triggered the stop
+	rather than ending one position short of it.
+
+	`forced` is NOT set by a stop here: it means "the argmax at the first position was banned", which
+	the caller keys its end-of-piece detection on. A window cut short by a cost cap has not reached
+	the end of the piece, and reporting it as though it had would end the whole run.
 	'''
 	beam_size = max(1, int(beam_size))
 	branch_k = max(1, int(branch_k))
@@ -389,6 +404,9 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 		# margin is a DEFAULT: a run that prunes nothing and a run without the margin are the same run,
 		# and only this number tells them apart.
 		margin_pruned=0,
+		# positions where stop_fn ended the window. A cap that never fires and no cap at all are the
+		# same run, so this is counted rather than assumed.
+		loss_capped=0,
 		# summed over (position, beam): how much of the vocabulary the automaton ruled out. 0 on a
 		# run that never opened a mid-run branch, which is why it is counted rather than assumed.
 		grammar_masked=0)
@@ -613,7 +631,13 @@ def beam_search (step, tokens, keywords, eos_id, max_new, beam_size=4, branch_k=
 			nxt.append(child)
 		if observer is not None:
 			observer(len(live[0].ids) if live else 0, live, pool, nxt, done)
+		position = len(live[0].ids) if live else 0
 		live = nxt
+		# After `live = nxt`, so the hook sees the survivors it is being asked about rather than their
+		# parents -- the accumulated cost it tests is a property of the child that was just kept.
+		if stop_fn is not None and live and stop_fn(position, live, done):
+			rep['loss_capped'] += 1
+			break
 		if len(done) >= beam_size:
 			# Enough finished hypotheses that no live one can be needed: each live beam already
 			# scores below the cut that produced these, and extending it only lowers its logprob

@@ -31,7 +31,7 @@ from starry.midi.beam import (BranchState, Beam, beam_search, branch_profile, BR
 from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer
 from starry.midi.align import (soft_indices, elapse_value, elapse_class, stage_admits,
 	STAGE_BIG, STAGE_LOW, Config as AlignConfig)
-from translateMidiseq2 import keyword_tokens
+from translateMidiseq2 import keyword_tokens, is_elapse, SlidingTranslator
 from translateMidiseq2Beam import (AlignAdjudicator, BeamInspector, BeamTranslator,
 	LineageTracker, path_align_loss)
 
@@ -1508,6 +1508,360 @@ def check_align_from_first_elapse (tk, keywords):
 		f'position {min(f_off_prop) if f_off_prop else None}')
 
 
+def check_window_cost_accumulator (tk, keywords):
+	"""`wcost` must accumulate the pitch branch's OWN cost per window, and reset at the boundary.
+
+	Two claims, and the reset is the one that fails silently: a per-window figure that carries the
+	previous window's total in would arm the cap before the new window generated anything, so every
+	window after the first would be cut at its first note. Checked by driving two windows through
+	`open_window` and reading the accumulator, not by trusting the field name.
+
+	The summands are also pinned against `advance`'s own verdicts, so an accumulator that summed the
+	wrong quantity (self_cost, say, or the undecayed value) is caught rather than merely being finite.
+	"""
+	i = tk.id_by_token
+	src = [dict(onset=n * 960, pitch=60 + (n * 5) % 12) for n in range(24)]
+	for e, si in zip(src, soft_indices([x['onset'] for x in src])):
+		e['softIndex'] = si
+	tr = LineageTracker(tk, keywords, src)
+
+	# two notes, the second a miss, so the accumulated figure is neither zero nor one summand
+	ids = [i['note_on'], i['#3c'], i['E3c0'], i['note_on'], i['#43']]
+	state, records = tr.replay(tr.fresh(), ids)
+	want = sum(d['cost'] for _o, d in records)
+	check('wcost accumulates every pitch node\'s align cost',
+		abs(state['wcost'] - want) < 1e-12 and len(records) == 2,
+		f'{state["wcost"]:.6f} == sum of {len(records)} verdicts {want:.6f}')
+	check('wcost sums the ranked quantity, not self_cost',
+		abs(state['wcost'] - sum(d['self_cost'] or 0.0 for _o, d in records)) > 0.5,
+		f'cost sum {want:.6f} vs self_cost sum '
+		f'{sum(d["self_cost"] or 0.0 for _o, d in records):.6f}')
+
+	# the reset: install that state as the next window's root and it must start from zero
+	tr.open_window(state)
+	check('open_window zeroes wcost for the next window', tr.root['wcost'] == 0.0,
+		f'carried {state["wcost"]:.6f} -> root {tr.root["wcost"]:.6f}')
+	check('open_window keeps the ALIGNMENT it carried',
+		tr.root['align'].matched == state['align'].matched
+			and tr.root['align'].misses == state['align'].misses
+			and tr.root['tick'] == state['tick'],
+		f'matched {tr.root["align"].matched}, misses {tr.root["align"].misses}, '
+		f'tick {tr.root["tick"]}')
+	# A second window accumulates ONLY its own verdicts. Not "less than window 1": align.cost is a
+	# decayed running sum that is deliberately CARRIED across windows (the alignment is continuous even
+	# though the accumulator is not), so window 2's summands are larger here -- they sit on top of
+	# window 1's history. The claim is that wcost equals the sum of THIS window's verdicts and nothing
+	# more, which is what the cap needs and what a carried total would break.
+	state2, rec2 = tr.replay(tr.root, ids)
+	check('a second window accumulates only its OWN verdicts, with no carried total',
+		abs(state2['wcost'] - _rec_sum(rec2)) < 1e-12,
+		f'window 2 wcost {state2["wcost"]:.6f} == its own {len(rec2)} verdicts '
+		f'{_rec_sum(rec2):.6f} (window 1 total {want:.6f} was NOT carried in)')
+
+
+def check_replay_matches_search (tk, keywords):
+	"""`replay` must reproduce the state the live table arrived at, or every hook reads a fiction.
+
+	The three window policies are keyed on verdicts recovered AFTER the window, by replaying the
+	winner's ids off the pre-window root. That is only sound because alignment is a function of the
+	token stream -- so the check drives a real search, then replays the winner and compares against
+	the state `walk` built incrementally through the beam.
+
+	This is the load-bearing check for the whole design: if replay and the live walk can disagree, the
+	crop and the trim are acting on numbers the search never saw.
+	"""
+	i = tk.id_by_token
+	src = [dict(onset=n * 480, pitch=60 + (n * 7) % 12) for n in range(32)]
+	for e, si in zip(src, soft_indices([x['onset'] for x in src])):
+		e['softIndex'] = si
+	plan = {
+		i['<bos>']: {i['note_on']: 6.0, tk.eos_id: -8.0},
+		i['note_on']: {i['#3c']: 6.0, tk.eos_id: -8.0},
+		i['#3c']: {i['E1e0']: 6.0, tk.eos_id: -8.0},
+		i['E1e0']: {i['note_on']: 6.0, tk.eos_id: -8.0},
+	}
+	model = StubModel(tk.vocab_size, plan, i['note_on'], tk.eos_id)
+	tr = LineageTracker(tk, keywords, src)
+	trans = make_translator(tk, model, beam_size=3, branch_k=2, tracker=tr,
+		window_loss_limit=0.0, align_crop=False, trim_bad_tail=False)
+	prefix = [i['<bos>'], tk.sep_id]
+	ids, _forced = trans.generate(prefix, [0, 1], 0.0, 0, 0.0, n_source=1)
+	live_root = trans.tracker.root		# open_window's, i.e. the replayed state with wcost zeroed
+	step = trans._step
+	check('generate recorded the window for the hooks',
+		step is not None and step['ids'] == list(ids) and len(step['records']) > 0,
+		f'{len(ids)} ids, {len(step["records"])} note verdicts')
+	# replay again off the SAME pre-window root: it must be reproducible, and must agree with what
+	# the search's own carry() left behind before open_window replaced it
+	again, _rec = trans.tracker.replay(step['root'], ids)
+	check('replay is deterministic on the same ids',
+		abs(again['wcost'] - _rec_sum(_rec)) < 1e-12
+			and again['align'].matched == live_root['align'].matched
+			and again['align'].misses == live_root['align'].misses
+			and again['tick'] == live_root['tick'],
+		f'matched {again["align"].matched}, misses {again["align"].misses}, tick {again["tick"]}')
+	# the negative: replaying DIFFERENT ids must not give the same state, or the comparison above is
+	# satisfied by any function that ignores its input
+	# Half the ids, not a couple off the end: dropping a trailing fragment that closes no note leaves
+	# the tick and the match counts identical, so that negative would pass for a replay that ignored
+	# its input entirely -- which is exactly what this check exists to rule out.
+	other, orec = trans.tracker.replay(step['root'], list(ids)[:len(ids) // 2])
+	check('replay actually depends on the ids it is given',
+		(other['tick'], other['align'].matched, other['align'].misses, len(orec))
+			!= (again['tick'], again['align'].matched, again['align'].misses, len(_rec)),
+		f'half the ids -> tick {other["tick"]}, {len(orec)} notes '
+		f'({other["align"].matched} matched / {other["align"].misses} missed) vs whole '
+		f'tick {again["tick"]}, {len(_rec)} notes '
+		f'({again["align"].matched} / {again["align"].misses})')
+
+
+def _rec_sum (records):
+	return sum(d['cost'] for _o, d in records)
+
+
+def check_window_loss_limit (tk, keywords):
+	"""The cap must END a window, and must not fire when it is disabled or set above the run's cost.
+
+	Three cases, because a cap is the kind of feature that looks right while doing nothing (or while
+	cutting everything). The stub is driven to emit notes that MISS, so cost accumulates at ~1.0 per
+	note and the position the cap fires at is predictable.
+
+	`forced` must stay False on a capped window: translate() reads it as "the piece is over", so a cap
+	that set it would end the whole run at the first window that hit the limit.
+	"""
+	i = tk.id_by_token
+	# source far from the pitches the stub emits, so every generated note is a miss (MissCost 1.0)
+	src = [dict(onset=n * 960, pitch=30 + (n % 3)) for n in range(24)]
+	for e, si in zip(src, soft_indices([x['onset'] for x in src])):
+		e['softIndex'] = si
+	plan = {
+		i['<bos>']: {i['note_on']: 6.0, tk.eos_id: -8.0},
+		i['note_on']: {i['#3c']: 6.0, tk.eos_id: -8.0},
+		i['#3c']: {i['E1e0']: 6.0, tk.eos_id: -8.0},
+		i['E1e0']: {i['note_on']: 6.0, tk.eos_id: -8.0},
+	}
+	def run (limit):
+		model = StubModel(tk.vocab_size, dict(plan), i['note_on'], tk.eos_id)
+		tr = LineageTracker(tk, keywords, src)
+		trans = make_translator(tk, model, beam_size=2, branch_k=2, tracker=tr,
+			window_loss_limit=limit, align_crop=False, trim_bad_tail=False)
+		ids, forced = trans.generate([i['<bos>'], tk.sep_id], [0, 1], 0.0, 0, 0.0, n_source=1)
+		notes = sum(1 for t in ids if t == i['note_on'])
+		return ids, forced, notes, trans.beam_report.get('loss_capped', 0)
+
+	off_ids, _f, off_notes, off_cap = run(0.0)
+	check('the cap is off at 0 and the window runs to its own end',
+		off_cap == 0 and off_notes >= 3, f'{len(off_ids)} tokens, {off_notes} notes, capped {off_cap}')
+
+	on_ids, on_forced, on_notes, on_cap = run(2.5)
+	check('a low cap ends the window early', on_cap == 1 and len(on_ids) < len(off_ids),
+		f'{len(on_ids)} tokens / {on_notes} notes vs uncapped {len(off_ids)}/{off_notes}')
+	check('a capped window does NOT report forced <eos> (the end-of-piece signal)',
+		on_forced is False, f'forced={on_forced}')
+	# the note count at which it fires: cost is a decayed sum of MissCost, so it crosses 2.5 on the
+	# 4th miss (1, 1.6, 1.96, 2.176, 2.3056...) -- pinned as a RANGE, since the exact series depends
+	# on CostStepAttenuation, but it must be more than one note and fewer than the uncapped run
+	check('the cap fires after several notes, not on the first',
+		2 <= on_notes < off_notes, f'{on_notes} notes at cap 2.5 (uncapped {off_notes})')
+
+	high_ids, _hf, _hn, high_cap = run(1e6)
+	check('a cap above the window\'s own cost never fires',
+		high_cap == 0 and list(high_ids) == list(off_ids),
+		f'{len(high_ids)} tokens, identical to the uncapped run: {list(high_ids) == list(off_ids)}')
+
+
+def check_align_crop (tk, keywords):
+	"""The source cursor must land after the LAST MATCHED source note, and fall back when nothing did.
+
+	Pinned against a hand-built record list rather than a full run, so the expected line is known in
+	closed form. Three properties:
+
+	  - the cursor is the source LINE of the last matched event, +1 (not the maximum matched index,
+	    which a chord emitted out of order would put ahead of where the stream has reached)
+	  - a rolled passage that matched NOTHING falls back to the inherited onset count, since standing
+	    still would repeat the window forever
+	  - only records that ROLLED OUT of the primer are consulted; a note still in the primer has not
+	    been committed to and must not move the source cursor
+	"""
+	i = tk.id_by_token
+	src = [dict(onset=n * 480, pitch=60) for n in range(8)]
+	for e, si in zip(src, soft_indices([x['onset'] for x in src])):
+		e['softIndex'] = si
+	lines = ['ticks_per_beat 1 e 0', 'note_on #3c', 'note_off #3c', 'note_on #3e',
+		'note_off #3e', 'note_on #40', 'note_off #40', 'note_on #41', 'end_of_track']
+	note_lines = [1, 3, 5, 7]
+	model = StubModel(tk.vocab_size, {}, i['note_on'], tk.eos_id)
+	tr = LineageTracker(tk, keywords, src)
+	trans = make_translator(tk, model, beam_size=2, tracker=tr, align_crop=True)
+	check('note_line_index maps event ordinals onto note_on lines',
+		trans.note_line_index(lines) == note_lines, f'{trans.note_line_index(lines)}')
+
+	# last matched is src 2 even though src 3 appears EARLIER (an out-of-order chord)
+	trans._step = dict(root=tr.fresh(), ids=[0] * 10, out_len=10, prime_start=8,
+		records=[(0, dict(src=3)), (2, dict(src=1)), (4, dict(src=2)), (9, dict(src=0))])
+	got = trans.advance_source_by_onsets(lines, 0, 99)
+	check('the crop lands after the LAST matched source note, not the highest',
+		got == note_lines[2] + 1, f'cursor {got} == line {note_lines[2]} + 1 (last matched src 2)')
+	check('a record still inside the primer does not move the cursor',
+		got != note_lines[0] + 1, f'src 0 at offset 9 >= prime_start 8 was ignored (cursor {got})')
+
+	# nothing matched -> the inherited count
+	trans._step = dict(root=tr.fresh(), ids=[0] * 10, out_len=10, prime_start=8,
+		records=[(0, dict(src=None)), (2, dict(src=None))])
+	before = trans.window_report['crop_fallback']
+	got = trans.advance_source_by_onsets(lines, 0, 2)
+	check('a rolled passage that matched nothing falls back to the onset count',
+		got == note_lines[1] + 1 and trans.window_report['crop_fallback'] == before + 1,
+		f'cursor {got} == 2 note_on lines consumed, fallback counted')
+
+	# disabled -> the inherited behaviour, whatever the records say
+	trans.align_crop = False
+	trans._step = dict(root=tr.fresh(), ids=[0] * 10, out_len=10, prime_start=8,
+		records=[(0, dict(src=3))])
+	check('--no-align-crop restores the onset count exactly',
+		trans.advance_source_by_onsets(lines, 0, 1) == note_lines[0] + 1,
+		f'cursor {trans.advance_source_by_onsets(lines, 0, 1)}')
+
+
+def check_trim_bad_tail (tk, keywords):
+	"""The trailing bad run must be deleted WHOLE EVENTS, stop at the first good note, and never
+	delete a window's entire generation.
+
+	The event-span claim is the one a pitch-token-only implementation fails: deleting `#3c` alone
+	leaves a bare `note_on` the grammar owes an argument to, which the next window then continues from.
+	So the cut is checked to land on the `note_on` keyword and to swallow the elapse run that timed it.
+
+	The termination claim is the one that hangs a run rather than corrupting it: if the trim could
+	remove every token a step generated, the output would not grow, `advance_output` could not advance
+	the stride, and translate()'s loop would repeat the same window forever.
+	"""
+	i = tk.id_by_token
+	src = [dict(onset=n * 960, pitch=60 + n) for n in range(8)]
+	for e, si in zip(src, soft_indices([x['onset'] for x in src])):
+		e['softIndex'] = si
+	model = StubModel(tk.vocab_size, {}, i['note_on'], tk.eos_id)
+	tr = LineageTracker(tk, keywords, src)
+	trans = make_translator(tk, model, beam_size=2, tracker=tr, trim_bad_tail=True,
+		bad_self_cost=0.5)
+
+	# good note, then two bad ones, each a full event with its own elapse
+	ids = [i['note_on'], i['#3c'],			# 0,1   good
+		i['E1e0'], i['note_on'], i['#3e'],	# 2,3,4 bad
+		i['E1e0'], i['note_on'], i['#40']]	# 5,6,7 bad
+	records = [(1, dict(self_cost=0.0)), (4, dict(self_cost=None)), (7, dict(self_cost=2.0))]
+	cut = trans._tail_cut(ids, records, floor=0)
+	check('the tail cut removes both bad events and stops at the good note',
+		cut == (2, 2), f'cut at {cut} (offset 2 = the elapse before the first bad note_on)')
+	check('the cut lands on an elapse, i.e. it swallowed the run that timed the note',
+		cut is not None and is_elapse(tk.tokens[ids[cut[0]]]),
+		f'ids[{cut[0]}] = {tk.tokens[ids[cut[0]]]}')
+
+	# a good LAST note means no trim at all, whatever came before it
+	check('a good final note leaves the tail alone',
+		trans._tail_cut(ids, [(1, dict(self_cost=None)), (4, dict(self_cost=None)),
+			(7, dict(self_cost=0.0))], floor=0) is None,
+		'two earlier bad notes, good final note -> no cut')
+
+	# every note bad: the cut may not take the whole window
+	allbad = [(1, dict(self_cost=None)), (4, dict(self_cost=None)), (7, dict(self_cost=None))]
+	cut = trans._tail_cut(ids, allbad, floor=0)
+	check('an all-bad window is not deleted entirely (the loop must still advance)',
+		cut is None or cut[0] > 0, f'cut {cut} with every note bad')
+
+	# a miss is bad regardless of the threshold; a matched note under it is not
+	check('_bad: a miss is always significant, a low self_cost never is',
+		trans._bad(dict(self_cost=None)) and not trans._bad(dict(self_cost=0.1))
+			and trans._bad(dict(self_cost=0.9)),
+		f'miss=True, 0.1=False, 0.9=True at threshold {trans.bad_self_cost}')
+
+	# advance_output must mutate the caller's list AND re-derive the root off the retained ids
+	output = list(ids)
+	trans._step = dict(root=tr.fresh(), ids=list(ids), records=records)
+	before_trims = trans.window_report['trims']
+	trans.advance_output(output, 0)
+	check('advance_output truncates the caller\'s output in place',
+		len(output) == 2 and trans.window_report['trims'] == before_trims + 1,
+		f'{len(ids)} tokens -> {len(output)}, {trans.window_report["trimmed_tokens"]} dropped')
+	check('the root is re-derived from the RETAINED ids after a trim',
+		trans.tracker.root['align'].matched + trans.tracker.root['align'].misses == 1,
+		f'{trans.tracker.root["align"].matched} matched + '
+		f'{trans.tracker.root["align"].misses} missed = the 1 note that survived')
+
+	# disabled -> untouched
+	trans.trim_bad_tail = False
+	output = list(ids)
+	trans._step = dict(root=tr.fresh(), ids=list(ids), records=records)
+	trans.advance_output(output, 0)
+	check('--no-trim-bad-tail leaves the output whole',
+		len(output) == len(ids), f'{len(output)} tokens kept')
+
+
+def check_crop_stall_stops (tk, keywords):
+	"""A crop that cannot advance the source cursor must STOP the run, not be forced forward.
+
+	Three things, and the third is the one that a flag-only implementation gets wrong:
+
+	  - the stall is LATCHED when the crop's cursor does not exceed the one it was given
+	  - `source_window` then returns an empty window, which is what the inherited `translate` breaks on
+	  - and it is not latched when the crop DOES advance, or every run would stop at its first window
+
+	The mechanism is indirect by necessity: `translate`'s own no-advance guard runs unconditionally
+	after `advance_source_by_onsets` and rewrites its return value, so the crop cannot stop the loop by
+	returning a cursor. Checked through `source_window` rather than by reading the flag, because the
+	flag is only worth anything if that is where it lands.
+	"""
+	i = tk.id_by_token
+	src = [dict(onset=n * 480, pitch=60) for n in range(8)]
+	for e, si in zip(src, soft_indices([x['onset'] for x in src])):
+		e['softIndex'] = si
+	lines = ['ticks_per_beat 1 e 0', 'note_on #3c', 'note_off #3c', 'note_on #3e',
+		'note_off #3e', 'note_on #40', 'note_off #40', 'note_on #41', 'end_of_track']
+	note_lines = [1, 3, 5, 7]
+	model = StubModel(tk.vocab_size, {}, i['note_on'], tk.eos_id)
+
+	def fresh_trans ():
+		tr = LineageTracker(tk, keywords, src)
+		return make_translator(tk, model, beam_size=2, tracker=tr, align_crop=True)
+
+	# ADVANCING: last matched src 2 -> line 5 + 1 = 6, against a cursor of 0
+	trans = fresh_trans()
+	trans._step = dict(root=trans.tracker.fresh(), ids=[0] * 10, out_len=10, prime_start=8,
+		records=[(0, dict(src=2))])
+	got = trans.advance_source_by_onsets(lines, 0, 1)
+	check('an advancing crop does not latch a stall', trans._stalled is None and got == 6,
+		f'cursor 0 -> {got}, stalled={trans._stalled}')
+	check('an advancing crop leaves source_window alone',
+		len(trans.source_window(lines, 0)[0]) > 0,
+		f'{len(trans.source_window(lines, 0)[0])} source ids')
+
+	# STALLED: the cursor is already past the last matched note, so the crop cannot move
+	trans = fresh_trans()
+	trans._step = dict(root=trans.tracker.fresh(), ids=[0] * 10, out_len=10, prime_start=8,
+		records=[(0, dict(src=0))])
+	got = trans.advance_source_by_onsets(lines, 6, 1)
+	check('a crop that cannot advance latches a stall',
+		trans._stalled is not None and got <= 6,
+		f'cursor 6, crop wanted {got}, last matched src 0 (line {note_lines[0]})')
+	# The inherited window is asked DIRECTLY off SlidingTranslator, not through super(): the MRO from
+	# BeamTranslator reaches BeamMixin's override first, so a super() call here would re-enter the
+	# latched version and the "without the latch" figure would be the latched one -- i.e. 0, which
+	# makes the comparison vacuous while still reading as though it had been checked.
+	available = len(SlidingTranslator.source_window(trans, lines, 6)[0])
+	check('a stalled crop makes source_window empty, which is what translate breaks on',
+		trans.source_window(lines, 6)[0] == [] and available > 0,
+		f'source_window -> [] while {available} source ids were available without the latch')
+	check('the stall is reported for the run summary',
+		trans.window_report['stalled'] == 1, f'stalled={trans.window_report["stalled"]}')
+
+	# and translate() actually STOPS: a stub that never reaches end_of_track would otherwise grind on
+	trans = fresh_trans()
+	trans._stalled = dict(step=0, cursor=6, crop=6, last_src=0)
+	out, stats = trans.translate(lines, max_steps=8)
+	check('translate stops immediately on a latched stall, emitting what it had',
+		stats['steps'] == 0 and out == [] and not stats['done'],
+		f'{stats["steps"]} steps, {len(out)} tokens, done={stats["done"]}')
+
+
 def main ():
 	tk = Midiseq2Tokenizer()
 	keywords = keyword_tokens(tk)
@@ -1545,6 +1899,18 @@ def main ():
 	check_path_align_loss(tk, keywords)
 	print()
 	check_lineage_without_inspector(tk, keywords)
+	print()
+	check_window_cost_accumulator(tk, keywords)
+	print()
+	check_replay_matches_search(tk, keywords)
+	print()
+	check_window_loss_limit(tk, keywords)
+	print()
+	check_align_crop(tk, keywords)
+	print()
+	check_trim_bad_tail(tk, keywords)
+	print()
+	check_crop_stall_stops(tk, keywords)
 
 	total = len(PASS) + len(FAIL)
 	print(f'\n{len(PASS)}/{total} checks passed')
