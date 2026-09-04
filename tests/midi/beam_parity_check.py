@@ -32,7 +32,8 @@ from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer
 from starry.midi.align import (soft_indices, elapse_value, elapse_class, stage_admits,
 	STAGE_BIG, STAGE_LOW, Config as AlignConfig)
 from translateMidiseq2 import keyword_tokens
-from translateMidiseq2Beam import AlignAdjudicator, BeamTranslator, LineageTracker
+from translateMidiseq2Beam import (AlignAdjudicator, BeamTranslator, LineageTracker,
+	path_align_loss)
 
 
 PASS, FAIL = [], []
@@ -924,6 +925,117 @@ def check_pitch_adjudication (tk, keywords):
 		'back to the LM -- which is what it did before this change')
 
 
+def check_path_align_loss (tk, keywords):
+	"""The reported accumulated loss must be the SEARCH's own numbers, summed along the output.
+
+	The whole value of the figure is that it is the quantity the pitch branch ranked on. If it were
+	computed by a second walk of its own it could agree today and drift tomorrow, and a drift here is
+	invisible: it would still print a plausible number. So the check is agreement with
+	`AlignAdjudicator._pitch_losses` note by note, not merely that the sum is finite.
+
+	Also pinned: only note_on-closing tokens contribute (an elapse moves the clock and closes nothing),
+	the count is the number of notes rather than of tokens, and a sequence with no note at all reports
+	None instead of 0.0 -- 0.0 is a real value that a perfectly aligned run could produce, so
+	conflating the two would make "nothing to measure" indistinguishable from "measured, and free".
+	"""
+	i = tk.id_by_token
+	src = [dict(onset=n * 960, pitch=60 + (n * 5) % 12) for n in range(24)]
+	for e, si in zip(src, soft_indices([x['onset'] for x in src])):
+		e['softIndex'] = si
+
+	# Three notes, the middle one a tritone off every nearby source onset so it MISSES. The summands
+	# then differ from each other AND from zero, which is what makes the agreement check below mean
+	# something: a fixture whose notes all land on their onsets scores 0.0 everywhere, and two zeros
+	# agree for any function that returns zero.
+	#
+	# A miss rather than mistimed notes, because the alignment tracks a CONSISTENT stretch through its
+	# tempo ratio and prices timing wobble far lower than one might expect -- MEASURED on this fixture:
+	# doubling every interval costs 1.6e-14, and the worst irregular gap available here costs 2.9e-05,
+	# neither of which is distinguishable from zero at any printed precision. A miss is MissCost, 1.0.
+	#
+	# The three verdicts come out 0.0 / 1.0 / 1.06212, which also exhibits the property the docstring
+	# warns about: the third note's own placement is perfect, and it is charged 1.06212 because
+	# `cost` carries 0.6 x the miss behind it (CostStepAttenuation). That is the decayed running sum,
+	# visible in the fixture rather than only asserted in prose.
+	far = 60 + ((src[1]['pitch'] - 60) + 6) % 12
+	seq = ['note_on', '#%02x' % src[0]['pitch'], '$50', 'E3c0',
+		'note_on', '#%02x' % far, '$50', 'E3c0',
+		'note_on', '#%02x' % src[2]['pitch'], '$50']
+	ids = [i[t] for t in seq if t in i]
+
+	tracker = LineageTracker(tk, keywords, src)
+	got = path_align_loss(tracker, ids)
+	check('the accumulated loss counts one entry per note_on, not per token',
+		got is not None and got['notes'] == 3,
+		f'{len(ids)} tokens, {got and got["notes"]} notes, cost {got and round(got["cost"], 6)}')
+
+	# The same two notes, scored the way the SEARCH scores a pitch candidate: step the lineage to just
+	# before each pitch and ask the adjudicator. Its numbers must be the summands.
+	adj = AlignAdjudicator(tracker, tk, elapse_k=8)
+	ref = []
+	state = tracker.fresh()
+	for n, tid in enumerate(ids):
+		tok = tk.tokens[tid]
+		if tok.startswith('#'):
+			# park the lineage on this position and ask for the pitch verdict, as _pitch_losses does
+			probe = LineageTracker(tk, keywords, src)
+			probe.table[99] = state
+			class _B: uid = 99
+			ref.append(adj.__class__(probe, tk, elapse_k=8)._pitch_losses(_B(), [(tid, 0.0)])[0])
+		state, _d = tracker.advance(state, tid)
+	summands = [x for x in ref if x is not None]
+	# `> 0.5` is the half that makes this a real comparison: without a magnitude floor, a function that
+	# returns zero agrees with a fixture that scores zero. 0.5 is comfortably under the 2.06 this
+	# fixture produces and comfortably over the 2.9e-05 that mistimings alone would have given.
+	check('each summand is the adjudicator\'s OWN pitch verdict for that note',
+		len(summands) == 3 and sum(summands) > 0.5
+			and abs(sum(summands) - got['cost']) < 1e-9,
+		f'adjudicator verdicts {[round(x, 5) for x in summands]} sum to '
+		f'{sum(summands):.5f} vs reported {got["cost"]:.5f}')
+
+	# --- ONE accumulation per note, checked against a counter this function does not maintain.
+	# `matched` and `misses` are incremented inside `align.observe` itself, so their sum IS the number
+	# of times observe ran. If it ever ran more often than `notes` counted -- which is what a token
+	# closing two events would do, since `advance` loops over `events` and returns only the LAST
+	# detail -- the sums would be over more notes than the count claims and the per-note figure would
+	# be silently inflated. MEASURED equal on all three real runs so far (28/28, 33/33, 147/147).
+	#
+	# Exercised on the shapes that could break it: a note_off group (which carries its own #pitch and
+	# must NOT accumulate, or a note would be charged twice -- once opening, once closing) and a CHORD,
+	# two note_on at the same tick with no elapse between them, which must accumulate twice because
+	# they are two notes.
+	chord = ['note_on', '#3c', '$50', 'E3c0', 'note_off', '#3c',
+		'note_on', '#41', '$50', 'note_on', '#48', '$50']
+	ctracker = LineageTracker(tk, keywords, src)
+	cids = [i[t] for t in chord if t in i]
+	cgot = path_align_loss(ctracker, cids)
+	# replay to read the observe counter, which path_align_loss does not return
+	cstate = ctracker.fresh()
+	for tid in cids:
+		cstate, _d = ctracker.advance(cstate, tid)
+	calls = cstate['align'].matched + cstate['align'].misses
+	check('exactly one accumulation per note: observe ran as often as the count claims',
+		cgot['notes'] == 3 and calls == 3,
+		f'3 note_on (one a chord member) + a note_off group of 12 tokens -> {cgot["notes"]} counted, '
+		f'observe ran {calls}x (matched {cstate["align"].matched} + missed {cstate["align"].misses})')
+
+	# An elapse-only sequence closes nothing. None, not 0.0.
+	empty = path_align_loss(LineageTracker(tk, keywords, src), [i['E3c0'], i['E1e0']])
+	check('a sequence that closes no note reports None, not a free 0.0',
+		empty is None, f'elapse-only walk -> {empty}')
+
+	# A miss contributes to `cost` but not to `self_cost`, so the two sums are over different
+	# populations. Pinned because reading them as two estimates of one quantity is the likely misuse.
+	far = 60 + ((src[0]['pitch'] - 60) + 6) % 12		# a tritone off every source onset nearby
+	miss = path_align_loss(LineageTracker(tk, keywords, src),
+		[i['note_on'], i['#%02x' % far], i['$50']])
+	check('a miss is carried by cost while self_cost attributes nothing to it',
+		miss is not None and miss['misses'] == 1 and miss['self_cost'] == 0.0
+			and miss['cost'] > 0,
+		f'1 missed note: cost {miss and round(miss["cost"], 6)}, '
+		f'self_cost {miss and miss["self_cost"]}, matched {miss and miss["matched"]}')
+
+
 def check_greedy_first (tk, keywords):
 	'''The first generated position must take the model argmax and not widen, by default.
 
@@ -1334,6 +1446,8 @@ def main ():
 	check_align_from_first_elapse(tk, keywords)
 	print()
 	check_logprob_margin(tk, keywords)
+	print()
+	check_path_align_loss(tk, keywords)
 
 	total = len(PASS) + len(FAIL)
 	print(f'\n{len(PASS)}/{total} checks passed')

@@ -712,6 +712,55 @@ class BeamInspector:
 		return path
 
 
+def path_align_loss (tracker, ids):
+	'''Accumulated align loss over the PITCH nodes of one finished token sequence.
+
+	The number the search's pitch branch was ranking on, summed along the path it actually took:
+	`AlignAdjudicator._pitch_losses` scores a candidate as `detail['cost']`, and this walks the winning
+	ids through the SAME `tracker.advance`, so the per-note figures are the adjudicator's own rather
+	than a second implementation of them that could drift.
+
+	Computed after the fact rather than accumulated during the search, for two reasons. It works at any
+	width and any --rank, including `--beam 1` (which takes the greedy code path and never reaches the
+	beam observer), so an align run and its baseline produce comparable numbers. And it cannot perturb
+	what it measures: no hook, no extra state on the hypotheses, nothing that runs before a cut.
+
+	Sound because the alignment is a function of the token sequence alone -- `observe` reads a note's
+	pitch, tick and softIndex, all of which the ids determine -- so replaying the winner reproduces the
+	state the winning lineage held. It also sidesteps the windowing question the live path has to
+	handle: this walks the piece once, end to end, so a primer cannot be folded in twice.
+
+	Returns dict(cost, self_cost, notes, final, matched, misses), or None if the walk closed no note.
+
+	`cost` is the requested accumulation and is the quantity the search ranked on, but note what it is:
+	`align.observe` keeps `cost` as a DECAYED RUNNING SUM over the recent past, so a note's own
+	contribution is re-counted, geometrically attenuated, in every later note. The sum is therefore a
+	well-defined and monotone functional of the path -- comparable between two runs over the same
+	source -- and NOT a decomposition into per-note charges. `self_cost` is that decomposition (it is
+	the only quantity attributable to one note, align.py:734), so both are reported: they answer
+	different questions and disagreeing with each other is informative rather than a defect.
+	'''
+	state = tracker.fresh()
+	total = self_total = 0.0
+	notes = 0
+	for tid in ids:
+		state, detail = tracker.advance(state, int(tid))
+		if detail is None:
+			continue
+		notes += 1
+		total += detail['cost']
+		# None on a miss: `observe` charges an unmatched note through `cost` and attributes no
+		# self_cost to it, so the two sums are over different populations by construction. Reported
+		# side by side with the miss count, which is what makes that legible.
+		if detail.get('self_cost') is not None:
+			self_total += detail['self_cost']
+	if not notes:
+		return None
+	align = state['align']
+	return dict(cost=total, self_cost=self_total, notes=notes, final=align.cost,
+		matched=align.matched, misses=align.misses)
+
+
 def _r (x, n=5):
 	'''Round for the dump, passing None through: a miss has no offset, and 0.0 would read as one.'''
 	return None if x is None else round(float(x), n)
@@ -925,14 +974,18 @@ def main ():
 	# ONE lineage table, shared by whichever of the two consumers exist. Built here because both need
 	# the same source walk and the same per-hypothesis clocks: giving them a table each is how two
 	# tick counters over the same token stream drift apart without either being wrong on its own.
-	tracker = None
-	if args.inspect is not None or args.rank == 'align':
-		keywords = keyword_tokens(tokenizer)
-		src_ids = encode_lines(lines, tokenizer, bool(data_args.get('source_eom')))
-		src_events, _abst, _st = note_on_events(src_ids, tokenizer, keywords)
-		for e, si in zip(src_events, soft_indices([e['onset'] for e in src_events])):
-			e['softIndex'] = si
-		tracker = LineageTracker(tokenizer, keywords, src_events)
+	#
+	# Built UNCONDITIONALLY, where it used to be gated on --inspect or --rank align. The final
+	# align-loss line is the point: a number only an align run can produce is not comparable to
+	# anything, and the baseline it has to be read against is `--rank lm`. What it costs on a run that
+	# would not otherwise have one is the source walk here -- no per-candidate AlignState clone happens
+	# unless an adjudicator or an inspector asks for one, and neither is created below on an lm run.
+	keywords = keyword_tokens(tokenizer)
+	src_ids = encode_lines(lines, tokenizer, bool(data_args.get('source_eom')))
+	src_events, _abst, _st = note_on_events(src_ids, tokenizer, keywords)
+	for e, si in zip(src_events, soft_indices([e['onset'] for e in src_events])):
+		e['softIndex'] = si
+	tracker = LineageTracker(tokenizer, keywords, src_events)
 
 	# An inspection run ALWAYS scores: a dump exists to answer "what did the aligner think of the tree
 	# the model built", and withholding the verdict unless it also ranks would leave every candidate
@@ -1004,6 +1057,22 @@ def main ():
 	write_output(out_path, out_lines)
 	report_output(body, stats)
 	print(f'[out] wrote {out_path}')
+
+	# The accumulated align loss of the sequence that was actually emitted, printed after the file so
+	# the run's last word is what it produced and what that cost. Reported for EVERY rank, so an align
+	# run has a baseline: this walk depends on the ids and the source alone, not on how they were
+	# chosen. See `path_align_loss` on why `cost` and `self_cost` are both here -- `cost` is the
+	# quantity the pitch branch ranked on and is a decayed running sum, `self_cost` is the per-note
+	# decomposition, and they are not two estimates of one number.
+	metric = path_align_loss(tracker, output_ids)
+	if metric is None:
+		print('[align] no note_on in the output, so there is no aligned pitch to accumulate over')
+	else:
+		print(f'[align] accumulated pitch align loss {metric["cost"]:.4f} over {metric["notes"]} '
+			f'note_on ({metric["cost"] / metric["notes"]:.4f} per note), '
+			f'self_cost sum {metric["self_cost"]:.4f}, final running cost {metric["final"]:.4f}, '
+			f'{metric["matched"]} matched / {metric["misses"]} missed of '
+			f'{len(tracker.src_events)} source note_on')
 
 	if inspector is not None:
 		json_path = args.inspect_json or os.path.splitext(out_path)[0] + '.beamtree.json'
