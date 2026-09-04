@@ -75,7 +75,7 @@ class BeamMixin:
 
 	def __init__ (self, *args, beam_size=1, branch_k=4, length_alpha=0.7, inspector=None,
 		position_cap=0, adjudicator=None, elapse_k=0, adjudicate=True, greedy_first=True,
-		align_from_first_elapse=True, logprob_margin=2.0, **kwargs):
+		align_from_first_elapse=True, logprob_margin=2.0, tracker=None, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.beam_size = max(1, int(beam_size))
 		self.branch_k = max(1, int(branch_k))
@@ -107,6 +107,10 @@ class BeamMixin:
 		# --inspect N caps the tokens a window generates, not just the tokens recorded: generating
 		# 2000 and keeping 40 would spend the whole run to dump a fragment of its first window.
 		self.position_cap = max(0, int(position_cap))
+		# Held DIRECTLY, not reached through the inspector or the adjudicator. The lineage has to advance
+		# on any run that has a tracker at all, and taking it from `inspector.tracker` is exactly how
+		# that came to depend on --inspect.
+		self.tracker = tracker
 		self.step_index = 0
 
 	def seed_state (self, prefix_ids, n_source=None):
@@ -183,11 +187,18 @@ class BeamMixin:
 		room = self.max_token - len(prefix_ids)
 		if self.position_cap:
 			room = min(room, self.position_cap)
+		# The observer advances the lineage table, and RECORDING is a second job layered on it. So it is
+		# wired whenever a tracker exists: with an inspector it also formats the tree, without one it
+		# just walks the survivors. Wiring it only for the inspector left the adjudicator forecasting
+		# from a root that never moved -- all 918 positions abstained. See `LineageTracker.walk`.
 		observer = None
 		if self.inspector is not None:
 			self.inspector.begin_window(self.step_index, n_source,
 				list(prefix_ids[n_source:]) if n_source else [])
 			observer = self.inspector.observe
+		elif self.tracker is not None:
+			observer = lambda position, live, pool, kept, done: self.tracker.walk(
+				live, pool, kept, done)
 		ids, forced, _rep = beam_search(step, self.tk.tokens, self.keywords, self.tk.eos_id,
 			max_new=room, beam_size=self.beam_size, branch_k=self.branch_k,
 			length_alpha=self.length_alpha, observer=observer,
@@ -201,10 +212,14 @@ class BeamMixin:
 			align_from_first_elapse=self.align_from_first_elapse,
 			logprob_margin=self.logprob_margin,
 			rank=self.rank_fn(), report=self.beam_report)
+		# Which hypothesis won, taken from the search's own report rather than re-derived here, so the
+		# next window's alignment continues from the lineage the output actually took. Unconditional,
+		# because a window boundary is a lineage event: the inspector merely also wants to note it.
+		best_uid = self.beam_report.get('best_uid')
+		if self.tracker is not None:
+			self.tracker.carry(best_uid)
 		if self.inspector is not None:
-			# Which hypothesis won, taken from the search's own report rather than re-derived here, so
-			# the next window's alignment continues from the lineage the output actually took.
-			self.inspector.end_window(self.beam_report.get('best_uid'))
+			self.inspector.end_window(best_uid)
 		self.step_index += 1
 		return ids, forced
 
@@ -343,6 +358,53 @@ class LineageTracker:
 		return dict(align=align, walk=walk, tick=tick, prev_onset=prev_onset,
 			softindex=softindex, si=softindex if prev_onset is None
 				else softindex + soft_delta(tick - prev_onset)), detail
+
+	def walk (self, live, pool, kept, done, record=False):
+		'''Advance the lineages one decode position. Returns per-candidate rows when `record`.
+
+		This is the ONE place the table moves forward, and it runs whether or not anything is recording.
+		It used to live inside `BeamInspector.observe`, which made the alignment silently depend on
+		--inspect: `keep` had no other caller, so without an inspector every uid fell through
+		`base`'s `setdefault` to the pristine root, `forecast` could form no ratio from a tick that never
+		left 0, and the adjudicator abstained everywhere. MEASURED before this fix, same flags either
+		way: 406 of 644 positions adjudicated with a bare --inspect, versus all 918 abstained without
+		one, on a run whose banner still said "adjudication on (it ORDERS the pool)".
+
+		Which pool entries became survivors, by the search's OWN rule: walk the sorted pool and take
+		the first len(kept) non-terminator entries. Derived rather than matched on token identity --
+		two beams can propose the same token at the same position, and a match on (token, prefix)
+		would then attach the state to the wrong lineage.
+
+		`record` also selects how much is walked. A recording run advances EVERY pool entry, because a
+		dump exists to say what the aligner thought of the candidates that were cut too; a plain run
+		advances only the children, which is beam_size clones per position instead of pool_size (4 vs
+		16.19 on the committed dump's branch rate). The survivors get identical states either way --
+		`advance` always clones, so scoring a cut candidate leaves nothing behind.
+		'''
+		for beam in live:
+			self.base(beam.uid)
+		rows = [] if record else None
+		taken = 0
+		for rank_i, (key, total, row, tid, loss) in enumerate(pool):
+			parent = live[row]
+			base = self.base(parent.uid)
+			child = None
+			if tid == self.tk.eos_id:
+				pass				# went to `done`; it never becomes a live child
+			elif taken < len(kept):
+				child = kept[taken]
+				taken += 1
+			if child is None and not record:
+				continue			# nothing will read this state, so do not pay for the clone
+			state, detail = self.advance(base, tid, child is not None)
+			if child is not None:
+				self.keep(child.uid, state)
+			if record:
+				rows.append((rank_i, key, total, parent, tid, loss, child, state, detail))
+		# A lineage nothing points at cannot be reached again. Pruning keeps the table proportional to
+		# the beam width instead of to every node ever created.
+		self.prune({b.uid for b in kept} | {b.uid for b in done})
+		return rows
 
 	def keep (self, uid, state):
 		self.table[uid] = state
@@ -638,37 +700,30 @@ class BeamInspector:
 		# Recorded on the window, because the winning PATH is the tree's spine: without it a reader
 		# cannot tell which of the kept branches the output actually came from, and every view that
 		# greys out "what came after" has no baseline to grey out.
+		#
+		# `tracker.carry` is deliberately NOT here. Adopting the winning lineage as the next window's
+		# root is lineage bookkeeping, not recording, and doing it here made the whole cross-window
+		# alignment conditional on --inspect. BeamMixin.generate owns it now, on the same reasoning that
+		# moved the walk to `LineageTracker.walk`.
 		if self.window is not None:
 			self.window['best_uid'] = best_uid
-		self.tracker.carry(best_uid)
 		self.window = None
 
 	def observe (self, position, live, pool, kept, done):
+		'''Record one decode position. The lineage walk itself belongs to the tracker.
+
+		Read-only with respect to the search, and now read-only with respect to the LINEAGE too: this
+		formats rows `LineageTracker.walk` produced. It used to perform the walk, which is what made the
+		alignment depend on --inspect -- see `walk`.
+		'''
+		rows = self.tracker.walk(live, pool, kept, done, record=True)
 		if self.window is None:
 			return
 		if self.limit and len(self.window['positions']) >= self.limit:
 			self.truncated = True
 			return
-		for beam in live:
-			self.tracker.base(beam.uid)
-		# Which pool entries became survivors, by the search's OWN rule: walk the sorted pool, and
-		# the first len(kept) non-terminator entries are the ones it kept. Derived rather than
-		# matched on token identity -- two beams can propose the same token at the same position, and
-		# a match on (token, prefix) would then attach the recording to the wrong lineage.
-		taken = 0
 		cands = []
-		for rank_i, (key, total, row, tid, loss) in enumerate(pool):
-			parent = live[row]
-			base = self.tracker.base(parent.uid)
-			child = None
-			if tid == self.tk.eos_id:
-				pass				# went to `done`; it never becomes a live child
-			elif taken < len(kept):
-				child = kept[taken]
-				taken += 1
-			state, detail = self.tracker.advance(base, tid, child is not None)
-			if child is not None:
-				self.tracker.keep(child.uid, state)
+		for rank_i, key, total, parent, tid, loss, child, state, detail in rows:
 			self.nodes += 1
 			cands.append(dict(
 				uid=child.uid if child is not None else None, parent=parent.uid, rank=rank_i,
@@ -696,9 +751,6 @@ class BeamInspector:
 		self.window['positions'].append(dict(position=position, candidates=cands,
 			live=[dict(uid=b.uid, logprob=_r(b.logprob),
 				kind=BRANCH_NAMES[b.state.branch_kind()]) for b in live]))
-		# A lineage nothing points at cannot be reached again. Pruning keeps the table proportional to
-		# the beam width instead of to every node ever created.
-		self.tracker.prune({b.uid for b in kept} | {b.uid for b in done})
 
 	def dump (self, path, meta):
 		meta = dict(meta, nodes=self.nodes, truncated=self.truncated,
@@ -1026,7 +1078,8 @@ def main ():
 		adjudicator=adjudicator, elapse_k=args.elapse_k if adjudicator is not None else 0,
 		adjudicate=adjudicate, greedy_first=not args.branch_first,
 		align_from_first_elapse=not args.align_from_first_token,
-		logprob_margin=(args.logprob_margin if args.logprob_margin > 0 else None))
+		logprob_margin=(args.logprob_margin if args.logprob_margin > 0 else None),
+		tracker=tracker)
 	print('[beam] logprob margin ' + (f'{args.logprob_margin:g} nats below each row\'s own best is '
 		'pruned' if args.logprob_margin > 0 else 'disabled (the full branch-k everywhere)'))
 	print(f'[beam] width {args.beam}, branch-k {args.branch_k} at elapse/pitch, '

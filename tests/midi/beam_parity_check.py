@@ -32,8 +32,8 @@ from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer
 from starry.midi.align import (soft_indices, elapse_value, elapse_class, stage_admits,
 	STAGE_BIG, STAGE_LOW, Config as AlignConfig)
 from translateMidiseq2 import keyword_tokens
-from translateMidiseq2Beam import (AlignAdjudicator, BeamTranslator, LineageTracker,
-	path_align_loss)
+from translateMidiseq2Beam import (AlignAdjudicator, BeamInspector, BeamTranslator,
+	LineageTracker, path_align_loss)
 
 
 PASS, FAIL = [], []
@@ -925,6 +925,101 @@ def check_pitch_adjudication (tk, keywords):
 		'back to the LM -- which is what it did before this change')
 
 
+def check_lineage_without_inspector (tk, keywords):
+	"""The alignment must not depend on --inspect. This is the check that was missing.
+
+	The defect it pins: `keep` and `carry` had their only callers inside `BeamInspector`, and the
+	observer was wired only when an inspector existed. So on a run without --inspect the lineage table
+	never moved, every uid fell through `base`'s `setdefault` to the pristine root, and the adjudicator
+	forecast every candidate from tick 0 -- where no ratio can form, so it abstained at every position
+	and silently produced the LM-only run. MEASURED on the real model, identical flags apart from a bare
+	--inspect: 406 of 644 positions adjudicated WITH one, all 918 abstained WITHOUT one, while the
+	banner said "adjudication on (it ORDERS the pool)" either way.
+
+	Every suite here passed throughout, because they all either drove `beam_search` directly (which
+	takes the observer as an argument) or built a translator with an inspector. Nothing exercised
+	`BeamMixin.generate` with a tracker and no inspector, which is the combination the tool's own
+	default produces. So this drives exactly that, and asserts on the TABLE rather than on the output:
+	a wrong-but-plausible output is what the defect looked like for as long as it existed.
+	"""
+	i = tk.id_by_token
+	src = [dict(onset=n * 960, pitch=60 + (n * 5) % 12) for n in range(24)]
+	for e, si in zip(src, soft_indices([x['onset'] for x in src])):
+		e['softIndex'] = si
+
+	plan = {
+		i['note_on']: {i['#3c']: 9.0, tk.eos_id: -8.0},
+		i['#3c']: {i['$50']: 9.0, tk.eos_id: -8.0},
+		i['$50']: {i['E3c0']: 9.0, i['E1e0']: 8.5, tk.eos_id: -8.0},
+	}
+	for tok in ('E3c0', 'E1e0'):
+		plan[i[tok]] = {i['note_on']: 9.0, i['E3c0']: 8.0, tk.eos_id: -8.0}
+
+	def run (with_inspector):
+		model = StubModel(tk.vocab_size, plan, i['note_on'], tk.eos_id)
+		tracker = LineageTracker(tk, keywords, src)
+		adj = AlignAdjudicator(tracker, tk, elapse_k=8)
+		insp = BeamInspector(tracker, limit=0, adjudicated=True) if with_inspector else None
+		tr = make_translator(tk, model, beam_size=4, branch_k=4, length_alpha=0.0,
+			adjudicator=adj, elapse_k=8, adjudicate=True, tracker=tracker, inspector=insp)
+		prefix = [tk.bos_id, i['note_on'], tk.sep_id, tk.bos_id]
+		out, _forced = tr.generate(prefix, list(range(len(prefix))), 0.0, 0, 1.0, n_source=2)
+		# The tick cursor of every live lineage. 0 everywhere means the table never advanced.
+		ticks = sorted({v['tick'] for v in tracker.table.values()})
+		return [tk.tokens[t] for t in out], ticks, tr.beam_report
+
+	out_i, ticks_i, rep_i = run(True)
+	out_n, ticks_n, rep_n = run(False)
+
+	check('the lineage table advances with NO inspector, so the alignment does not depend on --inspect',
+		ticks_n and max(ticks_n) > 0,
+		f'live lineage ticks without an inspector {ticks_n} (with one: {ticks_i})')
+
+	# The stronger form: the aligner must actually ADJUDICATE, which is what a table stuck at tick 0
+	# cannot do -- `forecast` needs a ratio and a ratio needs the clock to have moved.
+	adj_n, abst_n = rep_n.get('adjudicated', 0), rep_n.get('abstained', 0)
+	adj_i = rep_i.get('adjudicated', 0)
+	check('and it adjudicates rather than abstaining at every position',
+		adj_n > 0, f'without an inspector: adjudicated {adj_n}, abstained {abst_n} '
+		f'(with one: adjudicated {adj_i})')
+
+	# Recording must not CHANGE the search, which is the other half of the same contract and the
+	# property that made the defect invisible: if the two disagree, one of them is being searched wrong.
+	check('recording changes nothing about the search: both runs emit the same tokens',
+		out_i == out_n and rep_i.get('adjudicated') == rep_n.get('adjudicated'),
+		f'inspector {out_i[:6]} adjudicated {adj_i} vs plain {out_n[:6]} adjudicated {adj_n}')
+	check('and the surviving lineages hold the same clocks either way',
+		ticks_i == ticks_n, f'{ticks_i} with an inspector vs {ticks_n} without')
+
+	# `walk(record=False)` SKIPS the clone for pool entries that become no child. That is what makes the
+	# plain path cheaper, and it is only legal if a skipped entry could not have affected a survivor --
+	# `advance` clones rather than mutating `base`, so it cannot. Checked directly on one position
+	# rather than inferred from the run above, because the two modes are separate code paths through the
+	# same loop and this is the invariant that lets them differ at all.
+	tracker_a = LineageTracker(tk, keywords, src)
+	tracker_b = LineageTracker(tk, keywords, src)
+
+	class _Fake:
+		def __init__ (self, uid, lp):
+			self.uid, self.logprob = uid, lp
+	live = [_Fake(1, -0.1)]
+	kids = [_Fake(10, -0.2)]
+	# three pool entries, only the first of which becomes a child
+	pool = [(0.0, -0.2, 0, i['E3c0'], 0.5), (1.0, -3.0, 0, i['E1e0'], 0.7),
+		(2.0, -9.0, 0, i['note_off'], None)]
+	for t in (tracker_a, tracker_b):
+		t.table[1] = t.fresh()
+		t.table[1]['walk'] = None
+	rows = tracker_a.walk(live, pool, kids, [], record=True)
+	tracker_b.walk(live, pool, kids, [], record=False)
+	sa, sb = tracker_a.table[10], tracker_b.table[10]
+	check('skipping the clone for a cut candidate leaves the survivor\'s state identical',
+		rows is not None and len(rows) == 3
+			and (sa['tick'], sa['softindex']) == (sb['tick'], sb['softindex']),
+		f'recorded {len(rows)} rows vs walked survivors only; survivor tick/si '
+		f'{(sa["tick"], round(sa["softindex"], 6))} both ways')
+
+
 def check_path_align_loss (tk, keywords):
 	"""The reported accumulated loss must be the SEARCH's own numbers, summed along the output.
 
@@ -1448,6 +1543,8 @@ def main ():
 	check_logprob_margin(tk, keywords)
 	print()
 	check_path_align_loss(tk, keywords)
+	print()
+	check_lineage_without_inspector(tk, keywords)
 
 	total = len(PASS) + len(FAIL)
 	print(f'\n{len(PASS)}/{total} checks passed')
