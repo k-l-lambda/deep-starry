@@ -1670,6 +1670,59 @@ def check_window_loss_limit (tk, keywords):
 		f'{len(high_ids)} tokens, identical to the uncapped run: {list(high_ids) == list(off_ids)}')
 
 
+def check_no_evidence_stops (tk, keywords):
+	"""A step that rolled NOTHING out of the primer must stop the run, not be forced forward.
+
+	Distinct from check_crop_stall_stops, which covers a crop that computed a cursor already behind the
+	one it was given. Here the crop computes nothing at all: no note matched a source note AND no note_on
+	rolled out to count. The inherited scheme returns the cursor unchanged for onsets <= 0, and
+	`translate`'s no-advance guard then rewrites it to `next_cursor` -- a lookahead figure that owes
+	nothing to what was translated. Measured on 1bca0ff: one such step had the source jumped 160 -> 577,
+	skipping 417 source lines the target never saw, which is far more damaging than stopping.
+
+	The negative half matters as much: with onsets to count, the fallback must still be TAKEN, or every
+	window whose notes all missed would stop the run instead of degrading gracefully.
+	"""
+	i = tk.id_by_token
+	src = [dict(onset=n * 480, pitch=60) for n in range(8)]
+	for e, si in zip(src, soft_indices([x['onset'] for x in src])):
+		e['softIndex'] = si
+	lines = ['ticks_per_beat 1 e 0', 'note_on #3c', 'note_off #3c', 'note_on #3e',
+		'note_off #3e', 'note_on #40', 'note_off #40', 'note_on #41', 'end_of_track']
+	model = StubModel(tk.vocab_size, {}, i['note_on'], tk.eos_id)
+
+	def fresh (records):
+		tr = LineageTracker(tk, keywords, src)
+		trans = make_translator(tk, model, beam_size=2, tracker=tr, align_crop=True)
+		trans._step = dict(root=trans.tracker.fresh(), ids=[0] * 10, out_len=10, prime_start=8,
+			records=records)
+		return trans
+
+	# NO EVIDENCE: no record matched (src None), and nothing rolled out to count either.
+	trans = fresh([(0, dict(src=None))])
+	got = trans.advance_source_by_onsets(lines, 3, 0)
+	check('a step that rolled nothing out does not move the source cursor',
+		got == 3, f'cursor 3 -> {got}')
+	check('it latches the stall instead, naming no matched source note',
+		trans._stalled is not None and trans._stalled['last_src'] is None,
+		f'stalled={trans._stalled}')
+	check('the stall makes source_window empty, which is what translate breaks on',
+		trans.source_window(lines, 3) == ([], 3),
+		f'source_window -> {trans.source_window(lines, 3)[0][:4]} '
+		f'(vs {len(SlidingTranslator.source_window(trans, lines, 3)[0])} ids without the latch)')
+	check('it did NOT count as a crop fallback, which would misreport the cause',
+		trans.window_report['crop_fallback'] == 0 and trans.window_report['stalled'] == 1,
+		f'crop_fallback={trans.window_report["crop_fallback"]}, stalled={trans.window_report["stalled"]}')
+
+	# WITH ONSETS: nothing matched, but notes rolled out -- the fallback must still be taken.
+	trans = fresh([(0, dict(src=None))])
+	got = trans.advance_source_by_onsets(lines, 0, 2)
+	check('with note_on to count, a window that matched nothing still falls back rather than stopping',
+		trans._stalled is None and got > 0,
+		f'cursor 0 -> {got}, fallback {trans.window_report["crop_fallback"]}, stalled={trans._stalled}')
+
+
+
 def check_align_crop (tk, keywords):
 	"""The source cursor must land after the LAST MATCHED source note, and fall back when nothing did.
 
@@ -1796,6 +1849,51 @@ def check_trim_bad_tail (tk, keywords):
 		len(output) == len(ids), f'{len(output)} tokens kept')
 
 
+def check_stride_is_the_option (tk, keywords):
+	"""The stride stays a user-set constant, and both alternatives tried were measured worse.
+
+	Pins the OUTCOME of an experiment so it is not silently re-run. The premise was that a fixed
+	--advance-tokens 128 starves the primer, which it does -- on 1bca0ff the primer ran 8 -> 0 -> 128 -> 39
+	and <eom> stopped firing. But the primer is not what governs output quality: at matched source
+	coverage the measure ratio came out the same (adaptive gen//2 3/9 = 0.33 vs 128's 4/11 = 0.36) while
+	per-note loss, miss rate and note density were all clearly worse, and the small stride needed 12
+	windows to cover less source than 128 covered in 5.
+
+	So what is checked here is that the knob still EXISTS and still governs the cut, plus the two
+	behaviours at its extremes that explain why the value matters -- the drained primer at a large stride
+	and the retained one at a small stride.
+	"""
+	i = tk.id_by_token
+	eom = tk.eom_id
+	# two measures of three tokens each
+	out = [10, 11, eom, 20, 21, eom]
+
+	def cut (n, output=None):
+		return SlidingTranslator(None, tk, advance_tokens=n, prime_window=10 ** 6).advance_output(
+			list(out) if output is None else output, 0)
+
+	check('a small stride retires one measure and keeps the rest as primer',
+		cut(1) == 3, f'prime_start {cut(1)}, primer {len(out) - cut(1)} tokens')
+	check('a stride past the output retires everything, leaving no primer -- the starvation',
+		cut(128) == len(out), f'prime_start {cut(128)}, primer {len(out) - cut(128)} tokens')
+	check('the stride is what moves the cut, so the option is not inert',
+		cut(1) != cut(128), f'{cut(1)} vs {cut(128)}')
+	# The floor that keeps `translate` from looping: a window with no boundary still advances.
+	check('a window emitting no <eom> still advances by the stride, so the loop cannot stall',
+		cut(1, [10, 11, 12]) == 1, f'prime_start {cut(1, [10, 11, 12])}')
+
+	# And the CLI still carries it, on both tools.
+	import subprocess
+	env = dict(os.environ, PYTHONPATH='.')
+	root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+	for tool in ('translateMidiseq2.py', 'translateMidiseq2Beam.py'):
+		h = subprocess.run([sys.executable, f'tools/midi/{tool}', '--help'], capture_output=True,
+			text=True, env=env, cwd=root)
+		check(f'{tool} still exposes --advance-tokens', '--advance-tokens' in h.stdout,
+			f'rc={h.returncode}')
+
+
+
 def check_crop_stall_stops (tk, keywords):
 	"""A crop that cannot advance the source cursor must STOP the run, not be forced forward.
 
@@ -1905,12 +2003,16 @@ def main ():
 	check_replay_matches_search(tk, keywords)
 	print()
 	check_window_loss_limit(tk, keywords)
+	check_no_evidence_stops(tk, keywords)
+	print()
 	print()
 	check_align_crop(tk, keywords)
 	print()
 	check_trim_bad_tail(tk, keywords)
 	print()
 	check_crop_stall_stops(tk, keywords)
+	print()
+	check_stride_is_the_option(tk, keywords)
 
 	total = len(PASS) + len(FAIL)
 	print(f'\n{len(PASS)}/{total} checks passed')

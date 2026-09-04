@@ -429,6 +429,16 @@ class BeamMixin:
 			if detail.get('src') is not None:
 				last_src = detail['src']
 		if last_src is None:
+			# NOTHING rolled out at all: no matched source note AND no note_on to count. The inherited
+			# scheme returns the cursor unchanged for onsets <= 0, at which point `translate`'s no-advance
+			# guard rewrites it to `next_cursor` -- a lookahead figure that owes nothing to what was
+			# actually translated. Measured on 1bca0ff: a step that rolled 1 token / 0 onsets had the
+			# source jumped 160 -> 577, skipping 417 lines the target never saw. Stopping is the honest
+			# outcome, and it is the rule already in place for a crop that cannot advance.
+			if onsets <= 0:
+				self._stalled = dict(step=self.step_index, cursor=cursor, crop=cursor, last_src=None)
+				self.window_report['stalled'] = 1
+				return cursor
 			self.window_report['crop_fallback'] += 1
 			return super().advance_source_by_onsets(lines, cursor, onsets)
 		index = self.note_line_index(lines)
@@ -1250,6 +1260,16 @@ def main ():
 		help="don't seed the target half with the previous window's tail")
 	ap.add_argument('--advance-tokens', type=int, default=1,
 		help='minimum target tokens retired per step, rounded up to the next <eom> (default 1)')
+	# KEPT, and 128 is the value the runs are stated in. Removing it, and replacing it with an
+	# adaptive `gen // 2` stride, were both tried on 2026-09-04 and both measured WORSE. The premise
+	# was that a fixed 128 starves the primer (it does: 8 -> 0 -> 128 -> 39 on 1bca0ff, and <eom>
+	# stops firing) -- but the primer is not what governs output quality. At matched source coverage
+	# on that file the measure ratio is the same (adaptive 3/9 = 0.33 vs 128's 4/11 = 0.36) while
+	# every other column is worse: per-note 2.0297 vs 1.1896, miss 43.4% vs 17.6%, note density 1.88x
+	# vs 1.03x, and 12 windows to cover LESS source than 128 covered in 5. Stride 1 with a higher
+	# --window-loss-limit is worse still (limit 200: per-note 2.1888, primer to 1020, hit max_token),
+	# because the source cursor advances only by what rolled out of the primer, so a small stride
+	# stalls it. Do not re-derive this from the primer trace alone; compare at matched COVERAGE.
 	ap.add_argument('--prime-window', type=int, default=2048,
 		help='internal target-view safety ceiling in tokens; not the step stride (default 2048)')
 	ap.add_argument('--inspect', nargs='?', type=int, const=0, default=None, metavar='N',
@@ -1418,9 +1438,12 @@ def main ():
 			f'({wr["trimmed_notes"]} notes, {wr["trimmed_tokens"]} tokens)')
 	if translator._stalled is not None:
 		st = translator._stalled
-		print(f'[window] STOPPED at step {st["step"]}: the crop did not advance the source cursor '
-			f'(line {st["cursor"]}, crop wanted {st["crop"]}, last matched source note '
-			f'{st["last_src"]}). Output is what had been generated up to there')
+		reason = ('nothing rolled out of the primer: no matched source note and no note_on to count'
+			if st['last_src'] is None else
+			f'the crop did not advance the source cursor (crop wanted {st["crop"]}, '
+			f'last matched source note {st["last_src"]})')
+		print(f'[window] STOPPED at step {st["step"]} on source line {st["cursor"]}: {reason}. '
+			'Output is what had been generated up to there')
 
 	body = render_lines(output_ids, tokenizer, translator.keywords)
 	out_lines = compose_output(body, source_header(lines))
