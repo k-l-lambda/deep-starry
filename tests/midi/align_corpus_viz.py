@@ -191,7 +191,8 @@ def summarise (records):
 		recall=tally['right'] / scorable if scorable else None)
 
 
-def plot (src, tgt, records, stats, path, title, from_measure=None, to_measure=None):
+def plot (src, tgt, records, stats, path, title, from_measure=None, to_measure=None,
+		measures=None):
 	'''Draw the correspondence with the truth overlaid. Geometry follows align_match_viz.plot.'''
 	import matplotlib
 	matplotlib.use('Agg')					# file output only; no display on a training box
@@ -207,6 +208,24 @@ def plot (src, tgt, records, stats, path, title, from_measure=None, to_measure=N
 	if not shown:
 		print(f'  nothing to draw in measures {lo_m}..{hi_m}')
 		return False
+	# A bar COUNT, which is the unit the music and the ground truth are both organised in. Counted from
+	# the window's own first bar rather than from bar 1 of the piece: a 960-token window does not
+	# necessarily start at the beginning (MEASURED: of the three weakest pairs, 04623a3b's window opens
+	# at bar 2), so "the first 8 bars" is only well defined relative to what is in the window. The
+	# absolute range actually drawn goes in the suptitle and the report so the two never get confused.
+	#
+	# Crops what is DRAWN, never what was SCORED: the rates in the suptitle and the text report stay
+	# those of the whole window, so a cropped figure cannot flatter the alignment.
+	cropped = 0
+	if measures:
+		bars = sorted({tgt[r['tgt_index']]['measure'] for r in shown})[:measures]
+		keep = [r for r in shown if tgt[r['tgt_index']]['measure'] <= bars[-1]]
+		cropped = len(shown) - len(keep)
+		shown = keep
+		lo_m, hi_m = bars[0], bars[-1]
+		print(f'  drawing bars {lo_m}..{hi_m} ({len(bars)} of '
+			f'{len({tgt[r["tgt_index"]]["measure"] for r in records})} in window), '
+			f'{len(shown)} of {len(shown) + cropped} target onsets')
 	# Source notes in view: those any drawn link touches, plus the truth groups of the wrong ones, so a
 	# grey link always has its endpoint on the figure.
 	touched = {r['src'] for r in shown if r['src'] is not None}
@@ -244,26 +263,106 @@ def plot (src, tgt, records, stats, path, title, from_measure=None, to_measure=N
 	for ax in (ax_s, ax_t):
 		ax.set_xlim(-0.03, 1.03)
 		ax.set_ylim(p_lo - pad, p_hi + pad)
-		ax.set_xticks([n * 0.1 for n in range(11)])
 		ax.set_ylabel('pitch')
 		ax.yaxis.set_major_locator(MaxNLocator(integer=True, nbins=7))
-		ax.grid(alpha=0.18, zorder=1)
+		ax.grid(axis='y', alpha=0.18, zorder=1)
 		# Links live on ax_s with clipping off so they reach into ax_t, drawn after; transparent
 		# patches keep the crossing segment visible over its whole length.
 		ax.patch.set_visible(False)
 
-	fracs = [n * 0.1 for n in range(11)]
+	# The x axis carries the (measure, tick) KEY, not a decimal onset fraction. That fraction was a
+	# rendering coordinate nothing in this figure is judged in: every verdict above is `index in truth`
+	# where truth is keyed by (measure, tick), so the axis should show the coordinate the verdict is
+	# computed in or the reader cannot check the verdict against the picture.
+	#
+	# @tick is MEASURE-RELATIVE -- it resets at every @measure line -- so a tick alone is ambiguous and
+	# only the pair identifies a group. Hence bar numbers as the labelled anchors (bold, `|N`) with the
+	# in-bar tick values between them, rather than one flat running number.
+	#
+	# Each lane is gridded from ITS OWN notes, so a bar line sits at different x in the two lanes. That
+	# offset is not an artifact to correct -- it IS the rubato: the source lane is the mocker's warped
+	# time, the target lane is quantised, and the horizontal drift between the two grids is the thing
+	# align.py has to undo. A shared grid would hide exactly that.
+	def lane_grid (notes, view, norm_fn):
+		'''[(x, x_end, measure, tick, is_barline)] per distinct KEY in view, left to right.
+
+		One line per KEY, not per onset. MEASURED on 14d850fc: the irregular arm has 33 distinct keys
+		across 119 distinct (onset, key) pairs -- 27 keys sit at several different real onsets, because
+		the mocker spreads one quantised chord over several times (the score arm is 24 keys at 24
+		onsets, exactly 1:1). Gridding per onset therefore printed the same tick number twice at two
+		different x, which reads as a bug in the axis rather than as what it is. So the line goes at the
+		key's FIRST onset and its spread is returned as x_end, drawn as a band: the rubato becomes a
+		visible width instead of a duplicated label.
+		'''
+		spans = {}
+		for i in view:
+			key = notes[i].get('key')
+			if not key or key[1] is None:
+				continue
+			lo, hi = spans.get(key, (None, None))
+			o = notes[i]['onset']
+			spans[key] = (o if lo is None else min(lo, o), o if hi is None else max(hi, o))
+		seen = set()
+		out = []
+		for key in sorted(spans, key=lambda k: (spans[k][0], k)):
+			m, tick = key
+			first = m not in seen
+			seen.add(m)
+			lo, hi = spans[key]
+			out.append((norm_fn(lo), norm_fn(hi), m, tick, first))
+		return out
+
+	def draw_grid (ax, notes, view, norm_fn, color):
+		grid = lane_grid(notes, view, norm_fn)
+		if not grid:
+			ax.set_xticks([n * 0.1 for n in range(11)])
+			return grid
+		# Thin the LABELS by available pixels, never the lines: a dropped line would move an unlabelled
+		# group into the wrong bar visually, whereas a dropped label costs only precision of reading.
+		px = max(1.0, fig.get_size_inches()[0] * fig.dpi * 0.92)
+		need = 46.0 / px					# a `|12`/`480` label needs roughly this much axis width
+		labelled, last = [], -1e9
+		for x, _xe, m, _tick, bar in grid:	# bar lines claim their slot first: they are the anchors
+			if bar and x - last >= need * 0.62:
+				labelled.append((x, f'|{m}', True)); last = x
+		for x, _xe, _m, tick, bar in grid:
+			if bar:
+				continue
+			if all(abs(x - lx) >= need for lx, _l, _b in labelled):
+				labelled.append((x, str(tick), False))
+		labelled.sort()
+		ax.set_xticks([x for x, _l, _b in labelled])
+		ax.set_xticklabels([l for _x, l, _b in labelled])
+		for lbl, (_x, _l, is_bar) in zip(ax.get_xticklabels(), labelled):
+			if is_bar:
+				lbl.set_fontweight('bold')
+				lbl.set_fontsize(9)
+			else:
+				lbl.set_fontsize(7)
+				lbl.set_alpha(0.75)
+		ax.set_xticks([x for x, _xe, _m, _t, _b in grid], minor=True)
+		# Bar lines span the lane; group lines are faint. Both under the marks (zorder 1). Where a key
+		# occupies a range of real onsets, that range is shaded -- the mocker's spread of one chord.
+		for x, x_end, _m, _tick, bar in grid:
+			if bar:
+				ax.axvline(x, color=color, alpha=0.38, linewidth=1.1, zorder=1)
+			else:
+				ax.axvline(x, color='#000000', alpha=0.07, linewidth=0.6, zorder=1)
+			if x_end - x > 0.002:
+				ax.axvspan(x, x_end, color=color, alpha=0.07, linewidth=0, zorder=1)
+		return grid
+
 	ax_s.xaxis.set_ticks_position('top')
 	ax_s.xaxis.set_label_position('top')
-	ax_s.set_xticklabels([f'{src_lo + f * (src_hi - src_lo):.0f}' for f in fracs])
-	ax_s.set_xlabel(f'{SRC_ARM} onset (ticks {src_lo}..{src_hi}, normalised) — the SOURCE, with rubato',
-		color=SRC_COLOR)
+	src_grid = draw_grid(ax_s, src, src_view, norm_s, SRC_COLOR)
+	ax_s.set_xlabel(f'{SRC_ARM} — the SOURCE, with rubato.  x = @measure (bold |N) / @tick, '
+		f'onset ticks {src_lo}..{src_hi}', color=SRC_COLOR)
 	ax_s.tick_params(axis='x', colors=SRC_COLOR)
 	for side in ('top', 'left'):
 		ax_s.spines[side].set_color(SRC_COLOR)
-	ax_t.set_xticklabels([f'{tgt_lo + f * (tgt_hi - tgt_lo):.0f}' for f in fracs])
-	ax_t.set_xlabel(f'{TGT_ARM} onset (ticks {tgt_lo}..{tgt_hi}, normalised) — the TARGET, quantised',
-		color=OUT_COLOR)
+	tgt_grid = draw_grid(ax_t, tgt, tgt_view, norm_t, OUT_COLOR)
+	ax_t.set_xlabel(f'{TGT_ARM} — the TARGET, quantised.  x = @measure (bold |N) / @tick, '
+		f'onset ticks {tgt_lo}..{tgt_hi}', color=OUT_COLOR)
 	ax_t.tick_params(axis='x', colors=OUT_COLOR)
 	for side in ('bottom', 'left'):
 		ax_t.spines[side].set_color(OUT_COLOR)
@@ -355,7 +454,9 @@ def plot (src, tgt, records, stats, path, title, from_measure=None, to_measure=N
 	fig.suptitle(f'{title}\n@tick precision {prec} (rolled-tolerant {roll})  recall {rec}   '
 		f'right {t["right"]}  rolled {t["rolled"]}  wrong {t["wrong"]}  miss {t["miss"]}  '
 		f'unjudged {t["unjudged"]}   '
-		f'(bars {lo_m}..{hi_m} of {max(e["measure"] for e in tgt)})', fontsize=9)
+		f'(bars {lo_m}..{hi_m} of {max(e["measure"] for e in tgt)}'
+		+ (f'; DRAWN bars {lo_m}..{hi_m}, {len(shown)} of {len(shown) + cropped} target onsets, '
+			'rates are the full window' if cropped else '') + ')', fontsize=9)
 	# subplots_adjust, NOT tight_layout: the links are ConnectionPatches spanning both axes with clipping
 	# off, which tight_layout cannot measure -- it warns "Axes that are not compatible" and may move the
 	# panels out from under the links it could not see. Fixed margins keep the two lanes where the
@@ -403,6 +504,9 @@ def main ():
 		help='instead draw the N worst pairs by @tick precision (scans every pair first)')
 	ap.add_argument('--from-measure', type=int, default=None)
 	ap.add_argument('--to-measure', type=int, default=None)
+	ap.add_argument('--measures', type=int, default=None,
+		help="draw only the first N bars of the window (the window's own first bar, which is not "
+			'always bar 1); scoring still covers the whole window')
 	ap.add_argument('--src-window', type=int, default=SRC_WINDOW)
 	ap.add_argument('--out', default=DEFAULT_OUT)
 	ap.add_argument('--verbose', action='store_true', help='list the wrong matches')
@@ -464,7 +568,8 @@ def main ():
 		stem = name.split('.')[0]
 		path = os.path.join(args.out, f'{stem}.align.png')
 		title = f'{stem}  —  {SRC_ARM} -> {TGT_ARM}, src_window {args.src_window} tokens'
-		if plot(src, tgt, records, stats, path, title, args.from_measure, args.to_measure):
+		if plot(src, tgt, records, stats, path, title, args.from_measure, args.to_measure,
+				args.measures):
 			print(f'  wrote {path}')
 			drawn += 1
 	return 0 if drawn else 1
