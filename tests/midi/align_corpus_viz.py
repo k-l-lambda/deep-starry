@@ -226,9 +226,20 @@ def plot (src, tgt, records, stats, path, title, from_measure=None, to_measure=N
 		print(f'  drawing bars {lo_m}..{hi_m} ({len(bars)} of '
 			f'{len({tgt[r["tgt_index"]]["measure"] for r in records})} in window), '
 			f'{len(shown)} of {len(shown) + cropped} target onsets')
-	# Source notes in view: those any drawn link touches, plus the truth groups of the wrong ones, so a
-	# grey link always has its endpoint on the figure.
-	touched = {r['src'] for r in shown if r['src'] is not None}
+	# Source notes in view: EVERY source note whose bar is drawn, plus whatever a drawn link reaches
+	# outside that range so a link never dangles.
+	#
+	# This was link-scoped (only notes a link touched, plus the truth groups of wrong matches) and that
+	# made the figure LIE about the data. A miss contributes no source note, so on a pair with many
+	# misses most of the source lane vanished: MEASURED on 3b792c5e, bars 1..8 hold 87 source notes and
+	# the figure drew 36 of them, which reads as "the irregular arm lost notes". It has not -- whole
+	# file, irregular 374 note_on against score 377. The unclaimed-source class already in the legend is
+	# exactly what those notes are, and drawing them is what makes the recall failure visible as the
+	# thing it is: candidates that were available and were not taken.
+	drawn_bars = range(lo_m, hi_m + 1)
+	touched = {i for i, e in enumerate(src)
+		if e.get('key') and e['key'][0] in drawn_bars}
+	touched.update(r['src'] for r in shown if r['src'] is not None)
 	for r in shown:
 		if r['verdict'] == 'wrong' and r['truth']:
 			touched.update(r['truth'])
