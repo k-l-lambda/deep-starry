@@ -115,6 +115,55 @@ Config = dict(
 	# Anchor vote: pairs within this softIndex span of the newest one get a ballot, and the
 	# histogram is gaussian-smoothed at this sigma before the mode is taken.
 	AnchorSoftSpan = 0.8,
+	# Matcher CARRIES zeroNode.offset as a real value that always exists; align.py had only the vote
+	# mode, which is None whenever no pair is in the vote window. MEASURED: target softIndex steps
+	# are 0.78-0.97 (62.3% of 4702 steps are >= AnchorSoftSpan, and 70 of 100 files have a median
+	# step above it), so the previous pair usually falls OUT of the vote window on the very next note
+	# and the anchor is None almost everywhere -- leaving a fixed seed_offset as the only reference.
+	# On 3b792c5e that costs 98 of 117 notes on a pair whose pitches otherwise align 116/117.
+	#
+	# During a RUN OF MISSES the window GROWS, by this much per consecutive miss, saturated by
+	# tanh(null_steps) and capped at AnchorLostSpanMax. Matcher's shape is
+	#     this.zeroNode.offset += note.deltaSi * Math.tanh(nullLength);
+	# i.e. a signed SHIFT, and porting that literally was MEASURED WRONG here: Matcher may assume an
+	# unmatched note is spurious (a performer insertion), so its score pointer holds still and the
+	# offset moves one definite way. A miss in this setting is not an insertion, it is the aligner
+	# failing on a note that does have a counterpart, so the sign is not determined -- of 100 pairs
+	# the true offset drifts POSITIVE on 82 and negative on only 18. A signed shift therefore helps
+	# the 18 and hurts the 82 (it lifted 3b792c5e from 0.05 to 0.97 and left 14d850fc slightly
+	# worse). Growing the window is the sign-agnostic form of the same idea: the longer we have been
+	# lost, the less we claim to know about where the source is.
+	AnchorLostSpanGain = 0.6,
+	AnchorLostSpanMax = 6.0,
+	# Tick-space consistency, charged on top of the softIndex offset cost. `self.ratio` was tracked
+	# but spent only on `forecast` and `tick_interval` -- candidate SELECTION ignored it, so a
+	# systematic tempo difference had to be absorbed by the softIndex offset alone, which saturates
+	# (tanh) and so cannot represent one. This charges a candidate by how far its own onset lands from
+	# where the tracked tempo says this target tick should sit, normalised by the residual EMA so the
+	# term is scale-free and self-widening: while the ratio tracks well it discriminates, and as soon
+	# as it drifts the normaliser grows and it stops asserting.
+	#
+	# Charged RELATIVE to the best candidate, not absolutely. MEASURED: 83.6% of 11174 observe calls
+	# over 100 files carry exactly one candidate and 6.1% carry none -- only 10.3% have the >=2 needed
+	# to rank at all. An absolute charge therefore spends most of its life adding a constant to the
+	# sole option, changing no decision (a constant cancels in the argmin) while still leaking into
+	# `self.cost`, which the DP decays forward: noise with no selective power. Subtracting the
+	# per-call minimum makes a lone candidate cost exactly 0.0, so the term acts only where it can
+	# actually discriminate.
+	#
+	# Guarded, because the ratio is NOT always trustworthy: MEASURED, its per-file estimate is still
+	# >2x off the true tick ratio on 5 of 100 files, reaching 3.8x. Applied only when the ratio is
+	# plausible AND the residual has enough history, so a poisoned estimate is declined rather than
+	# propagated into the pairing it would then justify. Note the bad estimates are a SYMPTOM, not a
+	# cause: those 5 files average 0.514 tick precision against the corpus 0.919, i.e. the slope is
+	# being fitted to pairs the aligner already got wrong, so guarding the slope itself is useless --
+	# a rejection guard on outlier slopes was tried and measured completely inert (identical max,
+	# identical worst-6), because once the ratio has drifted to 3.2 a further 3.2 slope is
+	# self-consistent. 0.0 disables the term exactly.
+	TickConsistencyCost = 0.35,
+	TickConsistencyMinPairs = 4,
+	TickConsistencyRatioLo = 0.5,
+	TickConsistencyRatioHi = 2.0,
 	AnchorSigma = 0.5,
 	# The mask interval spans the offsets whose smoothed density clears this fraction of the peak.
 	# Larger = tighter mask. This is the knob that trades mask strength against mis-kill risk.
@@ -614,7 +663,7 @@ class AlignState:
 
 	__slots__ = ('src_events', 'src_by_pitch', 'pairs', 'cost', 'value', 'misses', 'matched',
 		'last_offset', 'tgt_count', 'ratio', 'ratio_pairs', 'residual', 'residual_n',
-		'seed_offset', 'used')
+		'seed_offset', 'used', 'null_steps', 'carried_offset')
 
 	def __init__ (self, src_events=None, seed_offset=None):
 		# src_events: list of dicts with at least onset/pitch/softIndex, in stream order
@@ -635,12 +684,18 @@ class AlignState:
 		self.ratio_pairs = []		# (src_softIndex, src_tick, tgt_tick) for the baseline slope
 		self.residual = None		# EMA of |tick prediction residual|
 		self.residual_n = 0
+		# Matcher's zeroNode.offset and nullLength (see AnchorLostSpanGain). `carried_offset` is the
+		# reference the candidate window falls back on whenever the vote has no ballot, which
+		# MEASURED is most positions -- so this, not the vote mode, is the anchor in practice.
+		self.null_steps = 0		# consecutive target notes with no match
+		self.carried_offset = None	# set from seed_offset below, then maintained per note
 		# Cold-start prior for the candidate window, used ONLY until the vote has pairs to draw on.
 		# Sliding inference does not need it: the source WINDOW is itself the bound, so a generated
 		# note can only match the few hundred tokens on screen. Whole-file alignment has no such
 		# bound — every pitch recurs dozens of times across a piece — so the first note would be free
 		# to match anywhere. None keeps the old behaviour (any same-pitch note is a candidate).
 		self.seed_offset = seed_offset
+		self.carried_offset = seed_offset
 		if src_events:
 			self.set_source(src_events)
 
@@ -675,6 +730,8 @@ class AlignState:
 		out.residual = self.residual
 		out.residual_n = self.residual_n
 		out.seed_offset = self.seed_offset
+		out.null_steps = self.null_steps
+		out.carried_offset = self.carried_offset
 		return out
 
 	# --- anchor ------------------------------------------------------------------------
@@ -713,14 +770,23 @@ class AlignState:
 			return []
 		mode, _confidence, _lo, _hi = self.anchor(tgt_softindex)
 		if mode is None:
-			mode = self.seed_offset
-		span = Config['AnchorSoftSpan']
+			# the carried offset, which is seed_offset until the first pair and then tracks -- the
+			# frozen seed was what made a lost alignment unrecoverable
+			mode = self.carried_offset
+		span = Config['AnchorSoftSpan'] + self.lost_span()
 		out = []
 		for i in hits:
 			offset = self.src_events[i]['softIndex'] - tgt_softindex
 			if mode is None or abs(offset - mode) <= span:
 				out.append((i, offset))
 		return out
+
+	def lost_span (self):
+		'''Extra candidate-window half-width earned by a run of misses (see AnchorLostSpanGain).'''
+		if not self.null_steps:
+			return 0.0
+		grown = Config['AnchorLostSpanGain'] * self.null_steps * math.tanh(self.null_steps)
+		return min(grown, Config['AnchorLostSpanMax'])
 
 	def observe (self, pitch, tgt_tick, tgt_softindex):
 		'''Fold one generated note_on into the alignment. Returns a per-note detail dict.
@@ -739,6 +805,25 @@ class AlignState:
 		cands = self.candidates(pitch, tgt_softindex)
 		prev_offset = self.last_offset
 		best = None
+		tick_cost_on = (Config['TickConsistencyCost']
+			and self.ratio is not None
+			and Config['TickConsistencyRatioLo'] < self.ratio < Config['TickConsistencyRatioHi']
+			and self.residual is not None
+			and self.residual_n >= Config['TickConsistencyMinPairs'])
+		# Precompute the tick penalties so they can be charged RELATIVE to the best candidate.
+		tick_pen = {}
+		if tick_cost_on and len(cands) > 1:
+			scale = max(self.residual, Config['SIMULTANEOUS_TICKS'] * 0.25)
+			for index, _off in cands:
+				predicted = self.predict_tick(self.src_events[index]['onset'])
+				if predicted is not None:
+					tick_pen[index] = math.tanh(abs(tgt_tick - predicted) / scale)
+			if len(tick_pen) > 1:
+				floor = min(tick_pen.values())
+				tick_pen = {k: (v - floor) * Config['TickConsistencyCost']
+					for k, v in tick_pen.items()}
+			else:
+				tick_pen = {}
 		for index, offset in cands:
 			if prev_offset is None:
 				self_cost = 0.0
@@ -746,6 +831,7 @@ class AlignState:
 				bias = offset - prev_offset
 				coeff = Config['UnderCost'] if bias > 0 else Config['OverCost']
 				self_cost = (bias * coeff) ** 2
+			tick_penalty = tick_pen.get(index, 0.0)
 			skip = 0
 			if self.pairs:
 				skip = max(0, index - self.pairs[-1][0] - 1)
@@ -755,12 +841,17 @@ class AlignState:
 			total = (self.cost * Config['CostStepAttenuation']
 				+ math.tanh(skip * Config['SkipCost'])
 				+ math.tanh(reuse * Config['ReuseCost'])
-				+ math.tanh(self_cost * Config['SelfCostScale']))
+				+ math.tanh(self_cost * Config['SelfCostScale'])
+				+ tick_penalty)
 			if best is None or total < best[0]:
 				best = (total, index, offset, self_cost, skip, reuse)
 		if best is None:
 			self.misses += 1
 			self.cost = self.cost * Config['CostStepAttenuation'] + Config['MissCost']
+			# Count the miss; `lost_span` turns that count into a wider window for the NEXT note.
+			# Incremented after this note's own search, so a note is never judged by the allowance
+			# its own failure earned.
+			self.null_steps += 1
 			return dict(src=None, self_cost=None, offset=None, skip=0, reuse=0, cost=self.cost,
 				prior=self.prior)
 		total, index, offset, self_cost, skip, reuse = best
@@ -772,6 +863,9 @@ class AlignState:
 		weight = 1.0 - math.tanh(self_cost * Config['SelfCostScale'])
 		self.pairs.append((index, tgt_softindex, self.src_events[index]['softIndex'], weight))
 		self.used[index] = self.used.get(index, 0) + 1
+		# A real pair re-grounds the carried offset on measured evidence, and ends the miss run.
+		self.null_steps = 0
+		self.carried_offset = offset
 		self._update_ratio(self.src_events[index]['softIndex'],
 			self.src_events[index]['onset'], tgt_tick)
 		return dict(src=index, self_cost=self_cost, offset=offset, skip=skip, reuse=reuse,
