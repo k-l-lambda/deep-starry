@@ -273,6 +273,7 @@ def align_pair (src, tgt, ref=None):
 	state = AlignState(src, seed_offset=0.0)
 	measure_hit = matched = exact = ref_n = mask_hit = mask_n = backward = 0
 	tick_hit = tick_n = tick_scorable = 0
+	roll_hit = 0
 	# (measure, tick) -> the source indices in that group. A GROUP, not a single index: a chord shares
 	# one key, and its notes may be paired in any order, so demanding a specific index inside the group
 	# would report the chords as errors exactly as an index-order charge would.
@@ -281,6 +282,28 @@ def align_pair (src, tgt, ref=None):
 		key = e.get('key')
 		if key and key[1] is not None:
 			src_groups.setdefault(key, set()).add(i)
+	# ROLLED CHORDS. The mocker does not keep a chord simultaneous: the score's (1,480)[57,60,65,69,72]
+	# becomes (1,480)[57,60] (1,543)[65] (1,607)[69] (1,672)[72] in the irregular arm -- a pianist
+	# rolling the chord. Those new keys are NOT quantised (the irregular arm has 597 non-multiple-of-10
+	# @tick values against the score arm's 0), and MEASURED corpus-wide, 90.6% of the notes sitting in
+	# an irregular-only key are the same pitch in the same bar as a score note: MOVED by the mocker,
+	# not added. So a strict key match charges align.py for finding the musically right note.
+	#
+	# The tolerant group admits a same-pitch source note in the same bar whose key the SCORE ARM DOES
+	# NOT HAVE. That condition is what keeps it from being a licence: an irregular-only key cannot be
+	# any other target note's truth, so admitting it creates no ambiguity about who owns the note.
+	#
+	# MEASURED effect, and it is much smaller than the 90.6% suggests: precision 0.7486 -> 0.7529,
+	# recall 0.5904 -> 0.5922. A 960-token window spans 7-10 bars of a file, and a rolled note only
+	# produces a wrong verdict when align.py actually matches TO it -- usually it matches right or
+	# misses. Both numbers are reported because the gap between them is the ground truth's own slack,
+	# and hiding it would make the strict figure look more exact than it is.
+	tgt_keys = {e['key'] for e in tgt if e.get('key') and e['key'][1] is not None}
+	rolled = {}
+	for i, e in enumerate(src):
+		key = e.get('key')
+		if key and key[1] is not None and key not in tgt_keys:
+			rolled.setdefault((key[0], e['pitch']), set()).add(i)
 	dp_hit = dp_n = 0
 	if ref:
 		for j, i in ref.items():
@@ -312,6 +335,8 @@ def align_pair (src, tgt, ref=None):
 		if scorable:
 			tick_n += 1
 			tick_hit += index in src_groups[key]
+			roll_hit += (index in src_groups[key]
+				or index in rolled.get((key[0], e['pitch']), ()))
 		offsets.append(src[index]['softIndex'] - e['softIndex'])
 		# A drop of more than a chord's worth of source notes. Not >0: a LOWER index is normal inside
 		# a chord (align.py's ReuseCost note measures 7 of 8 non-advancing steps as within-chord), so
@@ -327,6 +352,7 @@ def align_pair (src, tgt, ref=None):
 		agree=measure_hit / matched if matched else 0.0,
 		tick_agree=tick_hit / tick_n if tick_n else None,
 		tick_recall=tick_hit / tick_scorable if tick_scorable else None,
+		roll_agree=roll_hit / tick_n if tick_n else None,
 		tick_cover=tick_n / matched if matched else 0.0,
 		dp_quality=dp_hit / dp_n if dp_n else None,
 		exact=exact / ref_n if ref_n else None,
@@ -497,14 +523,18 @@ def check_tick_recovery (rows):
 	"""
 	mean, median, p10 = pct(rows, 'tick_agree')
 	rmean, rmedian, _rp10 = pct(rows, 'tick_recall')
+	roll, _rollmed, _rollp10 = pct(rows, 'roll_agree')
 	cover = statistics.mean(r['tick_cover'] for r in rows)
-	ok = mean > 0.60 and median > 0.65 and rmean > 0.48 and cover > 0.90
+	# roll >= mean by construction (it is a superset), so this asserts the implementation, not a result.
+	ok = mean > 0.60 and median > 0.65 and rmean > 0.48 and cover > 0.90 and roll >= mean
 	if not ok:
 		print(f'  FAIL tick recovery: precision {mean:.4f}/{median:.4f}, recall {rmean:.4f}, '
 			f'cover {cover:.4f}')
 	print(f'{"ok  " if ok else "FAIL"} @tick group recovery: precision {mean:.4f} (median '
 		f'{median:.4f}, p10 {p10:.4f}) on {cover:.4f} of matches; RECALL {rmean:.4f} '
 		f'(median {rmedian:.4f}) over every scorable target note')
+	print(f'     ...allowing the mocker\'s rolled chords: precision {roll:.4f} '
+		f'(+{roll - mean:.4f}) — that gap is the ground truth\'s own slack')
 	return ok
 
 
