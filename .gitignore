@@ -4,6 +4,11 @@ __pycache__/
 *.local.*
 /output/
 /training/
+# The same two names as SYMLINKS, which the trailing-slash forms above do not match (git sees a
+# symlink as a file). Pointing them at the real corpus/run trees is what lets an inference launch
+# pass `training/midi/<run>` and `datasets/...` instead of absolute paths, so `ps` stays readable.
+/training
+/datasets
 /logs/
 /temp/
 /env/
