@@ -27,6 +27,7 @@ import torch
 sys.path.append(os.getcwd())
 
 from starry.midi.models.midiTranslator import MidiTranslator, KVDecoder
+from starry.midi.models.midiTranslatorEncDec import MidiTranslatorEncDec, EncDecKVDecoder
 
 
 def build (run, checkpoint, device):
@@ -207,6 +208,81 @@ def packed_probe (device, seed):
 	return not failures
 
 
+def encdec_check (device, seed, n_source, n_new, n_layer, d_model, n_head, skip_timing):
+	'''Equivalence + timing for MidiTranslatorEncDec's cached decoder.
+
+	Shaped like the sliding tool's real step rather than a toy: a long source (the tool's src_window is
+	960) against a short decoder prefix, because that ratio is the whole point. The uncached decoder
+	re-projects the ENTIRE encoder memory in every layer on every step, so the saving grows with the
+	source, not with the target.
+
+	No local EncDec checkpoint exists, so this runs random-init. That is sufficient for both claims
+	made: token/logit equality, and wall time at a given shape. Neither depends on the weights being
+	trained.
+	'''
+	torch.manual_seed(seed)
+	model = MidiTranslatorEncDec(vocab_size=838, d_model=d_model, n_layer=n_layer, n_head=n_head,
+		max_seq_len=4096, dropout=0.0).to(device).eval()
+	source = torch.randint(6, 838, (1, n_source), device=device)
+	masks = torch.ones_like(source)
+	# 'absolute'-style source axis: negative, so RoPE sees the values the feeder really produces
+	source_pos = torch.arange(-n_source, 0, device=device).unsqueeze(0)
+	print(f'[model] EncDec random-init d{d_model}/enc{n_layer}dec{n_layer}/h{n_head}  '
+		f'source {n_source}  device {device}  threads {torch.get_num_threads()}')
+
+	# --- per-step logit equivalence, prefill + steps against decode-the-whole-prefix
+	memory = model.encode(source, masks, source_pos)
+	decoder_ids = [model.sep_id]
+	decoder_pos = [-1]
+	session = EncDecKVDecoder(model, memory, masks)
+	cached = [session.prefill(decoder_ids, decoder_pos, device=device)]
+	uncached = []
+	with torch.no_grad():
+		uncached.append(model.decode(memory, torch.tensor([decoder_ids], device=device), masks,
+			torch.tensor([decoder_pos], device=device))[0, -1, :])
+		nxt = int(uncached[0].argmax().item())
+		for _ in range(min(n_new, 48)):
+			decoder_ids.append(nxt)
+			decoder_pos.append(decoder_pos[-1] + 1)
+			uncached.append(model.decode(memory, torch.tensor([decoder_ids], device=device), masks,
+				torch.tensor([decoder_pos], device=device))[0, -1, :])
+			cached.append(session.step(nxt, decoder_pos[-1], device=device))
+			nxt = int(uncached[-1].argmax().item())
+	u, c = torch.stack(uncached), torch.stack(cached)
+	diff = (u - c).abs().max().item()
+	agree = int((u.argmax(-1) == c.argmax(-1)).sum())
+	print(f'\n=== equivalence ({u.shape[0]} steps) ===')
+	print(f'max abs logit diff {diff:.3e}   argmax agreement {agree}/{u.shape[0]}')
+	ok = agree == u.shape[0] and diff < 1e-3
+	print('EQUIVALENT' if ok else 'DIVERGED')
+	# cross-attention weights must survive the cached route, since --inspect reads them
+	print(f'cross-attention weights per layer: {len(session.last_weights)}, '
+		f'last shape {tuple(session.last_weights[-1].shape)}')
+
+	if skip_timing:
+		return ok
+
+	print(f'\n=== timing ({n_new} new tokens) ===')
+	times = {}
+	for use_cache in (True, False):
+		if device.type == 'cuda':
+			torch.cuda.synchronize()
+		start = time.time()
+		with torch.no_grad():
+			out = model.generate(source, max_new_tokens=n_new, eos_id=-1, temperature=0.0,
+				source_masks=masks, source_position_ids=source_pos, decoder_start_position=-1,
+				use_cache=use_cache)
+		if device.type == 'cuda':
+			torch.cuda.synchronize()
+		times[use_cache] = (time.time() - start, out)
+		label = 'cached  ' if use_cache else 'uncached'
+		print(f'{label}  {times[use_cache][0]:7.2f}s  '
+			f'{1000 * times[use_cache][0] / len(out):7.2f} ms/token  ({len(out)} tokens)')
+	same = torch.equal(times[True][1], times[False][1])
+	print(f'speedup   {times[False][0] / times[True][0]:7.2f}x   identical tokens: {same}')
+	return ok and same
+
+
 def main ():
 	ap = argparse.ArgumentParser()
 	ap.add_argument('--run', default=None, help='training run dir (omit for a random-init model)')
@@ -223,6 +299,13 @@ def main ():
 		help='measure the divergence across a cache trim instead of checking equivalence')
 	ap.add_argument('--packed-probe', action='store_true',
 		help='assert the packed-sequence mask trap stays fixed (see packed_probe)')
+	ap.add_argument('--encdec', action='store_true',
+		help='check MidiTranslatorEncDec\'s cached decoder instead of the decoder-only model')
+	ap.add_argument('--source', type=int, default=960,
+		help='--encdec source length (the tool\'s src_window default is 960)')
+	ap.add_argument('--layers', type=int, default=6, help='--encdec layers per stack')
+	ap.add_argument('--d-model', type=int, default=256, help='--encdec hidden size')
+	ap.add_argument('--heads', type=int, default=4, help='--encdec attention heads')
 	args = ap.parse_args()
 
 	if args.threads:
@@ -237,6 +320,10 @@ def main ():
 	if args.packed_probe:
 		print('=== packed-sequence mask guard ===')
 		return 0 if packed_probe(device, args.seed) else 1
+
+	if args.encdec:
+		return 0 if encdec_check(device, args.seed, args.source, args.new, args.layers,
+			args.d_model, args.heads, args.skip_timing) else 1
 
 	model, name = build(args.run, args.checkpoint, device)
 	vocab = model.vocab_size

@@ -163,6 +163,7 @@ from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer, Midiseq2Vocab
 from starry.midi.data.unifiedSeq2Tokenizer import UnifiedSeq2Tokenizer
 from starry.lilylet.patchyGenerator import sample_next
 from starry.midi.models.midiTranslator import KVDecoder
+from starry.midi.models.midiTranslatorEncDec import EncDecKVDecoder
 
 
 DEFAULT_RUN = '/home/claude/training/midi/20260812-midi-translator-nota1m00-sep-l8d512'
@@ -1227,13 +1228,26 @@ class SlidingEncDecTranslator (SlidingTranslator):
 	def __init__ (self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.is_encdec = True
-		# KVDecoder wraps MidiTranslator's LlamaModel backbone, which owns a past_key_values path.
-		# This architecture's decoder is the repo's own blocks (SelfAttention + MultiHeadAttention),
-		# which have no cache argument, so incremental decode here would mean caching self-attention
-		# K/V and the projected encoder memory by hand. Not done yet, so report it off rather than
-		# inheriting a True that nothing honours. Encoding is already done once per step, which is
-		# the larger half.
-		self.kv_cache = False
+		# self.kv_cache is already correct: the base __init__ resolves it through `self.cache_capable`,
+		# which dispatches to the override below rather than to the base's past_key_values check.
+
+	@staticmethod
+	def cache_capable (model):
+		'''Whether `model`'s decoder layers accept a KV cache, i.e. EncDecKVDecoder can drive them.
+
+		Checks DecoderLayer.forward for `self_past` rather than the model's own forward: this
+		architecture caches inside its layers (self-attention K/V plus the projected encoder memory),
+		so the model-level signature says nothing about it. Keeps the test stubs, which own no
+		`decoder` at all, on the uncached path.
+		'''
+		layers = getattr(model, 'decoder', None)
+		if not layers or not hasattr(model, 'max_seq_len'):
+			return False
+		try:
+			params = inspect.signature(layers[0].forward).parameters
+		except (TypeError, ValueError, IndexError):
+			return False
+		return 'self_past' in params and 'cross_kv' in params
 
 	@torch.no_grad()
 	def generate (self, prefix_ids, prefix_positions, temperature, top_k, top_p, n_source=None,
@@ -1251,6 +1265,31 @@ class SlidingEncDecTranslator (SlidingTranslator):
 		memory = self.model.encode(source_ids, source_masks, source_pos)
 		out = []
 		forced = False
+
+		if self.kv_cache:
+			# The encoder already ran once per step; this additionally stops the decoder re-reading its
+			# own prefix AND re-projecting `memory` in every layer on every token. The latter is the
+			# bigger item -- the source is the long half.
+			decoder = EncDecKVDecoder(self.model, memory, source_masks)
+			logits = decoder.prefill(decoder_ids_list, decoder_pos_list, device=self.device)
+			while len(prefix_ids) + len(out) < self.max_token:
+				step_logits = logits
+				if not out:
+					step_logits = step_logits.clone()
+					forced = bool(step_logits.argmax().item() == self.tk.eos_id)
+					step_logits[self.tk.eos_id] = float('-inf')
+				nxt = (int(step_logits.argmax().item()) if not temperature
+					else sample_next(step_logits, temperature=temperature, top_k=top_k, top_p=top_p))
+				if nxt == self.tk.eos_id:
+					break
+				out.append(nxt)
+				decoder_pos_list.append((next_position if len(out) == 1 and next_position is not None
+					else decoder_pos_list[-1] + 1))
+				logits = decoder.step(nxt, decoder_pos_list[-1], device=self.device)
+			self.decode_seconds += time.time() - start_time
+			self.decode_tokens += len(out)
+			return out, forced
+
 		while len(prefix_ids) + len(out) < self.max_token:
 			decoder_ids = torch.tensor([decoder_ids_list], dtype=torch.long, device=self.device)
 			decoder_pos = torch.tensor([decoder_pos_list], dtype=torch.long, device=self.device)

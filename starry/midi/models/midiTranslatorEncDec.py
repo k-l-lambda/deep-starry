@@ -141,6 +141,27 @@ def _attn_mask (query_len, key_padding, causal, dtype, device):
 	return mask
 
 
+def _incremental_mask (query_len, past_len, dtype, device):
+	'''Additive [1, 1, Lq, past+Lq] causal mask for a cached decoder step, or None.
+
+	The cached geometry is RECTANGULAR: Lq new queries against past+Lq keys, where new query i sits at
+	absolute row past+i and may read every key up to and including it. `_attn_mask`'s square
+	upper-triangular block cannot express that.
+
+	None when Lq == 1 -- the decode-step case, and the common one: a single newest query may read every
+	cached key plus itself, so there is nothing to mask and a mask would only cost a tensor. At prefill
+	(past 0) this reduces to exactly the square causal block `_attn_mask(L, None, True, ...)` builds,
+	which is what keeps the cached and uncached routes agreeing on the prefix.
+	'''
+	if query_len <= 1:
+		return None
+	total = past_len + query_len
+	keys = torch.arange(total, device=device).unsqueeze(0)
+	rows = past_len + torch.arange(query_len, device=device).unsqueeze(1)
+	mask = torch.zeros(query_len, total, dtype=dtype, device=device)
+	return mask.masked_fill(keys > rows, torch.finfo(dtype).min)[None, None]
+
+
 class SelfAttention (nn.Module):
 	'''RoPE multi-head SELF-attention, used by both stacks (bidirectional in the encoder, causal in
 	the decoder — the difference is entirely in the mask the caller passes).
@@ -170,8 +191,18 @@ class SelfAttention (nn.Module):
 		b, t, _ = x.shape
 		return x.view(b, t, self.n_head, self.d_head).transpose(1, 2)
 
-	def forward (self, x, mask=None, position_ids=None):
-		'''x: [B, T, D]. mask: additive [B, 1, T, T] from `_attn_mask`. Returns [B, T, D].'''
+	def forward (self, x, mask=None, position_ids=None, past=None, return_kv=False):
+		'''x: [B, T, D]. mask: additive [B, 1, T, T] from `_attn_mask`. Returns [B, T, D].
+
+		`past` is an optional ([B,H,P,dh], [B,H,P,dh]) pair of ALREADY-ROTATED keys/values to prepend,
+		making this an incremental step over P cached positions; `return_kv` additionally returns the
+		concatenated pair for the next step. Both default off, so the training path is untouched.
+
+		RoPE is applied to the NEW positions only, which is correct rather than a shortcut: cached keys
+		were rotated by their own positions when they were written, and a rotation is never re-applied.
+		`self.rotary(x, position_ids)` reads x only for dtype/device -- the angles come from
+		position_ids -- so passing just the new slice is right.
+		'''
 		q = self._heads(self.q_proj(x))
 		k = self._heads(self.k_proj(x))
 		v = self._heads(self.v_proj(x))
@@ -179,11 +210,17 @@ class SelfAttention (nn.Module):
 		cos, sin = self.rotary(x, position_ids)
 		q, k = apply_rotary_pos_emb(q, k, cos, sin)
 
+		if past is not None:
+			k = torch.cat((past[0], k), dim=2)
+			v = torch.cat((past[1], v), dim=2)
+		kv = (k, v)
+
 		out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask,
 			dropout_p=self.dropout if self.training else 0.0)
 		b, _, t, _ = out.shape
 		out = out.transpose(1, 2).contiguous().view(b, t, self.n_head * self.d_head)
-		return self.o_proj(out)
+		out = self.o_proj(out)
+		return (out, kv) if return_kv else out
 
 
 class EncoderLayer (nn.Module):
@@ -236,15 +273,135 @@ class DecoderLayer (nn.Module):
 		self.attn_norm = LlamaRMSNorm(d_model, eps=config.rms_norm_eps)
 		self.mlp_norm = LlamaRMSNorm(d_model, eps=config.rms_norm_eps)
 
-	def forward (self, x, memory, self_mask, cross_keep, position_ids):
+	def forward (self, x, memory, self_mask, cross_keep, position_ids, self_past=None,
+		cross_kv=None, return_state=False):
 		'''`cross_keep`: boolean keep-mask broadcastable to [B, n_head, U, S], or None.
 
 		Returns (x, cross_attention_weights). The weights come out of MultiHeadAttention regardless, so
 		they are always returned rather than gated behind a flag.
+
+		The last three arguments are for incremental decoding and default to the uncached behaviour:
+
+		  self_past    ([B,H,P,dh], [B,H,P,dh]) of rotated self-attention keys/values to prepend
+		  cross_kv     ([B,H,S,dk], [B,H,S,dv]) ALREADY-PROJECTED encoder memory. Reusable across every
+		               step because the memory is frozen for the whole generation, and re-projecting it
+		               is not cheap: the source is the LONG half (S~960 against a handful of new
+		               decoder tokens), so this is the larger of the two savings here, not an extra.
+		  return_state also return (new self kv, cross_kv) for the next step
+
+		`memory` is ignored when `cross_kv` is supplied, and the caller may then pass None for it.
 		'''
-		x = x + self.self_attn(self.attn_norm(x), self_mask, position_ids)
-		x, weights = self.cross_attn(x, memory, memory, mask=cross_keep)
-		return x + self.mlp(self.mlp_norm(x)), weights
+		attn_out, new_kv = self.self_attn(self.attn_norm(x), self_mask, position_ids,
+			past=self_past, return_kv=True)
+		x = x + attn_out
+		if cross_kv is None:
+			cross_kv = self.cross_attn.project_kv(memory, memory)
+		x, weights = self.cross_attn.attend(x, cross_kv, mask=cross_keep)
+		x = x + self.mlp(self.mlp_norm(x))
+		return (x, weights, new_kv, cross_kv) if return_state else (x, weights)
+
+
+class EncDecKVDecoder:
+	'''Incremental decode over MidiTranslatorEncDec: prefill the decoder prefix once, then one token
+	per step, against an encoder memory that is encoded ONCE by the caller.
+
+	The sibling of midiTranslator.KVDecoder, and it has to be hand-rolled for the reason this
+	architecture exists at all: the decoder is built from the repo's own blocks, and neither
+	`SelfAttention` nor `MultiHeadAttention` had a cache argument, where MidiTranslator merely forwards
+	`past_key_values` to a LlamaModel that already had one.
+
+	TWO independent savings, and the second is the larger:
+
+	  self-attention K/V   the usual one. Step t stops recomputing keys/values for the t-1 decoder
+	                       tokens before it.
+	  cross-attention K/V  the encoder memory is FROZEN for the whole generation, yet the uncached path
+	                       re-runs `w_ks(memory)` and `w_vs(memory)` in every layer on every step. The
+	                       source is the long half -- S~960 against a target step of ONE token -- so
+	                       this projection dominated, and hoisting it out is worth more here than the
+	                       self-attention cache.
+
+	Cross-attention weights are kept per step in `last_weights` because MultiHeadAttention returns them
+	regardless, so --inspect can still read the alignment off a cached run.
+
+	Sampling stays OUTSIDE, as in KVDecoder: the caller owns temperature / top-k / top-p and the
+	first-token <eos> mask.
+	'''
+
+	def __init__ (self, model, memory, source_masks=None, max_seq_len=None):
+		self.model = model
+		self.memory = memory
+		self.cross_keep = _keep_mask(source_masks)
+		# per decoder layer: rotated self-attention (k, v), and the projected memory (k, v)
+		self.self_past = [None] * len(model.decoder)
+		self.cross_kv = [None] * len(model.decoder)
+		self.length = 0			# cached decoder positions
+		self.max_seq_len = model.max_seq_len if max_seq_len is None else max_seq_len
+		self.last_weights = None
+
+	def _trim (self, room):
+		'''Drop the OLDEST cached decoder positions so `room` more fit. Returns slots freed.
+
+		Same deviation from the recompute path as KVDecoder._trim, for the same reason and with the
+		same consequence: a cached key holds the hidden state it had under a longer history, while
+		recomputation rebuilds it from the cropped window, so the two stop being the same function once
+		this fires. The cross-attention cache is untouched -- the memory never grows.
+
+		The sliding tool does not reach this: its decoder view is bounded by prime_window/max_token well
+		under max_seq_len.
+		'''
+		excess = self.length + room - self.max_seq_len
+		if excess <= 0:
+			return 0
+		keep = max(0, self.length - excess)
+		for i, past in enumerate(self.self_past):
+			if past is not None:
+				self.self_past[i] = (past[0][:, :, self.length - keep:, :].contiguous(),
+					past[1][:, :, self.length - keep:, :].contiguous())
+		self.length = keep
+		return excess
+
+	def _run (self, ids, positions):
+		'''Feed [1, L] new decoder ids. Returns the LAST position's logits [vocab].'''
+		x = self.model.embed_tokens(ids)
+		# length is the past BEFORE this call, so prefill (past 0) gets the square causal mask that
+		# `decode` would build, and a 1-token step gets None.
+		mask = _incremental_mask(ids.shape[1], self.length, x.dtype, x.device)
+		weights = []
+		for index, layer in enumerate(self.model.decoder):
+			x, w, new_kv, cross_kv = layer(x, self.memory, mask, self.cross_keep, positions,
+				self_past=self.self_past[index], cross_kv=self.cross_kv[index], return_state=True)
+			self.self_past[index] = new_kv
+			self.cross_kv[index] = cross_kv		# projected on the first call, reused after
+			weights.append(w)
+		self.length += ids.shape[1]
+		self.last_weights = weights
+		return self.model.lm_head(self.model.decoder_norm(x))[0, -1, :]
+
+	def _tensors (self, values, positions, device):
+		ids = torch.tensor([list(values)], dtype=torch.long, device=device)
+		if positions is None:
+			# equals `pos_style: flat`, continuing the dense counter -- the same fallback
+			# _default_positions makes for the uncached path.
+			pos = torch.arange(self.length, self.length + ids.shape[1], device=device).unsqueeze(0)
+		else:
+			pos = torch.tensor([list(positions)], dtype=torch.long, device=device)
+		return ids, pos
+
+	def prefill (self, ids, positions=None, device=None):
+		'''Run the decoder prefix (<sep> ++ primer) in ONE pass. Returns its last logits [vocab].'''
+		device = device if device is not None else self.memory.device
+		if len(ids) > self.max_seq_len:			# keep the TAIL, as the uncached path's window does
+			ids = list(ids)[-self.max_seq_len:]
+			positions = None if positions is None else list(positions)[-self.max_seq_len:]
+		self._trim(len(ids))
+		return self._run(*self._tensors(ids, positions, device))
+
+	def step (self, token, position=None, device=None):
+		'''Feed ONE decoder token. Returns its logits [vocab], the prediction for the next token.'''
+		device = device if device is not None else self.memory.device
+		self._trim(1)
+		return self._run(*self._tensors([int(token)],
+			None if position is None else [int(position)], device))
 
 
 @register_model
@@ -363,7 +520,7 @@ class MidiTranslatorEncDec (nn.Module):
 
 	@torch.no_grad()
 	def generate (self, source_ids, max_new_tokens=512, eos_id=None, temperature=0.0,
-		source_masks=None, source_position_ids=None, decoder_start_position=None):
+		source_masks=None, source_position_ids=None, decoder_start_position=None, use_cache=True):
 		'''Free-run the target for ONE source. Returns the generated ids WITHOUT the leading <sep>.
 
 		temperature 0 = greedy, else sample from the softmax. Stops at eos_id, or the configured
@@ -375,9 +532,12 @@ class MidiTranslatorEncDec (nn.Module):
 		for 'sep' and 'absolute', where <sep> sits at -1 by construction. None with no source
 		positions leaves the decoder at 0..U-1, i.e. 'flat'.
 
-		The source is encoded ONCE. The decoder still recomputes its own prefix every step (no KV
-		cache), so this is O(U^2) in the target and is meant for inspection, not bulk decoding — but
-		the source, which is the longer half, costs one pass regardless.
+		The source is encoded ONCE either way. `use_cache` then picks the decoder route: True (default)
+		prefills <sep> and steps one token at a time through an EncDecKVDecoder, which also hoists the
+		per-layer projection of the encoder memory out of the loop; False keeps the original
+		recompute-the-whole-prefix path, retained as the reference the cached route is checked against
+		(tests/midi/kv_cache_check.py --encdec). The two agree to float32 noise while the decoder stays
+		inside max_seq_len; past a trim they diverge for the reason EncDecKVDecoder._trim documents.
 		'''
 		ids = source_ids if source_ids.dim() == 2 else source_ids.unsqueeze(0)
 		if ids.shape[0] != 1:
@@ -401,6 +561,26 @@ class MidiTranslatorEncDec (nn.Module):
 
 		out = []
 		stop = self.eos_id if eos_id is None else eos_id
+
+		if use_cache:
+			decoder = EncDecKVDecoder(self, memory, masks)
+			logits = decoder.prefill(decoder_ids[0].tolist(),
+				None if decoder_positions is None else decoder_positions[0].tolist(),
+				device=ids.device)
+			next_pos = None if decoder_positions is None else int(decoder_positions[0, -1]) + 1
+			for _ in range(max_new_tokens):
+				if temperature and temperature > 0:
+					nxt = int(torch.multinomial(F.softmax(logits / temperature, dim=-1), 1).item())
+				else:
+					nxt = int(logits.argmax().item())
+				out.append(nxt)
+				if nxt == stop:
+					break
+				logits = decoder.step(nxt, next_pos, device=ids.device)
+				if next_pos is not None:
+					next_pos += 1
+			return torch.tensor(out, dtype=torch.long, device=ids.device)
+
 		for _ in range(max_new_tokens):
 			window = decoder_ids[:, -self.max_seq_len:]
 			position_window = None if decoder_positions is None else decoder_positions[:, -self.max_seq_len:]

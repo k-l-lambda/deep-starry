@@ -31,21 +31,33 @@ class MultiHeadAttention(nn.Module):
 		self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 
 
-	def forward(self, q, k, v, mask: Optional[torch.Tensor] =None):
+	def project_kv(self, k, v):
+		'''Project k/v to per-head form ONCE: ([B,Lk,D], [B,Lv,D]) -> ([B,H,Lk,dk], [B,H,Lv,dv]).
 
-		d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
-		sz_b, len_q, len_k, len_v = q.size(0), q.size(1), k.size(1), v.size(1)
+		Split out of `forward` so a caller whose k/v are FIXED across many queries can project them a
+		single time and reuse the result -- cross-attention over a frozen encoder memory during
+		incremental decoding, where the alternative is re-projecting the whole source every step.
+		Pair it with `attend`; `forward` is the two called back to back and is unchanged by this split.
+		'''
+		sz_b = k.size(0)
+		k = self.w_ks(k).view(sz_b, k.size(1), self.n_head, self.d_k)
+		v = self.w_vs(v).view(sz_b, v.size(1), self.n_head, self.d_v)
+		return k.transpose(1, 2), v.transpose(1, 2)
+
+	def attend(self, q, kv, mask: Optional[torch.Tensor] =None):
+		'''Attend a fresh q against ALREADY-projected per-head (k, v) from `project_kv`.
+
+		Owns the residual and the post-norm, exactly as `forward` does -- so this is the whole sublayer
+		minus the k/v projection, not a bare attention call.
+		'''
+		k, v = kv
+		sz_b, len_q = q.size(0), q.size(1)
 
 		residual = q
 
 		# Pass through the pre-attention projection: b x lq x (n*dv)
 		# Separate different heads: b x lq x n x dv
-		q = self.w_qs(q).view(sz_b, len_q, n_head, d_k)
-		k = self.w_ks(k).view(sz_b, len_k, n_head, d_k)
-		v = self.w_vs(v).view(sz_b, len_v, n_head, d_v)
-
-		# Transpose for attention dot product: b x n x lq x dv
-		q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
+		q = self.w_qs(q).view(sz_b, len_q, self.n_head, self.d_k).transpose(1, 2)
 
 		if mask is not None:
 			mask = mask.unsqueeze(1)   # For head axis broadcasting.
@@ -61,6 +73,9 @@ class MultiHeadAttention(nn.Module):
 		q = self.layer_norm(q)
 
 		return q, attn
+
+	def forward(self, q, k, v, mask: Optional[torch.Tensor] =None):
+		return self.attend(q, self.project_kv(k, v), mask=mask)
 
 
 class PositionwiseFeedForward(nn.Module):
