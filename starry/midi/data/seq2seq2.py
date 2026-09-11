@@ -317,6 +317,46 @@ class _ZipSource:
 		return f'{self.root} ({shards} shards, manifest={self._manifest is not None})'
 
 
+def _shard_interleave (indices, shard_of, rng, window):
+	"""Permute `indices` so a batch mixes shards while only `window` archives are ever open at once.
+
+	A plain permutation over a sharded corpus decorrelates batches but destroys read locality: every
+	consecutive read lands in a different archive, so the LRU handle cache thrashes and each read pays a
+	reopen (measured 129 -> 401 ms/batch, 3.1x, on a 256-shard corpus against MAX_HANDLES=128). Sorted
+	order has the opposite problem -- one handle, but a batch is whatever happened to be adjacent.
+
+	Both are avoidable, because the two properties are not actually in tension. Shards are drained a
+	`window` at a time and drawn from in random order, so at any moment the working set is `window`
+	archives (fits the cache, each opened once per pass) while a single batch still draws from up to
+	`window` different regions of the corpus.
+
+	`window` is the mixing/locality dial: 1 degenerates to shard-at-a-time, >= len(shards) degenerates
+	to the plain permutation. It must stay under MAX_HANDLES for the locality half to hold.
+
+	Deterministic in `rng`, and returns a permutation of exactly `indices` -- both pinned by tests, since
+	silently dropping or duplicating samples here would be invisible in a loss curve.
+	"""
+	groups = {}
+	for i in indices:
+		groups.setdefault(shard_of(i), []).append(i)
+
+	for group in groups.values():
+		rng.shuffle(group)
+
+	pending = list(groups.values())
+	rng.shuffle(pending)
+
+	active, out = [], []
+	while pending or active:
+		while pending and len(active) < window:
+			active.append(pending.pop())
+		slot = rng.randrange(len(active))
+		out.append(active[slot].pop())
+		if not active[slot]:
+			active.pop(slot)
+	return out
+
+
 def _make_source (root: str, packed: Optional[bool] = None):
 	'''Pick the layout. `packed=None` auto-detects, which is what keeps existing configs untouched.'''
 	if packed is None:
@@ -455,6 +495,11 @@ def _measures_in (file: _File, start: int, end: int) -> List[Tuple[int, int]]:
 class Seq2Seq2 (Dataset):
 	'''Paired-midiseq2 feeder. See the module docstring for the batch contract.'''
 
+	# Shards drained concurrently by the shuffled index order (see `_shard_interleave`). Well under
+	# _ZipSource.MAX_HANDLES so the working set stays cached, and >= a batch so one batch spans many
+	# shards rather than one.
+	SHUFFLE_WINDOW = 32
+
 	@classmethod
 	def load (cls, root, args, splits, device='cpu', args_variant=None, **_):
 		splits = splits.split(':')
@@ -585,6 +630,27 @@ class Seq2Seq2 (Dataset):
 
 		phases, cycle = parseFilterStr(split)
 		self.indices = [i for i in range(len(self.names)) if i % cycle in phases]
+		if self.shuffle:
+			# Permute ONCE, here, because `__iter__` below never runs: this is a map-style Dataset, so
+			# DataLoader reaches it through `__getitem__` + a Sampler, and `dataset_factory` builds that
+			# loader without `shuffle=`. So a '*' split was served in `sorted(names)` order and the
+			# shuffle inside `__iter__` is dead code -- true of every map-style class in this repo.
+			#
+			# Shard-aware rather than a plain permutation: see `_shard_interleave`. A plain shuffle
+			# decorrelates batches but costs 3.1x in feeder time on a sharded corpus, and with
+			# num_workers=0 that lands straight on step time.
+			#
+			# Once, not per epoch, and SEEDED: the order must agree across both spawn ranks and a resume,
+			# with no shared epoch counter needed. `infiniteTraverse` holds one generator across epochs,
+			# so an epoch is a moving window over this order rather than a repeat of it.
+			rng = random.Random(self.seed)
+			shard_of = getattr(self.source, 'shard_of', None)
+			if shard_of is None:
+				# Directory layout: no archives, so no locality to protect.
+				rng.shuffle(self.indices)
+			else:
+				self.indices = _shard_interleave(self.indices,
+					lambda i: shard_of(self.names[i]), rng, self.SHUFFLE_WINDOW)
 
 	def __len__ (self) -> int:
 		return len(self.indices)
