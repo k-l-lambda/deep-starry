@@ -244,18 +244,13 @@ Config = dict(
 	# failure this whole change exists to prevent, and a miss is the recoverable outcome.
 	LatticeAcceptCost = 1.0,
 	# Weight on |offset - anchor| inside a CANDIDATE's prior (Matcher's PriorDistanceSigmoidFactor).
-	# Note there are TWO different priors in this module and only this one gates matching: it ranks
-	# candidates against each other within one target note. `AlignState.prior` scores a whole lineage.
+	# Kept separate from PriorCost, which weights the decayed cost in the BEAM's prior: this one ranks
+	# candidates against each other within one note, that one ranks lineages against each other.
 	PriorDistance = 0.1,
 
-	# Weight on a candidate's `value` inside that same per-candidate prior (Matcher's form: saturating
-	# evidence gain, so no one candidate's history can dominate without bound). Confirmed a local
-	# optimum at 0.12 on the windowed corpus -- both directions are worse.
+	# prior = tanh(value * PriorValue) - tanh(cost * PriorCost). Matcher's form: saturating evidence
+	# gain minus saturating inconsistency, so neither term can dominate without bound.
 	PriorValue = 0.12,
-	# DEAD as of the mean-per-note rewrite of `AlignState.prior`, which no longer squashes the decayed
-	# cost -- see that docstring for why the old `tanh(cost * PriorCost)` form measured as a function of
-	# a file's last ~10 notes. Kept, rather than deleted, only because removing a Config key is a
-	# breaking change for a saved config; nothing reads it.
 	PriorCost = 0.5,
 
 	# Anchor vote: pairs within this softIndex span of the newest one get a ballot, and the
@@ -1380,61 +1375,54 @@ class AlignState:
 
 	@property
 	def prior (self):
-		"""MEAN PER-NOTE evidence: bounded in [-1, 1] and comparable across pieces.
+		"""Matcher's evidence-minus-inconsistency score, for ranking COMPETING LINEAGES of one target.
 
-		Each target note contributes one bounded term and the score is their mean:
+		    prior = tanh(value * PriorValue) - tanh(cost * PriorCost)
 
-		    match  ->  1 - tanh(self_cost * SelfCostScale)   in (0, 1]   (what `value` accumulates)
-		    miss   ->  -MissCost
+		`value` accumulates `1 - tanh(self_cost * SelfCostScale)` per MATCHED note (so it carries match
+		count and match quality together) and `cost` is the decayed running inconsistency.
 
-		so `prior = (value - MissCost * misses) / tgt_count`.
+		SCOPE, and it is narrow: this ranks alignments OF THE SAME TARGET AT THE SAME POSITION, which is
+		the only comparison a beam makes. It is NOT comparable across pieces or across lengths -- `value`
+		grows ~1 per matched note without bound, so a long file outscores a short one at equal quality.
+		Do not use it to say one file aligned better than another; use `report()["matched"] / ["tgt_count"]`
+		or a mean per note for that. An earlier version of this docstring claimed the two tanhs made the
+		score length-normalised "so a single lambda weights it against a log-probability without retuning
+		per piece". That claim is FALSE -- bounded is not normalised -- and it should not be reinstated.
 
-		WHY THIS SHAPE, replacing `tanh(value * PriorValue) - tanh(cost * PriorCost)`. The old form
-		applied tanh to the SUM, which is the wrong order of operations and broke the one property it
-		was introduced for. `value` grows without bound (~1 per matched note) while `cost` is a decayed
-		running sum under 5, so squashing them put two different time horizons on one scale, and the
-		evidence half SATURATED: tanh(value * 0.12) exceeds 0.9985 by 30 matched notes. MEASURED over
-		the 100 windowed corpus pairs, the evidence term was pinned above 0.999999 on 96 of them, the
-		whole-corpus spread of that term was 1.3e-02 against the penalty term's 0.31, and
-		corr(prior, -tanh(cost * PriorCost)) was 0.9998. So the old score was a monotone rescaling of
-		the FINAL DECAYED COST -- which at attenuation 0.6 reflects only the last ~10 notes. It scored
-		how a file ENDED, and its "evidence" half contributed nothing.
+		MEASURED on the operation that matters: 547 fixed positions across the 100 windowed corpus pairs,
+		at each one ranking 9 genuinely different alignments (produced by 9 Config perturbations) of the
+		same target by their TRUE recall over the next 20 notes. Mean Spearman rho, and how often the
+		top-scoring lineage really is the best one:
 
-		Taking tanh per NOTE and averaging fixes all three properties at once, with the same
-		ingredients: bounded because a mean of terms in [-1, 1] is in [-1, 1] (not because a squash
-		hides the scale), length-normalised because it IS a mean, and non-saturating because a 400-note
-		file discriminates exactly as well as a 40-note one.
+		                                              rho      top1
+		    this form                              +0.7466     0.843
+		    tanh(value * PriorValue) alone         +0.7309     0.832   <- cost term is worth +0.0157
+		    value alone (rank-identical to above)  +0.7309     0.832
+		    (value - MissCost * misses)            +0.6484     0.819   <- a miss term COSTS 0.0825
+		    value / matched, i.e. mean quality     +0.5912     0.369
+		    -cost alone                            +0.4375     0.272
+		    EMA of per-note terms, alpha .85-.97   ~+0.60   .67-.72
 
-		MEASURED against the old form, on all 100 windowed pairs:
+		Two results there are worth keeping. A miss penalty makes this WORSE, which is arithmetic rather
+		than luck: at a fixed position `tgt_count` is constant and `matched + misses == tgt_count`, so
+		`value - MissCost * misses` is rank-identical to `value + MissCost * matched`, and since each match
+		adds at most 1.0 to `value` that roughly doubles the weight on match COUNT against match QUALITY.
+		`value` already balances the two. And note the same identity means dividing by `tgt_count` cannot
+		change any ranking here, so length-normalising this score is neither harmful nor useful -- it is
+		simply not the axis the beam varies.
 
-		                                  wrong-piece gap/sd   rho(score, true recall)   within-file rho
-		    old tanh-of-sum                             7.32                    0.4630            +0.716
-		    this, mean per note                        14.72                    0.8299            +0.743
-
-		The middle column is the decisive one and is the property the old docstring claimed: ranking
-		files by their actual alignment quality. It nearly doubles. The third column ranks 9 genuinely
-		different alignments OF THE SAME target against each other, which is the ordering beam search
-		would need; it is negative on 1 file of 96 against the old form's 0.
-
-		Rejected alternatives, all measured on the same three tests. A mean per-note log-likelihood
-		RATIO in nats against a null of random same-pitch pairing is the most principled candidate --
-		`self_cost` already IS a Gaussian NLL (sigma = 1/(coeff*sqrt2) ~ 0.52) and a random pairing's
-		offset spans W ~ 89 softIndex, giving log(W/(sigma*sqrt(2pi))) = 4.23 nats per perfect match and
-		a MEANINGFUL ZERO at self_cost 4.23 -- independently within 6% of LatticeGateCost. It wins the
-		decoy test (gap/sd 16.45) but loses on quality ranking (0.783) and goes negative on 4 files of
-		96, so the extra interpretability buys nothing here. Coverage alone scores 0.636, and mean match
-		QUALITY alone 0.712 while barely separating a decoy at all (gap/sd 0.59, winning 71/100) --
-		because a decoy that matches almost nothing still scores well on the few it matched. Both halves
-		are needed, which is what this form is.
-
-		MissCost as the miss weight is not a free parameter: 0.5-2.0 all score within 0.007, and 1.0 is
-		the value that makes the range exactly [-1, 1] while reusing a constant that already means
-		"a target note with no counterpart costs this". Note the bound is CLOSED and attained -- a
-		perfect alignment scores exactly 1.0.
+		The saturation of `tanh(value * PriorValue)` is real -- it passes 0.9985 by 30 matched notes, and
+		on the FINAL states of 100 good whole-file alignments the term sits above 0.999999 on 96 of them,
+		making the final score a near-monotone image of the final decayed cost (corr 0.9998). That looked
+		like a defect worth fixing and this property was briefly replaced by a mean per note on the
+		strength of it. It is not a defect HERE: across the 547 beam decision points the term is
+		rank-dead (all 9 lineages within 1e-6) at 0 of them, because a beam compares mid-file prefixes of
+		unequal quality, not converged states of good alignments. Saturation only bites when comparing
+		finished alignments of different pieces, which is the use this score does not support.
 		"""
-		if not self.tgt_count:
-			return 0.0
-		return (self.value - Config['MissCost'] * self.misses) / self.tgt_count
+		return (math.tanh(self.value * Config['PriorValue'])
+			- math.tanh(self.cost * Config['PriorCost']))
 
 	def report (self):
 		'''Instrumentation snapshot. The mask can only ever delete the right answer, so every field
