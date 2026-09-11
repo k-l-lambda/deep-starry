@@ -54,6 +54,114 @@ def _build_backbone (backbone, vocab_size, d_model, n_layer, n_head, d_inner,
 	raise ValueError(f'unknown backbone {backbone!r}; supported: llama')
 
 
+class KVDecoder:
+	'''Incremental decode over MidiTranslator: prefill the prefix once, then one token per step.
+
+	Exists because the uncached loop is O(T^2) in the WRONG way for this repo's use: it does not
+	merely recompute attention, it re-runs the entire stack over the whole prefix for every token.
+	A step of the sliding translator generates ~820 tokens off a ~1200-token prefix (measured), so
+	the uncached path performs ~820 forwards averaging ~1600 tokens each where one prefill plus 820
+	single-token forwards would do.
+
+	Sampling stays OUTSIDE this class. The caller owns temperature / top-k / top-p / the first-token
+	<eos> mask, so tools/midi/translateMidiseq2.py keeps its exact selection behaviour and only the
+	logits arrive by a faster route.
+
+	TWO POSITION AXES, and conflating them is the one way to get silently wrong output:
+
+	  position_ids   what RoPE rotates by. Comes from the feeder's `pos_style` and may be NEGATIVE
+	                 or exceed max_seq_len ('sep' starts the source at a negative offset,
+	                 'absolute' carries the token's index in the whole file). Nothing indexes a
+	                 table with it.
+	  cache_position which cache SLOT a token occupies: always 0..n-1, dense and non-negative. The
+	                 backbone builds the causal mask from it, so it must count actual cached entries
+	                 and NOT the feeder's positions.
+
+	`masks` is deliberately not accepted. It would have to span the whole cached length rather than
+	the new tokens, and generation is single-row with no padding, so there is nothing for it to do.
+	'''
+
+	def __init__ (self, model, max_seq_len=None):
+		from transformers import DynamicCache
+
+		self.model = model
+		self.cache = DynamicCache()
+		self.length = 0			# cached entries == next free slot
+		if max_seq_len is None:
+			max_seq_len = getattr(model, 'max_seq_len', None)
+			if max_seq_len is None:
+				# Named rather than an AttributeError three frames deep: the usual cause is a stub or a
+				# sibling architecture whose forward takes no past_key_values at all (EncDec's decoder
+				# is the repo's own blocks). Callers that may hold one should gate on
+				# SlidingTranslator.cache_capable instead of catching this.
+				raise TypeError(f'{type(model).__name__} has no max_seq_len; KVDecoder needs the '
+					'window length, and a model without one probably has no cache support either')
+		self.max_seq_len = max_seq_len
+
+	def _tensor (self, values, device):
+		return torch.tensor([list(values)], dtype=torch.long, device=device)
+
+	def _trim (self, room):
+		'''Drop the OLDEST cache entries so `room` more tokens fit. Returns the slots freed.
+
+		DynamicCache.crop keeps the oldest and drops the newest — the opposite of a sliding window —
+		so the keys/values are left-sliced directly. `get_seq_length()` reads the tensors, so it
+		follows the slice with no extra bookkeeping.
+
+		This deviates from the uncached path and the deviation is not a bug in either: a cached key at
+		slot j holds the hidden state it had when the window still reached further back, while
+		recomputation rebuilds that state from a window that now STARTS at j.
+
+		The size of it, from `python3 tests/midi/kv_cache_check.py --trim-probe` (random-init d64/l2,
+		max_seq_len 32, prefix 20): max |logit difference| 1.19e-07 over the 12 steps before the first
+		trim, 1.30e-01 over the 29 after it, and the greedy argmax differs on 7 of 41 steps. So it
+		reaches the EMITTED TOKENS, not just the low bits — a run cannot be reproduced across this
+		boundary by flipping the flag.
+
+		Keeping the longer history is the standard streaming behaviour and is if anything the better
+		of the two, but it is a DIFFERENT function, so nothing may claim bit-equality once a trim has
+		happened. The sliding translator never reaches this branch (its max_token 2048 against
+		max_seq_len 4096, and measured runs peak at T=2048); MidiTranslator.generate can.
+		'''
+		excess = self.length + room - self.max_seq_len
+		if excess <= 0:
+			return 0
+		keep = max(0, self.length - excess)
+		for layer in self.cache.layers:
+			layer.keys = layer.keys[:, :, self.length - keep:, :].contiguous()
+			layer.values = layer.values[:, :, self.length - keep:, :].contiguous()
+		self.length = keep
+		return excess
+
+	def prefill (self, ids, positions, device=None):
+		'''Run the prefix in ONE forward. Returns the last position's logits [vocab].'''
+		device = device if device is not None else next(self.model.parameters()).device
+		ids = self._tensor(ids, device)
+		positions = None if positions is None else self._tensor(positions, device)
+		# A prefix longer than the window keeps its TAIL, matching the uncached path's ids[:, -max:].
+		if ids.shape[1] > self.max_seq_len:
+			ids = ids[:, -self.max_seq_len:]
+			positions = None if positions is None else positions[:, -self.max_seq_len:]
+		self._trim(ids.shape[1])
+		slots = torch.arange(self.length, self.length + ids.shape[1], device=device)
+		logits = self.model(ids, None, positions, past_key_values=self.cache,
+			cache_position=slots, use_cache=True)
+		self.length += ids.shape[1]
+		return logits[0, -1, :]
+
+	def step (self, token, position=None, device=None):
+		'''Feed ONE token. Returns its logits [vocab], i.e. the prediction for the NEXT token.'''
+		device = device if device is not None else next(self.model.parameters()).device
+		self._trim(1)
+		ids = self._tensor([int(token)], device)
+		positions = None if position is None else self._tensor([int(position)], device)
+		slots = torch.arange(self.length, self.length + 1, device=device)
+		logits = self.model(ids, None, positions, past_key_values=self.cache,
+			cache_position=slots, use_cache=True)
+		self.length += 1
+		return logits[0, -1, :]
+
+
 @register_model
 class MidiTranslator (nn.Module):
 	'''Decoder-only stack over the flat midiseq2 sequence: ids [B, T] -> logits [B, T, vocab].
@@ -97,7 +205,8 @@ class MidiTranslator (nn.Module):
 		'''
 		return list(self.parameters())
 
-	def forward (self, input_ids, masks=None, position_ids=None):
+	def forward (self, input_ids, masks=None, position_ids=None, past_key_values=None,
+		cache_position=None, use_cache=False):
 		'''
 		input_ids:    LongTensor [B, T]
 		masks:        LongTensor [B, T] or None — 1 = real token. Padding is right-side only, and the
@@ -108,13 +217,19 @@ class MidiTranslator (nn.Module):
 		              Values may be NEGATIVE and may exceed max_seq_len: RoPE computes sin/cos from the
 		              value itself, so nothing indexes a table and neither case is out of range.
 		Returns: FloatTensor [B, T, vocab] — logits[:, i] predicts position i + 1.
+
+		The last three arguments are INFERENCE-ONLY and default to the uncached behaviour, so the
+		training call (`_logits` passes three positional arguments) is untouched. `input_ids` then
+		carries only the NEW tokens and `cache_position` says which cache slots they occupy; see
+		KVDecoder for why that is a separate axis from `position_ids`.
 		'''
-		out = self.backbone(input_ids=input_ids, attention_mask=masks, position_ids=position_ids)
+		out = self.backbone(input_ids=input_ids, attention_mask=masks, position_ids=position_ids,
+			past_key_values=past_key_values, cache_position=cache_position, use_cache=use_cache)
 		return self.lm_head(out.last_hidden_state)
 
 	@torch.no_grad()
 	def generate (self, prefix_ids, max_new_tokens=512, eos_id=None, temperature=0.0, masks=None,
-		position_ids=None):
+		position_ids=None, use_cache=True):
 		'''Free-run continuation of ONE prefix (the source half ++ <sep>, optionally ++ <bos>).
 
 		prefix_ids: LongTensor [T] or [1, T]. temperature 0 = greedy, else sample from the softmax.
@@ -125,9 +240,20 @@ class MidiTranslator (nn.Module):
 		Each generated token CONTINUES that run (+1 per step), which is what the target half does under
 		every style. Passing None uses the backbone's default 0..T-1, i.e. 'flat'.
 
-		No KV cache: this recomputes the whole prefix every step, which is O(T^2) per token and is
-		meant for notebook-scale inspection, not for bulk decoding.
+		`use_cache` picks the decode route. True (default) prefills the prefix once and then feeds one
+		token per step through a KVDecoder, which is what makes bulk decoding affordable. False keeps
+		the original recompute-the-whole-prefix loop, retained because it is the reference the cached
+		path is checked against (tests/midi/kv_cache_check.py) — not because it is otherwise useful.
+
+		The two agree to float32 noise while the sequence stays inside max_seq_len. Past that they
+		diverge for a structural reason, documented in KVDecoder._trim: the cached run keeps hidden
+		states computed from a longer history, the recompute run rebuilds them from the cropped
+		window. `masks` is not supported with the cache (it would have to span the whole cached
+		length, and single-row generation has no padding to mask), so passing one selects the
+		uncached path.
 		'''
+		if use_cache and masks is None:
+			return self._generate_cached(prefix_ids, max_new_tokens, eos_id, temperature, position_ids)
 		ids = prefix_ids if prefix_ids.dim() == 2 else prefix_ids.unsqueeze(0)
 		pos = None
 		if position_ids is not None:
@@ -142,7 +268,13 @@ class MidiTranslator (nn.Module):
 			window = ids[:, -self.max_seq_len:]
 			pos_window = pos[:, -self.max_seq_len:] if pos is not None else None
 			mask_window = mask[:, -self.max_seq_len:] if mask is not None else None
-			logits = self.forward(window, mask_window, pos_window)[:, -1, :]
+			# An explicit all-ones mask when the caller gave none: attention_mask=None with no cache
+			# makes transformers infer packed-sequence boundaries from position_ids and block attention
+			# across each non-unit jump. 'flat' and 'sep' are monotone unit-step and unaffected, but
+			# 'absolute' jumps at <sep> and hides the ENTIRE source half from the target. Training
+			# always passes masks (Seq2Seq2._collate_flat), so ones is what it computed.
+			ones = torch.ones_like(window) if mask_window is None else mask_window
+			logits = self.forward(window, ones, pos_window)[:, -1, :]
 			if temperature and temperature > 0:
 				nxt = torch.multinomial(F.softmax(logits / temperature, dim=-1), 1)
 			else:
@@ -156,6 +288,37 @@ class MidiTranslator (nn.Module):
 				pos = torch.cat((pos, pos[:, -1:] + 1), dim=1)
 			if token == (self.eos_id if eos_id is None else eos_id):
 				break
+		return torch.tensor(out, dtype=torch.long, device=ids.device)
+
+
+	@torch.no_grad()
+	def _generate_cached (self, prefix_ids, max_new_tokens, eos_id, temperature, position_ids):
+		'''The KVDecoder route for `generate`. Same selection rule, same return value, O(T) decode.'''
+		ids = prefix_ids if prefix_ids.dim() == 2 else prefix_ids.unsqueeze(0)
+		if ids.shape[0] != 1:
+			raise ValueError('cached generate handles one row at a time')
+		pos = None
+		if position_ids is not None:
+			pos = position_ids if position_ids.dim() == 2 else position_ids.unsqueeze(0)
+
+		decoder = KVDecoder(self)
+		logits = decoder.prefill(ids[0].tolist(), None if pos is None else pos[0].tolist(),
+			device=ids.device)
+		next_pos = None if pos is None else int(pos[0, -1]) + 1
+
+		out = []
+		stop = self.eos_id if eos_id is None else eos_id
+		for _ in range(max_new_tokens):
+			if temperature and temperature > 0:
+				nxt = int(torch.multinomial(F.softmax(logits / temperature, dim=-1), 1).item())
+			else:
+				nxt = int(logits.argmax().item())
+			out.append(nxt)
+			if nxt == stop:
+				break
+			logits = decoder.step(nxt, next_pos, device=ids.device)
+			if next_pos is not None:
+				next_pos += 1
 		return torch.tensor(out, dtype=torch.long, device=ids.device)
 
 

@@ -153,6 +153,8 @@ import time
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
+import inspect
+
 import torch
 
 from starry.utils.config import Configuration
@@ -160,6 +162,7 @@ from starry.utils.model_factory import loadModel
 from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer, Midiseq2Vocab
 from starry.midi.data.unifiedSeq2Tokenizer import UnifiedSeq2Tokenizer
 from starry.lilylet.patchyGenerator import sample_next
+from starry.midi.models.midiTranslator import KVDecoder
 
 
 DEFAULT_RUN = '/home/claude/training/midi/20260812-midi-translator-nota1m00-sep-l8d512'
@@ -863,7 +866,7 @@ class SlidingTranslator:
 
 	def __init__ (self, model, tokenizer, pos_style='sep', src_window=640, max_token=2048,
 		device='cpu', prime=True, temperature=0.0, top_k=0, top_p=1.0, source_eom=False,
-		advance_tokens=1, prime_window=2048):
+		advance_tokens=1, prime_window=2048, kv_cache=True):
 		self.model = model
 		self.tk = tokenizer
 		self.pos_style = pos_style
@@ -877,6 +880,17 @@ class SlidingTranslator:
 		# The ceiling trims that accidental growth; it does not determine how many measures we intentionally
 		# advance per step.
 		self.prime_window = prime_window
+		# Incremental decode. On by default: a step generates ~820 tokens off a ~1200-token prefix, so
+		# the uncached loop re-runs the whole stack ~820 times over an average ~1600 tokens. The flag
+		# exists so a run can be reproduced against the recompute path, not because it should be off.
+		# Gated on what the model can actually do, not on the flag alone: the checks in
+		# tests/midi/translate_midiseq2_check.py drive this class with stub models whose __call__ is
+		# (ids, mask, positions) and which own no LlamaModel backbone, so a cache would be an
+		# AttributeError on max_seq_len rather than a speedup. Signature inspection, not hasattr on a
+		# guessed attribute, so the condition is exactly 'this forward takes a cache'.
+		self.kv_cache = bool(kv_cache) and self.cache_capable(model)
+		self.decode_seconds = 0.0		# time spent inside generate(), for the speedup report
+		self.decode_tokens = 0
 		# mirrors the feeder's source_eom: whether @measure becomes <eom> on the SOURCE half
 		self.source_eom = source_eom
 		# temperature 0 = greedy argmax (reproducible); anything else goes through sample_next
@@ -884,6 +898,15 @@ class SlidingTranslator:
 		self.top_k = top_k
 		self.top_p = top_p
 		self.keywords = keyword_tokens(tokenizer)
+
+	@staticmethod
+	def cache_capable (model):
+		'''Whether `model`'s forward accepts a KV cache. False for the test stubs and for EncDec.'''
+		try:
+			params = inspect.signature(getattr(model, 'forward', model)).parameters
+		except (TypeError, ValueError):
+			return False
+		return 'past_key_values' in params and hasattr(model, 'max_seq_len')
 
 	# --- one step ------------------------------------------------------------------------
 
@@ -946,15 +969,44 @@ class SlidingTranslator:
 		than making that condition go away -- so a high forced count is evidence to act on, not a
 		success. The mask applies ONLY to the first position; from the second token on, <eos> ends the
 		window normally.
+
+		Decode route: `kv_cache` prefills the prefix once and then feeds one token per step (KVDecoder),
+		instead of re-running the stack over the whole prefix for every token. Selection is untouched —
+		the same logits reach the same argmax/sample_next and the same first-token <eos> mask.
+
+		One asymmetry to know about if `--max-token` is raised above the model's max_seq_len (4096
+		against a default max_token of 2048, so neither route trims as shipped): KVDecoder trims its
+		cache at max_seq_len, while this uncached loop never trims and would feed the whole grown
+		sequence. Past that point the two are different functions, for the reason KVDecoder._trim
+		documents.
 		'''
+		start_time = time.time()
 		ids = list(prefix_ids)
 		positions = list(prefix_positions)
 		out = []
 		forced = False
+		decoder = KVDecoder(self.model) if self.kv_cache else None
+		logits = None
 		while len(ids) < self.max_token:
-			window = torch.tensor([ids], dtype=torch.long, device=self.device)
-			pos = torch.tensor([positions], dtype=torch.long, device=self.device)
-			logits = self.model(window, None, pos)[0, -1, :]
+			if decoder is not None:
+				# First iteration prefills the whole prefix; later ones feed only the token just
+				# emitted, whose logits the previous iteration already left in `logits`.
+				logits = (decoder.prefill(ids, positions, device=self.device) if logits is None
+					else logits)
+			else:
+				window = torch.tensor([ids], dtype=torch.long, device=self.device)
+				pos = torch.tensor([positions], dtype=torch.long, device=self.device)
+				# The all-ones mask is load-bearing, NOT decoration. Passing None here makes
+				# transformers treat non-unit jumps in position_ids as PACKED-SEQUENCE boundaries
+				# (masking_utils._preprocess_mask_arguments runs find_packed_sequence_indices when
+				# attention_mask is None and past_key_values is None) and block attention across them.
+				# `absolute` positions jump -8054 -> -1 -> 0 at the boundary, so the target half was
+				# given ZERO attention to the source: measured 0 of 24 target->source pairs allowed on
+				# a shrunk probe, and max|dlogit| 2.4 against the training computation. Training always
+				# supplies masks (Seq2Seq2._collate_flat), so it never had the packed mask, and the
+				# cached route never has it either (a cache disables the check). One row, no padding,
+				# so ones is exactly the training mask. See tests/midi/kv_cache_check.py --packed-probe.
+				logits = self.model(window, torch.ones_like(window), pos)[0, -1, :]
 			if not out:
 				# -inf, not a small penalty: the observed degenerate case had <eos> at logit 13.16
 				# against 7.71 for next-best, which any finite margin would have to be tuned against.
@@ -969,6 +1021,10 @@ class SlidingTranslator:
 			out.append(nxt)
 			ids.append(nxt)
 			positions.append(next_position if len(out) == 1 and next_position is not None else positions[-1] + 1)
+			if decoder is not None:
+				logits = decoder.step(nxt, positions[-1], device=self.device)
+		self.decode_seconds += time.time() - start_time
+		self.decode_tokens += len(out)
 		return out, forced
 
 	# --- advancing -----------------------------------------------------------------------
@@ -1151,7 +1207,12 @@ class SlidingTranslator:
 
 		stats = dict(steps=step, output_tokens=len(output), source_lines=len(lines),
 			consumed_lines=cursor, stalls=stalls, eos_forced=forced, done=done,
-			elapsed=time.time() - start_time)
+			elapsed=time.time() - start_time,
+			# decode_* covers only time inside generate(), so a cached-vs-uncached comparison is not
+			# diluted by tokenizing, alignment or figure work that the flag does not change.
+			kv_cache=self.kv_cache, decode_seconds=self.decode_seconds,
+			decode_tokens=self.decode_tokens,
+			ms_per_token=(1000 * self.decode_seconds / self.decode_tokens) if self.decode_tokens else 0.0)
 		return output, stats
 
 
@@ -1166,6 +1227,13 @@ class SlidingEncDecTranslator (SlidingTranslator):
 	def __init__ (self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.is_encdec = True
+		# KVDecoder wraps MidiTranslator's LlamaModel backbone, which owns a past_key_values path.
+		# This architecture's decoder is the repo's own blocks (SelfAttention + MultiHeadAttention),
+		# which have no cache argument, so incremental decode here would mean caching self-attention
+		# K/V and the projected encoder memory by hand. Not done yet, so report it off rather than
+		# inheriting a True that nothing honours. Encoding is already done once per step, which is
+		# the larger half.
+		self.kv_cache = False
 
 	@torch.no_grad()
 	def generate (self, prefix_ids, prefix_positions, temperature, top_k, top_p, n_source=None,
@@ -1179,6 +1247,7 @@ class SlidingEncDecTranslator (SlidingTranslator):
 		decoder_ids_list = list(prefix_ids[n_source:])
 		decoder_pos_list = list(prefix_positions[n_source:])
 		source_masks = torch.ones_like(source_ids)
+		start_time = time.time()
 		memory = self.model.encode(source_ids, source_masks, source_pos)
 		out = []
 		forced = False
@@ -1200,6 +1269,8 @@ class SlidingEncDecTranslator (SlidingTranslator):
 			out.append(nxt)
 			decoder_ids_list.append(nxt)
 			decoder_pos_list.append((next_position if len(out) == 1 and next_position is not None else decoder_pos_list[-1] + 1))
+		self.decode_seconds += time.time() - start_time
+		self.decode_tokens += len(out)
 		return out, forced
 
 
@@ -1257,6 +1328,10 @@ def report_output (body_lines, stats):
 	unknown = sum(l.split().count('<unknown>') for l in body_lines)
 	print(f'[out] {len(body_lines)} lines, {stats["output_tokens"]} tokens, '
 		f'{len(measures)} measures, {stats["steps"]} steps, {stats["elapsed"]:.1f}s')
+	if stats.get('decode_tokens'):
+		print(f'[decode] kv_cache {"on" if stats.get("kv_cache") else "off"}: '
+			f'{stats["decode_tokens"]} tokens in {stats["decode_seconds"]:.1f}s '
+			f'({stats["ms_per_token"]:.1f} ms/token)')
 	if unknown:
 		print(f'[warn] {unknown} <unknown> token(s) in output — a rendering or vocab bug')
 	# numbering starts at the explicit `@measure 1` and every <eom> adds the next bar
@@ -1869,6 +1944,9 @@ def main ():
 		help="don't seed the target half with the previous window's tail (matches training exactly)")
 	ap.add_argument('--advance-tokens', type=int, default=1,
 		help='minimum target tokens retired per step, rounded up to the next <eom> (default 1)')
+	ap.add_argument('--no-kv-cache', action='store_true',
+		help='decode by recomputing the whole prefix every token (the pre-cache path). '
+			'Only for reproducing a run against the reference route -- it is far slower.')
 	ap.add_argument('--prime-window', type=int, default=2048,
 		help='internal target-view safety ceiling in tokens; not the step stride (default 2048)')
 	ap.add_argument('--max-steps', type=int, default=0, help='stop after N windows (0 = whole file)')
@@ -1945,7 +2023,7 @@ def main ():
 		src_window=args.src_window, max_token=args.max_token, device=args.device,
 		prime=not args.no_prime, temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
 		source_eom=bool(data_args.get('source_eom')), advance_tokens=args.advance_tokens,
-		prime_window=args.prime_window)
+		prime_window=args.prime_window, kv_cache=not args.no_kv_cache)
 
 	# The output path has to be settled BEFORE translate runs, because the streaming figures are named
 	# from it and are written while the loop is still going.

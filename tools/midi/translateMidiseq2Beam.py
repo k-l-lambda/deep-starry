@@ -482,7 +482,11 @@ class BeamTranslator (BeamMixin, SlidingTranslator):
 		ids = torch.tensor([ctx['ids'] + row for row in rows], dtype=torch.long, device=self.device)
 		pos = torch.tensor([ctx['positions'] + tail for _ in rows], dtype=torch.long,
 			device=self.device)
-		return self.model(ids, None, pos)[:, -1, :]
+		# ones, not None: with attention_mask None and no cache, transformers reads position_ids for
+		# packed-sequence boundaries and blocks attention across every non-unit jump -- which under
+		# `absolute` positions hides the whole source half from the target. Training passes masks, so
+		# this matches it. See translateMidiseq2.SlidingTranslator.generate for the measurement.
+		return self.model(ids, torch.ones_like(ids), pos)[:, -1, :]
 
 
 class BeamEncDecTranslator (BeamMixin, SlidingEncDecTranslator):
