@@ -5,9 +5,16 @@ Ported from the ideas in music-widgets `inc/Matcher` (real-time score following)
 `tools/midi/translateMidiseq2.py`'s sliding-window generation.
 
 Why those algorithms transfer. Both problems maintain a correspondence between two note streams
-from local evidence only, and both live or die on one invariant: the OFFSET between the two
-streams' positions should stay locally constant. Matcher builds its whole cost function on that
-single quantity, which is why none of it depends on knowing a tempo, a meter, or a bar number.
+from local evidence only, and both build on one quantity: the OFFSET between the two streams'
+positions. Matcher builds its whole cost function on it, which is why none of it depends on knowing
+a tempo, a meter, or a bar number.
+
+But note WHAT is invariant, because an earlier version of this docstring got it wrong and the code
+followed. It is the offset STEP between adjacent pairings that is small, NOT the offset itself: on
+the nota1m corpus the absolute offset drifts 14.7-273.8 softIndex over a file, because rolled chords
+add a permanent, monotone ~1-1.5 apiece. Matcher never assumes otherwise — every gate it applies is
+on a DIFFERENCE — and gating candidate generation on the absolute offset instead is what made this
+module collapse on 14 of 100 files. See Config['Lattice'] for the measurement and the fix.
 
 What is different here, and it is a simplification: translation is monotone and near-bijective on
 note_on. There are no repeats, restarts or page jumps, so Matcher's relocation machinery is
@@ -106,6 +113,110 @@ Config = dict(
 	# DEFAULT 0.0 = exactly the old behaviour, because how hard to charge is a ranking-policy choice
 	# and not something to change silently. `translateMidiseq2Beam.py --reuse-cost` sets it.
 	ReuseCost = 0.0,
+
+	# --- lattice ---------------------------------------------------------------------------
+	#
+	# Candidate generation used to be gated on a single running scalar offset (the vote mode, falling
+	# back to `carried_offset`), and that gate — not the cost function — was where the aligner failed.
+	# MEASURED on all 100 test202608/nota1m-100 pairs against the (measure, tick) truth: the window
+	# left 0 or 1 candidate on 90.3% of target notes (0 on 26.8%) while ~95.7 same-pitch source notes
+	# were available, so `observe`'s "DP relaxation" usually had nothing to choose between. On the 14
+	# files that collapsed, 56.9% of notes got ZERO candidates.
+	#
+	# WHY a scalar gate cannot work here, and it is a property of the DATA rather than of the tuning:
+	# the true offset DRIFTS. Over a file it moves 14.7-273.8 softIndex on the collapsed files against
+	# 0.0-6.5 on the healthy ones, i.e. the right answer sits 20x-340x outside a 0.8 window, and the
+	# single-step true |bias| p95 is 0.942 on 04623a3b — ONE legitimate step exceeds the whole window.
+	# The mechanism is the mocker's ROLLED CHORDS: the score arm's chord is simultaneous so its
+	# softIndex barely advances, while the rolled irregular version spends ~tanh(63/115)=0.49 per note,
+	# adding a PERMANENT ~1-1.5 per chord, monotone because rolling only ever spreads. So the module
+	# docstring's original "the offset should stay locally constant" was FALSE on this corpus (it is
+	# now corrected there), and raising
+	# SIMULTANEOUS_TICKS does not rescue it: it kills the drift as designed (62.4 -> 1.08 at 3840) but
+	# recall falls monotonically with it (healthy 0.9973 -> 0.2315), because drift and resolution are
+	# the same knob.
+	#
+	# Matcher's answer, ported here: do not gate candidate GENERATION at all, and gate the EDGES on
+	# `bias` — the offset STEP between two candidates — which is immune to absolute drift. Each
+	# candidate then carries its OWN offset and its own best predecessor, so a wrong pick on one note
+	# cannot poison the next note's candidate set. That poisoning was the actual failure mode:
+	# injecting ONE wrong pairing into a healthy file left 4 of 9 unrecovered (579, 342, 257 notes, and
+	# one never — recall 0.9961 -> 0.3320), because `lost_span` grows only on MISSES, so a wrong offset
+	# that still yields a plausible candidate produces no miss and the window never widens. Failing to
+	# match is recoverable; matching wrongly was not.
+	#
+	# MEASURED, all 100 files, recall / p10 / ms-per-note (this module, not the standalone port):
+	#     scalar gate (before)      0.8096 / 0.0975
+	#     lattice, width 4          0.9115 / 0.7391 /  0.563
+	#     lattice, LatticeWidth 8   0.9081 / 0.7703 /  0.883
+	#     lattice, width 16         0.9101 / 0.7660 /  1.515
+	#     lattice, width 24         0.9107 / 0.7660 /  2.140
+	#     lattice, unbounded        0.9069 / 0.7526 / 12.844
+	#     forward-only Matcher      0.9096 / 0.7786          (the ceiling this was chasing)
+	# The aggregate is FLAT in the width — every row is inside 0.005 — so the default is chosen on the
+	# tail instead, and width 8 has the best p10 while costing 14x less than unbounded. Note the
+	# unbounded row is the WORST here, which reverses what the same sweep said before the anchor-drift
+	# fix below: once the anchor tracks properly the prior ranks candidates well enough that a cap is a
+	# mild regulariser rather than a compromise. Widening it is not a lever worth pulling.
+	#
+	# Precision is 0.9315 against the old path's 0.8610, and 1 file collapses where 14 did. Healthy
+	# files are NOT traded away (0.9239 against 0.9219), the way widening the scalar window did.
+	#
+	# Matcher's own backward pass is deliberately NOT ported. It re-ranks each note against offsets
+	# carried back from LATER notes, which sliding-window generation cannot do, and it is worth only
+	# 0.028 recall (0.9376 vs forward's 0.9096) — so the gap was never the offline-only half.
+	Lattice = True,
+	# How many candidates per target note survive as possible predecessors. Matcher keeps all of them.
+	LatticeWidth = 8,
+	# How many previous target notes a candidate may attach to (Matcher's SkipDeep).
+	LatticeDeep = 3,
+	# Charge on the SOURCE-index jump between a candidate and its predecessor, as a multiple of
+	# SkipCost. Matcher has no equivalent: its `MatchNode.cost` skip term is `si - prev.si - 1` on the
+	# SAMPLE index, i.e. how many TARGET notes were passed over, and porting only that silently dropped
+	# align.py's own charge for leaping ahead in the SOURCE. The two are different quantities and both
+	# are wanted here — the target term prices skipped output, this one prices a jump into an unrelated
+	# part of the source. Without any charge here a scrambled-order target scores as consistent as an
+	# in-order one (`align_check.check_cost_bounds`: cost ties at 0, though the priors still separate),
+	# because when every pairing carries the same offset the bias term has nothing to object to.
+	#
+	# BUT IT MUST NOT FIRE ON ORDINARY MUSIC, and measuring the true gap is what shows where that line
+	# is. Over the ground-truth pairs of all 100 files, the gap `index - prev_index - 1` between
+	# CONSECUTIVE CORRECT pairings is NEGATIVE 57-61% of the time (median -1): the right next source note
+	# usually sits at a LOWER index, which is the chord reordering ReuseCost's own comment describes.
+	# Positive gaps run p90 2-3 and p99 5-7. So an uncapped `tanh(gap * SkipCost)` — already 0.76 at
+	# gap 2 — charges 8-12% of CORRECT pairings a near-saturated penalty, and MEASURED it does exactly
+	# the damage that predicts: with no allowance, all-file recall is 0.6712 against 0.9081 with one.
+	# The allowance is worth 0.237 recall and is not a rounding detail.
+	#
+	# So the charge starts only past a chord's worth of source notes. The allowance is the measured p99
+	# of the true positive gap, not a guess, which leaves correct alignment untouched while still
+	# pricing a leap into an unrelated part of the source. Above the p99 the charge is accuracy-NEUTRAL
+	# (allowance 6/12/24 all land within 0.0008 of each other) but its power to discriminate decays:
+	# on `align_check.check_cost_bounds`' scrambled target the bad cost is 0.600 at allowance 6, 0.407
+	# at 12 and only 0.045 at 24. So 6 is the default — it is the tightest allowance that costs nothing,
+	# which is the strongest evidence it can give while staying silent on real music.
+	LatticeSourceSkipAllowance = 6,
+	LatticeSourceSkipCost = 1.0,
+	# Edge gate. `bias` is admitted while (bias * coeff)**2 < this, i.e. while the self-cost term has
+	# not yet saturated — which is exactly Matcher's `bias < 2/LagOffsetCost && bias > -2/LeadOffsetCost`
+	# rewritten so it derives from the SAME coefficients instead of repeating them as constants. Stated
+	# this way it is also independent of the sign convention, which matters because align.py's offset is
+	# `src - tgt` while Matcher's is `sample - criterion`.
+	LatticeGateCost = 4.0,
+	# Charged on the edge to the zero node, whose si is -1, so Matcher's skip against it is the number
+	# of target notes so far. NOT optional: with no cost here the zero edge is always the cheapest, no
+	# chain ever grows past one note, `value` stays ~1, and `prior` therefore carries no evidence at
+	# all. That was the bug that made a first port of this score 0.52 instead of 0.90.
+	LatticeZeroSkip = True,
+	# A cursor is accepted only when its cost is below this AND its prior is positive, which is
+	# Matcher's `cursor.totalCost < 1` gate. Below it the note is reported as a miss and the anchor
+	# DRIFTS rather than jumping — the point being that a confident jump to the wrong note is the one
+	# failure this whole change exists to prevent, and a miss is the recoverable outcome.
+	LatticeAcceptCost = 1.0,
+	# Weight on |offset - anchor| inside a CANDIDATE's prior (Matcher's PriorDistanceSigmoidFactor).
+	# Kept separate from PriorCost, which weights the decayed cost in the BEAM's prior: this one ranks
+	# candidates against each other within one note, that one ranks lineages against each other.
+	PriorDistance = 0.1,
 
 	# prior = tanh(value * PriorValue) - tanh(cost * PriorCost). Matcher's form: saturating evidence
 	# gain minus saturating inconsistency, so neither term can dominate without bound.
@@ -663,7 +774,8 @@ class AlignState:
 
 	__slots__ = ('src_events', 'src_by_pitch', 'pairs', 'cost', 'value', 'misses', 'matched',
 		'last_offset', 'tgt_count', 'ratio', 'ratio_pairs', 'residual', 'residual_n',
-		'seed_offset', 'used', 'null_steps', 'carried_offset')
+		'seed_offset', 'used', 'null_steps', 'carried_offset', 'lattice', 'fine_index',
+		'prev_tgt_softindex')
 
 	def __init__ (self, src_events=None, seed_offset=None):
 		# src_events: list of dicts with at least onset/pitch/softIndex, in stream order
@@ -696,6 +808,19 @@ class AlignState:
 		# to match anywhere. None keeps the old behaviour (any same-pitch note is a candidate).
 		self.seed_offset = seed_offset
 		self.carried_offset = seed_offset
+		# Matcher's per-note match lists, newest last, trimmed to LatticeDeep. Each entry is a list of
+		# dicts(src, offset, cost, value, self_cost) -- one per candidate for that target note, each
+		# already carrying the cost of its own best predecessor. Only the last LatticeDeep lists are
+		# retained because no edge may reach further back than that, so the state stays O(deep * width)
+		# rather than growing with the piece -- which is what keeps `clone` cheap enough for beam search.
+		self.lattice = []
+		# Target index of the last CONFIDENT cursor, for the null-run length. -1 = none yet.
+		self.fine_index = -1
+		# softIndex of the PREVIOUS target note, matched or not. Matcher's `note.deltaSi` is the step
+		# from the immediately preceding sample note (Matcher/utils.ts:31), so the anchor drift needs
+		# this and not the last PAIRED note -- the two differ exactly during a run of misses, which is
+		# the only time the drift is applied at all.
+		self.prev_tgt_softindex = None
 		if src_events:
 			self.set_source(src_events)
 
@@ -732,6 +857,11 @@ class AlignState:
 		out.seed_offset = self.seed_offset
 		out.null_steps = self.null_steps
 		out.carried_offset = self.carried_offset
+		# The node dicts are never mutated after the step that created them, so the lists can be
+		# shallow-copied: a branch appends its own and trims, and the shared tails stay read-only.
+		out.lattice = list(self.lattice)
+		out.fine_index = self.fine_index
+		out.prev_tgt_softindex = self.prev_tgt_softindex
 		return out
 
 	# --- anchor ------------------------------------------------------------------------
@@ -788,6 +918,184 @@ class AlignState:
 		grown = Config['AnchorLostSpanGain'] * self.null_steps * math.tanh(self.null_steps)
 		return min(grown, Config['AnchorLostSpanMax'])
 
+	def _self_cost (self, offset, prev_offset):
+		"""Matcher's asymmetric offset penalty, in align.py's sign convention.
+
+		SIGN MATTERS AND IS NOT MATCHER'S. Here `offset = src_si - tgt_si`; Matcher's node uses
+		`sample_si - criterion_si`, i.e. the negation. So Matcher's 1.0/1.6 split lands on the OPPOSITE
+		direction when its constants are copied across, and the module's Config comment already flagged
+		that the right asymmetry here was unmeasured. It is measured now, and align.py's existing
+		assignment is the better one: swapping UnderCost/OverCost to 1.6/1.0 drops all-file recall from
+		0.8093 to 0.6975, and making them equal costs almost as much. So the convention stays as it is
+		and only the GATE is expressed in a sign-independent form (see LatticeGateCost).
+		"""
+		bias = offset - prev_offset
+		coeff = Config['UnderCost'] if bias > 0 else Config['OverCost']
+		return (bias * coeff) ** 2
+
+	def _lattice_nodes (self, pitch, tgt_softindex):
+		"""Every same-pitch source note as a candidate, each with its own best predecessor.
+
+		No offset window: that gate is what left 90.3% of notes with 0-1 candidates while ~95.7 were
+		available (see Config['Lattice']). Pruning happens on the EDGES instead, where `bias` is a
+		difference and therefore immune to the absolute drift this corpus actually has.
+		"""
+		hits = self.src_by_pitch.get(pitch)
+		if not hits:
+			return []
+		zero = self.carried_offset if self.carried_offset is not None else 0.0
+		gate = Config['LatticeGateCost']
+		scale = Config['SelfCostScale']
+		att = Config['CostStepAttenuation']
+		skipc = Config['SkipCost']
+		deep = min(Config['LatticeDeep'], len(self.lattice))
+		# The zero edge's skip is the number of target notes already seen, because Matcher's zeroNode
+		# sits at si = -1. Without this the zero edge undercuts every real predecessor and no chain
+		# ever forms.
+		# `tgt_count` is incremented by the caller BEFORE this runs, so the count of notes PRECEDING
+		# this one is tgt_count - 1. Matcher's skip against zeroNode is `si - (-1) - 1 == si`, the
+		# 0-based sample index, so the first note must be charged 0 here — using tgt_count directly
+		# charged tanh(0.5)=0.462 on note 0 and one extra skip step on every note after it.
+		zero_skip = math.tanh(max(0, self.tgt_count - 1) * skipc) if Config['LatticeZeroSkip'] else 0.0
+		reusec = Config['ReuseCost']
+		nodes = []
+		for index in hits:
+			offset = self.src_events[index]['softIndex'] - tgt_softindex
+			# Charged once per CANDIDATE, not per edge: re-use is a property of the source note and of
+			# this lineage's history with it (`used`), not of which predecessor the chain picks. Default
+			# 0.0 leaves it inert, as the old path does. Standing on an already-paired note keeps the
+			# offset constant and so costs nothing in the bias term — this is the only term that
+			# objects, which is why it has to survive into the lattice rather than be a window-path
+			# feature (see ReuseCost).
+			reuse_pen = math.tanh(self.used.get(index, 0) * reusec) if reusec else 0.0
+			# start from the zero node, as Matcher's evaluatePrev(zeroNode) does
+			self_cost = self._self_cost(offset, zero)
+			best_cost = zero_skip + reuse_pen + math.tanh(self_cost * scale)
+			best_value = 1.0 - math.tanh(self_cost * scale)
+			best_self = self_cost
+			src_skipc = Config['LatticeSourceSkipCost'] * skipc
+			for back in range(1, deep + 1):
+				# Matcher's skip: how many TARGET notes this edge steps over.
+				skip_pen = math.tanh((back - 1) * skipc)
+				for prev in self.lattice[-back]:
+					sc = self._self_cost(offset, prev['offset'])
+					if sc >= gate:
+						continue
+					# align.py's own skip: how far AHEAD in the source this edge leaps. Negative gaps
+					# are free, because a lower source index is normal inside a chord (see ReuseCost).
+					# Past the chord allowance only. A negative gap is free for the same reason the
+					# reuse comment gives: inside a chord the order is arbitrary, so a lower index is
+					# ordinary music rather than a backward jump.
+					src_skip = max(0, index - prev['src'] - 1 - Config['LatticeSourceSkipAllowance'])
+					total = (prev['cost'] * att + skip_pen + reuse_pen
+						+ math.tanh(src_skip * src_skipc) + math.tanh(sc * scale))
+					if total < best_cost:
+						best_cost = total
+						best_value = prev['value'] + 1.0 - math.tanh(sc * scale)
+						best_self = sc
+			nodes.append(dict(src=index, offset=offset, cost=best_cost, value=best_value,
+				self_cost=best_self))
+		return nodes
+
+	def _observe_lattice (self, pitch, tgt_tick, tgt_softindex):
+		"""Matcher's forward step: build the candidate lattice, rank on prior, accept if confident.
+
+		RANKING IS ON `prior`, NOT ON `cost`, and the distinction is load-bearing. `cost` is decayed, so
+		a candidate that has just appeared is always the cheapest one available; ranking or pruning on it
+		evicts exactly the candidates that have earned their place. MEASURED while getting this wrong:
+		keeping K>1 hypotheses ranked by cost was worse than K=1 at every K. `value` is the undecayed
+		evidence a fresh candidate cannot fake, which is what it is for.
+
+		The anchor moves ONLY on a confident cursor; otherwise it drifts by the target's own softIndex
+		step times tanh(null run), which is Matcher's shape. Note this rule measured WORSE (-0.115
+		recall) when bolted onto the old scalar-window path -- it only pays off together with the
+		lattice, because it is the lattice that supplies a way back once the anchor is stale.
+		"""
+		self.tgt_count += 1
+		# Both quantities must be read BEFORE this note's outcome changes them: `delta` is the step from
+		# the previous target note (Matcher's note.deltaSi) and `null_before` is Matcher's `nullLength`,
+		# which navigator.ts:84 reads before the run grows. Incrementing first would charge the first
+		# miss after a match tanh(1) = 0.762 of a step instead of 0.
+		delta = (0.0 if self.prev_tgt_softindex is None
+			else tgt_softindex - self.prev_tgt_softindex)
+		self.prev_tgt_softindex = tgt_softindex
+		null_before = self.null_steps
+		nodes = self._lattice_nodes(pitch, tgt_softindex)
+		if not nodes:
+			self.misses += 1
+			self.cost = self.cost * Config['CostStepAttenuation'] + Config['MissCost']
+			self.null_steps += 1
+			self.lattice.append([])
+			del self.lattice[:-Config['LatticeDeep']]
+			return dict(src=None, self_cost=None, offset=None, skip=0, reuse=0, cost=self.cost,
+				prior=self.prior)
+		zero = self.carried_offset if self.carried_offset is not None else 0.0
+		for node in nodes:
+			node['prior'] = (-1.0 if node['cost'] > 1.99
+				else (math.tanh(node['value'] * Config['PriorValue'])
+					- math.tanh(abs(node['offset'] - zero) * Config['PriorDistance'])))
+		nodes.sort(key=lambda n: -n['prior'])
+		# Keep the lattice before deciding, so a rejected cursor still leaves its candidates available
+		# as predecessors -- that is what lets the chain resume after a run of unconfident notes.
+		self.lattice.append(nodes[:Config['LatticeWidth']])
+		del self.lattice[:-Config['LatticeDeep']]
+		top = nodes[0]
+		if not (top['cost'] < Config['LatticeAcceptCost'] and top['prior'] > 0):
+			# No confident cursor: charge the miss, DRIFT the anchor, and name no source note. Note this
+			# is a stronger response than the window path's, which would have taken the best candidate
+			# whatever it cost — refusing outright is what stops a confident-but-wrong jump, and a
+			# second re-use of one source note lands here (cost 1.52 > LatticeAcceptCost) rather than
+			# being merely priced.
+			self.misses += 1
+			self.cost = self.cost * Config['CostStepAttenuation'] + Config['MissCost']
+			self.null_steps += 1
+			if self.carried_offset is not None:
+				self.carried_offset += self._anchor_drift(delta, null_before)
+			# `src`, `self_cost` and `offset` stay None on a miss, which is a CONTRACT and not an
+			# omission: `cost` sums over every note while `self_cost` sums only over matches, and
+			# `beam_parity_check` pins that separation because reading the two as estimates of one
+			# quantity is the likely misuse. The rejected candidate is reported under its own keys
+			# instead, so a caller can still see which source note was on offer and what priced it out
+			# -- reporting nothing would say "no candidate existed", a different and false claim.
+			return dict(src=None, self_cost=None, offset=None,
+				skip=0, reuse=self.used.get(top['src'], 0),
+				rejected=top['src'], rejected_cost=top['cost'], rejected_offset=top['offset'],
+				cost=self.cost, prior=self.prior)
+		index = top['src']
+		skip = max(0, index - self.pairs[-1][0] - 1) if self.pairs else 0
+		reuse = self.used.get(index, 0)
+		# `cost`/`value` are taken FROM the chosen node so `prior` keeps the meaning and the bound that
+		# beam.py ranks on and that align_check.py asserts: it is the same recursion, one scale.
+		self.cost = top['cost']
+		self.value = top['value']
+		self.last_offset = top['offset']
+		self.matched += 1
+		weight = 1.0 - math.tanh(top['self_cost'] * Config['SelfCostScale'])
+		self.pairs.append((index, tgt_softindex, self.src_events[index]['softIndex'], weight))
+		self.used[index] = self.used.get(index, 0) + 1
+		self.null_steps = 0
+		self.carried_offset = top['offset']
+		self.fine_index = self.tgt_count - 1
+		self._update_ratio(self.src_events[index]['softIndex'],
+			self.src_events[index]['onset'], tgt_tick)
+		return dict(src=index, self_cost=top['self_cost'], offset=top['offset'], skip=skip,
+			reuse=reuse, cost=self.cost, prior=self.prior)
+
+	def _anchor_drift (self, delta, null_run):
+		"""Matcher's `zeroNode.offset += note.deltaSi * tanh(nullLength)` for an unconfident note.
+
+		`delta` is the step from the PREVIOUS TARGET note and `null_run` the length of the null run
+		BEFORE this note joins it -- both as read by navigator.ts:84-104. Measuring the step from the
+		last PAIRED note instead compounds it across a miss run (the very case the drift exists for),
+		which cost 0.049 all-file recall.
+
+		An earlier attempt to port this shape onto the scalar-window path measured wrong and was
+		replaced by a widening window (`lost_span`); it works here because the lattice, not the window,
+		is what recovers the alignment. Note Matcher drifts only when it HAS candidates it rejected:
+		with no candidate at all the anchor is left alone, which `_observe_lattice` mirrors.
+		"""
+		return delta * math.tanh(null_run)
+
 	def observe (self, pitch, tgt_tick, tgt_softindex):
 		'''Fold one generated note_on into the alignment. Returns a per-note detail dict.
 
@@ -800,7 +1108,14 @@ class AlignState:
 		per-note `self_cost` is returned rather than only folded into the running cost because it is
 		the only quantity attributable to THIS note: `cost` is a decayed sum over the recent past, so
 		colouring a note by it would paint the neighbourhood's history onto one note.
+
+		Under `Config['Lattice']` this delegates to `_observe_lattice`, which keeps every same-pitch
+		candidate and gates the EDGES instead of the candidate set. The scalar-window path below is kept
+		reachable because it is the baseline every figure quoted in Config['Lattice'] is measured
+		against, and a regression is only attributable if the thing it regressed from can still be run.
 		'''
+		if Config['Lattice']:
+			return self._observe_lattice(pitch, tgt_tick, tgt_softindex)
 		self.tgt_count += 1
 		cands = self.candidates(pitch, tgt_softindex)
 		prev_offset = self.last_offset
