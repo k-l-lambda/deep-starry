@@ -54,14 +54,14 @@ Three grades of ground truth, deliberately kept apart:
 THE DECISIVE CHECK IS THE WRONG-PAIR CONTROL. Every "recovery" number is meaningless without it: an
 aligner that matches promiscuously scores well on measure agreement simply because a wrong note is
 often in the right bar. So the same target is also aligned against a DIFFERENT piece's source, and
-the true pairing must beat it. MEASURED: matchrate 0.984 vs 0.027, winning on 100/100 files. That gap
+the true pairing must beat it. MEASURED: matchrate 0.980 vs 0.028, winning on 100/100 files. That gap
 is what makes the rest evidence rather than decoration. It widened sharply (from 0.935 vs 0.205) when
 the lattice landed, because the decoy's collapse is now a REFUSAL to match rather than a run of
 confident wrong pairings -- the same property that stopped whole files from being poisoned.
 
 Note what matchrate is and is NOT: it is `matched / (matched + misses)`, i.e. COVERAGE -- whether a
 pairing was made at all -- not whether the pairing was RIGHT. The correctness figures are the @tick
-ones below (precision 0.9420, recall 0.9287). Reading matchrate as accuracy is what makes a cross-tool
+ones below (precision 0.9503, recall 0.9337). Reading matchrate as accuracy is what makes a cross-tool
 comparison meaningless, since the music-widgets Matcher's headline coverage measures the same
 coverage-only quantity.
 
@@ -455,7 +455,7 @@ def check_wrong_pair_control (src_dir, tgt_dir, names, src_window):
 	The decoy is a fixed stride through the sorted file list rather than a random pick, so the whole
 	check is deterministic and a failure is reproducible without a seed.
 
-	MEASURED over 100 files: matchrate 0.984 true vs 0.027 decoy, prior +0.979 vs -0.619, and the true
+	MEASURED over 100 files: matchrate 0.980 true vs 0.028 decoy, prior +0.977 vs -0.630, and the true
 	pairing wins on 100/100 files by matchrate. The per-file win count is the assertion, not the mean:
 	a mean gap can be carried by a handful of files while most are ties.
 	'''

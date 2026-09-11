@@ -73,11 +73,30 @@ Config = dict(
 	# Asymmetric offset penalty. SIGN CONVENTION HERE: offset = src_softIndex - tgt_softIndex, and
 	# bias = offset_now - offset_prev. bias > 0 means the source advanced more than the target, i.e.
 	# the target UNDER-produced (dropped a note or under-timed a delta). bias < 0 means it
-	# OVER-produced. Matcher's 1.0/1.6 split encoded "humans drag more often than they rush"; the
-	# equivalent asymmetry for a translating model is unmeasured and may well point the other way,
-	# so these two are the first pair to sweep.
-	UnderCost = 1.0,
-	OverCost = 1.6,
+	# OVER-produced. Matcher's 1.0/1.6 split encoded "humans drag more often than they rush".
+	#
+	# SWEPT on the lattice path over all 100 test202608/nota1m-100 pairs, and the answer MOVED: the
+	# near-symmetric 1.3/1.4 beats the inherited 1.0/1.6 on BOTH tasks.
+	#   whole-file:  recall 0.9081 -> 0.9135, p10 0.7703 -> 0.7733, precision 0.9315 -> 0.9341
+	#   windowed:    recall 0.9287 -> 0.9337, p10 0.7520 -> 0.7951, precision 0.9420 -> 0.9503
+	# It is also what removes the LAST collapsed file on the whole-file task: a758a4ff goes 0.375 ->
+	# 0.668 and drops out of the worst six, so NO file scores below 0.5 any more (min 0.3747 -> 0.5184).
+	#
+	# HONEST LIMIT on the windowed figure: split 50/50 by index parity, the whole-file gain holds on
+	# both halves (tune +0.005 recall, holdout +0.011, and both go from one collapsed file to none), but
+	# the WINDOWED gain is concentrated in the tune half -- its holdout half is flat to slightly negative
+	# on recall. With 11k target notes the windowed metric has too much per-file variance to establish a
+	# 0.005 effect. So the whole-file improvement is cross-validated; the windowed one is an aggregate
+	# improvement that a held-out half does not confirm.
+	#
+	# Why the strong asymmetry stopped paying, which is the part worth keeping: under the old scalar
+	# gate a lead/lag had to be absorbed by the coefficients, because there was only ever one candidate
+	# to accept or refuse. The lattice can hold the ALTERNATIVE instead, so an over-produced step is
+	# now handled by picking a different predecessor rather than by pricing this one. 20 of 20 cells in
+	# the (Under, Over) grid do better than 1.0/1.6 with Under raised, so the direction is robust even
+	# though the exact cell is not: neighbours sit within ~0.003 recall of each other.
+	UnderCost = 1.3,
+	OverCost = 1.4,
 
 	# Cost charged when a generated note has no plausible source counterpart at all. Fixed rather
 	# than derived: there is no offset to measure when nothing matched.
@@ -168,7 +187,18 @@ Config = dict(
 	Lattice = True,
 	# How many candidates per target note survive as possible predecessors. Matcher keeps all of them.
 	LatticeWidth = 8,
-	# How many previous target notes a candidate may attach to (Matcher's SkipDeep).
+	# How many previous target notes a candidate may attach to (Matcher's SkipDeep). SWEPT, and it stays
+	# at Matcher's 3 -- but the two tasks disagree, which is the reason to write this down. On WHOLE-FILE
+	# alignment 4 is better (recall 0.9135 -> 0.9168, precision 0.9341 -> 0.9355) at 1.28x the per-note
+	# cost (0.904 -> 1.153 ms). On align_corpus_check's WINDOWED unit -- a 960-token source crop, which
+	# is the production unit that beam.py actually feeds -- 4 is HARMFUL once the bias split below is
+	# fixed: recall 0.9337 -> 0.9294, p10 0.7951 -> 0.7459. Alone it helps there (0.9296); combined it
+	# does not. So 3 is the only value that improves both tasks, and it is also the cheapest.
+	#
+	# The general lesson, since it cost a wrong default here: a knob measured on full-file alignment
+	# does NOT transfer to the windowed task. The windowed source has ~10x fewer notes (11,174 target
+	# notes over 100 files against 116,853), so it has both a different candidate density and far more
+	# per-file variance.
 	LatticeDeep = 3,
 	# Charge on the SOURCE-index jump between a candidate and its predecessor, as a multiple of
 	# SkipCost. Matcher has no equivalent: its `MatchNode.cost` skip term is `si - prev.si - 1` on the
@@ -928,6 +958,11 @@ class AlignState:
 		assignment is the better one: swapping UnderCost/OverCost to 1.6/1.0 drops all-file recall from
 		0.8093 to 0.6975, and making them equal costs almost as much. So the convention stays as it is
 		and only the GATE is expressed in a sign-independent form (see LatticeGateCost).
+
+		Those two figures are from the SCALAR path, and the ORDER they establish still holds; the
+		MAGNITUDE does not. On the lattice path the best split is the near-symmetric 1.3/1.4 rather than
+		1.0/1.6 -- see Config['UnderCost'] for why the lattice needs less asymmetry than the window did.
+		Under still costs less than Over, so nothing about the direction changed.
 		"""
 		bias = offset - prev_offset
 		coeff = Config['UnderCost'] if bias > 0 else Config['OverCost']
