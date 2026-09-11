@@ -541,12 +541,19 @@ def make_source (n=40, step=240, pitches=None):
 
 
 def check_cost_bounds ():
-	'''cost must stay under the geometric bound and prior inside (-1, 1), consistent < inconsistent.
+	'''cost must stay under the geometric bound and prior inside [-1, 1], consistent < inconsistent.
 
 	The bound is what makes a single lambda portable: each step adds at most two tanh terms and the
 	previous cost is attenuated by 0.6, so the sum cannot exceed 2/(1-0.6) = 5. An unbounded
 	alignment term would need lambda re-fitted per file length, which is precisely the failure the
 	length-normalised log-probability pairing is meant to avoid.
+
+	The prior interval is CLOSED and this check asserts it that way deliberately. `AlignState.prior` is
+	the mean of one bounded term per target note -- `1 - tanh(self_cost * SelfCostScale)` for a match,
+	`-MissCost` for a miss -- so a flawless alignment attains exactly +1.0 and an all-miss one exactly
+	-1.0. Asserting an OPEN interval would fail on the consistent case here, which is the correct
+	answer, not an edge case to be nudged away from: the endpoints being reachable is what makes the
+	score readable ("1.0 means every note matched perfectly") instead of merely bounded.
 	'''
 	src = make_source()
 	# a consistent target: same pitches, same spacing, constant offset
@@ -562,12 +569,12 @@ def check_cost_bounds ():
 		bad.observe(src[i]['pitch'], src[i]['onset'], sis[i])
 	bound = 2.0 / (1.0 - Config['CostStepAttenuation'])
 	ok = (good.cost < bound and bad.cost < bound
-		and -1.0 < good.prior < 1.0 and -1.0 < bad.prior < 1.0
+		and -1.0 <= good.prior <= 1.0 and -1.0 <= bad.prior <= 1.0
 		and good.cost < bad.cost and good.prior > bad.prior)
 	if not ok:
 		print(f'  FAIL bounds: good cost {good.cost:.3f} prior {good.prior:.3f}; '
 			f'bad cost {bad.cost:.3f} prior {bad.prior:.3f}; bound {bound:.2f}')
-	print(f'{"ok  " if ok else "FAIL"} cost bounded by {bound:.1f} and prior in (-1,1): '
+	print(f'{"ok  " if ok else "FAIL"} cost bounded by {bound:.1f} and prior in [-1,1]: '
 		f'consistent {good.cost:.3f}/{good.prior:+.3f} vs scrambled {bad.cost:.3f}/{bad.prior:+.3f}')
 	return ok
 

@@ -455,7 +455,7 @@ def check_wrong_pair_control (src_dir, tgt_dir, names, src_window):
 	The decoy is a fixed stride through the sorted file list rather than a random pick, so the whole
 	check is deterministic and a failure is reproducible without a seed.
 
-	MEASURED over 100 files: matchrate 0.980 true vs 0.028 decoy, prior +0.977 vs -0.630, and the true
+	MEASURED over 100 files: matchrate 0.980 true vs 0.028 decoy, prior +0.915 vs -0.954, and the true
 	pairing wins on 100/100 files by matchrate. The per-file win count is the assertion, not the mean:
 	a mean gap can be carried by a handful of files while most are ties.
 	'''
