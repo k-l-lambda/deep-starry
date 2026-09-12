@@ -163,6 +163,7 @@ from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer, Midiseq2Vocab
 from starry.midi.data.unifiedSeq2Tokenizer import UnifiedSeq2Tokenizer
 from starry.lilylet.patchyGenerator import sample_next
 from starry.midi.models.midiTranslator import KVDecoder
+from starry.midi.align import AlignState, soft_delta, soft_indices, Config as AlignConfig
 from starry.midi.models.midiTranslatorEncDec import EncDecKVDecoder
 
 
@@ -867,7 +868,7 @@ class SlidingTranslator:
 
 	def __init__ (self, model, tokenizer, pos_style='sep', src_window=640, max_token=2048,
 		device='cpu', prime=True, temperature=0.0, top_k=0, top_p=1.0, source_eom=False,
-		advance_tokens=1, prime_window=2048, kv_cache=True):
+		advance_tokens=1, prime_window=2048, kv_cache=True, align_advance=False):
 		self.model = model
 		self.tk = tokenizer
 		self.pos_style = pos_style
@@ -876,6 +877,15 @@ class SlidingTranslator:
 		self.device = torch.device(device)
 		self.prime = prime
 		self.advance_tokens = max(1, int(advance_tokens))
+		# Align-driven window advance: the cursor follows the ALIGNMENT's last matched source note
+		# instead of a note_on count. See `advance_source_by_align` for why and what it costs.
+		self.align_advance = bool(align_advance)
+		self.align = None			# AlignState, built lazily in translate() once src_events exist
+		self._align_prev_tick = None	# incremental softIndex accumulator for the TARGET stream
+		self._align_position = 0.0
+		self._align_walk = None		# resumable note_on_events state over the rolled-out target
+		self._align_matched = -1	# highest source EVENT index ever matched
+		self._align_stats = dict(observed=0, matched=0, missed=0, distinct=set(), short_steps=0)
 		# Safety ceiling on the target-half view. This is separate from the user-facing stride: the model can
 		# generate several measures in one step, so the retained primer may grow beyond its trained context.
 		# The ceiling trims that accidental growth; it does not determine how many measures we intentionally
@@ -1111,6 +1121,64 @@ class SlidingTranslator:
 			index += 1
 		return len(lines)
 
+	def advance_source_by_align (self, lines, cursor, rolled, src_events, src_line_of):
+		"""Advance the cursor to just past the ALIGNMENT's furthest matched source note.
+
+		`advance_source_by_onsets` counts note_on and steps the cursor by that count, which assumes the
+		two arms carry the same number of notes. Its own docstring measures that they do not (3 of 99
+		files equal, median relative delta 2.1%, max 27.4%), so the cursor drifts. This replaces the
+		count with the aligner's opinion: fold the tokens this step RETIRED into a running AlignState
+		and move the cursor past the highest source event it has ever matched.
+
+		Never moves backwards, because `_align_matched` is a running maximum: a step whose alignment
+		lands behind the cursor leaves it where it is, and translate()'s own guard then forces the
+		minimum advance that keeps the loop terminating. A backwards cursor would re-show source
+		already translated, which is the failure this is meant to avoid.
+
+		The aligner is fed the RETIRED tokens only, once each. Feeding the whole output every step
+		would re-observe the same notes and let `ReuseCost`-free re-matching accumulate; feeding the
+		primer as well would observe notes that a later step may still revise.
+		"""
+		events, _abst, self._align_walk = note_on_events(rolled, self.tk, self.keywords,
+			state=self._align_walk)
+		st = self._align_stats
+		for e in events:
+			# softIndex incrementally, via the same soft_delta the corpus path uses. Reimplementing the
+			# accumulation here once cost a silent mismatch (soft_delta clamps its interval at 0), so it
+			# is called rather than inlined.
+			if self._align_prev_tick is not None:
+				self._align_position += soft_delta(e['onset'] - self._align_prev_tick)
+			self._align_prev_tick = e['onset']
+			detail = self.align.observe(e['pitch'], e['onset'], self._align_position)
+			st['observed'] += 1
+			if detail['src'] is None:
+				st['missed'] += 1
+			else:
+				st['matched'] += 1
+				st['distinct'].add(detail['src'])
+				if detail['src'] > self._align_matched:
+					self._align_matched = detail['src']
+		if self._align_matched < 0:
+			return cursor
+		line = src_line_of[min(self._align_matched, len(src_line_of) - 1)]
+		return max(cursor, line + 1)
+
+	# NO ALIGN-DRIVEN EARLY STOP. Three signals were implemented and measured, and all three are dead;
+	# recorded here so the work is not repeated.
+	#
+	#   source exhausted -- UNREACHABLE. The condition needs the LAST source event matched, but the
+	#     aligner misses notes (9-19% on three files, 80% on a fourth), so the furthest match lands
+	#     short while the LINE cursor sails past it. Best reach over 5 files was 0.78 of the source, and
+	#     translate()'s own `cursor < len(lines)` always ended the run first -- unreachable AND
+	#     redundant.
+	#   miss rate -- DOES NOT TRACK QUALITY. The file with a 0.19 miss rate scored shift_f1 0.9785; the
+	#     one with 0.80 scored 0.5339. Higher miss rate is not worse output.
+	#   reach went stale -- NEVER FIRES. `_align_matched` is a running MAX over source indices and a
+	#     step emits ~160 note_on, so something almost always matches beyond the current max. Measured
+	#     at patience 1 on the file most likely to trigger it: byte-identical output, 0 stops.
+	#
+	# The advance is a separate question and it does work -- see advance_source_by_align.
+
 	# --- whole file ----------------------------------------------------------------------
 
 	def translate (self, lines, verbose=False, max_steps=0, inspector=None):
@@ -1131,6 +1199,23 @@ class SlidingTranslator:
 		cursor = 0
 		step = 0
 		stalls = 0
+		# Align-driven advance needs the source's note_on events with softIndex, plus the LINE each
+		# event came from -- the cursor is a line index, the aligner's `src` is an event index, and
+		# without the map the two cannot be converted. Built from one walk over `lines` so an event and
+		# its line can never skew: every note_on LINE contributes exactly one event, in order.
+		src_events, src_line_of = [], []
+		if self.align_advance:
+			src_line_of = [i for i, line in enumerate(lines) if line.startswith('note_on')]
+			all_ids = encode_lines(lines, self.tk, self.source_eom)
+			src_events, _abst, _st = note_on_events(all_ids, self.tk, self.keywords)
+			if len(src_events) != len(src_line_of):
+				print(f'[warn] align-advance: {len(src_events)} source events but '
+					f'{len(src_line_of)} note_on lines; falling back to onset counting')
+				self.align_advance = False
+			else:
+				for e, si in zip(src_events, soft_indices([e['onset'] for e in src_events])):
+					e['softIndex'] = si
+				self.align = AlignState(src_events, seed_offset=0.0)
 		forced = 0			# steps whose first token was <eos> before the mask removed it
 		done = False
 		start_time = time.time()
@@ -1183,7 +1268,10 @@ class SlidingTranslator:
 			retired_eom += sum(1 for token in rolled if token == self.tk.eom_id)
 			onsets = count_note_on(rolled, self.tk)
 			src_before = cursor
-			cursor = self.advance_source_by_onsets(lines, cursor, onsets)
+			if self.align_advance:
+				cursor = self.advance_source_by_align(lines, cursor, rolled, src_events, src_line_of)
+			else:
+				cursor = self.advance_source_by_onsets(lines, cursor, onsets)
 			# a step that consumed no source line would repeat the same window forever
 			if cursor <= src_before:
 				cursor = min(next_cursor, len(lines)) if next_cursor > src_before else src_before + 1
@@ -1206,8 +1294,16 @@ class SlidingTranslator:
 					f'{"  <eos> forced" if eos_forced else ""}')
 			step += 1
 
+		if self.align_advance:
+			st = self._align_stats
+			stats_align = dict(observed=st['observed'], matched=st['matched'], missed=st['missed'],
+				distinct=len(st['distinct']), reach=self._align_matched + 1,
+				src_events=len(src_events))
+		else:
+			stats_align = None
 		stats = dict(steps=step, output_tokens=len(output), source_lines=len(lines),
 			consumed_lines=cursor, stalls=stalls, eos_forced=forced, done=done,
+			align=stats_align,
 			elapsed=time.time() - start_time,
 			# decode_* covers only time inside generate(), so a cached-vs-uncached comparison is not
 			# diluted by tokenizing, alignment or figure work that the flag does not change.
@@ -1387,6 +1483,16 @@ def report_output (body_lines, stats):
 	consumed, total = stats['consumed_lines'], stats['source_lines']
 	# reaching end_of_track before the last source line is normal: the tail of a source file is its own
 	# note_off/end_of_track run, which the model translates in one window rather than one per line.
+	al = stats.get('align')
+	if al:
+		print(f'[align-advance] cursor followed the alignment: {al["matched"]} matched / '
+			f'{al["missed"]} missed of {al["observed"]} generated note_on, '
+			f'{al["distinct"]} DISTINCT source notes reached, furthest {al["reach"]}/'
+			f'{al["src_events"]}')
+		if al['matched'] and al['distinct'] < al['matched']:
+			print(f'[align-advance] re-use: {al["matched"]} matches over {al["distinct"]} distinct '
+				f'source notes = {al["matched"] / al["distinct"]:.2f}x. ReuseCost is '
+				f'{AlignConfig["ReuseCost"]}; a ratio well above 1 means the cursor under-advanced.')
 	if consumed < total and not stats['done']:
 		print(f'[warn] stopped after {consumed}/{total} source lines')
 
@@ -1981,6 +2087,12 @@ def main ():
 			'(see module docstring) — on the [64,512] l16d256 run use 960')
 	ap.add_argument('--no-prime', action='store_true',
 		help="don't seed the target half with the previous window's tail (matches training exactly)")
+	ap.add_argument('--align-advance', action='store_true',
+		help='let the ALIGNMENT choose the window advance and the early stop instead of a note_on '
+			'count. The cursor follows the furthest source note the aligner has matched, and the run '
+			'stops when that reaches the last source note. Token choice is untouched -- this is the '
+			'alignment used as a ruler, not as a ranker (contrast translateMidiseq2Beam.py --rank '
+			'align, where it orders candidates).')
 	ap.add_argument('--advance-tokens', type=int, default=1,
 		help='minimum target tokens retired per step, rounded up to the next <eom> (default 1)')
 	ap.add_argument('--no-kv-cache', action='store_true',
@@ -2062,6 +2174,7 @@ def main ():
 		src_window=args.src_window, max_token=args.max_token, device=args.device,
 		prime=not args.no_prime, temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
 		source_eom=bool(data_args.get('source_eom')), advance_tokens=args.advance_tokens,
+		align_advance=args.align_advance,
 		prime_window=args.prime_window, kv_cache=not args.no_kv_cache)
 
 	# The output path has to be settled BEFORE translate runs, because the streaming figures are named
@@ -2108,6 +2221,7 @@ def main ():
 					reduce=args.inspect_reduce, query=args.inspect_query,
 					threshold=args.inspect_threshold, top_k=args.inspect_top_k,
 					src_window=args.src_window, advance_tokens=args.advance_tokens, prime_window=args.prime_window,
+					align_advance=args.align_advance,
 					generated_notes=len(out_events), source_notes=len(src_events),
 					# prime_notes and cuts are recorded so what a figure DREW is checkable from data,
 					# rather than only by looking at the image: an empty primer or a missing cut is a
