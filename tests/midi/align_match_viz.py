@@ -205,7 +205,8 @@ def report (state, records, out_events, eoms, threshold, verbose=False):
 		median=pct(0.5) if costs else None, p99=pct(0.99) if costs else None)
 
 
-def plot (state, records, src_events, out_events, eoms, path, threshold, subtitle=''):
+def plot (state, records, src_events, out_events, eoms, path, threshold, subtitle='',
+		src_base=0):
 	'''Draw the correspondence. Style follows plot_attention_step; see the module docstring.'''
 	import matplotlib
 	matplotlib.use('Agg')					# file output only; no display on a training box
@@ -267,15 +268,19 @@ def plot (state, records, src_events, out_events, eoms, path, threshold, subtitl
 	# Source notes split by whether the alignment used them: an unused source note is a candidate
 	# nothing claimed, which is a different statement from a note that was matched, and on a figure
 	# about correspondence the difference is the point.
-	used = {r['src'] for r in records if r['src'] is not None}
+	# `records` carries GLOBAL source indices while `src_events` may be a SLICE starting at
+	# `src_base` (--from-measure/--to-measure draw a window). Mixing the two index spaces read as an
+	# IndexError on every sliced view, so the drawn range is stated globally and converted once, here.
+	drawn = range(src_base, src_base + len(src_events))
+	used = {r['src'] for r in records if r['src'] is not None and r['src'] in drawn}
 	for indices, style, label in (
-			(sorted(set(range(len(src_events))) - used), dict(s=18, marker='o', facecolors='none',
+			(sorted(set(drawn) - used), dict(s=18, marker='o', facecolors='none',
 				edgecolors=SRC_COLOR, linewidths=0.6, alpha=0.45), 'source, unmatched'),
 			(sorted(used), dict(s=26, marker='o', c=SRC_COLOR, edgecolors='white',
 				linewidths=0.4), 'source, matched')):
 		if indices:
-			ax_s.scatter([norm_s(src_events[i]['onset']) for i in indices],
-				[src_events[i]['pitch'] for i in indices],
+			ax_s.scatter([norm_s(src_events[i - src_base]['onset']) for i in indices],
+				[src_events[i - src_base]['pitch'] for i in indices],
 				label=f'{label} ({len(indices)})', zorder=4, **style)
 	ax_s.legend(loc='upper right', fontsize=8, framealpha=0.9)
 
@@ -435,9 +440,11 @@ def main ():
 	# the whole file: with a slice selected, plotting every source note would compress the matched
 	# region to a sliver and the tilt -- the whole point of the geometry -- would stop being readable.
 	used = [r['src'] for r in draw_records if r['src'] is not None]
+	draw_src_base = 0
 	if used and (args.from_measure or args.to_measure):
 		pad = max(4, (max(used) - min(used)) // 8)
-		draw_src = src_events[max(0, min(used) - pad):max(used) + pad + 1]
+		draw_src_base = max(0, min(used) - pad)
+		draw_src = src_events[draw_src_base:max(used) + pad + 1]
 	else:
 		draw_src = src_events
 	eom_draw = [t for t in eoms
@@ -447,7 +454,8 @@ def main ():
 	stem = os.path.basename(args.target).replace('.midiseq2.txt', '').replace('.txt', '')
 	span = f'.bars{args.from_measure or 1}-{args.to_measure}' if (args.from_measure or args.to_measure) else ''
 	path = os.path.join(args.out_dir, f'{stem}.align{span}.png')
-	plot(state, draw_records, draw_src, draw_out, eom_draw, path, args.loss_threshold, subtitle)
+	plot(state, draw_records, draw_src, draw_out, eom_draw, path, args.loss_threshold, subtitle,
+		src_base=draw_src_base)
 	print(f'\nwrote {path}  ({len(draw_out)} generated, {len(draw_src)} source drawn)')
 	return 0
 
