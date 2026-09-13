@@ -144,6 +144,8 @@ Usage:
 '''
 
 import argparse
+import bisect
+import collections
 import json
 import math
 import os
@@ -868,7 +870,8 @@ class SlidingTranslator:
 
 	def __init__ (self, model, tokenizer, pos_style='sep', src_window=640, max_token=2048,
 		device='cpu', prime=True, temperature=0.0, top_k=0, top_p=1.0, source_eom=False,
-		advance_tokens=1, prime_window=2048, kv_cache=True, align_advance=False):
+		advance_tokens=1, prime_window=2048, kv_cache=True, align_advance=False,
+		align_stop_window=0, align_stop_rate=0.6, align_trim_rate=0.0):
 		self.model = model
 		self.tk = tokenizer
 		self.pos_style = pos_style
@@ -886,6 +889,20 @@ class SlidingTranslator:
 		self._align_walk = None		# resumable note_on_events state over the rolled-out target
 		self._align_matched = -1	# highest source EVENT index ever matched
 		self._align_stats = dict(observed=0, matched=0, missed=0, distinct=set(), short_steps=0)
+		# Stage 1, the stop: miss ratio over the last `align_stop_window` observed notes, read at every
+		# measure boundary. A WINDOW rather than the current measure's own ratio because measures are
+		# small and uneven -- median 15 note_on but p10 is 8 and 4.0% carry <= 5, where a per-measure
+		# ratio is nearly binary. A fixed window always weighs the same number of observations.
+		self.align_stop_window = max(0, int(align_stop_window))
+		self.align_stop_rate = float(align_stop_rate)
+		self._align_recent = collections.deque(maxlen=self.align_stop_window or 1)
+		self._align_stop_at = None		# output token index where the stop fired
+		# Stage 2, the tail trim: drop trailing measures whose OWN miss ratio exceeds this. Applied
+		# after the run, walking backwards from the last measure until one passes. Here a per-measure
+		# ratio is the right statistic -- the question is about one specific measure, not a trend.
+		self.align_trim_rate = float(align_trim_rate)
+		self._align_measures = []		# measure ordinal -> [observed, missed]
+		self._align_eom_at = []			# absolute output index of every <eom>, in order
 		# Safety ceiling on the target-half view. This is separate from the user-facing stride: the model can
 		# generate several measures in one step, so the retained primer may grow beyond its trained context.
 		# The ceiling trims that accidental growth; it does not determine how many measures we intentionally
@@ -1121,7 +1138,7 @@ class SlidingTranslator:
 			index += 1
 		return len(lines)
 
-	def advance_source_by_align (self, lines, cursor, rolled, src_events, src_line_of):
+	def advance_source_by_align (self, lines, cursor, rolled, src_events, src_line_of, index0=0):
 		"""Advance the cursor to just past the ALIGNMENT's furthest matched source note.
 
 		`advance_source_by_onsets` counts note_on and steps the cursor by that count, which assumes the
@@ -1139,8 +1156,14 @@ class SlidingTranslator:
 		would re-observe the same notes and let `ReuseCost`-free re-matching accumulate; feeding the
 		primer as well would observe notes that a later step may still revise.
 		"""
+		# `marks` rides along on this same walk to collect <eom> positions: a measure ordinal is then
+		# just how many <eom> precede a note, which is what both the stop and the trim are keyed on.
+		# A second pass would have to re-accumulate the elapse runs to find them, and two counters over
+		# one stream only have to disagree once for measures to drift off the notes they bound.
+		marks = []
 		events, _abst, self._align_walk = note_on_events(rolled, self.tk, self.keywords,
-			state=self._align_walk)
+			state=self._align_walk, index0=index0, marks=marks)
+		self._align_eom_at.extend(i for i, _tick in marks)
 		st = self._align_stats
 		for e in events:
 			# softIndex incrementally, via the same soft_delta the corpus path uses. Reimplementing the
@@ -1158,21 +1181,106 @@ class SlidingTranslator:
 				st['distinct'].add(detail['src'])
 				if detail['src'] > self._align_matched:
 					self._align_matched = detail['src']
+			self.record_align_quality(e['pitch_index'], detail['src'] is None)
 		if self._align_matched < 0:
 			return cursor
 		line = src_line_of[min(self._align_matched, len(src_line_of) - 1)]
 		return max(cursor, line + 1)
 
-	# NO ALIGN-DRIVEN EARLY STOP. Three signals were implemented and measured, and all three are dead;
-	# recorded here so the work is not repeated.
+	def record_align_quality (self, pitch_index, missed):
+		'''Book one observed note against its measure, and arm the stop if recent quality collapsed.
+
+		Measure ordinal is `bisect(self._align_eom_at, pitch_index)`: <eom> OPENS bar N for N >= 2, so
+		the count of <eom> strictly before a note is the ordinal of the measure containing it. Derived
+		rather than counted incrementally so it cannot drift from the marks the walk collected.
+		'''
+		m = bisect.bisect_left(self._align_eom_at, pitch_index)
+		while len(self._align_measures) <= m:
+			self._align_measures.append([0, 0])
+		self._align_measures[m][0] += 1
+		if missed:
+			self._align_measures[m][1] += 1
+		if not self.align_stop_window or self._align_stop_at is not None:
+			return
+		self._align_recent.append(1 if missed else 0)
+		# Only judged on a FULL window. A partial window's ratio is noisy in exactly the direction that
+		# fires the stop (one miss out of two observations reads 0.5), and the opening of a run is where
+		# a spurious stop is most expensive -- it would discard the whole piece.
+		if len(self._align_recent) < self.align_stop_window:
+			return
+		if sum(self._align_recent) / len(self._align_recent) > self.align_stop_rate:
+			self._align_stop_at = pitch_index
+
+	def observe_tail (self, output, from_index):
+		'''Feed the tokens the run never retired, so the trim has statistics for EVERY measure.
+
+		The aligner is fed retired tokens only, which leaves the primer tail unobserved -- and that
+		tail is precisely where the trim has to make its decision. Called once the loop is over, when
+		nothing can revise those tokens any more, so observing them here does not double-count.
+		'''
+		if from_index >= len(output):
+			return
+		marks = []
+		events, _abst, self._align_walk = note_on_events(output[from_index:], self.tk, self.keywords,
+			state=self._align_walk, index0=from_index, marks=marks)
+		self._align_eom_at.extend(i for i, _tick in marks)
+		st = self._align_stats
+		for e in events:
+			if self._align_prev_tick is not None:
+				self._align_position += soft_delta(e['onset'] - self._align_prev_tick)
+			self._align_prev_tick = e['onset']
+			detail = self.align.observe(e['pitch'], e['onset'], self._align_position)
+			st['observed'] += 1
+			if detail['src'] is None:
+				st['missed'] += 1
+			else:
+				st['matched'] += 1
+				st['distinct'].add(detail['src'])
+			self.record_align_quality(e['pitch_index'], detail['src'] is None)
+
+	def trim_align_tail (self, output):
+		'''Drop trailing measures whose own miss ratio exceeds `align_trim_rate`.
+
+		Returns (truncated_output, measures_dropped, failed). Truncation lands ON an <eom> boundary so
+		the result ends with a COMPLETE measure; the boundary token itself is excluded, since <eom>
+		opens the NEXT bar and keeping it would render a dangling empty `@measure`.
+
+		`failed` is True when no measure survives -- the caller is expected to declare the file a
+		failure rather than write a fragment. Measured on 30 files it never fired, so that branch is
+		reasoned-through but unexercised.
+		'''
+		if not self.align_trim_rate or not self._align_measures:
+			return output, 0, False
+		last = len(self._align_measures) - 1
+		dropped = 0
+		while last >= 0:
+			seen, missed = self._align_measures[last]
+			if seen and missed / seen > self.align_trim_rate:
+				last -= 1
+				dropped += 1
+			else:
+				break
+		if last < 0:
+			return output, dropped, True
+		if dropped == 0:
+			return output, 0, False
+		# measure ordinal `last` ends where the next <eom> opens bar last+1
+		if last < len(self._align_eom_at):
+			return output[:self._align_eom_at[last]], dropped, False
+		return output, dropped, False
+
+	# NO ALIGN-DRIVEN EARLY STOP BY THESE THREE SIGNALS. All three were implemented and measured dead;
+	# recorded here so the work is not repeated. The signal that DOES work is the windowed recent-miss
+	# rate in `record_align_quality` -- local and sliding, which none of these three is.
 	#
 	#   source exhausted -- UNREACHABLE. The condition needs the LAST source event matched, but the
 	#     aligner misses notes (9-19% on three files, 80% on a fourth), so the furthest match lands
 	#     short while the LINE cursor sails past it. Best reach over 5 files was 0.78 of the source, and
 	#     translate()'s own `cursor < len(lines)` always ended the run first -- unreachable AND
 	#     redundant.
-	#   miss rate -- DOES NOT TRACK QUALITY. The file with a 0.19 miss rate scored shift_f1 0.9785; the
-	#     one with 0.80 scored 0.5339. Higher miss rate is not worse output.
+	#   miss rate over the WHOLE RUN -- DOES NOT TRACK QUALITY. The file with a 0.19 miss rate scored
+	#     shift_f1 0.9785; the one with 0.80 scored 0.5339. A run-long average is not a recent signal:
+	#     the same quantity over a 16-note WINDOW does track quality (see record_align_quality).
 	#   reach went stale -- NEVER FIRES. `_align_matched` is a running MAX over source indices and a
 	#     step emits ~160 note_on, so something almost always matches beyond the current max. Measured
 	#     at patience 1 on the file most likely to trigger it: byte-identical output, 0 stops.
@@ -1269,7 +1377,8 @@ class SlidingTranslator:
 			onsets = count_note_on(rolled, self.tk)
 			src_before = cursor
 			if self.align_advance:
-				cursor = self.advance_source_by_align(lines, cursor, rolled, src_events, src_line_of)
+				cursor = self.advance_source_by_align(lines, cursor, rolled, src_events, src_line_of,
+					index0=before)
 			else:
 				cursor = self.advance_source_by_onsets(lines, cursor, onsets)
 			# a step that consumed no source line would repeat the same window forever
@@ -1286,6 +1395,14 @@ class SlidingTranslator:
 					next_position=(target_base + len(prime_ids)
 						if self.pos_style == 'absolute' else None))
 
+			if self._align_stop_at is not None:
+				# Stage 1 fired. The step that fired is kept whole: the trim is what cleans its tail,
+				# and cutting mid-step here would leave an unterminated measure for it to inherit.
+				if verbose:
+					print(f'  step {step:4d}  align stop at output index {self._align_stop_at}')
+				step += 1
+				break
+
 			if verbose:
 				print(f'  step {step:4d}  src[{src_before}:{cursor}] {len(src_ids):5d} tok  '
 					f'prime {len(prime_ids):5d}  gen {len(new_ids):5d}  '
@@ -1294,11 +1411,16 @@ class SlidingTranslator:
 					f'{"  <eos> forced" if eos_forced else ""}')
 			step += 1
 
+		trimmed, failed = 0, False
 		if self.align_advance:
+			# Everything past `prime_start` was never retired and so never observed; the trim needs it.
+			self.observe_tail(output, prime_start)
+			output, trimmed, failed = self.trim_align_tail(output)
 			st = self._align_stats
 			stats_align = dict(observed=st['observed'], matched=st['matched'], missed=st['missed'],
 				distinct=len(st['distinct']), reach=self._align_matched + 1,
-				src_events=len(src_events))
+				src_events=len(src_events), stop_at=self._align_stop_at,
+				measures_trimmed=trimmed, failed=failed)
 		else:
 			stats_align = None
 		stats = dict(steps=step, output_tokens=len(output), source_lines=len(lines),
@@ -1489,6 +1611,15 @@ def report_output (body_lines, stats):
 			f'{al["missed"]} missed of {al["observed"]} generated note_on, '
 			f'{al["distinct"]} DISTINCT source notes reached, furthest {al["reach"]}/'
 			f'{al["src_events"]}')
+		if al.get('stop_at') is not None:
+			print(f'[align-stop] recent miss rate crossed the threshold at output token '
+				f'{al["stop_at"]}; the run ended there')
+		if al.get('measures_trimmed'):
+			print(f'[align-trim] dropped {al["measures_trimmed"]} trailing measure(s) whose own miss '
+				f'ratio exceeded the trim rate')
+		if al.get('failed'):
+			print('[align-trim] FAILURE: no measure survived the trim, so the output is a fragment '
+				'and should not be used')
 		if al['matched'] and al['distinct'] < al['matched']:
 			print(f'[align-advance] re-use: {al["matched"]} matches over {al["distinct"]} distinct '
 				f'source notes = {al["matched"] / al["distinct"]:.2f}x. ReuseCost is '
@@ -2088,11 +2219,25 @@ def main ():
 	ap.add_argument('--no-prime', action='store_true',
 		help="don't seed the target half with the previous window's tail (matches training exactly)")
 	ap.add_argument('--align-advance', action='store_true',
-		help='let the ALIGNMENT choose the window advance and the early stop instead of a note_on '
-			'count. The cursor follows the furthest source note the aligner has matched, and the run '
-			'stops when that reaches the last source note. Token choice is untouched -- this is the '
-			'alignment used as a ruler, not as a ranker (contrast translateMidiseq2Beam.py --rank '
-			'align, where it orders candidates).')
+		help='let the ALIGNMENT choose the window advance instead of a note_on count. The cursor '
+			'follows the furthest source note the aligner has matched. Token choice is untouched -- '
+			'this is the alignment used as a ruler, not as a ranker (contrast '
+			'translateMidiseq2Beam.py --rank align, where it orders candidates). Measured on 29 '
+			'files: shift_f1 0.7726 -> 0.7989, not significant, and only 7 files change at all.')
+	ap.add_argument('--align-stop-window', type=int, default=0, metavar='N',
+		help='stage 1, the early stop: end the run once the miss ratio over the last N observed '
+			'note_on exceeds --align-stop-rate. 0 disables it. Needs --align-advance (the stop reads '
+			'the same AlignState the advance builds). A window rather than the current measure is '
+			'used because measures are uneven -- median 15 note_on but 4%% carry <= 5. Measured at '
+			'N=16 rate 0.6 on 30 files: whole-file shift_f1 0.6901 -> 0.7227, 6 win / 2 lose.')
+	ap.add_argument('--align-stop-rate', type=float, default=0.6, metavar='R',
+		help='miss ratio over the --align-stop-window that ends the run (default 0.6).')
+	ap.add_argument('--align-trim-rate', type=float, default=0.0, metavar='R',
+		help='stage 2, the tail trim: after the run, drop trailing measures whose OWN miss ratio '
+			'exceeds R, so the output ends on a complete measure. 0 disables it. Needs '
+			'--align-advance. Independent of the stop and SAFER than it -- measured at R=0.3 on 30 '
+			'files it won 4 and lost 0 (0.6901 -> 0.7142), where the stop loses on 2. If no measure '
+			'survives the file is reported as a failure rather than written as a fragment.')
 	ap.add_argument('--advance-tokens', type=int, default=1,
 		help='minimum target tokens retired per step, rounded up to the next <eom> (default 1)')
 	ap.add_argument('--no-kv-cache', action='store_true',
@@ -2174,7 +2319,8 @@ def main ():
 		src_window=args.src_window, max_token=args.max_token, device=args.device,
 		prime=not args.no_prime, temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
 		source_eom=bool(data_args.get('source_eom')), advance_tokens=args.advance_tokens,
-		align_advance=args.align_advance,
+		align_advance=args.align_advance, align_stop_window=args.align_stop_window,
+		align_stop_rate=args.align_stop_rate, align_trim_rate=args.align_trim_rate,
 		prime_window=args.prime_window, kv_cache=not args.no_kv_cache)
 
 	# The output path has to be settled BEFORE translate runs, because the streaming figures are named
@@ -2221,7 +2367,8 @@ def main ():
 					reduce=args.inspect_reduce, query=args.inspect_query,
 					threshold=args.inspect_threshold, top_k=args.inspect_top_k,
 					src_window=args.src_window, advance_tokens=args.advance_tokens, prime_window=args.prime_window,
-					align_advance=args.align_advance,
+					align_advance=args.align_advance, align_stop_window=args.align_stop_window,
+					align_stop_rate=args.align_stop_rate, align_trim_rate=args.align_trim_rate,
 					generated_notes=len(out_events), source_notes=len(src_events),
 					# prime_notes and cuts are recorded so what a figure DREW is checkable from data,
 					# rather than only by looking at the image: an empty primer or a missing cut is a
