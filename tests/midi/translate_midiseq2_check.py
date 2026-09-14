@@ -346,6 +346,104 @@ def check_source_advance (root):
 	return ok
 
 
+def check_source_annotation (root):
+	"""annotate_source writes bars onto the source that conserve its notes and match the target's count.
+
+	The property that matters is CONSERVATION: every source note_on must land in exactly one bar, so the
+	annotated file is the same music with a coordinate added. A boundary rule that lost or duplicated a
+	note would still produce a plausible-looking file, and the figure built on it would then be a figure
+	of a source that does not exist.
+
+	Driven by a stub `_align_first_src` rather than a real run: the point is the boundary arithmetic, and
+	the cases worth covering (a backward match, a bar that matched nothing, a trim) are ones a given
+	checkpoint may or may not happen to produce.
+	"""
+	tk = Midiseq2Tokenizer()
+	ok = True
+	n = 40
+	lines = [f'note_on C1 #{40 + i} $40' for i in range(n)]
+
+	def annotate (first, matched, kept=None, distinct=None):
+		tr = SlidingTranslator(None, tk)
+		tr._align_first_src = list(first)
+		tr._align_matched = matched
+		tr._align_src_line_of = list(range(n))
+		# `distinct` is what the tail boundary actually reads -- NOT _align_matched, which stops at the
+		# last cursor advance and so under-reports whatever observe_tail matched afterwards.
+		tr._align_stats['distinct'] = set(range(matched + 1) if distinct is None else distinct)
+		out, stats = tr.annotate_source(lines, kept=kept)
+		bar, per = 0, {}
+		for l in out:
+			if l.startswith('@measure'):
+				bar = int(l.split()[1])
+			else:
+				per[bar] = per.get(bar, 0) + 1
+		return out, stats, per
+
+	cases = (
+		('plain', [0, 5, 11, 20], 31, None, 0),
+		('backward match clamped', [0, 5, 3, 20], 31, None, 1),
+		('bar matched nothing', [0, None, 11, 20], 31, None, 1),
+		('trailing gap', [0, 5, None, None], 31, None, 2),
+		('first bar missed', [None, 5, 11], 31, None, 0),
+		('trimmed to 2 bars', [0, 5, 11, 20], 31, 2, 0),
+	)
+	for label, first, matched, kept, want_empty in cases:
+		out, stats, per = annotate(first, matched, kept)
+		total = sum(per.values())
+		if total != n:
+			print(f'  FAIL {label}: {total} note_on across bars, source has {n}'); ok = False
+		if per.get(0):
+			print(f'  FAIL {label}: {per[0]} note_on before the first @measure'); ok = False
+		nums = [int(l.split()[1]) for l in out if l.startswith('@measure')]
+		if nums != list(range(1, len(nums) + 1)):
+			print(f'  FAIL {label}: measure numbers not contiguous from 1: {nums}'); ok = False
+		bars = stats['bars']
+		if kept and bars != kept:
+			print(f'  FAIL {label}: {bars} bars annotated, trim kept {kept}'); ok = False
+		if stats['empty_bars'] != want_empty:
+			print(f'  FAIL {label}: {stats["empty_bars"]} empty bars, expected {want_empty}'); ok = False
+		if stats['covered_notes'] + stats['tail_notes'] != n:
+			print(f'  FAIL {label}: covered {stats["covered_notes"]} + tail {stats["tail_notes"]} '
+				f'!= {n}'); ok = False
+		# the tail is a remainder bucket, so it is the ONE bar past the annotated ones
+		if stats['tail_notes'] and len(nums) != bars + 1:
+			print(f'  FAIL {label}: tail of {stats["tail_notes"]} notes but {len(nums)} directives '
+				f'for {bars} bars'); ok = False
+
+	# The tail must start one past the FURTHEST match, not past the last bar's opening: a last bar whose
+	# boundary is 20 while the run matched out to 30 owns 21..30, and reading max(bounds) + 1 instead
+	# would leave it holding one note and call the other 10 unreached.
+	_out, st, per = annotate([0, 5, 11, 20], 31, distinct=range(31))
+	if st['tail_notes'] != n - 31 or per.get(4, 0) != 11:
+		print(f'  FAIL tail boundary: last bar {per.get(4)} notes, tail {st["tail_notes"]} '
+			f'(want 11 and {n - 31})'); ok = False
+	# ...and a trim overrides it: the dropped bars' source is the tail's, not the last kept bar's.
+	_out, st, per = annotate([0, 5, 11, 20], 31, kept=2, distinct=range(31))
+	if per.get(2, 0) != 6 or st['tail_notes'] != n - 11:
+		print(f'  FAIL trimmed tail: bar 2 {per.get(2)} notes, tail {st["tail_notes"]} '
+			f'(want 6 and {n - 11})'); ok = False
+
+	# The no-evidence bar must be the EMPTY one, not its predecessor -- that is what the forward fill
+	# buys, and a backward fill would pass every conservation check above while blaming the wrong bar.
+	_out, _st, per = annotate([0, None, 11, 20], 31)
+	if per.get(2, 0) != 0 or per.get(1, 0) == 0:
+		print(f'  FAIL forward fill: bar 2 matched nothing but bars read {per}'); ok = False
+
+	# A run with no alignment at all must leave the source untouched rather than emit a bar 1 it cannot
+	# justify -- annotate_source is reachable with --align-advance off only by a caller bug, but a
+	# silently half-annotated source would be worse than an unchanged one.
+	tr = SlidingTranslator(None, tk)
+	out, stats, _ = SlidingTranslator(None, tk), None, None
+	blank, stats = tr.annotate_source(lines)
+	if blank != lines or stats['bars']:
+		print(f'  FAIL no alignment: {stats["bars"]} bars written onto an unaligned source'); ok = False
+
+	print(f'{"ok  " if ok else "FAIL"} annotate_source: notes conserved, numbering contiguous, '
+		f'empty bar lands on the bar that matched nothing ({len(cases)} cases)')
+	return ok
+
+
 def check_render (root, samples):
 	'''render_lines must round-trip a real file's content lines through the vocab.
 
@@ -1341,6 +1439,7 @@ def main ():
 		check_render(args.root, args.samples),
 		check_no_unknown(args.root, args.samples),
 		check_source_advance(args.root),
+		check_source_annotation(args.root),
 		check_header(args.root),
 		check_note_on_events(args.root, args.samples),
 		check_incremental_walk(args.root, min(args.samples, 4)),

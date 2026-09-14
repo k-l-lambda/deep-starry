@@ -903,6 +903,12 @@ class SlidingTranslator:
 		self.align_trim_rate = float(align_trim_rate)
 		self._align_measures = []		# measure ordinal -> [observed, missed]
 		self._align_eom_at = []			# absolute output index of every <eom>, in order
+		# measure ordinal -> the FIRST source event index any note in that measure matched, or None.
+		# Collected on the same walk as the two above so it cannot drift from them; it is what
+		# `annotate_source` turns into a source-side @measure boundary.
+		self._align_first_src = []
+		self._align_src_line_of = []	# source event index -> its note_on LINE, kept for annotate_source
+		self._align_kept_measures = 0	# measures surviving the trim; the annotation stops there
 		# Safety ceiling on the target-half view. This is separate from the user-facing stride: the model can
 		# generate several measures in one step, so the retained primer may grow beyond its trained context.
 		# The ceiling trims that accidental growth; it does not determine how many measures we intentionally
@@ -1181,25 +1187,37 @@ class SlidingTranslator:
 				st['distinct'].add(detail['src'])
 				if detail['src'] > self._align_matched:
 					self._align_matched = detail['src']
-			self.record_align_quality(e['pitch_index'], detail['src'] is None)
+			self.record_align_quality(e['pitch_index'], detail['src'])
 		if self._align_matched < 0:
 			return cursor
 		line = src_line_of[min(self._align_matched, len(src_line_of) - 1)]
 		return max(cursor, line + 1)
 
-	def record_align_quality (self, pitch_index, missed):
+	def record_align_quality (self, pitch_index, src_index):
 		'''Book one observed note against its measure, and arm the stop if recent quality collapsed.
+
+		`src_index` is the source EVENT the aligner matched, or None for a miss. The index is kept and
+		not just its nullity because the FIRST one per measure is the source-side boundary of that bar
+		-- see `annotate_source`. Taken here rather than on a second pass for the same reason the marks
+		are: two walks over one stream only have to disagree once for measures to drift off their notes.
 
 		Measure ordinal is `bisect(self._align_eom_at, pitch_index)`: <eom> OPENS bar N for N >= 2, so
 		the count of <eom> strictly before a note is the ordinal of the measure containing it. Derived
 		rather than counted incrementally so it cannot drift from the marks the walk collected.
 		'''
+		missed = src_index is None
 		m = bisect.bisect_left(self._align_eom_at, pitch_index)
 		while len(self._align_measures) <= m:
 			self._align_measures.append([0, 0])
+			self._align_first_src.append(None)
 		self._align_measures[m][0] += 1
 		if missed:
 			self._align_measures[m][1] += 1
+		elif self._align_first_src[m] is None:
+			# FIRST in generation order, not the smallest: the opening note of a bar is what the model
+			# put there, and taking a min would let a later note that matched backwards move the
+			# boundary behind its own bar.
+			self._align_first_src[m] = src_index
 		if not self.align_stop_window or self._align_stop_at is not None:
 			return
 		self._align_recent.append(1 if missed else 0)
@@ -1236,7 +1254,7 @@ class SlidingTranslator:
 			else:
 				st['matched'] += 1
 				st['distinct'].add(detail['src'])
-			self.record_align_quality(e['pitch_index'], detail['src'] is None)
+			self.record_align_quality(e['pitch_index'], detail['src'])
 
 	def trim_align_tail (self, output):
 		'''Drop trailing measures whose own miss ratio exceeds `align_trim_rate`.
@@ -1268,6 +1286,130 @@ class SlidingTranslator:
 		if last < len(self._align_eom_at):
 			return output[:self._align_eom_at[last]], dropped, False
 		return output, dropped, False
+
+	def measure_boundaries (self, kept=None):
+		"""Measure ordinal -> the source EVENT index that bar opens at, for the bars that survived.
+
+		This is the whole content of the annotation: `_align_first_src[m]` is the source note the first
+		matched note of target bar m landed on, so it is where that bar begins ON THE SOURCE SIDE. The
+		list is then made monotone and gap-filled, because neither property is free:
+
+		  NOT MONOTONE  align.py may match backwards (MEASURED corpus-wide: backward jumps > 4 indices
+		                on 0.7% of matches). A boundary behind its predecessor would emit an @measure
+		                that re-opens source already inside the previous bar, so it is clamped up to
+		                the running maximum -- i.e. that bar is credited with no new source of its own.
+		  GAPS          a bar whose every note missed has no boundary at all. It takes the NEXT known
+		                boundary, so it comes out EMPTY and its predecessor keeps the span.
+
+		Filling FORWARD is the load-bearing half of that, because a bar spans [bounds[m], bounds[m+1]):
+		giving the no-evidence bar the next boundary makes ITS OWN span empty, which is the statement the
+		data supports -- the alignment found nothing to put in it. Filling from the previous boundary
+		instead moves the emptiness onto the PRECEDING bar, i.e. onto a bar that aligned fine, and the
+		unclaimed source notes would then be drawn as that bar's failure. (Verified by walking the
+		annotated text: on first_src [0, None, 11, 20] the forward fill leaves bar 2 with 0 notes and
+		bar 1 with the 11 before it; the backward fill empties bar 1 instead.)
+
+		A TIE -- two bars opening at the same source note, from the clamp above or from two bars matching
+		one note -- always leaves one of them empty, since two bars cannot both own the same span. Which
+		one is a convention rather than a claim: the earlier one is drawn empty and the later one keeps
+		the notes. Under every fill: no source note is lost or duplicated, the numbering stays contiguous
+		with the target's, and the total span is preserved.
+
+		Bar 1 always opens at source 0: the piece starts there whatever its notes matched.
+		"""
+		first = self._align_first_src if kept is None else self._align_first_src[:kept]
+		if not first:
+			return []
+		bounds = [None] * len(first)
+		high = 0
+		for m, src in enumerate(first):
+			if src is None:
+				continue
+			high = max(high, src)		# never backwards: a boundary behind its predecessor would
+			bounds[m] = high			# re-open source already inside the previous bar
+		nxt = None
+		for m in range(len(bounds) - 1, -1, -1):
+			if bounds[m] is None:
+				bounds[m] = nxt			# forward fill; a trailing gap has no next and takes the last
+			else:
+				nxt = bounds[m]
+		last = 0
+		for m, b in enumerate(bounds):
+			if b is None:
+				bounds[m] = last
+			else:
+				last = b
+		bounds[0] = 0
+		return bounds
+
+	def annotate_source (self, lines, kept=None):
+		"""`lines` with source-side `@measure` directives inserted from the alignment. -> (lines, stats).
+
+		The output arm carries `@measure` because the model generates <eom>; the source arm of a real
+		recording carries none (MEASURED on yt-piano: 0 @measure lines on all 20 test files), so the two
+		files cannot be read against each other bar by bar and `tests/midi/align_corpus_viz.py` -- which
+		is organised entirely around the bar coordinate -- has nothing to grid the source lane on. This
+		writes that coordinate onto the source, taking it from the only thing that relates the two
+		streams: the note-level correspondence the run's own AlignState already produced.
+
+		Bar N opens immediately BEFORE the note_on line of its boundary event, so every line between the
+		previous note and that one (elapse runs, note_off, control_change) stays in the previous bar. The
+		corpus convention is the opposite -- it puts @measure before the elapse run leading into the bar,
+		because there the boundary is a known TICK and the run spans it. Here there is no tick to
+		place it at: the alignment relates notes, not times, so the boundary is stated at the note it is
+		actually evidence about, and nothing is claimed about where inside the preceding gap the bar
+		began.
+
+		A final `@measure` is emitted after the last claimed source note, so the source tail the run
+		never reached is bucketed OUTSIDE the annotated bars rather than swelling the last real one.
+		That bar is a remainder, not a measure -- `tail_notes` says how big it is.
+		"""
+		full = self.measure_boundaries()
+		# `is None` and not a falsy test: kept=0 means NO measure survived the trim, which must annotate
+		# nothing. Treating it as "all" would write a full set of bars onto a file the run declared a
+		# failure.
+		bounds = full if kept is None else full[:kept]
+		src_line_of = self._align_src_line_of
+		stats = dict(bars=0, empty_bars=0, covered_notes=0, tail_notes=0, reach=self._align_matched + 1,
+			src_notes=len(src_line_of))
+		if not bounds or not src_line_of:
+			return list(lines), stats
+		# ordinal m (0-based) is bar m+1; several ordinals may share one line, and each still gets its
+		# own directive so the numbering stays contiguous with the target's.
+		at = {}
+		for m, b in enumerate(bounds):
+			line = src_line_of[min(b, len(src_line_of) - 1)]
+			at.setdefault(line, []).append(m + 1)
+			if m and bounds[m] == bounds[m - 1]:
+				stats['empty_bars'] += 1
+		# Where the last annotated bar ENDS. Two cases, and the difference matters:
+		#   trim dropped bars   the first DROPPED bar's own boundary. Its source belongs to the tail, not
+		#                       to the last surviving bar -- charging it there would make that bar look
+		#                       like it swallowed a measure of source it never translated.
+		#   nothing dropped     one past the furthest source note ANYTHING matched. The last bar owns
+		#                       everything the run reached; max(bounds) + 1 would give it exactly one
+		#                       note, since a bar's own boundary is where it OPENS.
+		#
+		# That furthest index is max(distinct), NOT `_align_matched`. The two differ: `_align_matched` is
+		# only advanced in advance_source_by_align, because it drives the CURSOR and the un-retired tail
+		# never moved it. observe_tail does record those matches, so the annotation sees further than the
+		# reported reach -- MEASURED on 71XwSVoXOxI, reach 233 against a furthest match of 251. Using
+		# reach here would have put 18 matched notes in the unreached tail and called them unreached.
+		distinct = self._align_stats['distinct']
+		furthest = (max(distinct) + 1) if distinct else 0
+		tail_from = full[len(bounds)] if len(bounds) < len(full) else furthest
+		tail_from = max(tail_from, max(bounds) + 1)
+		if tail_from < len(src_line_of):
+			at.setdefault(src_line_of[tail_from], []).append(len(bounds) + 1)
+			stats['tail_notes'] = len(src_line_of) - tail_from
+		stats['bars'] = len(bounds)
+		stats['covered_notes'] = len(src_line_of) - stats['tail_notes']
+		out = []
+		for i, line in enumerate(lines):
+			for n in at.get(i, ()):
+				out.append(f'@measure {n}')
+			out.append(line)
+		return out, stats
 
 	# NO ALIGN-DRIVEN EARLY STOP BY THESE THREE SIGNALS. All three were implemented and measured dead;
 	# recorded here so the work is not repeated. The signal that DOES work is the windowed recent-miss
@@ -1324,6 +1466,9 @@ class SlidingTranslator:
 				for e, si in zip(src_events, soft_indices([e['onset'] for e in src_events])):
 					e['softIndex'] = si
 				self.align = AlignState(src_events, seed_offset=0.0)
+				# annotate_source needs the event -> line map after the run; it is built here, from the
+				# same walk, so the annotation can never be keyed on a different reading of the source.
+				self._align_src_line_of = src_line_of
 		forced = 0			# steps whose first token was <eos> before the mask removed it
 		done = False
 		start_time = time.time()
@@ -1416,6 +1561,9 @@ class SlidingTranslator:
 			# Everything past `prime_start` was never retired and so never observed; the trim needs it.
 			self.observe_tail(output, prime_start)
 			output, trimmed, failed = self.trim_align_tail(output)
+			# Counted from the FINAL output, after the trim: a dropped measure has no source bar either,
+			# so the annotation must stop where the file does. `+ 1` because @measure 1 emits no <eom>.
+			self._align_kept_measures = 1 + sum(1 for t in output if t == self.tk.eom_id)
 			st = self._align_stats
 			stats_align = dict(observed=st['observed'], matched=st['matched'], missed=st['missed'],
 				distinct=len(st['distinct']), reach=self._align_matched + 1,
@@ -2238,6 +2386,12 @@ def main ():
 			'--align-advance. Independent of the stop and SAFER than it -- measured at R=0.3 on 30 '
 			'files it won 4 and lost 0 (0.6901 -> 0.7142), where the stop loses on 2. If no measure '
 			'survives the file is reported as a failure rather than written as a fragment.')
+	ap.add_argument('--annotate-source', default=None, metavar='DIR',
+		help='also write the SOURCE with @measure directives inserted at the bar boundaries the '
+			'alignment implies, into DIR under the input basename. Needs --align-advance. This is '
+			'what makes the source and the output readable against each other bar by bar -- a real '
+			'recording carries no @measure of its own -- and is the input '
+			'tests/midi/align_corpus_viz.py --pair-src/--pair-tgt expects.')
 	ap.add_argument('--advance-tokens', type=int, default=1,
 		help='minimum target tokens retired per step, rounded up to the next <eom> (default 1)')
 	ap.add_argument('--no-kv-cache', action='store_true',
@@ -2347,6 +2501,19 @@ def main ():
 
 	write_output(out_path, final)
 	print(f'[done] {out_path}')
+
+	if args.annotate_source:
+		if not args.align_advance:
+			print('[warn] --annotate-source needs --align-advance; no correspondence was computed')
+		else:
+			ann, ann_stats = translator.annotate_source(lines, translator._align_kept_measures)
+			ann_path = os.path.join(args.annotate_source, os.path.basename(args.input))
+			write_output(ann_path, ann)
+			print(f'[annotate] {ann_stats["bars"]} source @measure directives '
+				f'({ann_stats["empty_bars"]} bar(s) with no source note of their own), '
+				f'{ann_stats["covered_notes"]}/{ann_stats["src_notes"]} source note_on inside them, '
+				f'{ann_stats["tail_notes"]} in the unreached tail')
+			print(f'[annotate] {ann_path}')
 
 	if inspector is not None:
 		pairs, out_events, src_events, windows = inspector.resolve_all(output_ids)

@@ -107,6 +107,46 @@ def build_pair (src_dir, tgt_dir, name, src_window):
 	return pair_files(src_dir, tgt_dir, name, src_window)
 
 
+def load_explicit_pair (src_path, tgt_path):
+	"""(src, tgt) for two arbitrary midiseq2 files, keyed by BAR alone. -> (src, tgt, measure_only).
+
+	For a TRANSLATION rather than a corpus pair: the source is a real recording annotated by
+	`translateMidiseq2.py --annotate-source` and the target is the model's output. Neither file carries
+	@tick (MEASURED on yt-piano: 0 @tick lines on all 20 test sources and on every output), so the
+	`(measure, tick)` key this file is built on degenerates to `(measure, None)` and every note would
+	come back `unjudged` -- an all-grey figure whose greyness says nothing about the alignment.
+
+	So the key becomes `(measure, 0)`: a synthetic tick that makes the bar the whole coordinate. Read
+	`measure_only` in the caller and say so in the figure, because THE VERDICT NOW MEANS SOMETHING
+	WEAKER, and it is worth being exact about how much:
+
+	  the corpus mode asks   did the aligner match a source note in the right (bar, tick) GROUP, where
+	                         both arms carry that group independently -- real ground truth.
+	  this mode asks         did it match inside the bar's own source SPAN, where the span was derived
+	                         FROM THIS ALIGNMENT. The first matched note of each bar defines its
+	                         boundary, so that note is right by construction and cannot fail.
+
+	What is left is not nothing, and it is the reason to draw the figure at all: every note AFTER a
+	bar's first one is judged against a boundary it did not set, so a match that jumps backwards out of
+	its bar or forwards into the next bar's span still shows up red. That is within-bar monotonicity,
+	which align_corpus_check measures at 0.7% violations corpus-wide -- so on a healthy file this figure
+	should be nearly all green, and red is worth looking at. It CANNOT detect a globally shifted
+	alignment that stayed internally consistent; only @tick can, and neither arm has it.
+
+	Both files are loaded WHOLE. `pair_files` crops the target to the measures a source token window
+	covers, which is right for a corpus pair scored under the training crop and wrong here: the output
+	is the whole translation the run produced, and cropping it would hide exactly the tail the align
+	stop and trim were built to cut.
+	"""
+	src = load_notes(src_path)
+	tgt = load_notes(tgt_path)
+	for notes, path in ((src, src_path), (tgt, tgt_path)):
+		for e, key in zip(notes, note_keys(path)):
+			e['key'] = (key[0], 0) if key[1] is None else key
+	measure_only = not any(k[1] is not None for k in note_keys(src_path) + note_keys(tgt_path))
+	return src, tgt, measure_only
+
+
 def group_source (src):
 	'''(measure, tick) -> the set of source indices in that group.
 
@@ -142,7 +182,7 @@ def rolled_groups (src, tgt):
 	return out
 
 
-def align_and_judge (src, tgt):
+def align_and_judge (src, tgt, measure_only=False):
 	'''Run align.py over the pair, adjudicating each match against the (measure, tick) truth.
 
 	Returns (state, records). Each record carries the verdict AND, when the match is wrong, the source
@@ -151,7 +191,11 @@ def align_and_judge (src, tgt):
 	diagnostic value.
 	'''
 	groups = group_source(src)
-	rolled = rolled_groups(src, tgt)
+	# No mocker in measure-only mode, so there is no rolled chord to forgive. Leaving it on would give
+	# the class a second meaning it was not measured for: a source bar past the target's last bar (the
+	# annotation's tail bucket) is a key the target does not have, so a match into the untranslated tail
+	# would come out violet 'right note, chord rolled' instead of the plain error it is.
+	rolled = {} if measure_only else rolled_groups(src, tgt)
 	state = AlignState(src, seed_offset=0.0)
 	records = []
 	for j, e in enumerate(tgt):
@@ -192,7 +236,7 @@ def summarise (records):
 
 
 def plot (src, tgt, records, stats, path, title, from_measure=None, to_measure=None,
-		measures=None):
+		measures=None, measure_only=False):
 	'''Draw the correspondence with the truth overlaid. Geometry follows align_match_viz.plot.'''
 	import matplotlib
 	matplotlib.use('Agg')					# file output only; no display on a training box
@@ -337,7 +381,10 @@ def plot (src, tgt, records, stats, path, title, from_measure=None, to_measure=N
 			if bar and x - last >= need * 0.62:
 				labelled.append((x, f'|{m}', True)); last = x
 		for x, _xe, _m, tick, bar in grid:
-			if bar:
+			# In measure-only mode every key's tick is the same synthetic 0, so there is exactly one
+			# line per bar and no in-bar labels to print. Printing '0' under each bar line would read as
+			# a tick the file carries.
+			if bar or measure_only:
 				continue
 			if all(abs(x - lx) >= need for lx, _l, _b in labelled):
 				labelled.append((x, str(tick), False))
@@ -366,13 +413,18 @@ def plot (src, tgt, records, stats, path, title, from_measure=None, to_measure=N
 	ax_s.xaxis.set_ticks_position('top')
 	ax_s.xaxis.set_label_position('top')
 	src_grid = draw_grid(ax_s, src, src_view, norm_s, SRC_COLOR)
-	ax_s.set_xlabel(f'{SRC_ARM} — the SOURCE, with rubato.  x = @measure (bold |N) / @tick, '
+	coord = '@measure (bold |N)' if measure_only else '@measure (bold |N) / @tick'
+	src_name = 'source' if measure_only else SRC_ARM
+	tgt_name = 'translation' if measure_only else TGT_ARM
+	src_note = (', bars from --annotate-source' if measure_only else ', with rubato')
+	ax_s.set_xlabel(f'{src_name} — the SOURCE{src_note}.  x = {coord}, '
 		f'onset ticks {src_lo}..{src_hi}', color=SRC_COLOR)
 	ax_s.tick_params(axis='x', colors=SRC_COLOR)
 	for side in ('top', 'left'):
 		ax_s.spines[side].set_color(SRC_COLOR)
 	tgt_grid = draw_grid(ax_t, tgt, tgt_view, norm_t, OUT_COLOR)
-	ax_t.set_xlabel(f'{TGT_ARM} — the TARGET, quantised.  x = @measure (bold |N) / @tick, '
+	ax_t.set_xlabel(f'{tgt_name} — the TARGET'
+		f'{", generated" if measure_only else ", quantised"}.  x = {coord}, '
 		f'onset ticks {tgt_lo}..{tgt_hi}', color=OUT_COLOR)
 	ax_t.tick_params(axis='x', colors=OUT_COLOR)
 	for side in ('bottom', 'left'):
@@ -435,17 +487,20 @@ def plot (src, tgt, records, stats, path, title, from_measure=None, to_measure=N
 	# Target lane, four classes. Shape and fill carry the verdict as well as hue, so the reading
 	# survives greyscale and colour-blind viewing -- the green/red pair is the CVD confusion axis and
 	# must never be the only channel.
+	right_label = 'matched inside its bar' if measure_only else 'matched, correct group'
+	wrong_label = 'matched OUTSIDE its bar' if measure_only else 'matched, WRONG group'
 	classes = (
 		('right', dict(marker='^', s=34, c=MATCH_COLOR, edgecolors='white', linewidths=0.4),
-			'matched, correct group'),
+			right_label),
 		('rolled', dict(marker='D', s=26, c=ROLL_COLOR, edgecolors='white', linewidths=0.4),
 			'right note, chord rolled by mocker'),
 		('wrong', dict(marker='v', s=44, c=MISS_COLOR, edgecolors='white', linewidths=0.5),
-			'matched, WRONG group'),
+			wrong_label),
 		('miss', dict(marker='v', s=40, facecolors='none', edgecolors=MISS_COLOR, linewidths=1.1),
 			'no match at all'),
 		('unjudged', dict(marker='o', s=20, facecolors='none', edgecolors=UNJUDGED_COLOR,
-			linewidths=0.7, alpha=0.55), 'no shared key (unjudged)'))
+			linewidths=0.7, alpha=0.55),
+			'bar not in the source (unjudged)' if measure_only else 'no shared key (unjudged)'))
 	for verdict, style, label in classes:
 		sel = [r for r in shown if r['verdict'] == verdict]
 		if sel:
@@ -455,14 +510,21 @@ def plot (src, tgt, records, stats, path, title, from_measure=None, to_measure=N
 	handles, labels = ax_t.get_legend_handles_labels()
 	if drew_truth:
 		handles.append(Line2D([0], [0], color=TRUTH_COLOR, linewidth=2.6, linestyle=(0, (5, 2))))
-		labels.append('ground truth (@tick), where it differs')
+		labels.append(('its bar\'s own source span' if measure_only
+			else 'ground truth (@tick), where it differs'))
 	ax_t.legend(handles, labels, loc='best', fontsize=8, framealpha=0.92, ncol=2)
 
 	t = stats['tally']
 	prec = f"{stats['precision']:.3f}" if stats['precision'] is not None else 'n/a'
 	rec = f"{stats['recall']:.3f}" if stats['recall'] is not None else 'n/a'
 	roll = (f"{stats['rolled_precision']:.3f}" if stats['rolled_precision'] is not None else 'n/a')
-	fig.suptitle(f'{title}\n@tick precision {prec} (rolled-tolerant {roll})  recall {rec}   '
+	# The mode goes in the title, not only in a docstring: this figure's green means a much weaker thing
+	# in measure-only mode, and a reader who does not know which mode produced it will over-read it.
+	head = (f'BAR-CONSISTENCY, not ground truth (no @tick in either arm): '
+		f'in-bar {prec}  recall {rec}'
+		if measure_only else
+		f'@tick precision {prec} (rolled-tolerant {roll})  recall {rec}')
+	fig.suptitle(f'{title}\n{head}   '
 		f'right {t["right"]}  rolled {t["rolled"]}  wrong {t["wrong"]}  miss {t["miss"]}  '
 		f'unjudged {t["unjudged"]}   '
 		f'(bars {lo_m}..{hi_m} of {max(e["measure"] for e in tgt)}'
@@ -479,7 +541,7 @@ def plot (src, tgt, records, stats, path, title, from_measure=None, to_measure=N
 	return True
 
 
-def report (src, tgt, records, stats, verbose=False):
+def report (src, tgt, records, stats, verbose=False, measure_only=False):
 	'''Text summary. Printed as well as drawn, so a headless run is still informative.'''
 	t = stats['tally']
 	prec = f"{stats['precision']:.4f}" if stats['precision'] is not None else 'n/a'
@@ -487,9 +549,15 @@ def report (src, tgt, records, stats, verbose=False):
 	print(f'  {len(src)} source note_on, {len(tgt)} target note_on over '
 		f'{max(e["measure"] for e in tgt)} bars')
 	roll = (f"{stats['rolled_precision']:.4f}" if stats['rolled_precision'] is not None else 'n/a')
-	print(f'  @tick verdict: right {t["right"]}, rolled {t["rolled"]}, wrong {t["wrong"]}, '
+	kind = 'bar-consistency' if measure_only else '@tick'
+	print(f'  {kind} verdict: right {t["right"]}, rolled {t["rolled"]}, wrong {t["wrong"]}, '
 		f'miss {t["miss"]}, unjudged {t["unjudged"]}')
-	print(f'  precision {prec} (rolled-tolerant {roll}), recall {rec}')
+	if measure_only:
+		print(f'  precision {prec}, recall {rec}  '
+			'(each bar\'s span came FROM this alignment, so its first matched note cannot fail; '
+			'what is judged is every later note against a boundary it did not set)')
+	else:
+		print(f'  precision {prec} (rolled-tolerant {roll}), recall {rec}')
 	if not verbose:
 		return
 	wrong = [r for r in records if r['verdict'] == 'wrong']
@@ -521,7 +589,39 @@ def main ():
 	ap.add_argument('--src-window', type=int, default=SRC_WINDOW)
 	ap.add_argument('--out', default=DEFAULT_OUT)
 	ap.add_argument('--verbose', action='store_true', help='list the wrong matches')
+	ap.add_argument('--pair-src', default=None, metavar='FILE',
+		help='draw ONE explicit pair instead of a corpus pair: the source midiseq2, normally a real '
+			'recording annotated by `translateMidiseq2.py --annotate-source`. Needs --pair-tgt. When '
+			'neither file carries @tick the verdict degrades to BAR-CONSISTENCY, which is stated on the '
+			'figure -- see load_explicit_pair for exactly what it does and does not show.')
+	ap.add_argument('--pair-tgt', default=None, metavar='FILE',
+		help='the target midiseq2 of an explicit pair, normally a translation output')
 	args = ap.parse_args()
+
+	if bool(args.pair_src) != bool(args.pair_tgt):
+		print('--pair-src and --pair-tgt go together')
+		return 1
+	if args.pair_src:
+		load_notes.tokenizer = Midiseq2Tokenizer()
+		load_notes.keywords = keyword_tokens(load_notes.tokenizer)
+		src, tgt, measure_only = load_explicit_pair(args.pair_src, args.pair_tgt)
+		if not src or not tgt:
+			print(f'empty pair: {len(src)} source and {len(tgt)} target note_on')
+			return 1
+		_state, records = align_and_judge(src, tgt, measure_only)
+		stats = summarise(records)
+		stem = os.path.basename(args.pair_tgt).split('.')[0]
+		print(f'{stem}  {os.path.basename(args.pair_src)} -> {os.path.basename(args.pair_tgt)}')
+		if measure_only:
+			print('  no @tick in either arm: verdict is BAR-CONSISTENCY, not ground truth')
+		report(src, tgt, records, stats, args.verbose, measure_only)
+		path = os.path.join(args.out, f'{stem}.pair.png')
+		title = (f'{stem}  —  {os.path.basename(args.pair_src)} -> {os.path.basename(args.pair_tgt)}')
+		if not plot(src, tgt, records, stats, path, title, args.from_measure, args.to_measure,
+				args.measures, measure_only):
+			return 1
+		print(f'  wrote {path}')
+		return 0
 
 	src_dir = resolve_dir(args.root, SRC_ARM)
 	tgt_dir = resolve_dir(args.root, TGT_ARM)
