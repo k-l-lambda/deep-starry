@@ -1283,6 +1283,38 @@ class SlidingTranslator:
 		line = src_line_of[min(self._align_matched, len(src_line_of) - 1)]
 		return max(cursor, line + 1)
 
+	def close_final_measure (self, output, complete):
+		"""End the output ON a measure boundary. -> (output, bar_count).
+
+		Both arms have to stop at the same bar, or the last pair is a whole bar of source read against a
+		fragment of output -- and the fragment is exactly where a truncated run leaves its junk notes.
+		Which side to move depends on how the run ended, and the two cases are opposite:
+
+		  cut at an <eom>   trim_align_tail slices at `_align_eom_at[last]` and EXCLUDES the token, so the
+		                    output ends with a complete bar and no boundary after it. The boundary is
+		                    appended back. Same for a run that genuinely finished (end_of_track): its last
+		                    bar is complete and only the terminator is missing.
+		  not cut there     the stop, max_token and source exhaustion all end the loop wherever the
+		                    generation happened to be, mid-bar. That partial bar is dropped, and the <eom>
+		                    that OPENED it stays on as the terminator.
+
+		The returned count excludes the terminator: `<eom>` normally opens the next bar, but this one opens
+		nothing -- it closes the last one. Counting it would annotate one source bar too many and put the
+		unreached tail in it, which is the failure this whole path exists to remove.
+		"""
+		eom = self.tk.eom_id
+		at = [i for i, t in enumerate(output) if t == eom]
+		if complete:
+			if not output or output[-1] != eom:
+				output = output + [eom]
+			return output, len(at) + 1
+		if not at:
+			# One bar, never closed. Truncating to "the last boundary" would empty the file, so the
+			# fragment is kept and the caller's coverage gate is left to judge it.
+			return output, 1
+		return output[:at[-1] + 1], len(at)
+
+
 	def drop_leading_eom (self, output):
 		"""Drop every `<eom>` before the first note, so bar 1 is the bar the music starts in. -> (output, n).
 
@@ -1575,9 +1607,12 @@ class SlidingTranslator:
 		actually evidence about, and nothing is claimed about where inside the preceding gap the bar
 		began.
 
-		A final `@measure` is emitted after the last claimed source note, so the source tail the run
-		never reached is bucketed OUTSIDE the annotated bars rather than swelling the last real one.
-		That bar is a remainder, not a measure -- `tail_notes` says how big it is.
+		A final `@measure` CLOSES the last bar and the file ends there: the source past it was never
+		translated, so no bar on the output arm corresponds to it and there is nothing to read it
+		against. `close_final_measure` writes the matching boundary on the output arm, so both files
+		close the same bar at the same number with nothing after it. `dropped_tail_notes` says how much
+		source that discarded -- on a badly stopped run it is most of the file, which is a statement
+		about the run, not about this function.
 		"""
 		full = self.measure_boundaries()
 		# `is None` and not a falsy test: kept=0 means NO measure survived the trim, which must annotate
@@ -1614,24 +1649,19 @@ class SlidingTranslator:
 		furthest = (max(distinct) + 1) if distinct else 0
 		tail_from = full[len(bounds)] if len(bounds) < len(full) else furthest
 		tail_from = max(tail_from, max(bounds) + 1)
-		# An EMPTY last bar on the output arm must be empty on this arm too. `_align_kept_measures` is
-		# `1 + count(<eom>)`, so an output ending on `<eom>` opens a final bar that holds no note -- and
-		# `full` then has one fewer entry than `kept`, which is how that case is detected here. Bucketing
-		# the unreached tail there would put thousands of source notes (MEASURED on 0006fcca63: 2270, 81%
-		# of the file) into a bar whose output counterpart is 0 lines long, so the two arms would disagree
-		# about the same number while looking equally well-formed. The tail is DROPPED instead of moved:
-		# charging it to the last real bar is the very thing the remainder bucket exists to prevent.
-		out_last_empty = kept is not None and len(full) < kept
+		# The TERMINAL directive, and the file ends there. `close_final_measure` writes the matching
+		# boundary on the output arm, so both files close the same bar at the same number and neither has
+		# anything after it. What used to sit past this point was the unreached tail, bucketed under a
+		# directive of its own: MEASURED on 0006fcca63 that bucket held 2270 source note_on, 81% of the
+		# file, read against an output bar 0 lines long. Those notes were never translated, so no bar on
+		# the other arm corresponds to them and there is nothing to read them against; they are dropped
+		# rather than moved, because charging them to the last real bar is the failure the bucket itself
+		# was introduced to prevent.
 		end_line = len(lines)
-		if out_last_empty:
-			stats['dropped_tail_notes'] = max(0, len(src_line_of) - tail_from)
-			if tail_from < len(src_line_of):
-				# Truncate, do not merely leave the directive off: an un-directived tail falls into the
-				# last REAL bar, which is the failure the bucket was introduced to avoid.
-				end_line = src_line_of[tail_from]
-		elif tail_from < len(src_line_of):
-			at.setdefault(src_line_of[tail_from], []).append(len(bounds) + 1)
-			stats['tail_notes'] = len(src_line_of) - tail_from
+		if tail_from < len(src_line_of):
+			end_line = src_line_of[tail_from]
+			stats['dropped_tail_notes'] = len(src_line_of) - tail_from
+		at.setdefault(end_line, []).append(len(bounds) + 1)
 		stats['bars'] = len(bounds)
 		stats['covered_notes'] = (len(src_line_of) - stats['tail_notes']
 			- stats['dropped_tail_notes'])
@@ -1640,6 +1670,10 @@ class SlidingTranslator:
 			for n in at.get(i, ()):
 				out.append(f'@measure {n}')
 			out.append(line)
+		# The terminal directive sits AT end_line, which the loop above stops before, so it is emitted
+		# here. It closes the last bar and nothing follows it -- the same shape as the output arm.
+		for n in at.get(end_line, ()):
+			out.append(f'@measure {n}')
 		return trim_annotated_prelude(out), stats
 
 	# NO ALIGN-DRIVEN EARLY STOP BY THESE THREE SIGNALS. All three were implemented and measured dead;
@@ -1796,9 +1830,12 @@ class SlidingTranslator:
 			# AFTER the trim, never before: trim_align_tail indexes `output` through `_align_eom_at`, and
 			# dropping a token from the front invalidates every one of those absolute indices.
 			output, lead = self.drop_leading_eom(output)
-			# Counted from the FINAL output, after the trim: a dropped measure has no source bar either,
-			# so the annotation must stop where the file does. `+ 1` because @measure 1 emits no <eom>.
-			self._align_kept_measures = 1 + sum(1 for t in output if t == self.tk.eom_id)
+			# `trimmed > 0 or done`: both leave a COMPLETE last bar, so the boundary is appended. Every
+			# other ending (stop, max_token, an exhausted window) stopped mid-bar, so that bar is dropped.
+			output, kept_bars = self.close_final_measure(output, complete=(trimmed > 0 or done))
+			# Counted by close_final_measure, which excludes the terminator it just wrote: a dropped
+			# measure has no source bar either, so the annotation must stop where the file does.
+			self._align_kept_measures = kept_bars
 			st = self._align_stats
 			stats_align = dict(observed=st['observed'], matched=st['matched'], missed=st['missed'],
 				distinct=len(st['distinct']), reach=self._align_matched + 1,
@@ -2766,13 +2803,10 @@ def main ():
 			ann, ann_stats = translator.annotate_source(lines, translator._align_kept_measures)
 			ann_path = os.path.join(args.annotate_source, os.path.basename(args.input))
 			write_output(ann_path, ann)
-			dropped = ann_stats['dropped_tail_notes']
-			tail_txt = (f'{dropped} DROPPED with the tail (the output\'s last bar is empty)'
-				if dropped else f'{ann_stats["tail_notes"]} in the unreached tail')
 			print(f'[annotate] {ann_stats["bars"]} source @measure directives '
 				f'({ann_stats["empty_bars"]} bar(s) with no source note of their own), '
 				f'{ann_stats["covered_notes"]}/{ann_stats["src_notes"]} source note_on inside them, '
-				f'{tail_txt}')
+				f'{ann_stats["dropped_tail_notes"]} dropped past the closing bar line')
 			print(f'[annotate] {ann_path}')
 
 	if inspector is not None:

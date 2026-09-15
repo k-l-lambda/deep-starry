@@ -395,38 +395,42 @@ def check_source_annotation (root):
 	)
 	for label, first, matched, kept, want_empty in cases:
 		out, stats, per = annotate(first, matched, kept)
-		total = sum(per.values())
-		if total != n:
-			print(f'  FAIL {label}: {total} note_on across bars, source has {n}'); ok = False
+		nums = [int(l.split()[1]) for l in out if l.startswith('@measure')]
+		bars = stats['bars']
+		# CONSERVATION, restated for the closing bar line: every source note either lands in exactly one
+		# annotated bar or is dropped past that line, and none is counted twice. The old form -- all n
+		# notes inside bars -- described the tail bucket, which no longer exists.
+		if stats['covered_notes'] + stats['dropped_tail_notes'] != n:
+			print(f'  FAIL {label}: covered {stats["covered_notes"]} + dropped '
+				f'{stats["dropped_tail_notes"]} != {n}'); ok = False
+		if sum(per.values()) != stats['covered_notes']:
+			print(f'  FAIL {label}: {sum(per.values())} note_on in the file vs '
+				f'{stats["covered_notes"]} covered'); ok = False
 		if per.get(0):
 			print(f'  FAIL {label}: {per[0]} note_on before the first @measure'); ok = False
-		nums = [int(l.split()[1]) for l in out if l.startswith('@measure')]
 		if nums != list(range(1, len(nums) + 1)):
 			print(f'  FAIL {label}: measure numbers not contiguous from 1: {nums}'); ok = False
-		bars = stats['bars']
+		# The last directive CLOSES the file: one past the annotated bars, and nothing after it.
+		if nums != list(range(1, bars + 2)):
+			print(f'  FAIL {label}: {len(nums)} directives for {bars} bars + 1 terminator'); ok = False
+		if per.get(bars + 1):
+			print(f'  FAIL {label}: {per[bars + 1]} note_on after the closing bar line'); ok = False
 		if kept and bars != kept:
 			print(f'  FAIL {label}: {bars} bars annotated, trim kept {kept}'); ok = False
 		if stats['empty_bars'] != want_empty:
 			print(f'  FAIL {label}: {stats["empty_bars"]} empty bars, expected {want_empty}'); ok = False
-		if stats['covered_notes'] + stats['tail_notes'] != n:
-			print(f'  FAIL {label}: covered {stats["covered_notes"]} + tail {stats["tail_notes"]} '
-				f'!= {n}'); ok = False
-		# the tail is a remainder bucket, so it is the ONE bar past the annotated ones
-		if stats['tail_notes'] and len(nums) != bars + 1:
-			print(f'  FAIL {label}: tail of {stats["tail_notes"]} notes but {len(nums)} directives '
-				f'for {bars} bars'); ok = False
 
-	# The tail must start one past the FURTHEST match, not past the last bar's opening: a last bar whose
-	# boundary is 20 while the run matched out to 30 owns 21..30, and reading max(bounds) + 1 instead
-	# would leave it holding one note and call the other 10 unreached.
+	# The closing line lands one past the FURTHEST match, not past the last bar's opening: a last bar
+	# whose boundary is 20 while the run matched out to 30 owns 21..30, and reading max(bounds) + 1
+	# instead would leave it holding one note and drop the other 10.
 	_out, st, per = annotate([0, 5, 11, 20], 31, distinct=range(31))
-	if st['tail_notes'] != n - 31 or per.get(4, 0) != 11:
-		print(f'  FAIL tail boundary: last bar {per.get(4)} notes, tail {st["tail_notes"]} '
+	if st['dropped_tail_notes'] != n - 31 or per.get(4, 0) != 11:
+		print(f'  FAIL closing line: last bar {per.get(4)} notes, dropped {st["dropped_tail_notes"]} '
 			f'(want 11 and {n - 31})'); ok = False
-	# ...and a trim overrides it: the dropped bars' source is the tail's, not the last kept bar's.
+	# ...and a trim overrides it: the dropped bars' source goes with the tail, not to the last kept bar.
 	_out, st, per = annotate([0, 5, 11, 20], 31, kept=2, distinct=range(31))
-	if per.get(2, 0) != 6 or st['tail_notes'] != n - 11:
-		print(f'  FAIL trimmed tail: bar 2 {per.get(2)} notes, tail {st["tail_notes"]} '
+	if per.get(2, 0) != 6 or st['dropped_tail_notes'] != n - 11:
+		print(f'  FAIL trimmed close: bar 2 {per.get(2)} notes, dropped {st["dropped_tail_notes"]} '
 			f'(want 6 and {n - 11})'); ok = False
 
 	# The no-evidence bar must be the EMPTY one, not its predecessor -- that is what the forward fill
@@ -601,38 +605,47 @@ def check_eom_numbering_rules ():
 	if lead != 0 or out != [tempo, eom, eom]:
 		print(f'  FAIL noteless output: dropped {lead}, out {out}'); ok = False
 
-	# --- rule 1: empty last output bar ---
-	# kept exceeds len(full) exactly when the output's final <eom> opened a bar with no note. The tail
-	# must then be absent from the file, not merely undirectived -- an undirectived tail falls into the
-	# last REAL bar, which is worse than the bucket it replaced.
+	# --- both arms close the same bar ---
+	# close_final_measure moves whichever side is short of a boundary, and which side depends on how the
+	# run ended. `complete` = the last bar is whole (the trim cut at an <eom>, or end_of_track): the
+	# boundary is appended. Otherwise the run stopped mid-bar: that bar is dropped and the <eom> that
+	# opened it stays on as the terminator.
+	tr = tr_with([[0], [5], [11]], 20)
+	out, bars = tr.close_final_measure([note_on, eom, note_on, eom, note_on, 9], complete=True)
+	if out[-1] != eom or bars != 3:
+		print(f'  FAIL complete: ends {out[-1]}, bars {bars} (want eom and 3)'); ok = False
+	tr = tr_with([[0], [5], [11]], 20)
+	out, bars = tr.close_final_measure([note_on, eom, note_on, eom, note_on, 9], complete=False)
+	if out != [note_on, eom, note_on, eom] or bars != 2:
+		print(f'  FAIL incomplete: out {out}, bars {bars} (want the partial bar dropped, 2)'); ok = False
+	# a complete output that ALREADY ends on <eom> must not get a second one
+	tr = tr_with([[0], [5]], 20)
+	out, bars = tr.close_final_measure([note_on, eom], complete=True)
+	if out != [note_on, eom] or bars != 2:
+		print(f'  FAIL already closed: out {out}, bars {bars}'); ok = False
+	# one bar, never closed: truncating to "the last boundary" would empty the file, so it is kept
+	tr = tr_with([[0]], 20)
+	out, bars = tr.close_final_measure([note_on, 9], complete=False)
+	if out != [note_on, 9] or bars != 1:
+		print(f'  FAIL single open bar: out {out}, bars {bars}'); ok = False
+
+	# --- the source arm closes at the same number, with nothing after it ---
 	lines = [f'note_on C1 #{40 + i} $40' for i in range(40)]
 	tr = tr_with([[0], [5], [11]], 20, distinct=range(21))
-	ann, st = tr.annotate_source(lines, kept=4)		# 4 > len(full)=3 -> output's bar 4 is empty
+	ann, st = tr.annotate_source(lines, kept=3)
 	nums = [int(l.split()[1]) for l in ann if l.startswith('@measure')]
-	notes = sum(1 for l in ann if l.startswith('note_on'))
-	if st['tail_notes'] or not st['dropped_tail_notes']:
-		print(f'  FAIL empty last bar: tail {st["tail_notes"]}, dropped {st["dropped_tail_notes"]}')
-		ok = False
-	if nums != [1, 2, 3]:
-		print(f'  FAIL empty last bar: directives {nums}, want no tail bucket'); ok = False
-	if notes >= 40:
-		print(f'  FAIL empty last bar: {notes} note_on kept, the tail was not truncated'); ok = False
+	if nums != [1, 2, 3, 4]:
+		print(f'  FAIL source close: directives {nums}, want 3 bars + a terminator'); ok = False
+	if ann[-1] != '@measure 4':
+		print(f'  FAIL source close: file ends {ann[-1]!r}, want the closing directive last'); ok = False
+	if st['dropped_tail_notes'] != 19:
+		print(f'  FAIL source close: dropped {st["dropped_tail_notes"]}, want 19'); ok = False
 	if st['covered_notes'] + st['dropped_tail_notes'] != st['src_notes']:
-		print(f'  FAIL empty last bar: {st["covered_notes"]} + {st["dropped_tail_notes"]} '
+		print(f'  FAIL source close: {st["covered_notes"]} + {st["dropped_tail_notes"]} '
 			f'!= {st["src_notes"]}'); ok = False
 
-	# ...and with a NON-empty last output bar the bucket is still written, unchanged behaviour.
-	tr = tr_with([[0], [5], [11]], 20, distinct=range(21))
-	ann, st = tr.annotate_source(lines, kept=3)		# 3 == len(full) -> last bar holds notes
-	nums = [int(l.split()[1]) for l in ann if l.startswith('@measure')]
-	if st['dropped_tail_notes'] or not st['tail_notes'] or nums != [1, 2, 3, 4]:
-		print(f'  FAIL non-empty last bar: directives {nums}, tail {st["tail_notes"]}, '
-			f'dropped {st["dropped_tail_notes"]}'); ok = False
-	if sum(1 for l in ann if l.startswith('note_on')) != 40:
-		print(f'  FAIL non-empty last bar: notes were truncated'); ok = False
-
 	print(f'{"ok  " if ok else "FAIL"} eom numbering: leading <eom> dropped and evidence shifted, '
-		f'empty last output bar truncates the source tail (6 cases)')
+		f'both arms close the same bar with nothing after it (7 cases)')
 	return ok
 
 
