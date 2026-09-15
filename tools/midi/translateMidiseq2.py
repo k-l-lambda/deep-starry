@@ -1960,6 +1960,7 @@ class SlidingTranslator:
 			stats_align = dict(observed=st['observed'], matched=st['matched'], missed=st['missed'],
 				distinct=len(st['distinct']), reach=self._align_matched + 1,
 				src_events=len(src_events), stop_at=self._align_stop_at,
+				stop_cause=self._align_stop_cause,
 				measures_trimmed=trimmed, failed=failed)
 		else:
 			stats_align = None
@@ -2152,7 +2153,10 @@ def report_output (body_lines, stats):
 			f'{al["distinct"]} DISTINCT source notes reached, furthest {al["reach"]}/'
 			f'{al["src_events"]}')
 		if al.get('stop_at') is not None:
-			print(f'[align-stop] recent miss rate crossed the threshold at output token '
+			cause = al.get('stop_cause') or 'miss'
+			what = ('recent miss rate' if cause == 'miss'
+				else 'distinct/matched source over the reuse window')
+			print(f'[align-stop] {what} crossed the threshold at output token '
 				f'{al["stop_at"]}; the run ended there')
 		if al.get('measures_trimmed'):
 			print(f'[align-trim] dropped {al["measures_trimmed"]} trailing measure(s) whose own miss '
