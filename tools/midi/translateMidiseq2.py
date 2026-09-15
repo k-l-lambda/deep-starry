@@ -929,7 +929,7 @@ class SlidingTranslator:
 		advance_tokens=1, prime_window=2048, kv_cache=True, align_advance=False,
 		align_stop_window=0, align_stop_rate=0.6, align_trim_rate=0.0,
 		align_stop_reuse=0.0, align_stop_reuse_window=0, align_trim_density=0.0,
-		align_trim_min_notes=4):
+		align_trim_min_notes=4, align_trim_spanless_run=0):
 		self.model = model
 		self.tk = tokenizer
 		self.pos_style = pos_style
@@ -1009,6 +1009,10 @@ class SlidingTranslator:
 		# after the run, walking backwards from the last measure until one passes. Here a per-measure
 		# ratio is the right statistic -- the question is about one specific measure, not a trend.
 		self.align_trim_rate = float(align_trim_rate)
+		# Third trim axis, and the only one that is not about the tail: the length of a run of
+		# consecutive span-less bars that condemns everything from its start onward. See
+		# `first_spanless_run`. 0 disables it.
+		self.align_trim_spanless_run = max(0, int(align_trim_spanless_run))
 		# Second trim axis, over-generation, measured per bar as notes per unit of NEW source the bar
 		# claims. Per-bar DISTINCT source count does not work here and the failure is instructive: a
 		# short bar can be all-distinct while re-matching source an earlier bar already consumed, so
@@ -1573,6 +1577,49 @@ class SlidingTranslator:
 				high = max(ahead)
 		return out
 
+	def first_spanless_run (self):
+		"""Bar ordinal where the earliest long run of span-less bars starts, or None. -> int | None
+
+		The trim walks BACKWARDS and stops at the first healthy bar, so it can only ever remove a
+		suffix. A defect in the MIDDLE of a file is invisible to it: MEASURED on 005c15c173, the model
+		repeats one bar 5 times at bars 50-54, the aligner matches every repetition onto the same source
+		notes (511..530), `measure_boundaries` ties them, and four bars come out with no source span --
+		then bars 55-62 recover completely and the backward walk stops at bar 62 without ever reaching
+		the damage. This finds it, so the caller can cut BEFORE it instead.
+
+		The signal is a RUN of consecutive bars that get no source span, read off the same rule
+		`measure_boundaries` uses, because that is the rule that decides which bars come out empty.
+		Deliberately not `bar_density`: its high-water advances by max(ahead) where the boundary rule
+		advances by min(ahead), so on this very file it reports 1 zero-density bar against the
+		boundaries' 17 empty ones, and the loop reads density 1 rather than 0. The two disagree, and the
+		one that matches what the annotation writes is the one to key on.
+
+		A run rather than a single bar because a lone empty bar is NORMAL: the tie convention has to
+		leave one of any two bars sharing a boundary empty, and MEASURED over 9 files there are 12
+		single-bar runs and 4 of length 2 against exactly one of length 4 -- the reported loop. Bar 1 is
+		excluded because its boundary is ASSERTED at source 0 rather than measured, so a tie there says
+		only that the model restated the opening, which `drop_restated_leading_bar` already handles.
+
+		Length threshold from that same distribution: at 4 only the loop qualifies. At 3 a tail run in
+		00db9e936e also does -- harmless, since the trim would remove that suffix anyway, but it is not
+		evidence for the lower value. The evidence is thin (one instance), so this is a parameter.
+		"""
+		if not self.align_trim_spanless_run:
+			return None
+		bounds = self.measure_boundaries()
+		nb = len(bounds)
+		start, run = None, 0
+		for m in range(1, nb - 1):
+			if bounds[m] is not None and bounds[m + 1] == bounds[m]:
+				if run == 0:
+					start = m
+				run += 1
+				if run >= self.align_trim_spanless_run:
+					return start
+			else:
+				start, run = None, 0
+		return None
+
 	def trim_align_tail (self, output):
 		'''Drop trailing measures that fail on miss ratio or on over-generation density.
 
@@ -1584,7 +1631,8 @@ class SlidingTranslator:
 		failure rather than write a fragment. Measured on 30 files it never fired, so that branch is
 		reasoned-through but unexercised.
 		'''
-		if not (self.align_trim_rate or self.align_trim_density) or not self._align_measures:
+		if not (self.align_trim_rate or self.align_trim_density
+				or self.align_trim_spanless_run) or not self._align_measures:
 			return output, 0, False
 		density = self.bar_density() if self.align_trim_density else []
 		nb = len(self._align_measures)
@@ -1615,6 +1663,14 @@ class SlidingTranslator:
 			else:
 				break
 		last = nb - 1 - dropped
+		# A mid-file collapse the backward walk cannot see. Both this and the walk above only ever drop
+		# a SUFFIX, so the two compose by taking whichever cuts earlier: the bars after a loop may be
+		# perfectly healthy, but they are read against a source the loop already mis-attributed, so
+		# keeping them means keeping the bad bars in front of them.
+		spanless = self.first_spanless_run()
+		if spanless is not None and spanless - 1 < last:
+			last = spanless - 1
+			dropped = nb - 1 - last
 		if last < 0:
 			return output, dropped, True
 		if dropped == 0:
@@ -1757,6 +1813,25 @@ class SlidingTranslator:
 		distinct = self._align_stats['distinct']
 		furthest = (max(distinct) + 1) if distinct else 0
 		tail_from = full[len(bounds)] if len(bounds) < len(full) else furthest
+		# The first dropped bar's boundary is only a statement about where the kept region ENDS when
+		# that bar has evidence of its own. When it matched NOTHING, `measure_boundaries` forward-fills
+		# it from the next bar that did match, which can be far ahead -- and then the last kept bar is
+		# charged every source note in between, against an output bar that never reached them.
+		#
+		# MEASURED on 0264fc02da: bars 57-62 are 10-14 generated notes each that matched nothing at all,
+		# so bar 57's boundary forward-fills to 383, bar 62's single match. The last kept bar (56) opens
+		# at 330 and its own furthest match is 341, but it was given 330..382 -- 53 source note_on over
+		# 302 lines, against 9-20 in every neighbour. Its own span is 11. Over 9 files this is the only
+		# one where the first dropped bar has no evidence, and the only one charged more than its own
+		# reach; everywhere else the boundary sits at or below it, which is the healthy shape.
+		#
+		# So a forward-filled boundary is capped at what the last kept bar actually reached. The tail
+		# notes past it are dropped as unreached, which is what they are: no output bar corresponds to
+		# them. The `max(bounds) + 1` floor still applies, so the bar keeps at least its own opening.
+		if len(bounds) < len(full) and not self._align_first_src[len(bounds)]:
+			own = self._align_first_src[len(bounds) - 1]
+			if own:
+				tail_from = min(tail_from, max(own) + 1)
 		tail_from = max(tail_from, max(bounds) + 1)
 		# The TERMINAL directive, and the file ends there. `close_final_measure` writes the matching
 		# boundary on the output arm, so both files close the same bar at the same number and neither has
@@ -2802,6 +2877,17 @@ def main ():
 			'source they claim. This is the over-generation the miss-ratio trim is blind to. 0 disables '
 			'it. Measured at D=2.0 on 20 files it catches 4 of the 5 known-bad tails (the 5th is '
 			'whole-file, which is the stop\'s case) and stays silent on both mid-file blips.')
+	ap.add_argument('--align-trim-spanless-run', type=int, default=0, metavar='N',
+		help='stage 2, third axis, and the only one that can act on the MIDDLE of a file: cut at the '
+			'start of the first run of N or more consecutive bars that get no source span. The other '
+			'two axes walk backwards and stop at the first healthy bar, so a defect with healthy bars '
+			'after it is invisible to them -- measured on 005c15c173, the model repeats one bar 5 times '
+			'at bars 50-54, four bars come out with no span, and bars 55-62 then recover, so the '
+			'backward walk never reaches the damage. A RUN, because a lone empty bar is normal: the tie '
+			'convention must leave one of two bars sharing a boundary empty, and over 9 files there are '
+			'12 single-bar runs and 4 of length 2 against exactly one of length 4, the loop. At N=4 only '
+			'that loop qualifies. 0 disables it. Note the cost is real: everything after the run goes '
+			'too, healthy or not, because it is read against source the loop already mis-attributed.')
 	ap.add_argument('--align-trim-min-notes', type=int, default=4, metavar='N',
 		help='a measure with fewer than N observed notes is too small for a density verdict and is '
 			'passed over by the backward walk rather than ending it (default 4). The LAST measure is '
@@ -2905,6 +2991,7 @@ def main ():
 		align_stop_reuse=args.align_stop_reuse,
 		align_stop_reuse_window=args.align_stop_reuse_window, align_trim_density=args.align_trim_density,
 		align_trim_min_notes=args.align_trim_min_notes,
+		align_trim_spanless_run=args.align_trim_spanless_run,
 		prime_window=args.prime_window, kv_cache=not args.no_kv_cache)
 
 	# The output path has to be settled BEFORE translate runs, because the streaming figures are named
@@ -2969,6 +3056,7 @@ def main ():
 					align_stop_reuse=args.align_stop_reuse,
 					align_stop_reuse_window=args.align_stop_reuse_window, align_trim_density=args.align_trim_density,
 					align_trim_min_notes=args.align_trim_min_notes,
+					align_trim_spanless_run=args.align_trim_spanless_run,
 					generated_notes=len(out_events), source_notes=len(src_events),
 					# prime_notes and cuts are recorded so what a figure DREW is checkable from data,
 					# rather than only by looking at the image: an empty primer or a missing cut is a

@@ -651,6 +651,32 @@ def check_eom_numbering_rules ():
 	if n != 0 or out != [tempo, note_on, 7]:
 		print(f'  FAIL unclosed single bar: dropped {n}, out {out}'); ok = False
 
+	# A forward-filled boundary must not delimit the kept region. When the first DROPPED bar matched
+	# nothing, `measure_boundaries` fills its boundary from the next bar that DID match, which can be
+	# far ahead; using it would charge the last kept bar every source note in between.
+	# MEASURED on 0264fc02da: bars 57-62 matched nothing, bar 57's boundary filled to 383 (bar 62's one
+	# match), and the last kept bar -- opening at 330, own furthest 341 -- was given 330..382, 53
+	# source note_on over 302 lines against 9-20 in its neighbours.
+	#   bars 1-3 kept, own matches 0..2, 5..7, 10..12    bar 4 (dropped) matches NOTHING
+	#   bar 5 (dropped) matches 30, so bar 4 fills to 30 -- 17 notes past what bar 3 ever reached
+	tr = tr_with([[0, 1, 2], [5, 6, 7], [10, 11, 12], [], [30]], 30, distinct=range(31), n=40)
+	ann, st = tr.annotate_source([f'note_on C1 #{40 + i} $40' for i in range(40)], kept=3)
+	nums = [int(l.split()[1]) for l in ann if l.startswith('@measure')]
+	if nums != [1, 2, 3, 4]:
+		print(f'  FAIL filled boundary: directives {nums}'); ok = False
+	# bar 3 opens at source 10 and reached 12, so the region ends at 13: 13 source lines, not 30
+	if st['covered_notes'] != 13:
+		print(f'  FAIL filled boundary: last bar charged {st["covered_notes"]} notes, want 13 '
+			f'(its own reach), not the filled boundary at 30'); ok = False
+	if st['dropped_tail_notes'] != 40 - 13:
+		print(f'  FAIL filled boundary: dropped {st["dropped_tail_notes"]}, want {40 - 13}'); ok = False
+	# ...and when the first dropped bar DOES have evidence, its boundary is used unchanged
+	tr = tr_with([[0, 1, 2], [5, 6, 7], [10, 11, 12], [20], [30]], 30, distinct=range(31), n=40)
+	ann2, st2 = tr.annotate_source([f'note_on C1 #{40 + i} $40' for i in range(40)], kept=3)
+	if st2['covered_notes'] != 20:
+		print(f'  FAIL real boundary: charged {st2["covered_notes"]} notes, want 20 (bar 4 opens '
+			f'there)'); ok = False
+
 	# --- both arms close the same bar ---
 	# close_final_measure moves whichever side is short of a boundary, and which side depends on how the
 	# run ended. `complete` = the last bar is whole (the trim cut at an <eom>, or end_of_track): the
@@ -715,7 +741,8 @@ def check_eom_numbering_rules ():
 			f'dropped {st["dropped_tail_notes"]} (want 3, 0)'); ok = False
 
 	print(f'{"ok  " if ok else "FAIL"} eom numbering: leading empty AND restated bars dropped with their '
-		f'evidence, both arms close the same bar, on end_of_track with no directive after it (14 cases)')
+		f'evidence, a filled boundary does not delimit the kept region, both arms close the same bar, '
+		f'on end_of_track with no directive after it (16 cases)')
 	return ok
 
 
@@ -801,6 +828,40 @@ def check_overgeneration_guards ():
 	if not failed:
 		print(f'  FAIL an all-degenerate file must report failed (dropped {dropped})'); ok = False
 
+	# A mid-file collapse the backward walk cannot see. The bars after the loop are HEALTHY, so the
+	# walk stops at them and never reaches the damage -- measured on 005c15c173, bars 50-54 repeat one
+	# bar and 55-62 recover completely. The run of span-less bars is what finds it.
+	#   bars 0-1  healthy, own source
+	#   bars 2-6  every match at source 16: each ties with the next, so 2-5 get no span (a run of 4)
+	#   bars 7-8  healthy again, source 17.., which is what makes the backward walk stop early
+	loop = ([list(range(0, 8)), list(range(8, 16))] + [[16] * 8 for _ in range(5)]
+		+ [list(range(17, 25)), list(range(25, 33))])
+	tr = replay(loop, align_trim_rate=0.3, align_trim_density=2.0, align_trim_min_notes=4)
+	_out, dropped, _f = tr.trim_align_tail(list(range(500)))
+	if dropped != 0:
+		print(f'  FAIL the tail axes were expected blind to a mid-file loop; the case no longer tests '
+			f'anything (dropped {dropped})'); ok = False
+	tr = replay(loop, align_trim_rate=0.3, align_trim_density=2.0, align_trim_min_notes=4,
+		align_trim_spanless_run=4)
+	start = tr.first_spanless_run()
+	if start != 2:
+		print(f'  FAIL the span-less run should start at bar ordinal 2, got {start}'); ok = False
+	_out, dropped, failed = tr.trim_align_tail(list(range(500)))
+	if dropped != len(loop) - 2:
+		print(f'  FAIL should drop everything from the run on ({len(loop) - 2}), dropped {dropped}')
+		ok = False
+	if failed:
+		print('  FAIL two healthy leading bars must not read as a failed file'); ok = False
+	# a lone span-less bar is NORMAL -- the tie convention has to leave one of two bars sharing a
+	# boundary empty -- so a run of 1 must not trip a threshold of 4.
+	single = [list(range(0, 8)), [8] * 8, [8, 9] * 4, list(range(10, 18)), list(range(18, 26))]
+	tr = replay(single, align_trim_spanless_run=4)
+	if tr.first_spanless_run() is not None:
+		print(f'  FAIL a short run tripped the threshold at {tr.first_spanless_run()}'); ok = False
+	# ...and the axis is off by default, so an existing command line is unchanged
+	if SlidingTranslator(None, tk).align_trim_spanless_run != 0:
+		print('  FAIL align_trim_spanless_run must default to off'); ok = False
+
 	# the stop needs a SUSTAINED collapse: one bad window must not fire it. This stop is online, and a
 	# transient dip is indistinguishable from a real collapse at the moment it fires -- measured, a
 	# recoverable blip's bad run was LONGER than a true collapse's, so the hysteresis is the only
@@ -859,7 +920,7 @@ def check_overgeneration_guards ():
 
 	print(f'{"ok  " if ok else "FAIL"} over-generation guards: reuse stop needs a sustained collapse '
 		f'and its own longer window to see bar-to-bar repetition, density trim drops the tail past an '
-		f'under-sized bar, both off by default')
+		f'under-sized bar, the span-less run reaches a mid-file loop, all off by default')
 	return ok
 
 
