@@ -817,6 +817,38 @@ def check_overgeneration_guards ():
 	elif tr._align_stop_cause != 'reuse':
 		print(f'  FAIL stop cause should be reuse, got {tr._align_stop_cause!r}'); ok = False
 
+	# The reuse axis reads its OWN window, and it has to be longer than the miss axis's. Bar-to-bar
+	# repetition is INVISIBLE inside one bar's worth of notes: each bar below replays the same 8 source
+	# notes, so an 8-note window is all-distinct (1.00, perfectly healthy) while a 24-note window
+	# spanning 3 of them reads 8/24 = 0.33 and crosses 0.34. MEASURED on 005c15c173 bars 50-54, where
+	# the model repeated one bar 5 times: every 16-note window read 0.85-1.00 while the run re-used
+	# source 1.51x, so the shipped 16-note window could not fire.
+	loop = [list(range(0, 8))] + [list(range(8, 16)) for _ in range(7)]
+	tr = replay(loop, align_stop_window=W, align_stop_rate=1.1, align_stop_reuse=0.34)
+	if tr._align_stop_at is not None:
+		print(f'  FAIL a window of {W} was expected blind to bar-to-bar repetition; the case no longer '
+			f'tests anything (fired at {tr._align_stop_at})'); ok = False
+	tr = replay(loop, align_stop_window=W, align_stop_rate=1.1, align_stop_reuse=0.34,
+		align_stop_reuse_window=24)
+	if tr._align_stop_at is None or tr._align_stop_cause != 'reuse':
+		print(f'  FAIL the widened reuse window missed the repetition, cause '
+			f'{tr._align_stop_cause!r}'); ok = False
+	# the hysteresis counts MISS windows, not reuse windows: tying it to the reuse window would make
+	# widening that window self-cancelling, since a longer window then demands a longer collapse.
+	if tr.align_stop_reuse_window != 24 or tr.align_stop_window != W:
+		print(f'  FAIL windows not independent: reuse {tr.align_stop_reuse_window}, '
+			f'miss {tr.align_stop_window}'); ok = False
+	# 0 means "use the miss window", so an existing command line is bit-identical
+	same = SlidingTranslator(None, tk, align_advance=True, align_stop_window=W, align_stop_reuse=0.34)
+	if same.align_stop_reuse_window != W:
+		print(f'  FAIL an unset reuse window must fall back to {W}, got '
+			f'{same.align_stop_reuse_window}'); ok = False
+	# ...and the widened window must not make the axis trigger-happy: a clean run stays clean
+	tr = replay(healthy, align_stop_window=W, align_stop_rate=0.6, align_stop_reuse=0.34,
+		align_stop_reuse_window=24)
+	if tr._align_stop_at is not None:
+		print(f'  FAIL widened reuse window fired on a clean run at {tr._align_stop_at}'); ok = False
+
 	# a run of MISSES must not be reported as reuse: the two axes stay independent so the reported
 	# cause is the thing that actually happened
 	misses = [list(range(0, 8))] + [[None] * 8 for _ in range(4)]
@@ -825,8 +857,9 @@ def check_overgeneration_guards ():
 		print(f'  FAIL a miss collapse should be attributed to miss, got '
 			f'{tr._align_stop_cause!r}'); ok = False
 
-	print(f'{"ok  " if ok else "FAIL"} over-generation guards: reuse stop needs a sustained collapse, '
-		f'density trim drops the tail past an under-sized bar, both off by default')
+	print(f'{"ok  " if ok else "FAIL"} over-generation guards: reuse stop needs a sustained collapse '
+		f'and its own longer window to see bar-to-bar repetition, density trim drops the tail past an '
+		f'under-sized bar, both off by default')
 	return ok
 
 

@@ -928,7 +928,8 @@ class SlidingTranslator:
 		device='cpu', prime=True, temperature=0.0, top_k=0, top_p=1.0, source_eom=False,
 		advance_tokens=1, prime_window=2048, kv_cache=True, align_advance=False,
 		align_stop_window=0, align_stop_rate=0.6, align_trim_rate=0.0,
-		align_stop_reuse=0.0, align_trim_density=0.0, align_trim_min_notes=4):
+		align_stop_reuse=0.0, align_stop_reuse_window=0, align_trim_density=0.0,
+		align_trim_min_notes=4):
 		self.model = model
 		self.tk = tokenizer
 		self.pos_style = pos_style
@@ -966,11 +967,43 @@ class SlidingTranslator:
 		# it fires a transient dip and an unrecoverable collapse are indistinguishable -- the difference
 		# only exists in the future. Measured: a recoverable blip's sub-threshold run (5 windows) is
 		# LONGER than a true collapse's (4), so no run-length threshold separates them. So the stop is
-		# deliberately deaf to anything short of a sustained collapse (a full window of consecutive bad
-		# windows) and the tail trim, which is offline and can only ever remove a suffix, is what
-		# catches the rest. A false stop discards every bar after it; a false trim costs a few bars.
+		# deliberately deaf to anything short of a sustained collapse and the tail trim, which is offline
+		# and can only ever remove a suffix, is what catches the rest. A false stop discards every bar
+		# after it; a false trim costs a few bars.
+		#
+		# The required run is `align_stop_window`, NOT the reuse window. Those were the same number while
+		# one window served both axes, and keeping the tie to the reuse window would have made widening
+		# it self-defeating: a longer window sees the repetition but then demands proportionally more
+		# consecutive bad windows to act on it. MEASURED on the 005c15c173 loop at reuse window 48: the
+		# loop sustains 20 sub-threshold windows, so a 48-window run never fires while a 16-window run
+		# does, with nothing healthy producing even one.
+		#
+		# The reuse axis reads its OWN window, and it has to be LONGER than the miss axis's. The two
+		# measure opposite shapes of failure and a window sized for one is blind to the other:
+		#
+		#   a miss collapse is LOCAL         MEASURED on 0042ec118a: 7 consecutive misses inside a
+		#                                    16-note window reads 0.625 and fires. The same burst over
+		#                                    24 notes reads 0.500 and does not, so this file -- which
+		#                                    reached 89 of 297 source notes -- stops being caught at
+		#                                    all. Widening the shared window to fix reuse LOSES a
+		#                                    genuine stop, which is why the windows are separate.
+		#   reuse is only visible ACROSS BARS  MEASURED on 005c15c173, bars 50-54: the model repeats
+		#                                    one bar 5 times and the aligner matches every repetition
+		#                                    onto the same source notes (511..530). Each repetition is
+		#                                    12-15 DISTINCT notes, so every 16-note window reads
+		#                                    0.85-1.00 -- perfectly healthy -- while the run's overall
+		#                                    reuse is 1.51x. A window has to hold ~3 repetitions before
+		#                                    12 distinct over 36 matches reads 0.33 and crosses 0.34.
+		#
+		# Sized by measurement over 9 piano0909 files, threshold held at the calibrated 0.34, counting
+		# the longest run of sub-threshold windows in the loop against the worst run anywhere healthy:
+		# window 32 -> 0 vs 2, 40 -> 0 vs 0, 44 -> 0 vs 0, 48 -> 20 vs 0, 64 -> 15 vs 0. 48 is where the
+		# window first spans enough repetitions, and it separates cleanly: nothing healthy produces even
+		# one sub-threshold window. 0 means "use align_stop_window", which reproduces the old behaviour
+		# exactly.
 		self.align_stop_reuse = float(align_stop_reuse)
-		self._align_reuse_recent = collections.deque(maxlen=self.align_stop_window or 1)
+		self.align_stop_reuse_window = max(0, int(align_stop_reuse_window)) or self.align_stop_window
+		self._align_reuse_recent = collections.deque(maxlen=self.align_stop_reuse_window or 1)
 		self._align_reuse_run = 0
 		# Stage 2, the tail trim: drop trailing measures whose OWN miss ratio exceeds this. Applied
 		# after the run, walking backwards from the last measure until one passes. Here a per-measure
@@ -1477,17 +1510,21 @@ class SlidingTranslator:
 		A window whose matches are too few to carry a ratio RESETS the run rather than extending it. A
 		2-match window reading 0.5 is noise, and the run is the only thing standing between this stop
 		and the blips it must not fire on.
+
+		The window is `align_stop_reuse_window`, which is LONGER than the miss axis's: bar-to-bar
+		repetition is invisible inside one bar's worth of notes. See the sizing note in __init__.
 		'''
 		matched = [s for s in self._align_reuse_recent if s is not None]
-		if len(matched) < self.align_stop_window // 2:
+		if len(matched) < self.align_stop_reuse_window // 2:
 			self._align_reuse_run = 0
 			return
 		if len(set(matched)) / len(matched) < self.align_stop_reuse:
 			self._align_reuse_run += 1
 		else:
 			self._align_reuse_run = 0
-		# One full window of consecutive bad windows. See the hysteresis note in __init__ for why this
-		# is set far past what mere noise-rejection would need.
+		# `align_stop_window` consecutive bad windows -- the MISS window, not this axis's own, so that
+		# widening the reuse window buys sensitivity instead of cancelling itself out. See the hysteresis
+		# note in __init__ for why the run is set far past what mere noise-rejection would need.
 		if self._align_reuse_run >= self.align_stop_window:
 			self._align_stop_at = pitch_index
 			self._align_stop_cause = 'reuse'
@@ -2745,6 +2782,17 @@ def main ():
 			'reach 0.25; R=0.34 fires on the 2.29x-reuse file at bar 4/12 with 0 false positives. '
 			'Deliberately conservative -- this stop is online, and a transient blip is indistinguishable '
 			'from a real collapse at the moment it fires, so the tail trim carries the rest.')
+	ap.add_argument('--align-stop-reuse-window', type=int, default=0, metavar='N',
+		help='window for the reuse axis only, in observed note_on. 0 = use --align-stop-window. Set it '
+			'LONGER than that window: the two axes measure opposite shapes of failure. A miss collapse '
+			'is local (measured: a 7-miss burst reads 0.625 over 16 notes and 0.500 over 24, so a wider '
+			'shared window loses the stop entirely on a file that reached 89 of 297 source notes), '
+			'while reuse only shows up ACROSS bars -- a model repeating one bar 5 times plays 12-15 '
+			'DISTINCT notes each time, so every 16-note window reads 0.85-1.00 while the run as a whole '
+			're-uses source 1.51x. Measured over 9 piano0909 files at the unchanged 0.34 threshold, '
+			'longest sub-threshold run in the repeat against the worst run anywhere healthy: 32 -> 0 vs '
+			'2, 40 -> 0 vs 0, 48 -> 20 vs 0, 64 -> 15 vs 0. N=48 is where the window first spans the '
+			'~3 repetitions the threshold needs, with no healthy window sub-threshold at all.')
 	ap.add_argument('--align-trim-density', type=float, default=0.0, metavar='D',
 		help='stage 2, second axis: drop trailing measures generating >= D notes per unit of NEW '
 			'source they claim. This is the over-generation the miss-ratio trim is blind to. 0 disables '
@@ -2850,7 +2898,8 @@ def main ():
 		source_eom=bool(data_args.get('source_eom')), advance_tokens=args.advance_tokens,
 		align_advance=args.align_advance, align_stop_window=args.align_stop_window,
 		align_stop_rate=args.align_stop_rate, align_trim_rate=args.align_trim_rate,
-		align_stop_reuse=args.align_stop_reuse, align_trim_density=args.align_trim_density,
+		align_stop_reuse=args.align_stop_reuse,
+		align_stop_reuse_window=args.align_stop_reuse_window, align_trim_density=args.align_trim_density,
 		align_trim_min_notes=args.align_trim_min_notes,
 		prime_window=args.prime_window, kv_cache=not args.no_kv_cache)
 
@@ -2913,7 +2962,8 @@ def main ():
 					src_window=args.src_window, advance_tokens=args.advance_tokens, prime_window=args.prime_window,
 					align_advance=args.align_advance, align_stop_window=args.align_stop_window,
 					align_stop_rate=args.align_stop_rate, align_trim_rate=args.align_trim_rate,
-					align_stop_reuse=args.align_stop_reuse, align_trim_density=args.align_trim_density,
+					align_stop_reuse=args.align_stop_reuse,
+					align_stop_reuse_window=args.align_stop_reuse_window, align_trim_density=args.align_trim_density,
 					align_trim_min_notes=args.align_trim_min_notes,
 					generated_notes=len(out_events), source_notes=len(src_events),
 					# prime_notes and cuts are recorded so what a figure DREW is checkable from data,
