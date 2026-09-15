@@ -675,6 +675,14 @@ def check_eom_numbering_rules ():
 	if out != [note_on, 9] or bars != 1:
 		print(f'  FAIL single open bar: out {out}, bars {bars}'); ok = False
 
+	# an output that ends on end_of_track is ALREADY closed: that is the corpus's own terminator, and a
+	# boundary after it would open a bar past the end of the track.
+	eot = tk.id_by_token.get('end_of_track')
+	tr = tr_with([[0], [5]], 20)
+	out, bars = tr.close_final_measure([note_on, eom, note_on, eot], complete=True)
+	if out != [note_on, eom, note_on, eot] or bars != 2:
+		print(f'  FAIL ends on end_of_track: out {out}, bars {bars} (want it untouched, 2)'); ok = False
+
 	# --- the source arm closes at the same number, with nothing after it ---
 	lines = [f'note_on C1 #{40 + i} $40' for i in range(40)]
 	tr = tr_with([[0], [5], [11]], 20, distinct=range(21))
@@ -690,8 +698,24 @@ def check_eom_numbering_rules ():
 		print(f'  FAIL source close: {st["covered_notes"]} + {st["dropped_tail_notes"]} '
 			f'!= {st["src_notes"]}'); ok = False
 
+	# ...and the same exception on this arm: a source consumed to its last line ends on the corpus
+	# terminator, so no terminal directive is written. The bar COUNT is the same either way -- the
+	# terminator was never counted -- so only the trailing line differs.
+	lines_eot = [f'note_on C1 #{40 + i} $40' for i in range(40)] + ['end_of_track']
+	tr = tr_with([[0], [5], [11]], 39, distinct=range(40))
+	ann, st = tr.annotate_source(lines_eot, kept=3)
+	nums = [int(l.split()[1]) for l in ann if l.startswith('@measure')]
+	if nums != [1, 2, 3]:
+		print(f'  FAIL source ends on end_of_track: directives {nums}, want 3 bars and no terminator')
+		ok = False
+	if ann[-1] != 'end_of_track':
+		print(f'  FAIL source ends on end_of_track: file ends {ann[-1]!r}'); ok = False
+	if st['bars'] != 3 or st['dropped_tail_notes'] != 0:
+		print(f'  FAIL source ends on end_of_track: bars {st["bars"]}, '
+			f'dropped {st["dropped_tail_notes"]} (want 3, 0)'); ok = False
+
 	print(f'{"ok  " if ok else "FAIL"} eom numbering: leading empty AND restated bars dropped with their '
-		f'evidence, both arms close the same bar with nothing after it (12 cases)')
+		f'evidence, both arms close the same bar, on end_of_track with no directive after it (14 cases)')
 	return ok
 
 

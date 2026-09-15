@@ -1290,20 +1290,36 @@ class SlidingTranslator:
 		fragment of output -- and the fragment is exactly where a truncated run leaves its junk notes.
 		Which side to move depends on how the run ended, and the two cases are opposite:
 
+		  ends on end_of_track  the run finished the piece. `end_of_track` IS the corpus's own terminator
+		                    -- every corpus file ends with it and nothing follows -- so the bar is already
+		                    closed and no boundary is added. Appending one would put a directive after the
+		                    end of the track, claiming a bar opens past the end of the file.
 		  cut at an <eom>   trim_align_tail slices at `_align_eom_at[last]` and EXCLUDES the token, so the
 		                    output ends with a complete bar and no boundary after it. The boundary is
-		                    appended back. Same for a run that genuinely finished (end_of_track): its last
-		                    bar is complete and only the terminator is missing.
+		                    appended back.
 		  not cut there     the stop, max_token and source exhaustion all end the loop wherever the
 		                    generation happened to be, mid-bar. That partial bar is dropped, and the <eom>
 		                    that OPENED it stays on as the terminator.
 
 		The returned count excludes the terminator: `<eom>` normally opens the next bar, but this one opens
 		nothing -- it closes the last one. Counting it would annotate one source bar too many and put the
-		unreached tail in it, which is the failure this whole path exists to remove.
+		unreached tail in it, which is the failure this whole path exists to remove. The end_of_track case
+		adds no terminator at all, so its count is the bars actually present -- the same number, reached
+		without writing anything.
+
+		`annotate_source` makes the same decision on the source arm, and makes it the same way: by asking
+		whether the text it is about to end already ends on end_of_track. Deliberately not a flag passed
+		across from here -- the two arms can end differently (a trimmed run whose source was nonetheless
+		consumed to the last line ends on <eom> on this arm and on end_of_track on that one), and each
+		arm must answer for its own last line.
 		"""
 		eom = self.tk.eom_id
+		eot = self.tk.id_by_token.get('end_of_track')
 		at = [i for i, t in enumerate(output) if t == eom]
+		# Tested on the LAST token, not `finished`'s 8-token window: the question here is whether anything
+		# may follow, and only a trailing end_of_track settles that.
+		if output and eot is not None and output[-1] == eot:
+			return output, len(at) + 1
 		if complete:
 			if not output or output[-1] != eom:
 				output = output + [eom]
@@ -1664,9 +1680,11 @@ class SlidingTranslator:
 		A final `@measure` CLOSES the last bar and the file ends there: the source past it was never
 		translated, so no bar on the output arm corresponds to it and there is nothing to read it
 		against. `close_final_measure` writes the matching boundary on the output arm, so both files
-		close the same bar at the same number with nothing after it. `dropped_tail_notes` says how much
-		source that discarded -- on a badly stopped run it is most of the file, which is a statement
-		about the run, not about this function.
+		close the same bar at the same number with nothing after it. The one file that gets no final
+		`@measure` is the one that ends on `end_of_track`: that IS the corpus terminator, so the last bar
+		is already closed and a number after it would open a bar past the end of the track.
+		`dropped_tail_notes` says how much source the trim discarded -- on a badly stopped run it is most
+		of the file, which is a statement about the run, not about this function.
 		"""
 		full = self.measure_boundaries()
 		# `is None` and not a falsy test: kept=0 means NO measure survived the trim, which must annotate
@@ -1715,7 +1733,14 @@ class SlidingTranslator:
 		if tail_from < len(src_line_of):
 			end_line = src_line_of[tail_from]
 			stats['dropped_tail_notes'] = len(src_line_of) - tail_from
-		at.setdefault(end_line, []).append(len(bounds) + 1)
+		# ...UNLESS the kept text already ends on end_of_track, the corpus's own terminator: every corpus
+		# file ends with it and nothing follows. A directive after it would claim a bar opens past the end
+		# of the track. `close_final_measure` asks the same question of the output arm's last token, so a
+		# run that reached the real end of the piece closes both arms on end_of_track and neither gets a
+		# trailing number. The bar COUNT is unchanged either way -- the terminal directive was never
+		# counted in `stats['bars']`, it only closed the last one, and end_of_track closes it already.
+		if end_line and lines[end_line - 1].strip() != 'end_of_track':
+			at.setdefault(end_line, []).append(len(bounds) + 1)
 		stats['bars'] = len(bounds)
 		stats['covered_notes'] = (len(src_line_of) - stats['tail_notes']
 			- stats['dropped_tail_notes'])
@@ -1725,7 +1750,8 @@ class SlidingTranslator:
 				out.append(f'@measure {n}')
 			out.append(line)
 		# The terminal directive sits AT end_line, which the loop above stops before, so it is emitted
-		# here. It closes the last bar and nothing follows it -- the same shape as the output arm.
+		# here. It closes the last bar and nothing follows it -- the same shape as the output arm. Empty
+		# when the text ended on end_of_track, which closes that bar itself.
 		for n in at.get(end_line, ()):
 			out.append(f'@measure {n}')
 		return trim_annotated_prelude(out), stats
