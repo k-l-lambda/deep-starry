@@ -14,6 +14,7 @@ Run:  python tests/midi/translate_midiseq2_check.py [--root DIR] [--samples N]
 '''
 
 import argparse
+import glob
 import os
 import sys
 
@@ -27,7 +28,8 @@ sys.path.insert(0, os.path.join(REPO_ROOT, 'tools', 'midi'))
 from translateMidiseq2 import (encode_lines, keyword_tokens, positions_for, render_lines,
 	plot_attention_step,
 	count_note_on, source_header, SlidingTranslator, SlidingEncDecTranslator, is_elapse,
-	note_on_events, line_token_offsets, AttentionInspector)
+	note_on_events, line_token_offsets, AttentionInspector,
+	trim_annotated_prelude, is_elapse_line, is_sustain_line)
 
 
 DEFAULT_ROOT = os.path.expanduser('~/data/midi/test202608')
@@ -461,6 +463,86 @@ def check_source_annotation (root):
 
 	print(f'{"ok  " if ok else "FAIL"} annotate_source: notes conserved, numbering contiguous, '
 		f'empty bar lands on the bar that matched nothing ({len(cases)} cases)')
+	return ok
+
+
+def check_annotated_prelude ():
+	"""The region before `@measure 1` keeps its declarations and its last sustain, and loses its elapse.
+
+	The prelude is the only part of an annotated source with no bar over it, so its elapse runs state an
+	absolute offset the bar coordinate is meant to replace. Two things could go wrong quietly: dropping
+	the sustain that bar 1 is played into (the music then reads as pedal-up when it was not), or reaching
+	past `@measure 1` and eating elapse from bar 1 itself (which would shift every onset in the file).
+	Both produce a well-formed file, so they are asserted rather than eyeballed.
+	"""
+	ok = True
+
+	def run (label, lines, want):
+		nonlocal ok
+		got = trim_annotated_prelude(lines)
+		if got != want:
+			print(f'  FAIL {label}:\n    got  {got}\n    want {want}')
+			ok = False
+		return got
+
+	body = ['@measure 1', 'E10', 'note_on C1 #48 $50', '@measure 2', 'E20', 'note_on C1 #4a $50']
+
+	# with sustain: the LAST one survives, the elapse before it goes, the elapse AFTER it stays -- that
+	# gap is between the pedal and the downbeat, which is the one prelude duration bar 1 is read against.
+	run('sustain kept, earlier sustain and elapse dropped',
+		['ticks_per_beat 1 e 0', 'format_type 1', 'E070 E6', 'control_change #40 $7f', 'E1',
+			'control_change #43 $7f', 'E2', 'control_change #40', 'E1'] + body,
+		['ticks_per_beat 1 e 0', 'format_type 1', 'control_change #43 $7f', 'control_change #40',
+			'E1'] + body)
+
+	# no sustain: nothing to anchor, so every elapse line in the region goes and the declarations stay.
+	run('no sustain, all prelude elapse dropped',
+		['ticks_per_beat 1 e 0', 'format_type 1', 'set_tempo 7 a 1 2 0', 'E0e0 E9',
+			'control_change #43 $7f', 'E3'] + body,
+		['ticks_per_beat 1 e 0', 'format_type 1', 'set_tempo 7 a 1 2 0',
+			'control_change #43 $7f'] + body)
+
+	# a sustain AFTER @measure 1 is body, not prelude: it must not become the anchor, and the file's
+	# own bar-1 elapse must survive untouched.
+	run('sustain after the downbeat is untouched',
+		['ticks_per_beat 1 e 0', 'E5', '@measure 1', 'E10', 'control_change #40 $7f', 'E11',
+			'note_on C1 #48 $50'],
+		['ticks_per_beat 1 e 0', '@measure 1', 'E10', 'control_change #40 $7f', 'E11',
+			'note_on C1 #48 $50'])
+
+	# no @measure at all (the unaligned early return): nothing is a prelude, so nothing is dropped.
+	unaligned = ['ticks_per_beat 1 e 0', 'E5', 'control_change #40 $7f', 'E6', 'note_on C1 #48 $50']
+	run('no @measure 1, source untouched', unaligned, list(unaligned))
+
+	# @measure 1 first line: an empty prelude is not an error.
+	run('empty prelude', list(body), list(body))
+
+	# ...and the same three properties on the real annotated files, where the prelude shapes above came
+	# from: the body after @measure 1 is byte-identical, and only elapse/sustain lines leave the prelude.
+	src_dir = os.path.join(REPO_ROOT, 'tests', 'output', 'yt-annotate-sep1033', 'src')
+	files = sorted(glob.glob(os.path.join(src_dir, '*.midiseq2.txt'))) if os.path.isdir(src_dir) else []
+	for p in files:
+		lines = open(p, encoding='utf-8').read().splitlines()
+		if '@measure 1' not in lines:
+			continue
+		got = trim_annotated_prelude(lines)
+		end, gend = lines.index('@measure 1'), got.index('@measure 1')
+		name = os.path.basename(p)
+		if lines[end:] != got[gend:]:
+			print(f'  FAIL {name}: the body after @measure 1 changed'); ok = False
+		def kept (ls):
+			return [l for l in ls if not is_elapse_line(l) and not is_sustain_line(l)]
+		if kept(lines[:end]) != kept(got[:gend]):
+			print(f'  FAIL {name}: a prelude declaration was dropped'); ok = False
+		if any(is_elapse_line(l) for l in got[:gend][:max(0, gend - 1)]):
+			# only the elapse immediately after a kept sustain may remain
+			sus = [i for i, l in enumerate(got[:gend]) if is_sustain_line(l)]
+			bad = [i for i, l in enumerate(got[:gend]) if is_elapse_line(l) and (not sus or i < sus[-1])]
+			if bad:
+				print(f'  FAIL {name}: elapse survived at {bad} before the last sustain'); ok = False
+
+	print(f'{"ok  " if ok else "FAIL"} annotated prelude: last sustain kept, elapse dropped, '
+		f'bar 1 onward untouched (5 cases + {len(files)} real files)')
 	return ok
 
 
@@ -1571,6 +1653,7 @@ def main ():
 		check_no_unknown(args.root, args.samples),
 		check_source_advance(args.root),
 		check_source_annotation(args.root),
+		check_annotated_prelude(),
 		check_overgeneration_guards(),
 		check_header(args.root),
 		check_note_on_events(args.root, args.samples),

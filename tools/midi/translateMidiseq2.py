@@ -201,6 +201,62 @@ def is_elapse (tok):
 		return False
 
 
+SUSTAIN_CONTROLLER = '#40'
+
+
+def is_elapse_line (line):
+	'''A line made of nothing but elapse tokens — an `E...` run standing between two events.'''
+	toks = line.split()
+	return bool(toks) and all(is_elapse(tok) for tok in toks)
+
+
+def is_sustain_line (line):
+	'''A `control_change` on the sustain controller (#40), whatever its value token.'''
+	toks = line.split()
+	return bool(toks) and toks[0] == 'control_change' and SUSTAIN_CONTROLLER in toks[1:]
+
+
+def trim_annotated_prelude (lines):
+	"""Drop the elapse runs from the region before `@measure 1`. -> lines.
+
+	That region is the recording's lead-in: whatever sits between the file header and the first note
+	the alignment claimed. Its elapse runs state an ABSOLUTE offset into the recording — how long the
+	pianist sat before playing, how long the pedal was held down before the downbeat — and once
+	`@measure` is on the source that offset is exactly the thing the bar coordinate replaces. Left in,
+	it is the only part of the annotated file whose timing is not read against a bar, so a viewer
+	gridding on bars renders it as a bar-1 that silently starts arbitrarily late.
+
+	Sustain (`control_change #40`) is the one prelude event that is STATE rather than history: the last
+	one before the downbeat says whether bar 1 is played into a held pedal, so it is kept while the
+	earlier ones — already superseded by it — go with the elapse runs before it. With no sustain event
+	there is nothing to preserve and every elapse line in the region drops.
+
+	Everything else in the region (`set_tempo`, `time_signature`, `program_change`, other controllers)
+	is left exactly where it is: those are declarations, not durations, and nothing here reorders them.
+	"""
+	try:
+		end = lines.index('@measure 1')
+	except ValueError:
+		return list(lines)		# no bar coordinate was written, so there is no prelude to speak of
+	last_sustain = -1
+	for i in range(end):
+		if is_sustain_line(lines[i]):
+			last_sustain = i
+	# Elapse runs drop up to, but not past, the sustain that is kept — the gap BETWEEN that pedal and
+	# the downbeat is the one prelude duration bar 1 is read against. With no sustain (-1) there is no
+	# such anchor and the whole region drops.
+	elapse_until = end if last_sustain < 0 else last_sustain
+	out = []
+	for i, line in enumerate(lines):
+		if i < end:
+			if i < elapse_until and is_elapse_line(line):
+				continue
+			if i != last_sustain and is_sustain_line(line):
+				continue
+		out.append(line)
+	return out
+
+
 # --- source encoding (mirrors Seq2Seq2._encode) -------------------------------------------
 
 def encode_lines (lines, tokenizer, eom=False):
@@ -1529,7 +1585,7 @@ class SlidingTranslator:
 			for n in at.get(i, ()):
 				out.append(f'@measure {n}')
 			out.append(line)
-		return out, stats
+		return trim_annotated_prelude(out), stats
 
 	# NO ALIGN-DRIVEN EARLY STOP BY THESE THREE SIGNALS. All three were implemented and measured dead;
 	# recorded here so the work is not repeated. The signal that DOES work is the windowed recent-miss
