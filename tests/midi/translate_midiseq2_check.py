@@ -546,6 +546,96 @@ def check_annotated_prelude ():
 	return ok
 
 
+def check_eom_numbering_rules ():
+	"""Bar 1 is the bar the music starts in, and an empty last output bar is empty on the source too.
+
+	Both rules exist because the bar NUMBER is the only thing tying the two arms together, and both
+	failure modes conserve every note and so slip past the conservation checks above.
+
+	  leading <eom>   the model can restate the header and close a measure before playing anything.
+	                  MEASURED on 00185501a4: one such <eom> put the first note in bar 2 and shifted all
+	                  24 bars up by one against a source arm that started at 1.
+	  empty last bar  `_align_kept_measures` is `1 + count(<eom>)`, so an output ending on <eom> opens a
+	                  final bar holding no note. MEASURED on 0006fcca63: the source arm charged 2270
+	                  note_on (81% of the file) to that bar while its output counterpart was 0 lines.
+	"""
+	tk = Midiseq2Tokenizer()
+	ok = True
+	eom = tk.eom_id
+	note_on = tk.id_by_token.get('note_on')
+	tempo = tk.id_by_token.get('set_tempo')
+
+	def tr_with (first, matched, distinct=None, n=40):
+		tr = SlidingTranslator(None, tk)
+		tr._align_first_src = [[] if v is None else ([v] if isinstance(v, int) else list(v))
+			for v in first]
+		tr._align_measures = [[1, 0] for _ in first]
+		tr._align_matched = matched
+		tr._align_src_line_of = list(range(n))
+		tr._align_stats['distinct'] = set(range(matched + 1) if distinct is None else distinct)
+		return tr
+
+	# --- rule 2: leading <eom> ---
+	# two empty measures, then the music. Both must go, and the per-measure evidence must shift with
+	# them or the annotation reads bar 3's matches for bar 1.
+	tr = tr_with([[], [], [0], [5], [11]], 31)
+	tr._align_eom_at = [1, 2, 5]
+	out, lead = tr.drop_leading_eom([tempo, eom, eom, note_on, 7, eom, note_on])
+	if lead != 2 or out != [tempo, note_on, 7, eom, note_on]:
+		print(f'  FAIL leading eom: dropped {lead}, out {out}'); ok = False
+	if tr._align_first_src != [[0], [5], [11]]:
+		print(f'  FAIL leading eom: evidence not shifted: {tr._align_first_src}'); ok = False
+	if tr._align_eom_at != [3]:
+		print(f'  FAIL leading eom: eom marks not reindexed: {tr._align_eom_at}'); ok = False
+
+	# an <eom> AFTER the first note is a real bar boundary and must survive untouched.
+	tr = tr_with([[0], [5]], 31)
+	tr._align_eom_at = [2]
+	out, lead = tr.drop_leading_eom([tempo, note_on, eom, note_on])
+	if lead != 0 or out != [tempo, note_on, eom, note_on]:
+		print(f'  FAIL trailing eom touched: dropped {lead}, out {out}'); ok = False
+
+	# no note at all: nothing to number bars around, so nothing is dropped.
+	tr = tr_with([[0]], 31)
+	out, lead = tr.drop_leading_eom([tempo, eom, eom])
+	if lead != 0 or out != [tempo, eom, eom]:
+		print(f'  FAIL noteless output: dropped {lead}, out {out}'); ok = False
+
+	# --- rule 1: empty last output bar ---
+	# kept exceeds len(full) exactly when the output's final <eom> opened a bar with no note. The tail
+	# must then be absent from the file, not merely undirectived -- an undirectived tail falls into the
+	# last REAL bar, which is worse than the bucket it replaced.
+	lines = [f'note_on C1 #{40 + i} $40' for i in range(40)]
+	tr = tr_with([[0], [5], [11]], 20, distinct=range(21))
+	ann, st = tr.annotate_source(lines, kept=4)		# 4 > len(full)=3 -> output's bar 4 is empty
+	nums = [int(l.split()[1]) for l in ann if l.startswith('@measure')]
+	notes = sum(1 for l in ann if l.startswith('note_on'))
+	if st['tail_notes'] or not st['dropped_tail_notes']:
+		print(f'  FAIL empty last bar: tail {st["tail_notes"]}, dropped {st["dropped_tail_notes"]}')
+		ok = False
+	if nums != [1, 2, 3]:
+		print(f'  FAIL empty last bar: directives {nums}, want no tail bucket'); ok = False
+	if notes >= 40:
+		print(f'  FAIL empty last bar: {notes} note_on kept, the tail was not truncated'); ok = False
+	if st['covered_notes'] + st['dropped_tail_notes'] != st['src_notes']:
+		print(f'  FAIL empty last bar: {st["covered_notes"]} + {st["dropped_tail_notes"]} '
+			f'!= {st["src_notes"]}'); ok = False
+
+	# ...and with a NON-empty last output bar the bucket is still written, unchanged behaviour.
+	tr = tr_with([[0], [5], [11]], 20, distinct=range(21))
+	ann, st = tr.annotate_source(lines, kept=3)		# 3 == len(full) -> last bar holds notes
+	nums = [int(l.split()[1]) for l in ann if l.startswith('@measure')]
+	if st['dropped_tail_notes'] or not st['tail_notes'] or nums != [1, 2, 3, 4]:
+		print(f'  FAIL non-empty last bar: directives {nums}, tail {st["tail_notes"]}, '
+			f'dropped {st["dropped_tail_notes"]}'); ok = False
+	if sum(1 for l in ann if l.startswith('note_on')) != 40:
+		print(f'  FAIL non-empty last bar: notes were truncated'); ok = False
+
+	print(f'{"ok  " if ok else "FAIL"} eom numbering: leading <eom> dropped and evidence shifted, '
+		f'empty last output bar truncates the source tail (6 cases)')
+	return ok
+
+
 def check_overgeneration_guards ():
 	"""The reuse stop and the density trim fire on over-generation and stay off by default.
 
@@ -1654,6 +1744,7 @@ def main ():
 		check_source_advance(args.root),
 		check_source_annotation(args.root),
 		check_annotated_prelude(),
+		check_eom_numbering_rules(),
 		check_overgeneration_guards(),
 		check_header(args.root),
 		check_note_on_events(args.root, args.samples),

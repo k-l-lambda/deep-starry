@@ -1283,6 +1283,45 @@ class SlidingTranslator:
 		line = src_line_of[min(self._align_matched, len(src_line_of) - 1)]
 		return max(cursor, line + 1)
 
+	def drop_leading_eom (self, output):
+		"""Drop every `<eom>` before the first note, so bar 1 is the bar the music starts in. -> (output, n).
+
+		The model can open with several empty measures -- header declarations, then `<eom>`, then more, and
+		only then a note. MEASURED on 00185501a4: one such `<eom>`, which put the first note_on in bar 2
+		and shifted all 24 bars up by one. Those bars hold no note on either arm, so they are not measures
+		anyone can read a correspondence against; they are the model restating the header. Keeping them
+		numbers every real bar one too high, and the number is the only thing tying the two arms together.
+
+		Only the LAST of the leading `<eom>`s survives, and it survives implicitly: `compose_output` writes
+		`@measure 1` itself because bar 1 emits no `<eom>` by design, so dropping all of them leaves that
+		synthetic directive standing exactly where the last one was. The declarations before it stay put,
+		ahead of `@measure 1`, which is where the corpus keeps them too.
+
+		`_align_first_src` and `_align_measures` are indexed by measure ordinal, so both shift by the same
+		count. Not doing that would leave the annotation reading bar N's evidence for bar N-1 -- a silent
+		off-by-one that conserves every note and so passes every conservation check.
+		"""
+		note_on = self.tk.id_by_token.get('note_on')
+		first_note = None
+		for i, tid in enumerate(output):
+			if tid == note_on:
+				first_note = i
+				break
+		if first_note is None:
+			return output, 0		# no note at all: nothing to number bars around
+		lead = [i for i, tid in enumerate(output[:first_note]) if tid == self.tk.eom_id]
+		if not lead:
+			return output, 0
+		keep = [tid for i, tid in enumerate(output) if not (i < first_note and tid == self.tk.eom_id)]
+		n = len(lead)
+		self._align_first_src = self._align_first_src[n:]
+		self._align_measures = self._align_measures[n:]
+		# Absolute output indices, so they move with the tokens that were removed. Only the ones AFTER
+		# the drop region survive; the dropped ones were the leading run itself.
+		self._align_eom_at = [i - n for i in self._align_eom_at if i >= first_note]
+		return keep, n
+
+
 	def record_align_quality (self, pitch_index, src_index):
 		'''Book one observed note against its measure, and arm the stop if recent quality collapsed.
 
@@ -1546,8 +1585,8 @@ class SlidingTranslator:
 		# failure.
 		bounds = full if kept is None else full[:kept]
 		src_line_of = self._align_src_line_of
-		stats = dict(bars=0, empty_bars=0, covered_notes=0, tail_notes=0, reach=self._align_matched + 1,
-			src_notes=len(src_line_of))
+		stats = dict(bars=0, empty_bars=0, covered_notes=0, tail_notes=0, dropped_tail_notes=0,
+			reach=self._align_matched + 1, src_notes=len(src_line_of))
 		if not bounds or not src_line_of:
 			return list(lines), stats
 		# ordinal m (0-based) is bar m+1; several ordinals may share one line, and each still gets its
@@ -1575,13 +1614,29 @@ class SlidingTranslator:
 		furthest = (max(distinct) + 1) if distinct else 0
 		tail_from = full[len(bounds)] if len(bounds) < len(full) else furthest
 		tail_from = max(tail_from, max(bounds) + 1)
-		if tail_from < len(src_line_of):
+		# An EMPTY last bar on the output arm must be empty on this arm too. `_align_kept_measures` is
+		# `1 + count(<eom>)`, so an output ending on `<eom>` opens a final bar that holds no note -- and
+		# `full` then has one fewer entry than `kept`, which is how that case is detected here. Bucketing
+		# the unreached tail there would put thousands of source notes (MEASURED on 0006fcca63: 2270, 81%
+		# of the file) into a bar whose output counterpart is 0 lines long, so the two arms would disagree
+		# about the same number while looking equally well-formed. The tail is DROPPED instead of moved:
+		# charging it to the last real bar is the very thing the remainder bucket exists to prevent.
+		out_last_empty = kept is not None and len(full) < kept
+		end_line = len(lines)
+		if out_last_empty:
+			stats['dropped_tail_notes'] = max(0, len(src_line_of) - tail_from)
+			if tail_from < len(src_line_of):
+				# Truncate, do not merely leave the directive off: an un-directived tail falls into the
+				# last REAL bar, which is the failure the bucket was introduced to avoid.
+				end_line = src_line_of[tail_from]
+		elif tail_from < len(src_line_of):
 			at.setdefault(src_line_of[tail_from], []).append(len(bounds) + 1)
 			stats['tail_notes'] = len(src_line_of) - tail_from
 		stats['bars'] = len(bounds)
-		stats['covered_notes'] = len(src_line_of) - stats['tail_notes']
+		stats['covered_notes'] = (len(src_line_of) - stats['tail_notes']
+			- stats['dropped_tail_notes'])
 		out = []
-		for i, line in enumerate(lines):
+		for i, line in enumerate(lines[:end_line]):
 			for n in at.get(i, ()):
 				out.append(f'@measure {n}')
 			out.append(line)
@@ -1738,6 +1793,9 @@ class SlidingTranslator:
 			# Everything past `prime_start` was never retired and so never observed; the trim needs it.
 			self.observe_tail(output, prime_start)
 			output, trimmed, failed = self.trim_align_tail(output)
+			# AFTER the trim, never before: trim_align_tail indexes `output` through `_align_eom_at`, and
+			# dropping a token from the front invalidates every one of those absolute indices.
+			output, lead = self.drop_leading_eom(output)
 			# Counted from the FINAL output, after the trim: a dropped measure has no source bar either,
 			# so the annotation must stop where the file does. `+ 1` because @measure 1 emits no <eom>.
 			self._align_kept_measures = 1 + sum(1 for t in output if t == self.tk.eom_id)
@@ -2708,10 +2766,13 @@ def main ():
 			ann, ann_stats = translator.annotate_source(lines, translator._align_kept_measures)
 			ann_path = os.path.join(args.annotate_source, os.path.basename(args.input))
 			write_output(ann_path, ann)
+			dropped = ann_stats['dropped_tail_notes']
+			tail_txt = (f'{dropped} DROPPED with the tail (the output\'s last bar is empty)'
+				if dropped else f'{ann_stats["tail_notes"]} in the unreached tail')
 			print(f'[annotate] {ann_stats["bars"]} source @measure directives '
 				f'({ann_stats["empty_bars"]} bar(s) with no source note of their own), '
 				f'{ann_stats["covered_notes"]}/{ann_stats["src_notes"]} source note_on inside them, '
-				f'{ann_stats["tail_notes"]} in the unreached tail')
+				f'{tail_txt}')
 			print(f'[annotate] {ann_path}')
 
 	if inspector is not None:
