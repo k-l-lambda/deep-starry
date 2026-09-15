@@ -1354,6 +1354,60 @@ class SlidingTranslator:
 		return keep, n
 
 
+	def drop_restated_leading_bar (self, output):
+		"""Drop a leading output bar that owns no source note, restatement and all. -> (output, n).
+
+		The sibling of `drop_leading_eom`, and the case that rule cannot see. There the leading bar holds
+		no note, so the first note fixes bar 1. Here it holds notes and they are a RESTATEMENT: the model
+		plays the opening material, closes the bar, then plays it again at the head of the next one. Bar 1
+		is pinned to source 0 by convention whatever it matched, so when bar 2's smallest in-range match is
+		also source 0 the two bars contend for one source note, `measure_boundaries` breaks the tie toward
+		the later bar, and bar 1 comes out owning nothing.
+
+		That empty bar 1 is not the tie convention doing its job. Mid-file an empty bar is EVIDENCE -- a bar
+		whose notes missed, or whose opening contradicted monotonicity -- and it belongs in the file so the
+		viewer can see the alignment lost that bar. Bar 1 is the one bar whose boundary is asserted rather
+		than measured, so a tie there says only that the model restated the opening, which is a fact about
+		the generation and not a correspondence anyone can read. MEASURED over the 65 published piano0909
+		pairs: 5 files (7.7%) open this way, all five with the same shape, and on 00a114b763 -- coverage
+		0.9775, so a healthy alignment -- it left `@measure 1` and `@measure 2` on the same source line with
+		the source's first bar blank while the output's held the restated chord.
+
+		Both arms lose the bar, which is the point: `close_final_measure` already drops a generated partial
+		bar so the two files END on the same bar line, and this is the same trade at the other end. The
+		restated notes are not lost content -- the bar that keeps them is the one that restates them.
+
+		Loops, because the model can restate more than once: each dropped bar re-tests the new leading one.
+		"""
+		note_on = self.tk.id_by_token.get('note_on')
+		dropped = 0
+		while True:
+			# Bar 2 must exist and must open at source 0 -- the tie that leaves bar 1 owning nothing. An
+			# empty match list is NO evidence, which is the forward-fill case in measure_boundaries and not
+			# a restatement; only a bar that positively matched source 0 takes the bar off bar 1.
+			if len(self._align_first_src) < 2 or 0 not in self._align_first_src[1]:
+				break
+			first_note = next((i for i, tid in enumerate(output) if tid == note_on), None)
+			if first_note is None:
+				break			# no note in the leading bar: drop_leading_eom's case, not this one
+			close = next((i for i, tid in enumerate(output) if i > first_note and tid == self.tk.eom_id),
+				None)
+			if close is None:
+				break			# one bar, never closed: dropping it would empty the file
+			# Everything from the first note through the <eom> that closes the bar. The declarations BEFORE
+			# that note stay: they are the file's header, which compose_output expects to find, and the
+			# `@measure 1` it writes then stands over what used to be bar 2.
+			n = close - first_note + 1
+			output = output[:first_note] + output[close + 1:]
+			self._align_first_src = self._align_first_src[1:]
+			self._align_measures = self._align_measures[1:]
+			# The <eom> marks are absolute output indices. The one at `close` went with the bar; the rest
+			# move back by the token count removed.
+			self._align_eom_at = [i - n for i in self._align_eom_at if i > close]
+			dropped += 1
+		return output, dropped
+
+
 	def record_align_quality (self, pitch_index, src_index):
 		'''Book one observed note against its measure, and arm the stop if recent quality collapsed.
 
@@ -1830,6 +1884,9 @@ class SlidingTranslator:
 			# AFTER the trim, never before: trim_align_tail indexes `output` through `_align_eom_at`, and
 			# dropping a token from the front invalidates every one of those absolute indices.
 			output, lead = self.drop_leading_eom(output)
+			# AFTER drop_leading_eom, which can expose one: an output opening [<eom>, note, <eom>] has its
+			# leading empty bar removed first, and only then is the bar it uncovers testable for the tie.
+			output, restated = self.drop_restated_leading_bar(output)
 			# `trimmed > 0 or done`: both leave a COMPLETE last bar, so the boundary is appended. Every
 			# other ending (stop, max_token, an exhausted window) stopped mid-bar, so that bar is dropped.
 			output, kept_bars = self.close_final_measure(output, complete=(trimmed > 0 or done))

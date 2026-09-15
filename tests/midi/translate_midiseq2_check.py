@@ -605,6 +605,52 @@ def check_eom_numbering_rules ():
 	if lead != 0 or out != [tempo, eom, eom]:
 		print(f'  FAIL noteless output: dropped {lead}, out {out}'); ok = False
 
+	# --- rule 2b: a leading bar whose notes are a RESTATEMENT ---
+	# drop_leading_eom cannot see this one: the leading bar HOLDS notes, so the first note fixes bar 1 and
+	# that rule returns untouched. Bar 2 matched source 0 too, so the tie in measure_boundaries leaves bar 1
+	# owning nothing -- MEASURED on 5 of the 65 published piano0909 pairs.
+	tr = tr_with([[0], [0, 4], [11]], 31)
+	tr._align_eom_at = [3, 6]
+	out, n = tr.drop_restated_leading_bar([tempo, note_on, 7, eom, note_on, 9, eom, note_on])
+	if n != 1 or out != [tempo, note_on, 9, eom, note_on]:
+		print(f'  FAIL restated leading bar: dropped {n}, out {out}'); ok = False
+	if tr._align_first_src != [[0, 4], [11]]:
+		print(f'  FAIL restated leading bar: evidence not shifted: {tr._align_first_src}'); ok = False
+	if tr._align_eom_at != [3]:
+		print(f'  FAIL restated leading bar: eom marks not reindexed: {tr._align_eom_at}'); ok = False
+
+	# bar 2 opening PAST source 0 is a real bar 1 that owns source 0..n: nothing is dropped.
+	tr = tr_with([[0], [5], [11]], 31)
+	tr._align_eom_at = [3, 6]
+	out, n = tr.drop_restated_leading_bar([tempo, note_on, 7, eom, note_on, 9, eom, note_on])
+	if n != 0 or out != [tempo, note_on, 7, eom, note_on, 9, eom, note_on]:
+		print(f'  FAIL real bar 1 touched: dropped {n}, out {out}'); ok = False
+
+	# bar 2 with NO match is the forward-fill case in measure_boundaries, not a restatement. An empty list
+	# must not be read as "matched source 0".
+	tr = tr_with([[0], [], [11]], 31)
+	tr._align_eom_at = [3, 6]
+	out, n = tr.drop_restated_leading_bar([tempo, note_on, 7, eom, note_on, 9, eom, note_on])
+	if n != 0:
+		print(f'  FAIL no-evidence bar 2 treated as restatement: dropped {n}'); ok = False
+
+	# restated TWICE: each dropped bar re-tests the one it uncovers.
+	tr = tr_with([[0], [0], [0, 4], [11]], 31)
+	tr._align_eom_at = [3, 6, 9]
+	out, n = tr.drop_restated_leading_bar(
+		[tempo, note_on, 7, eom, note_on, 9, eom, note_on, 5, eom, note_on])
+	if n != 2 or out != [tempo, note_on, 5, eom, note_on]:
+		print(f'  FAIL double restatement: dropped {n}, out {out}'); ok = False
+	if tr._align_first_src != [[0, 4], [11]]:
+		print(f'  FAIL double restatement: evidence not shifted: {tr._align_first_src}'); ok = False
+
+	# one bar, never closed: dropping it would empty the file, so it stays and the coverage gate judges it.
+	tr = tr_with([[0], [0]], 31)
+	tr._align_eom_at = []
+	out, n = tr.drop_restated_leading_bar([tempo, note_on, 7])
+	if n != 0 or out != [tempo, note_on, 7]:
+		print(f'  FAIL unclosed single bar: dropped {n}, out {out}'); ok = False
+
 	# --- both arms close the same bar ---
 	# close_final_measure moves whichever side is short of a boundary, and which side depends on how the
 	# run ended. `complete` = the last bar is whole (the trim cut at an <eom>, or end_of_track): the
@@ -644,8 +690,8 @@ def check_eom_numbering_rules ():
 		print(f'  FAIL source close: {st["covered_notes"]} + {st["dropped_tail_notes"]} '
 			f'!= {st["src_notes"]}'); ok = False
 
-	print(f'{"ok  " if ok else "FAIL"} eom numbering: leading <eom> dropped and evidence shifted, '
-		f'both arms close the same bar with nothing after it (7 cases)')
+	print(f'{"ok  " if ok else "FAIL"} eom numbering: leading empty AND restated bars dropped with their '
+		f'evidence, both arms close the same bar with nothing after it (12 cases)')
 	return ok
 
 
