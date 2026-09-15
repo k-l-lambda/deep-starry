@@ -464,6 +464,117 @@ def check_source_annotation (root):
 	return ok
 
 
+def check_overgeneration_guards ():
+	"""The reuse stop and the density trim fire on over-generation and stay off by default.
+
+	Over-generation is invisible to the miss ratio: AlignConfig['ReuseCost'] is 0.0, so re-matching one
+	source note N times books N clean matches and the miss rate reads a PERFECT 0. Both guards here key
+	on the source indices instead, and every case below has a miss rate of exactly 0 so that a
+	regression to the miss axis cannot pass.
+
+	Bars are replayed through the real `record_align_quality`, and the synthetic index space leaves a
+	slot for each <eom>: the bar ordinal is `bisect_left` over eom positions, so an <eom> sharing an
+	index with the note after it puts that note in the PREVIOUS bar. That off-by-one silently shifted a
+	whole file's bar assignment while I was measuring this, which is why it is spelled out.
+	"""
+	tk = Midiseq2Tokenizer()
+
+	def replay (bars, **kw):
+		'''bars: list of per-bar source-index lists (None = a miss).'''
+		tr = SlidingTranslator(None, tk, align_advance=True, **kw)
+		idx = 0
+		for m, srcs in enumerate(bars):
+			if m:
+				tr._align_eom_at.append(idx)
+				idx += 1
+			for s in srcs:
+				tr.record_align_quality(idx, s)
+				idx += 1
+		return tr
+
+	ok = True
+
+	# defaults leave both new axes inert, so an existing command line behaves exactly as before
+	base = SlidingTranslator(None, tk)
+	if base.align_stop_reuse != 0.0 or base.align_trim_density != 0.0:
+		print(f'  FAIL defaults must be off, got reuse={base.align_stop_reuse} '
+			f'density={base.align_trim_density}'); ok = False
+
+	# a healthy run: every note its own source note. Neither guard may fire.
+	healthy = [list(range(m * 8, m * 8 + 8)) for m in range(6)]
+	tr = replay(healthy, align_stop_window=8, align_stop_rate=0.6, align_stop_reuse=0.5,
+		align_trim_rate=0.3, align_trim_density=2.0)
+	if tr._align_stop_at is not None:
+		print(f'  FAIL reuse stop fired on a clean run at {tr._align_stop_at}'); ok = False
+	_out, dropped, _f = tr.trim_align_tail(list(range(500)))
+	if dropped:
+		print(f'  FAIL density trim dropped {dropped} bars of a clean run'); ok = False
+
+	# a tail that pours notes onto source the earlier bars already consumed. Zero misses throughout.
+	tail = [list(range(0, 8)), list(range(8, 16)), [16] * 6, [16, 17] * 3]
+	tr = replay(tail, align_trim_rate=0.3, align_trim_density=2.0, align_trim_min_notes=4)
+	_out, dropped, failed = tr.trim_align_tail(list(range(500)))
+	if dropped != 2:
+		print(f'  FAIL density trim should drop the 2 over-generated bars, dropped {dropped}'); ok = False
+	if failed:
+		print('  FAIL a file with 2 healthy bars must not be declared failed'); ok = False
+	# and the miss axis alone must NOT see it, which is the whole point
+	only_miss = replay(tail, align_trim_rate=0.3)
+	if only_miss.trim_align_tail(list(range(500)))[1] != 0:
+		print('  FAIL the miss trim was expected to be blind here; the case no longer tests anything')
+		ok = False
+
+	# an under-sized final bar is transparent to the walk, not a wall. Without this, a 2-note last bar
+	# (the norm -- it is where generation was cut) blocks the drop of everything behind it.
+	blocked = [list(range(0, 8)), list(range(8, 16)), [16] * 8, [17] * 8, [18, 18]]
+	tr = replay(blocked, align_trim_density=2.0, align_trim_min_notes=4)
+	_out, dropped, _f = tr.trim_align_tail(list(range(500)))
+	if dropped != 3:
+		print(f'  FAIL small last bar should be passed over, expected 3 dropped, got {dropped}'); ok = False
+
+	# truncation lands on an <eom> boundary
+	kept = len(tr._align_measures) - dropped
+	out, _d, _f = tr.trim_align_tail(list(range(500)))
+	if len(out) != tr._align_eom_at[kept - 1]:
+		print(f'  FAIL truncation at {len(out)}, expected eom boundary '
+			f'{tr._align_eom_at[kept - 1]}'); ok = False
+
+	# nothing survives -> failed, so the caller can refuse to write a fragment
+	allbad = [[0] * 6 for _ in range(4)]
+	tr = replay(allbad, align_trim_density=2.0, align_trim_min_notes=4)
+	_out, dropped, failed = tr.trim_align_tail(list(range(500)))
+	if not failed:
+		print(f'  FAIL an all-degenerate file must report failed (dropped {dropped})'); ok = False
+
+	# the stop needs a SUSTAINED collapse: one bad window must not fire it. This stop is online, and a
+	# transient dip is indistinguishable from a real collapse at the moment it fires -- measured, a
+	# recoverable blip's bad run was LONGER than a true collapse's, so the hysteresis is the only
+	# defence and a regression that drops it would discard healthy bars.
+	W = 8
+	blip = [list(range(0, 8)), [8] * 8, list(range(9, 17)), list(range(17, 25))]
+	tr = replay(blip, align_stop_window=W, align_stop_rate=1.1, align_stop_reuse=0.5)
+	if tr._align_stop_at is not None:
+		print(f'  FAIL reuse stop fired on a single-window blip at {tr._align_stop_at}'); ok = False
+	collapse = [list(range(0, 8))] + [[8] * 8 for _ in range(4)]
+	tr = replay(collapse, align_stop_window=W, align_stop_rate=1.1, align_stop_reuse=0.5)
+	if tr._align_stop_at is None:
+		print('  FAIL reuse stop missed a sustained collapse'); ok = False
+	elif tr._align_stop_cause != 'reuse':
+		print(f'  FAIL stop cause should be reuse, got {tr._align_stop_cause!r}'); ok = False
+
+	# a run of MISSES must not be reported as reuse: the two axes stay independent so the reported
+	# cause is the thing that actually happened
+	misses = [list(range(0, 8))] + [[None] * 8 for _ in range(4)]
+	tr = replay(misses, align_stop_window=W, align_stop_rate=0.6, align_stop_reuse=0.5)
+	if tr._align_stop_at is None or tr._align_stop_cause != 'miss':
+		print(f'  FAIL a miss collapse should be attributed to miss, got '
+			f'{tr._align_stop_cause!r}'); ok = False
+
+	print(f'{"ok  " if ok else "FAIL"} over-generation guards: reuse stop needs a sustained collapse, '
+		f'density trim drops the tail past an under-sized bar, both off by default')
+	return ok
+
+
 def check_render (root, samples):
 	'''render_lines must round-trip a real file's content lines through the vocab.
 
@@ -1460,6 +1571,7 @@ def main ():
 		check_no_unknown(args.root, args.samples),
 		check_source_advance(args.root),
 		check_source_annotation(args.root),
+		check_overgeneration_guards(),
 		check_header(args.root),
 		check_note_on_events(args.root, args.samples),
 		check_incremental_walk(args.root, min(args.samples, 4)),

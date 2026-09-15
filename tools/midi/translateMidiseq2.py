@@ -871,7 +871,8 @@ class SlidingTranslator:
 	def __init__ (self, model, tokenizer, pos_style='sep', src_window=640, max_token=2048,
 		device='cpu', prime=True, temperature=0.0, top_k=0, top_p=1.0, source_eom=False,
 		advance_tokens=1, prime_window=2048, kv_cache=True, align_advance=False,
-		align_stop_window=0, align_stop_rate=0.6, align_trim_rate=0.0):
+		align_stop_window=0, align_stop_rate=0.6, align_trim_rate=0.0,
+		align_stop_reuse=0.0, align_trim_density=0.0, align_trim_min_notes=4):
 		self.model = model
 		self.tk = tokenizer
 		self.pos_style = pos_style
@@ -897,10 +898,43 @@ class SlidingTranslator:
 		self.align_stop_rate = float(align_stop_rate)
 		self._align_recent = collections.deque(maxlen=self.align_stop_window or 1)
 		self._align_stop_at = None		# output token index where the stop fired
+		self._align_stop_cause = None	# 'miss' or 'reuse', for the report
+		# The SAME window, judged on a second and independent axis: over-generation. With
+		# AlignConfig['ReuseCost'] at 0.0, re-matching one source note N times books N clean matches, so
+		# a run that stalls on a handful of source notes and pours notes onto them is invisible to the
+		# miss ratio -- it reads a PERFECT miss rate of 0. Measured on 20 yt-piano files: healthy files
+		# floor at distinct/matched 0.73-1.00 over a 16-note window, while the two whole-file
+		# degenerates (2.29x and 2.03x reuse) reach 0.25.
+		#
+		# The hysteresis is not tuning slack, it is structural. This stop is ONLINE, and at the moment
+		# it fires a transient dip and an unrecoverable collapse are indistinguishable -- the difference
+		# only exists in the future. Measured: a recoverable blip's sub-threshold run (5 windows) is
+		# LONGER than a true collapse's (4), so no run-length threshold separates them. So the stop is
+		# deliberately deaf to anything short of a sustained collapse (a full window of consecutive bad
+		# windows) and the tail trim, which is offline and can only ever remove a suffix, is what
+		# catches the rest. A false stop discards every bar after it; a false trim costs a few bars.
+		self.align_stop_reuse = float(align_stop_reuse)
+		self._align_reuse_recent = collections.deque(maxlen=self.align_stop_window or 1)
+		self._align_reuse_run = 0
 		# Stage 2, the tail trim: drop trailing measures whose OWN miss ratio exceeds this. Applied
 		# after the run, walking backwards from the last measure until one passes. Here a per-measure
 		# ratio is the right statistic -- the question is about one specific measure, not a trend.
 		self.align_trim_rate = float(align_trim_rate)
+		# Second trim axis, over-generation, measured per bar as notes per unit of NEW source the bar
+		# claims. Per-bar DISTINCT source count does not work here and the failure is instructive: a
+		# short bar can be all-distinct while re-matching source an earlier bar already consumed, so
+		# 71XwSVoXOxI's 15-notes-on-4-sources tail scored a clean 1.00 on every bar. Density is measured
+		# against the bar's own forward progress, which is the same quantity `measure_boundaries` uses
+		# to place the source-side @measure, so a bar that claims no new source is exactly a bar that
+		# gets no span. Measured: at density >= 2.0 this catches 4 of the 5 known-bad files and stays
+		# silent on both files whose degeneracy is a recoverable mid-file blip.
+		self.align_trim_density = float(align_trim_density)
+		# A bar too small to judge is TRANSPARENT to the backward walk, not a wall -- it neither
+		# confirms a drop nor stops one. Learned the hard way: stopping on an under-sized bar silently
+		# defeated the whole trim on Xka1fq_42fo, whose tail is `8/1 8/1 8/1 8/1 2/0` and whose final
+		# 2-note bar blocked all five. The last bar is where generation was CUT, so it is routinely
+		# too small to carry a verdict.
+		self.align_trim_min_notes = max(1, int(align_trim_min_notes))
 		self._align_measures = []		# measure ordinal -> [observed, missed]
 		self._align_eom_at = []			# absolute output index of every <eom>, in order
 		# measure ordinal -> every source event index the notes in that measure matched. Collected on the
@@ -1222,6 +1256,7 @@ class SlidingTranslator:
 		if not self.align_stop_window or self._align_stop_at is not None:
 			return
 		self._align_recent.append(1 if missed else 0)
+		self._align_reuse_recent.append(src_index)
 		# Only judged on a FULL window. A partial window's ratio is noisy in exactly the direction that
 		# fires the stop (one miss out of two observations reads 0.5), and the opening of a run is where
 		# a spurious stop is most expensive -- it would discard the whole piece.
@@ -1229,6 +1264,36 @@ class SlidingTranslator:
 			return
 		if sum(self._align_recent) / len(self._align_recent) > self.align_stop_rate:
 			self._align_stop_at = pitch_index
+			self._align_stop_cause = 'miss'
+			return
+		if self.align_stop_reuse:
+			self._check_align_reuse_stop(pitch_index)
+
+	def _check_align_reuse_stop (self, pitch_index):
+		'''Arm the stop when the window collapses onto a few source notes for a sustained stretch.
+
+		The ratio is taken over the MATCHED notes only, deliberately: dividing by the whole window
+		would make a stretch of misses read as over-generation, which is the other stop's job and the
+		other stop's threshold. The two axes stay independent, so a file can only be stopped for the
+		reason that actually happened.
+
+		A window whose matches are too few to carry a ratio RESETS the run rather than extending it. A
+		2-match window reading 0.5 is noise, and the run is the only thing standing between this stop
+		and the blips it must not fire on.
+		'''
+		matched = [s for s in self._align_reuse_recent if s is not None]
+		if len(matched) < self.align_stop_window // 2:
+			self._align_reuse_run = 0
+			return
+		if len(set(matched)) / len(matched) < self.align_stop_reuse:
+			self._align_reuse_run += 1
+		else:
+			self._align_reuse_run = 0
+		# One full window of consecutive bad windows. See the hysteresis note in __init__ for why this
+		# is set far past what mere noise-rejection would need.
+		if self._align_reuse_run >= self.align_stop_window:
+			self._align_stop_at = pitch_index
+			self._align_stop_cause = 'reuse'
 
 	def observe_tail (self, output, from_index):
 		'''Feed the tokens the run never retired, so the trim has statistics for EVERY measure.
@@ -1257,8 +1322,25 @@ class SlidingTranslator:
 				st['distinct'].add(detail['src'])
 			self.record_align_quality(e['pitch_index'], detail['src'])
 
+	def bar_density (self, upto=None):
+		'''Measure ordinal -> the count of NEW source events that bar claims (0 = it claims none).
+
+		"New" is measured against the running high-water mark of every earlier bar, which is the same
+		forward-progress rule `measure_boundaries` uses to place the source-side @measure. Sharing the
+		rule is the point: a bar that claims no new source here is exactly a bar that gets no source
+		span there, so the trim and the annotation can never disagree about which bars are empty.
+		'''
+		per_bar = self._align_first_src if upto is None else self._align_first_src[:upto]
+		high, out = 0, []
+		for matches in per_bar:
+			ahead = [s for s in matches if s >= high]
+			out.append((max(ahead) - high + 1) if ahead else 0)
+			if ahead:
+				high = max(ahead)
+		return out
+
 	def trim_align_tail (self, output):
-		'''Drop trailing measures whose own miss ratio exceeds `align_trim_rate`.
+		'''Drop trailing measures that fail on miss ratio or on over-generation density.
 
 		Returns (truncated_output, measures_dropped, failed). Truncation lands ON an <eom> boundary so
 		the result ends with a COMPLETE measure; the boundary token itself is excluded, since <eom>
@@ -1268,17 +1350,37 @@ class SlidingTranslator:
 		failure rather than write a fragment. Measured on 30 files it never fired, so that branch is
 		reasoned-through but unexercised.
 		'''
-		if not self.align_trim_rate or not self._align_measures:
+		if not (self.align_trim_rate or self.align_trim_density) or not self._align_measures:
 			return output, 0, False
-		last = len(self._align_measures) - 1
-		dropped = 0
-		while last >= 0:
-			seen, missed = self._align_measures[last]
-			if seen and missed / seen > self.align_trim_rate:
-				last -= 1
-				dropped += 1
+		density = self.bar_density() if self.align_trim_density else []
+		nb = len(self._align_measures)
+		# Walk back over the whole suffix rather than stopping at the first bar that is merely
+		# unjudgeable, and remember the DEEPEST bad bar found. A bad bar confirms the drop of everything
+		# behind it, including any too-small bars passed over on the way.
+		dropped, run = 0, 0
+		for m in range(nb - 1, -1, -1):
+			seen, missed = self._align_measures[m]
+			if not seen:
+				run += 1
+				continue
+			bad_miss = self.align_trim_rate and missed / seen > self.align_trim_rate
+			bad_dens = False
+			if self.align_trim_density and m < len(density):
+				new = density[m]
+				if seen < self.align_trim_min_notes:
+					# Too small to carry a density verdict. Transparent: it may still be dropped by a
+					# worse bar further back, but it cannot end the walk on its own.
+					if not bad_miss:
+						run += 1
+						continue
+				else:
+					bad_dens = new == 0 or seen / new >= self.align_trim_density
+			if bad_miss or bad_dens:
+				run += 1
+				dropped = run
 			else:
 				break
+		last = nb - 1 - dropped
 		if last < 0:
 			return output, dropped, True
 		if dropped == 0:
@@ -1562,7 +1664,8 @@ class SlidingTranslator:
 				# Stage 1 fired. The step that fired is kept whole: the trim is what cleans its tail,
 				# and cutting mid-step here would leave an unterminated measure for it to inherit.
 				if verbose:
-					print(f'  step {step:4d}  align stop at output index {self._align_stop_at}')
+					print(f'  step {step:4d}  align stop ({self._align_stop_cause}) at output '
+						f'index {self._align_stop_at}')
 				step += 1
 				break
 
@@ -1789,7 +1892,8 @@ def report_output (body_lines, stats):
 		if al['matched'] and al['distinct'] < al['matched']:
 			print(f'[align-advance] re-use: {al["matched"]} matches over {al["distinct"]} distinct '
 				f'source notes = {al["matched"] / al["distinct"]:.2f}x. ReuseCost is '
-				f'{AlignConfig["ReuseCost"]}; a ratio well above 1 means the cursor under-advanced.')
+				f'{AlignConfig["ReuseCost"]}; a ratio well above 1 means the cursor under-advanced. '
+				f'--align-stop-reuse / --align-trim-density act on this.')
 	if consumed < total and not stats['done']:
 		print(f'[warn] stopped after {consumed}/{total} source lines')
 
@@ -2398,6 +2502,25 @@ def main ():
 			'N=16 rate 0.6 on 30 files: whole-file shift_f1 0.6901 -> 0.7227, 6 win / 2 lose.')
 	ap.add_argument('--align-stop-rate', type=float, default=0.6, metavar='R',
 		help='miss ratio over the --align-stop-window that ends the run (default 0.6).')
+	ap.add_argument('--align-stop-reuse', type=float, default=0.0, metavar='R',
+		help='stage 1, second axis: end the run when distinct/matched source notes over the '
+			'--align-stop-window falls below R for a full window of consecutive windows. Catches '
+			'OVER-GENERATION, which the miss ratio cannot see at all -- with ReuseCost 0.0, pouring '
+			'notes onto a handful of stalled source notes books a PERFECT miss rate. 0 disables it. '
+			'Measured on 20 yt-piano files: healthy files floor at 0.73-1.00, whole-file degenerates '
+			'reach 0.25; R=0.34 fires on the 2.29x-reuse file at bar 4/12 with 0 false positives. '
+			'Deliberately conservative -- this stop is online, and a transient blip is indistinguishable '
+			'from a real collapse at the moment it fires, so the tail trim carries the rest.')
+	ap.add_argument('--align-trim-density', type=float, default=0.0, metavar='D',
+		help='stage 2, second axis: drop trailing measures generating >= D notes per unit of NEW '
+			'source they claim. This is the over-generation the miss-ratio trim is blind to. 0 disables '
+			'it. Measured at D=2.0 on 20 files it catches 4 of the 5 known-bad tails (the 5th is '
+			'whole-file, which is the stop\'s case) and stays silent on both mid-file blips.')
+	ap.add_argument('--align-trim-min-notes', type=int, default=4, metavar='N',
+		help='a measure with fewer than N observed notes is too small for a density verdict and is '
+			'passed over by the backward walk rather than ending it (default 4). The LAST measure is '
+			'where generation was cut, so it is routinely under-sized; treating it as a wall silently '
+			'defeated the whole trim on a file whose tail was 8/1 8/1 8/1 8/1 2/0.')
 	ap.add_argument('--align-trim-rate', type=float, default=0.0, metavar='R',
 		help='stage 2, the tail trim: after the run, drop trailing measures whose OWN miss ratio '
 			'exceeds R, so the output ends on a complete measure. 0 disables it. Needs '
@@ -2493,6 +2616,8 @@ def main ():
 		source_eom=bool(data_args.get('source_eom')), advance_tokens=args.advance_tokens,
 		align_advance=args.align_advance, align_stop_window=args.align_stop_window,
 		align_stop_rate=args.align_stop_rate, align_trim_rate=args.align_trim_rate,
+		align_stop_reuse=args.align_stop_reuse, align_trim_density=args.align_trim_density,
+		align_trim_min_notes=args.align_trim_min_notes,
 		prime_window=args.prime_window, kv_cache=not args.no_kv_cache)
 
 	# The output path has to be settled BEFORE translate runs, because the streaming figures are named
@@ -2554,6 +2679,8 @@ def main ():
 					src_window=args.src_window, advance_tokens=args.advance_tokens, prime_window=args.prime_window,
 					align_advance=args.align_advance, align_stop_window=args.align_stop_window,
 					align_stop_rate=args.align_stop_rate, align_trim_rate=args.align_trim_rate,
+					align_stop_reuse=args.align_stop_reuse, align_trim_density=args.align_trim_density,
+					align_trim_min_notes=args.align_trim_min_notes,
 					generated_notes=len(out_events), source_notes=len(src_events),
 					# prime_notes and cuts are recorded so what a figure DREW is checkable from data,
 					# rather than only by looking at the image: an empty primer or a missing cut is a
