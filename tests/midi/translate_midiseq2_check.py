@@ -365,7 +365,10 @@ def check_source_annotation (root):
 
 	def annotate (first, matched, kept=None, distinct=None):
 		tr = SlidingTranslator(None, tk)
-		tr._align_first_src = list(first)
+		# per bar: EVERY source index its notes matched. A bare int is accepted as a one-note bar so the
+		# simple cases stay readable; a list is what the real walk collects.
+		tr._align_first_src = [[] if v is None else ([v] if isinstance(v, int) else list(v))
+			for v in first]
 		tr._align_matched = matched
 		tr._align_src_line_of = list(range(n))
 		# `distinct` is what the tail boundary actually reads -- NOT _align_matched, which stops at the
@@ -425,10 +428,27 @@ def check_source_annotation (root):
 			f'(want 6 and {n - 11})'); ok = False
 
 	# The no-evidence bar must be the EMPTY one, not its predecessor -- that is what the forward fill
-	# buys, and a backward fill would pass every conservation check above while blaming the wrong bar.
+	# buys, and reusing the previous boundary instead would pass every conservation check above while
+	# blaming the wrong bar. MEASURED identical on all 20 yt-piano files, so only this case separates them.
 	_out, _st, per = annotate([0, None, 11, 20], 31)
 	if per.get(2, 0) != 0 or per.get(1, 0) == 0:
 		print(f'  FAIL forward fill: bar 2 matched nothing but bars read {per}'); ok = False
+
+	# Boundaries are monotone BY CONSTRUCTION: a bar opens at its smallest match that is not behind the
+	# previous bar's boundary. The case that matters is a bar whose FIRST match in generation order jumps
+	# to the far end of its own span -- 71XwSVoXOxI bar 21 matched src 232 across a 201..232 bar. Reading
+	# that first value and clamping afterwards emptied the next three bars; here the later bars take
+	# their own in-range minimum and stay non-empty.
+	_out, st, per = annotate([[0, 1], [201, 232, 210], [209, 216], [217, 224], [226, 233]], 240,
+		distinct=range(240))
+	if st['empty_bars']:
+		print(f'  FAIL monotone construction: {st["empty_bars"]} empty bars where a clamp would give 3 '
+			f'({per})'); ok = False
+	# ...and a bar whose every match IS behind the previous boundary can only empty ITSELF, never a run.
+	_out, st, per = annotate([[0, 1], [100, 110], [20, 30], [120, 130]], 240, distinct=range(240))
+	if st['empty_bars'] != 1 or per.get(3, 0) != 0:
+		print(f'  FAIL backward bar: want exactly bar 3 empty, got {st["empty_bars"]} empty in {per}')
+		ok = False
 
 	# A run with no alignment at all must leave the source untouched rather than emit a bar 1 it cannot
 	# justify -- annotate_source is reachable with --align-advance off only by a caller bug, but a

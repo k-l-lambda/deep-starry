@@ -903,9 +903,9 @@ class SlidingTranslator:
 		self.align_trim_rate = float(align_trim_rate)
 		self._align_measures = []		# measure ordinal -> [observed, missed]
 		self._align_eom_at = []			# absolute output index of every <eom>, in order
-		# measure ordinal -> the FIRST source event index any note in that measure matched, or None.
-		# Collected on the same walk as the two above so it cannot drift from them; it is what
-		# `annotate_source` turns into a source-side @measure boundary.
+		# measure ordinal -> every source event index the notes in that measure matched. Collected on the
+		# same walk as the two above so it cannot drift from them; `measure_boundaries` turns it into a
+		# source-side @measure boundary.
 		self._align_first_src = []
 		self._align_src_line_of = []	# source event index -> its note_on LINE, kept for annotate_source
 		self._align_kept_measures = 0	# measures surviving the trim; the annotation stops there
@@ -1209,15 +1209,16 @@ class SlidingTranslator:
 		m = bisect.bisect_left(self._align_eom_at, pitch_index)
 		while len(self._align_measures) <= m:
 			self._align_measures.append([0, 0])
-			self._align_first_src.append(None)
+			self._align_first_src.append([])
 		self._align_measures[m][0] += 1
 		if missed:
 			self._align_measures[m][1] += 1
-		elif self._align_first_src[m] is None:
-			# FIRST in generation order, not the smallest: the opening note of a bar is what the model
-			# put there, and taking a min would let a later note that matched backwards move the
-			# boundary behind its own bar.
-			self._align_first_src[m] = src_index
+		else:
+			# EVERY match this bar made, not one statistic over them. Choosing the bar's boundary needs
+			# the previous bar's boundary to compare against, which is not known yet at this point in the
+			# stream, so the choice is deferred to `measure_boundaries` and only the evidence is kept
+			# here. Cheap: one int per generated note.
+			self._align_first_src[m].append(src_index)
 		if not self.align_stop_window or self._align_stop_at is not None:
 			return
 		self._align_recent.append(1 if missed else 0)
@@ -1290,43 +1291,60 @@ class SlidingTranslator:
 	def measure_boundaries (self, kept=None):
 		"""Measure ordinal -> the source EVENT index that bar opens at, for the bars that survived.
 
-		This is the whole content of the annotation: `_align_first_src[m]` is the source note the first
-		matched note of target bar m landed on, so it is where that bar begins ON THE SOURCE SIDE. The
-		list is then made monotone and gap-filled, because neither property is free:
+		Bar m opens at the SMALLEST source index it matched THAT IS NOT BEHIND bar m-1's boundary. The
+		monotone constraint is therefore part of choosing the boundary rather than a repair applied to it
+		afterwards, and that ordering is the whole design:
 
-		  NOT MONOTONE  align.py may match backwards (MEASURED corpus-wide: backward jumps > 4 indices
-		                on 0.7% of matches). A boundary behind its predecessor would emit an @measure
-		                that re-opens source already inside the previous bar, so it is clamped up to
-		                the running maximum -- i.e. that bar is credited with no new source of its own.
-		  GAPS          a bar whose every note missed has no boundary at all. It takes the NEXT known
-		                boundary, so it comes out EMPTY and its predecessor keeps the span.
+		  MONOTONE BY CONSTRUCTION  a bar can only open at or after the previous one, so the sequence is
+		                            never non-monotone and never needs clamping. The cost is accepted
+		                            openly: when a bar's true opening really is behind its predecessor's
+		                            boundary, the bar is credited with no new source rather than being
+		                            allowed to re-open source the previous bar already holds.
+		  NO EVIDENCE               a bar whose every note MISSED has no candidate at all. It takes the
+		                            NEXT known boundary, so it comes out EMPTY itself.
 
-		Filling FORWARD is the load-bearing half of that, because a bar spans [bounds[m], bounds[m+1]):
-		giving the no-evidence bar the next boundary makes ITS OWN span empty, which is the statement the
-		data supports -- the alignment found nothing to put in it. Filling from the previous boundary
-		instead moves the emptiness onto the PRECEDING bar, i.e. onto a bar that aligned fine, and the
-		unclaimed source notes would then be drawn as that bar's failure. (Verified by walking the
-		annotated text: on first_src [0, None, 11, 20] the forward fill leaves bar 2 with 0 notes and
-		bar 1 with the 11 before it; the backward fill empties bar 1 instead.)
+		Two earlier rules were implemented and MEASURED against this one over the 20-file yt-piano set,
+		counting bars left with no source of their own (lower is better): first-match-in-generation-order
+		then clamp, 58; per-bar minimum then clamp, 55; this rule, 52. The failure the count comes from is
+		visible on 71XwSVoXOxI, where bar 21's opening note matched src 232 while the bar spans 201..232.
+		Under first-in-order that one forward outlier put bars 22, 23 and 24 (spanning 209..216, 217..224,
+		197..233) all behind the running maximum and emptied three consecutive bars; here each of them
+		takes its own smallest in-range match instead, and one bar is emptied. The blast radius is the
+		real argument rather than the 6-bar total: a forward outlier under a post-hoc clamp empties an
+		unbounded RUN of later bars, while this rule can only ever empty the one bar whose evidence
+		contradicts monotonicity.
 
-		A TIE -- two bars opening at the same source note, from the clamp above or from two bars matching
-		one note -- always leaves one of them empty, since two bars cannot both own the same span. Which
-		one is a convention rather than a claim: the earlier one is drawn empty and the later one keeps
-		the notes. Under every fill: no source note is lost or duplicated, the numbering stays contiguous
-		with the target's, and the total span is preserved.
+		The NO-EVIDENCE branch is kept separate deliberately. Folding it into the clause above -- letting
+		a bar with no candidates simply reuse the previous boundary -- measures IDENTICALLY on all 20
+		files (52 either way, because a bar that missed every note is rare when a file misses 7 of 274),
+		but it inverts the gap case: on [matched, NONE, 11.., 20..] it yields [0, 0, 11, 20], which empties
+		bar 1 and hands bar 2 the span, i.e. it blames a bar that aligned fine. Forward-filling yields
+		[0, 11, 11, 20] and empties bar 2, the bar that actually lost the source. Same numbers, opposite
+		meaning, so the branch stays.
+
+		A TIE -- two bars opening at the same source note -- always leaves one of them empty, since two
+		bars cannot own the same span. Which one is a convention rather than a claim: the earlier is drawn
+		empty and the later keeps the notes. Under every branch here: no source note is lost or
+		duplicated, the numbering stays contiguous with the target's, and the total span is preserved.
 
 		Bar 1 always opens at source 0: the piece starts there whatever its notes matched.
 		"""
-		first = self._align_first_src if kept is None else self._align_first_src[:kept]
-		if not first:
+		per_bar = self._align_first_src if kept is None else self._align_first_src[:kept]
+		if not per_bar:
 			return []
-		bounds = [None] * len(first)
+		bounds = [None] * len(per_bar)
 		high = 0
-		for m, src in enumerate(first):
-			if src is None:
+		for m, matches in enumerate(per_bar):
+			if m == 0:
+				bounds[0] = 0
 				continue
-			high = max(high, src)		# never backwards: a boundary behind its predecessor would
-			bounds[m] = high			# re-open source already inside the previous bar
+			ahead = [s for s in matches if s >= high]
+			if ahead:
+				high = min(ahead)
+				bounds[m] = high
+			elif matches:
+				bounds[m] = high		# every match is behind the previous bar: this bar gets no span
+			# else: no match at all, so no evidence -- left None for the forward fill below
 		nxt = None
 		for m in range(len(bounds) - 1, -1, -1):
 			if bounds[m] is None:
