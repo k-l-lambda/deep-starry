@@ -937,6 +937,17 @@ def check_overgeneration_guards ():
 			f'{st["dropped_tail_notes"]} source note(s) dropped'); ok = False
 	if st['covered_notes'] != 22:
 		print(f'  FAIL all 22 source notes must be covered, got {st["covered_notes"]}'); ok = False
+	# ...and it walks CONTIGUOUSLY, so a forward outlier cannot drag the line past the bar's content.
+	# This shipped as a regression on f28cb4d393 when the floor was `max(own) + 1`: one match far ahead
+	# charged the last bar 333 source notes against 20 output notes.
+	outlier = [list(range(0, 8)), list(range(8, 16)), [16, 17, 18, 60], [19, 20]]
+	tr = replay(outlier, align_trim_rate=0.3)
+	tr._align_src_line_of = list(range(64))
+	_ann, st = tr.annotate_source([f'note_on #{40 + (i % 40)} $40' for i in range(64)], kept=3)
+	# bar 3 matched 16,17,18 and the outlier 60; the line must stop at 19, not run to 61
+	if st['covered_notes'] != 19:
+		print(f'  FAIL a forward outlier must not extend the closing line, '
+			f'covered {st["covered_notes"]} of 64 (expected 19)'); ok = False
 
 	# the stop needs a SUSTAINED collapse: one bad window must not fire it. This stop is online, and a
 	# transient dip is indistinguishable from a real collapse at the moment it fires -- measured, a

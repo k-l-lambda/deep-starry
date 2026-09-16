@@ -1957,10 +1957,25 @@ class SlidingTranslator:
 		# `max(distinct) + 1` over EVERY bar, and the last bar's own matches are a subset of that, so the
 		# floor is a no-op -- stated as a condition rather than left implicit, so the branch is about the
 		# case it is for.
+		#
+		# CONTIGUOUS, not `max(own) + 1`. The maximum is not safe: a bar can hold one forward outlier far
+		# past its real content -- the same failure `measure_boundaries` documents on 71XwSVoXOxI, where
+		# bar 21's opening note matched src 232 while the bar spans 201..232 -- and the floor would then
+		# charge the bar every source note in the gap, which it never translated.
+		#
+		# MEASURED: `max(own) + 1` was tried first and shipped a regression on f28cb4d393. Its last kept
+		# bar generated 20 notes around source 1880..1898 plus a single match at 2217, so the closing line
+		# jumped to 2218 (the run's own `furthest`) and bar 122 was charged 333 source note_on against 20
+		# output notes -- 319 of them notes no output bar corresponded to. Walking only while each next
+		# index is one the bar ITSELF matched stops at 1899 there (restoring the old line exactly) and
+		# still reaches 168 on bfb4cc9a1c, whose bar matched 161..167 as an unbroken run. So the walk is
+		# what distinguishes the two cases, and no threshold does.
 		if bounds and len(bounds) < len(full):
 			own = self._align_first_src[len(bounds) - 1]
 			if own:
-				tail_from = max(tail_from, max(own) + 1)
+				reached = set(own)
+				while tail_from in reached:
+					tail_from += 1
 		tail_from = max(tail_from, max(bounds) + 1)
 		# The TERMINAL directive, and the file ends there. `close_final_measure` writes the matching
 		# boundary on the output arm, so both files close the same bar at the same number and neither has
