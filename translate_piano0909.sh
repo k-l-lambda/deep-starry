@@ -20,7 +20,8 @@
 #                      file in flight is always finished, never truncated.
 #                      Any `date -d` form: "2026-09-16 08:16", "tomorrow 08:16", "+6 hours".
 #   --limit N          stop after N files per worker (smoke tests)
-#   --redo             re-translate even if the outputs already exist
+#   --redo             re-translate even if the outputs already exist, and ignore the
+#                      attempted records described below
 #   --min-measures N   quarantine a result with fewer than N measures (default 4). What
 #                      makes a result unusable is its own LENGTH, not what fraction of
 #                      the source it covered: a ratio gate punishes long sources, and
@@ -29,8 +30,10 @@
 #                      was thrown away for reading 0.026, while 909e22439f lost 53 and
 #                      003d55c09d 32. Meanwhile a 2-bar result off a short source can
 #                      pass a ratio gate comfortably. Quarantined ids go to
-#                      .work/quarantine/ with their log and are RETRIED on the next run.
-#                      Pass 0 to publish everything.
+#                      .work/quarantine/ with their log. Pass 0 to publish everything.
+#                      Retried on a later run only after --redo or removing
+#                      .work/attempted/, since the same code and flags reproduce the same
+#                      verdict -- see the attempted records below.
 #   --min-coverage F   DEPRECATED, kept so old command lines still parse: a result that
 #                      consumed less than F of its source lines is quarantined. Off (0)
 #                      by default now; --min-measures is the gate that decides.
@@ -43,6 +46,15 @@
 # Skip-done: a file counts as done when BOTH rubato/ and regular/ hold a non-empty
 # output for it. Partial writes cannot be mistaken for finished ones -- the converter
 # and translate step both write to <path>.part.<wid> and rename only on success.
+#
+# Attempted records: .work/attempted/<id> is written when a file FAILS or is QUARANTINED, and
+# read before any worker picks an id. Translation is deterministic under fixed code and flags
+# (MEASURED: two workers that raced one id produced byte-identical results), so re-running such
+# an id inside one campaign can only reproduce its verdict -- and without the record every worker
+# would re-attempt it when its own shuffle reached it, since a non-publishing id is not published
+# and skip-done cannot see it. The records are NOT cleared between runs: a quarantine is worth
+# retrying after the code or the flags change, which is `--redo` or `rm -r .work/attempted`, and
+# that is a deliberate decision rather than something a rerun does by accident.
 #
 # ADDING A WORKER TO A RUN IN FLIGHT: run this script again with the new GPU. There is no
 # partition to rebalance and no queue to register with -- every worker walks its own seeded
@@ -176,7 +188,7 @@ if [ -n "$UNTIL" ]; then
 fi
 
 QUAR="$WORK/quarantine"
-mkdir -p "$RUBATO" "$REGULAR" "$WORK" "$QUAR"
+mkdir -p "$RUBATO" "$REGULAR" "$WORK" "$QUAR" "$WORK/attempted"
 
 # ---- work list ----------------------------------------------------------------
 ALL=$(ls -1 "$RAW" 2>/dev/null | grep -E '\.midi?$' | sort)
@@ -327,11 +339,11 @@ sys.stdout.write("\n".join(lines) + "\n")' "$SEED" < "$WORK/todo.all" > "$LIST"
 	}
 	trap cleanup EXIT
 
-	# Two passes over its own order. The first does the work; the second exists for what the first
-	# cannot see -- an id another worker started and then died on, which is unpublished but was
-	# skipped as in-flight by nobody, so only a re-read finds it. A pass that publishes nothing
-	# stops the worker. Without the second pass a worker finishes its permutation and exits while
-	# such an id is still undone, and the run ends short of the corpus.
+	# Two passes over its own order. The first does the work; the second exists for one case only --
+	# an id that was held in flight when its holder was killed, so it is neither published nor
+	# recorded as attempted, and the first pass skipped it as somebody else's. A pass that publishes
+	# nothing stops the worker. The attempted record is what keeps this second pass cheap: without
+	# it the pass re-ran every failure of the first.
 	local pass stop_all=0
 	for pass in 1 2; do
 		[ "$stop_all" -eq 1 ] && break
@@ -351,6 +363,23 @@ sys.stdout.write("\n".join(lines) + "\n")' "$SEED" < "$WORK/todo.all" > "$LIST"
 		if [ "$REDO" -eq 0 ] && [ -s "$RUBATO/$id.midiseq2.txt" ] && [ -s "$REGULAR/$id.midiseq2.txt" ]; then
 			skip_n=$((skip_n+1)); continue
 		fi
+		# Already attempted and it did not publish. MEASURED deterministic: two workers that raced
+		# the same id produced byte-identical results (571 lines / 1190 tokens / 12 measures on
+		# 000c79c42e, differing only in the timing field), so a second attempt under the same code
+		# and flags can only reproduce the same failure. Without this record every worker re-attempts
+		# every non-publishing id when its own shuffle reaches it -- the smoke test spent 20 attempts
+		# on 8 ids, four of them three times each, because a failed or quarantined id is not
+		# published and so skip-done never sees it. The old partition had no such cost: an id lived
+		# in exactly one worker's list.
+		#
+		# It is deliberately NOT cleared between runs. A quarantine is still worth retrying after
+		# the CODE or FLAGS change -- that is what makes the artifacts in quarantine/ worth keeping
+		# -- so re-examining them is `--redo`, or removing .work/attempted.* by hand. What is never
+		# worth repeating is the same computation with the same inputs inside one campaign.
+		if [ "$REDO" -eq 0 ] && [ -e "$WORK/attempted/$id" ]; then
+			skip_n=$((skip_n+1)); continue
+		fi
+
 		# Is another worker on this id right now? ADVISORY, not a lock: it narrows the window that
 		# the shuffle leaves open, and both failure directions are harmless -- a miss duplicates one
 		# file (whose loser the winning `mv` discards), and a false hold leaves the id for a later
@@ -398,10 +427,12 @@ sys.stdout.write("\n".join(lines) + "\n")' "$SEED" < "$WORK/todo.all" > "$LIST"
 		IFS= read -r reply <&$CONV_RD
 		case "$reply" in
 			OK*) : ;;
-			*) echo "[w$WID] CONVFAIL $id ${reply#ERR }"; fail_n=$((fail_n+1)); rm -f "$mark"; continue ;;
+			*) echo "[w$WID] CONVFAIL $id ${reply#ERR }"; fail_n=$((fail_n+1))
+				: > "$WORK/attempted/$id"; rm -f "$mark"; continue ;;
 		esac
 		if [ ! -s "$src" ]; then
-			echo "[w$WID] CONVEMPTY $id"; fail_n=$((fail_n+1)); rm -f "$src" "$mark"; continue
+			echo "[w$WID] CONVEMPTY $id"; fail_n=$((fail_n+1))
+			: > "$WORK/attempted/$id"; rm -f "$src" "$mark"; continue
 		fi
 
 		# --- translate ---
@@ -490,6 +521,7 @@ sys.stdout.write("\n".join(lines) + "\n")' "$SEED" < "$WORK/todo.all" > "$LIST"
 			mv -f "$ann" "$QUAR/$id.rubato.midiseq2.txt" 2>/dev/null
 			quar_n=$((quar_n+1))
 			echo "[w$WID gpu$GPU] TOOSHORT $id $cover_txt -- quarantined, not published"
+			: > "$WORK/attempted/$id"
 			rm -f "$src" "$mark"
 			if [ "$DEADLINE" -ne 0 ] && [ "$(date +%s)" -ge "$DEADLINE" ]; then
 				echo "[w$WID gpu$GPU] deadline reached, stopping"; break
@@ -514,6 +546,7 @@ sys.stdout.write("\n".join(lines) + "\n")' "$SEED" < "$WORK/todo.all" > "$LIST"
 		else
 			fail_n=$((fail_n+1))
 			echo "[w$WID gpu$GPU] FAIL $id rc=$rc -- see $WORK/log.$WID.$id"
+			: > "$WORK/attempted/$id"
 			rm -f "$part"
 		fi
 		rm -f "$src" "$mark"
@@ -559,4 +592,6 @@ echo "=== all workers finished ==="
 echo "rubato : $(ls -1 "$RUBATO" | grep -c 'midiseq2.txt$') files"
 echo "regular: $(ls -1 "$REGULAR" | grep -c 'midiseq2.txt$') files"
 QN=$(ls -1 "$QUAR" 2>/dev/null | grep -c '\.log$')
-[ "$QN" -gt 0 ] && echo "quarantined (under $MIN_MEASURES measures, will retry): $QN -- see $QUAR"
+[ "$QN" -gt 0 ] && echo "quarantined (under $MIN_MEASURES measures): $QN -- see $QUAR"
+AN=$(ls -1 "$WORK/attempted" 2>/dev/null | grep -c .)
+[ "$AN" -gt 0 ] && echo "attempted without publishing: $AN -- rm -r $WORK/attempted (or --redo) to re-examine"
