@@ -929,7 +929,7 @@ class SlidingTranslator:
 		advance_tokens=1, prime_window=2048, kv_cache=True, align_advance=False,
 		align_stop_window=0, align_stop_rate=0.6, align_trim_rate=0.0,
 		align_stop_reuse=0.0, align_stop_reuse_window=0, align_trim_density=0.0,
-		align_trim_min_notes=4, align_trim_spanless_run=0):
+		align_trim_min_notes=4, align_trim_spanless_run=0, align_trim_span_ratio=0.0):
 		self.model = model
 		self.tk = tokenizer
 		self.pos_style = pos_style
@@ -1028,6 +1028,7 @@ class SlidingTranslator:
 		# 2-note bar blocked all five. The last bar is where generation was CUT, so it is routinely
 		# too small to carry a verdict.
 		self.align_trim_min_notes = max(1, int(align_trim_min_notes))
+		self.align_trim_span_ratio = float(align_trim_span_ratio)
 		self._align_measures = []		# measure ordinal -> [observed, missed]
 		self._align_eom_at = []			# absolute output index of every <eom>, in order
 		# measure ordinal -> every source event index the notes in that measure matched. Collected on the
@@ -1577,6 +1578,58 @@ class SlidingTranslator:
 				high = max(ahead)
 		return out
 
+	def bar_span_ratio (self):
+		"""Measure ordinal -> generated notes per source note the bar actually OWNS. -> [float | None]
+
+		The point of this signal is WHERE IT COMES FROM. Every other per-bar number the trim reads is a
+		tally the online cursor kept about its own matching, and `AlignConfig['ReuseCost']` is 0.0, so
+		re-matching one source note N times books N clean matches: a bar that replays two source notes
+		nine times reads `seen=9, missed=0`, a PERFECT miss ratio. MEASURED on a4956a41f6, whose last kept
+		bar is exactly that -- the trim saw ordinal 8 as `seen=9 missed=0 ratio=0.00`, no flag of any kind,
+		while the bar holds 2 source notes against 9 generated ones. cd83f973b2's ordinal 19 is the same
+		shape at `seen=18 missed=5 ratio=0.28` against a 2-note span (and its whole loop, ordinals 20-32,
+		sits at 0.28 -- under the 0.3 trim rate, so the miss guard was blind to all 13 bars of it and only
+		the density guard fired).
+
+		Here the denominator is the bar's own span from `measure_boundaries`, `bounds[m+1] - bounds[m]`,
+		which is derived from WHICH source notes were matched rather than from how many times each was, so
+		reuse cannot inflate it. Verified to reproduce the published files exactly: a4956a41f6 ordinal 8
+		bounds 84->86 span 2 seen 9 = 4.50x against 9 output / 2 source note_on counted off the two arms,
+		and cd83f973b2 ordinal 19 bounds 234->236 span 2 seen 18 = 9.00x against 18 / 2.
+
+		Not a general trim criterion, and the measurement says so plainly: over the 39 published pairs the
+		healthy bars run p50 1.00x, p90 1.57x, p95 2.00x, p99 4.00x, max 11.00x, while the bars this was
+		built for sit at 1.53x, 2.00x, 4.50x, 5.00x and 9.00x. The two distributions OVERLAP, so no
+		threshold separates them and using this to drop arbitrary bars would trade real bars for bad ones
+		at a poor rate. It is read only by the walk's STOPPING decision, where the asymmetry rescues it: a
+		false positive there gives up one more trailing bar and the walk keeps going, where a mid-file cut
+		would discard everything behind it.
+
+		The last ordinal has no `bounds[m+1]`, so its span closes at its OWN furthest match rather than
+		at the file's: `max(_align_first_src[m]) + 1`. Deliberately not `_align_stats['distinct']`, which
+		`annotate_source` uses for the same job -- that set is filled on the real matching path and left
+		empty by a `record_align_quality` replay, so keying on it made the one bar this method exists to
+		judge come back None under test while working in production. Its own matches are the right
+		denominator anyway: what is being asked is how much source THIS bar owns.
+
+		None where the ratio says nothing: a bar with no span at all (that is `first_spanless_run`'s
+		signal, not this one) or with nothing observed.
+		"""
+		bounds = self.measure_boundaries()
+		if not bounds:
+			return []
+		out = []
+		for m in range(len(bounds)):
+			seen = self._align_measures[m][0] if m < len(self._align_measures) else 0
+			if m + 1 < len(bounds):
+				end = bounds[m + 1]
+			else:
+				own = self._align_first_src[m] if m < len(self._align_first_src) else []
+				end = max(own) + 1 if own else bounds[m]
+			span = end - bounds[m]
+			out.append(seen / span if (span > 0 and seen) else None)
+		return out
+
 	def first_spanless_run (self):
 		"""Bar ordinal where the earliest long run of span-less bars starts, or None. -> int | None
 
@@ -1621,20 +1674,28 @@ class SlidingTranslator:
 		return None
 
 	def trim_align_tail (self, output):
-		'''Drop trailing measures that fail on miss ratio or on over-generation density.
+		'''Drop trailing measures that fail on miss ratio, over-generation density, or span ratio.
 
 		Returns (truncated_output, measures_dropped, failed). Truncation lands ON an <eom> boundary so
 		the result ends with a COMPLETE measure; the boundary token itself is excluded, since <eom>
 		opens the NEXT bar and keeping it would render a dangling empty `@measure`.
 
-		`failed` is True when no measure survives -- the caller is expected to declare the file a
-		failure rather than write a fragment. Measured on 30 files it never fired, so that branch is
-		reasoned-through but unexercised.
+		`failed` is True when no measure survives, and the caller declares the file a failure rather than
+		writing a fragment. That branch is EXERCISED: 685a2ca535 hit it (`dropped=9 failed=True, 9 -> 0
+		measures`), and for a while the flag was printed and otherwise ignored, so the file was published
+		anyway at recall 0.0050 -- see the `[fail]` return in `main`.
+
+		Three criteria, and they are not interchangeable. Miss ratio and density are tallies the online
+		cursor kept about its own matching; span ratio is derived from which source notes were matched
+		rather than how many times, so it is the only one reuse cannot inflate -- but its distribution
+		overlaps the healthy one, so it is consulted only where the walk would STOP. See
+		`bar_span_ratio` for that measurement and why the asymmetry makes it safe there.
 		'''
-		if not (self.align_trim_rate or self.align_trim_density
-				or self.align_trim_spanless_run) or not self._align_measures:
+		if not (self.align_trim_rate or self.align_trim_density or self.align_trim_spanless_run
+				or self.align_trim_span_ratio) or not self._align_measures:
 			return output, 0, False
 		density = self.bar_density() if self.align_trim_density else []
+		spanr = self.bar_span_ratio() if self.align_trim_span_ratio else []
 		nb = len(self._align_measures)
 		# Walk back over the whole suffix rather than stopping at the first bar that is merely
 		# unjudgeable, and remember the DEEPEST bad bar found. A bad bar confirms the drop of everything
@@ -1657,7 +1718,17 @@ class SlidingTranslator:
 						continue
 				else:
 					bad_dens = new == 0 or seen / new >= self.align_trim_density
-			if bad_miss or bad_dens:
+			# Read ONLY here, on the bar the walk is about to stop at. `bar_span_ratio`'s docstring has
+			# the measurement: its distribution overlaps the healthy one, so it cannot be a general
+			# criterion, but refusing to STOP on such a bar costs one trailing bar per false positive
+			# instead of everything behind a mid-file cut. MEASURED over the 39 published pairs at 4.0:
+			# 12 bars dropped in total, of which a4956a41f6's bar 8 (4.50x) and cd83f973b2's bar 20
+			# (9.00x) are the two this was built for, 685a2ca535 gives up 8 (already a `failed` file), and
+			# the collateral is 1 bar each on 00a114b763 (of 200) and 80b813fe19 (of 49).
+			bad_span = False
+			if self.align_trim_span_ratio and m < len(spanr) and spanr[m] is not None:
+				bad_span = spanr[m] >= self.align_trim_span_ratio
+			if bad_miss or bad_dens or bad_span:
 				run += 1
 				dropped = run
 			else:
@@ -2885,9 +2956,30 @@ def main ():
 			'at bars 50-54, four bars come out with no span, and bars 55-62 then recover, so the '
 			'backward walk never reaches the damage. A RUN, because a lone empty bar is normal: the tie '
 			'convention must leave one of two bars sharing a boundary empty, and over 9 files there are '
-			'12 single-bar runs and 4 of length 2 against exactly one of length 4, the loop. At N=4 only '
-			'that loop qualifies. 0 disables it. Note the cost is real: everything after the run goes '
-			'too, healthy or not, because it is read against source the loop already mis-attributed.')
+			'12 single-bar runs and 4 of length 2 against exactly one of length 4, the loop. 0 disables '
+			'it. Note the cost is real: everything after the run goes too, healthy or not, because it '
+			'is read against source the loop already mis-attributed. RE-MEASURED over 39 published '
+			'pairs: 49 runs of length 1, 4 of length 2, 2 of length 3, 1 of length 7. N=3 is what the '
+			'evidence now supports -- b01a18f48a is a positive case that did not exist before (bars '
+			'3-5 empty, then bar 6 recovers and ends the backward walk, so bars 2-5 all survive), and '
+			'its only collateral is 00db9e936e cutting at bar 94 of 97, a tail the trim would drop '
+			'anyway. N=2 additionally reaches 6b8fc07a63 bars 21-22 but costs 005c15c173 35 of its 49 '
+			'bars and 8b1d255895 9 of 39, which is not worth it.')
+	ap.add_argument('--align-trim-span-ratio', type=float, default=0.0, metavar='R',
+		help='stage 2, fourth axis: refuse to let the backward walk STOP at a measure that generated R '
+			'or more notes per source note it actually owns. Unlike the miss and density axes this is '
+			'not a tally the online cursor kept about itself -- ReuseCost is 0.0, so re-matching one '
+			'source note nine times books nine clean matches and the bar reads a PERFECT miss ratio. '
+			'Measured on a4956a41f6 the trim saw its last kept bar as seen=9 missed=0 ratio=0.00, no '
+			'flag at all, while the bar holds 2 source notes against 9 generated; cd83f973b2 is the '
+			'same at ratio=0.28 over a 2-note span, and its whole 13-bar loop sits at 0.28, under the '
+			'0.3 trim rate, so the miss axis was blind to all of it. The denominator here comes from '
+			'measure_boundaries, so reuse cannot inflate it. Consulted ONLY at the stopping bar because '
+			'the distributions overlap (healthy p95 2.00x, p99 4.00x, max 11.00x against flagged bars '
+			'at 1.53x-9.00x): a false positive there gives up one trailing bar, where a mid-file cut '
+			'would discard everything behind it. At R=4.0 over the 39 pairs, 12 bars dropped in total '
+			'-- the two target cases, 8 on an already-failed file, and 1 each on 00a114b763 (of 200) '
+			'and 80b813fe19 (of 49). 0 disables it.')
 	ap.add_argument('--align-trim-min-notes', type=int, default=4, metavar='N',
 		help='a measure with fewer than N observed notes is too small for a density verdict and is '
 			'passed over by the backward walk rather than ending it (default 4). The LAST measure is '
@@ -2992,6 +3084,7 @@ def main ():
 		align_stop_reuse_window=args.align_stop_reuse_window, align_trim_density=args.align_trim_density,
 		align_trim_min_notes=args.align_trim_min_notes,
 		align_trim_spanless_run=args.align_trim_spanless_run,
+		align_trim_span_ratio=args.align_trim_span_ratio,
 		prime_window=args.prime_window, kv_cache=not args.no_kv_cache)
 
 	# The output path has to be settled BEFORE translate runs, because the streaming figures are named
@@ -3015,6 +3108,24 @@ def main ():
 	body = render_lines(output_ids, tokenizer, translator.keywords)
 	final = compose_output(body, source_header(lines))
 	report_output(final, stats)
+
+	# The trim's own verdict, ACTED ON rather than only printed. `trim_align_tail` returns failed=True
+	# when no measure survived, and its docstring says the caller is expected to declare the file a
+	# failure -- but until now line 2239's print was the flag's only consumer, so the run wrote both arms
+	# and exited 0. MEASURED on 685a2ca535: the trim reported `dropped=9 failed=True, 9 -> 0 measures`,
+	# then `close_final_measure(complete=True)` closed the very 9 bars it had just condemned and the file
+	# was published, scoring recall 0.0050 (2 of 201 generated notes matched, 2 distinct source notes
+	# reached, the model looping one bar 7 times). Nothing downstream could tell: rc was 0 and both files
+	# were non-empty, which is exactly what a good run looks like.
+	#
+	# Returning BEFORE the write, so a caller that keys on rc (translate_piano0909.sh already has a FAIL
+	# branch that removes the .part and keeps the log) needs no change and cannot publish a fragment. The
+	# diagnosis is not lost: report_output above has already printed the [align-trim] FAILURE line and the
+	# whole align report into the log.
+	if stats.get('align') and stats['align'].get('failed'):
+		print('[fail] no measure survived the trim, so there is nothing to write; '
+			'leaving both arms unwritten and exiting non-zero')
+		return 3
 
 	write_output(out_path, final)
 	print(f'[done] {out_path}')
@@ -3057,6 +3168,7 @@ def main ():
 					align_stop_reuse_window=args.align_stop_reuse_window, align_trim_density=args.align_trim_density,
 					align_trim_min_notes=args.align_trim_min_notes,
 					align_trim_spanless_run=args.align_trim_spanless_run,
+					align_trim_span_ratio=args.align_trim_span_ratio,
 					generated_notes=len(out_events), source_notes=len(src_events),
 					# prime_notes and cuts are recorded so what a figure DREW is checkable from data,
 					# rather than only by looking at the image: an empty primer or a missing cut is a

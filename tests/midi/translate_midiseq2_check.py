@@ -862,6 +862,46 @@ def check_overgeneration_guards ():
 	if SlidingTranslator(None, tk).align_trim_spanless_run != 0:
 		print('  FAIL align_trim_spanless_run must default to off'); ok = False
 
+	# The span-ratio axis, on the bar the walk would STOP at. The failure it exists for: the last bar
+	# replays a 2-note span many times, so the cursor's own tallies read a perfect miss ratio and the
+	# density high-water (max(ahead), where the boundary rule uses min(ahead)) also passes it --
+	# measured on a4956a41f6, whose last kept bar was seen=9 missed=0 ratio=0.00 with no flag at all,
+	# holding 2 source notes against 9 generated.
+	#   bars 0-1  healthy, own source
+	#   bar 2     8 notes over the 2-note span 16..17, so 4.0x -- and 0 misses, so the miss axis is blind
+	narrow = [list(range(0, 8)), list(range(8, 16)), [16, 17] * 4]
+	tr = replay(narrow, align_trim_rate=0.3)
+	if tr.trim_align_tail(list(range(500)))[1] != 0:
+		print('  FAIL the miss axis was expected blind to a narrow-span bar; the case tests nothing')
+		ok = False
+	tr = replay(narrow, align_trim_rate=0.3, align_trim_span_ratio=4.0)
+	ratios = tr.bar_span_ratio()
+	_out, dropped, _f = tr.trim_align_tail(list(range(500)))
+	if dropped != 1:
+		print(f'  FAIL the span-ratio axis should drop the narrow last bar, dropped {dropped} '
+			f'(ratios {ratios})'); ok = False
+	# the ratio is read off measure_boundaries, so REUSE cannot inflate it: replaying the same span
+	# more times must raise the ratio, where the miss tally stays at a perfect 0.
+	wider = [list(range(0, 8)), list(range(8, 16)), [16, 17] * 8]
+	tr = replay(wider, align_trim_span_ratio=4.0)
+	r = tr.bar_span_ratio()[2]
+	if r is None or r <= ratios[2]:
+		print(f'  FAIL more reuse over the same span must read a higher ratio, got {r} vs {ratios[2]}')
+		ok = False
+	# a healthy run must not be touched by it, at the value the script ships
+	tr = replay(healthy, align_trim_rate=0.3, align_trim_span_ratio=4.0)
+	if tr.trim_align_tail(list(range(500)))[1]:
+		print('  FAIL span-ratio axis fired on a clean run'); ok = False
+	# it is consulted ONLY at the stopping bar, never to cut mid-file: a narrow bar with healthy bars
+	# after it must survive, because a false positive there would discard everything behind it.
+	shielded = ([list(range(0, 8)), [16, 17] * 4] + [list(range(18, 26)), list(range(26, 34))])
+	tr = replay(shielded, align_trim_rate=0.3, align_trim_span_ratio=4.0)
+	if tr.trim_align_tail(list(range(500)))[1] != 0:
+		print('  FAIL span-ratio must not cut mid-file, only refuse to stop'); ok = False
+	# ...and off by default
+	if SlidingTranslator(None, tk).align_trim_span_ratio != 0.0:
+		print('  FAIL align_trim_span_ratio must default to off'); ok = False
+
 	# the stop needs a SUSTAINED collapse: one bad window must not fire it. This stop is online, and a
 	# transient dip is indistinguishable from a real collapse at the moment it fires -- measured, a
 	# recoverable blip's bad run was LONGER than a true collapse's, so the hysteresis is the only
@@ -920,7 +960,8 @@ def check_overgeneration_guards ():
 
 	print(f'{"ok  " if ok else "FAIL"} over-generation guards: reuse stop needs a sustained collapse '
 		f'and its own longer window to see bar-to-bar repetition, density trim drops the tail past an '
-		f'under-sized bar, the span-less run reaches a mid-file loop, all off by default')
+		f'under-sized bar, the span-less run reaches a mid-file loop, the span ratio catches reuse the '
+		f'miss axis cannot see, all off by default')
 	return ok
 
 
