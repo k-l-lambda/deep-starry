@@ -1706,11 +1706,30 @@ class SlidingTranslator:
 		sequence, because position is the whole criterion and `_align_measures` keeps only totals.
 
 		MEASURED on the ONLINE signal, which is the one this reads -- not the offline lattice, and the two
-		do not agree. Over four dumped files, healthy bars sit at 0 (a4eca4e078: 0 on both its bars, its
-		18 misses over 99 notes being spread through the bar rather than piled at its end -- exactly the
-		case a positional criterion must leave alone), while genuinely runaway bars read far above any
-		threshold: bfb4cc9a1c bar 32 at 49/100 and 6a2892abc4 bars 30-37 at 7-20. In between,
-		6a2892abc4 bar 29 reads 6 on a bar the miss ratio passes at 0.20.
+		do not agree. Over 38 published files, 1226 bars:
+
+		    ALL bars              85.7% at 0, p50 0, p75 0, p90 3, p95 8, p99 16, max 29
+		    the bar the walk STOPS at   30 of 38 at 0, and the maximum over bars that survive into a
+		                                published file is exactly 3
+
+		Those two lines are the whole justification, and the first one alone would not support a threshold
+		of 3: 9.3% of all bars exceed it. What makes 3 safe is that the walk only ever visits a SUFFIX, so
+		a mid-file spike is unreachable unless every bar behind it already failed -- 0042ec118a bar 10 of
+		25 reads 7 and that file was trimmed by nothing at all. Over the published corpus the highest run
+		on a surviving bar is 3, so the threshold sits exactly at the top of the reachable healthy
+		distribution with nothing above it. (One file reads 4 at its stopping ordinal, 889faf155b bar 21;
+		the align-stop had fired, so that bar was doomed, skipped by the walk, and deleted by
+		`close_final_measure` regardless.)
+
+		Runaway bars read far above it: 6a2892abc4 bar 29 at 6 on a bar the miss ratio PASSES at 0.20,
+		bfb4cc9a1c bar 32 at 49 of 100, 6a2892abc4 bars 30-37 at 7-20. And the case a positional criterion
+		must leave alone is left alone: a4eca4e078 reads 0 on both its bars, its 18 misses over 99 notes
+		being spread through the bar rather than piled at its end.
+
+		END-TO-END blast radius over the same 38 files, against the pre-axis baseline: 37 byte-identical,
+		ONE changed -- 6a2892abc4 from 29 bars to 28, which is bar 29, the miss ratio's blind spot above.
+		The mid-file spikes sit inside regions the other four axes had already condemned, which is why the
+		9.3% figure does not translate into collateral.
 
 		The limit, stated plainly: this cannot reach e0b22f7573's residual, the case that prompted it. Its
 		last kept bar ends `..., 292, 299, None, None, 295, 296, 297, 298, 299, 300, None` -- a trailing
@@ -1818,12 +1837,11 @@ class SlidingTranslator:
 			bad_span = False
 			if self.align_trim_span_ratio and m < len(spanr) and spanr[m] is not None:
 				bad_span = spanr[m] >= self.align_trim_span_ratio
-			# Unlike span ratio, this one is read on EVERY bar the walk visits, because the healthy mass
-			# sits at 0: across the dumped files every bar the walk was willing to stop at read 0 or 1,
-			# while runaway bars read 6 to 100. A threshold of 3 (strictly greater) therefore sits in
-			# empty space rather than on top of the healthy distribution, which is exactly what
-			# `bar_span_ratio` could not offer -- see `bar_tail_unmatched` for the numbers and for the
-			# case this axis provably cannot reach.
+			# Unlike span ratio, this one is read on EVERY bar the walk visits. NOT because the axis has
+			# no overlap with the healthy mass in general -- 9.3% of all 1226 measured bars exceed 3 --
+			# but because the walk only reaches a SUFFIX, and over the published corpus the highest run
+			# on a bar that SURVIVED is exactly 3. See `bar_tail_unmatched` for both distributions, the
+			# end-to-end blast radius, and the case this axis provably cannot reach.
 			bad_tail = False
 			if self.align_trim_tail_unmatched and m < len(tailu):
 				bad_tail = tailu[m] > self.align_trim_tail_unmatched
@@ -3150,11 +3168,13 @@ def main ():
 			'it missed OR when it re-matched source an earlier bar already claimed, since ReuseCost is '
 			'0.0 and a re-match books as a clean match online (e0b22f7573 bar 17: the cursor recorded 3 '
 			'missed of 40, the offline lattice judged 9). Read on EVERY bar the walk visits, unlike the '
-			'span ratio, because the healthy mass sits at 0: across the dumped files every bar the walk '
-			'was willing to stop at read 0 or 1, against 6-100 on runaway bars. Note the limit -- this '
-			'cannot reach a tail that matched source AHEAD of the bar\'s own reach, which is what '
-			'e0b22f7573 does; the online cursor sees that as progress where the offline lattice judges '
-			'it 9 miss. 0 disables it.')
+			'span ratio, but not because the axis never overlaps the healthy mass -- 9.3% of 1226 measured '
+			'bars exceed 3. It is safe because the walk only reaches a SUFFIX: over 38 published files '
+			'the highest run on a bar that SURVIVED is exactly 3, while runaway bars read 6 (6a2892abc4 '
+			'bar 29, which the miss ratio passes at 0.20) up to 100. End to end that changed 1 of 38 '
+			'files. Note the limit -- this cannot reach a tail that matched source AHEAD of the bar\'s '
+			'own reach, which is what e0b22f7573 does; the online cursor sees that as progress where the '
+			'offline lattice judges it 9 miss. 0 disables it.')
 	ap.add_argument('--align-trim-min-notes', type=int, default=4, metavar='N',
 		help='a measure with fewer than N observed notes is too small for a density verdict and is '
 			'passed over by the backward walk rather than ending it (default 4). The LAST measure is '
