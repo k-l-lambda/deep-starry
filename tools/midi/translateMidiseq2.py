@@ -1673,7 +1673,7 @@ class SlidingTranslator:
 				start, run = None, 0
 		return None
 
-	def trim_align_tail (self, output):
+	def trim_align_tail (self, output, last_bar_doomed=False):
 		'''Drop trailing measures that fail on miss ratio, over-generation density, or span ratio.
 
 		Returns (truncated_output, measures_dropped, failed). Truncation lands ON an <eom> boundary so
@@ -1690,6 +1690,25 @@ class SlidingTranslator:
 		rather than how many times, so it is the only one reuse cannot inflate -- but its distribution
 		overlaps the healthy one, so it is consulted only where the walk would STOP. See
 		`bar_span_ratio` for that measurement and why the asymmetry makes it safe there.
+
+		`last_bar_doomed` says the caller will DELETE the final measure whatever this returns, which is
+		the case whenever the run did not reach `end_of_track`: `close_final_measure(complete=False)`
+		drops the partial bar the generation stopped inside. The walk must then start one ordinal earlier,
+		because a doomed bar cannot shield anything -- it is not there to shield it.
+
+		MEASURED on ab509b156f, which is why this argument exists. The walk read
+
+		    ord 21 (bar 22)  seen=98 missed=30 ratio=0.31  BAD_MISS
+		    ord 22 (bar 23)  seen=44 missed= 9 ratio=0.20  healthy
+
+		stopped on ord 22, dropped NOTHING, and reported bar 22 as shielded behind it. Then
+		`close_final_measure(complete=False)` deleted ord 22, so the published file ended on exactly the
+		bar the trim had condemned -- 49 of the file's 51 misses sat in it. The shield was removed after
+		the walk had already relied on it. Starting one bar earlier drops ord 21 and stops at ord 20
+		(ratio 0.07, density 1.39x, span 1.02x: healthy on all three axes).
+
+		This can only ever remove bars the walk would ALREADY have judged bad, so it needs no threshold
+		and has no false-positive mode of its own: the bar it skips was leaving the file regardless.
 		'''
 		if not (self.align_trim_rate or self.align_trim_density or self.align_trim_spanless_run
 				or self.align_trim_span_ratio) or not self._align_measures:
@@ -1697,11 +1716,17 @@ class SlidingTranslator:
 		density = self.bar_density() if self.align_trim_density else []
 		spanr = self.bar_span_ratio() if self.align_trim_span_ratio else []
 		nb = len(self._align_measures)
-		# Walk back over the whole suffix rather than stopping at the first bar that is merely
-		# unjudgeable, and remember the DEEPEST bad bar found. A bad bar confirms the drop of everything
-		# behind it, including any too-small bars passed over on the way.
+		# A doomed last bar is skipped rather than judged: `run` starts at 1 so it is still COUNTED in
+		# the drop (the ordinals are contiguous and `last` is derived by subtraction), but the walk never
+		# reads its tallies and so cannot stop on it. `dropped` stays 0 until a bar actually fails, so a
+		# clean file is still returned untouched and the caller's own deletion is the only thing that
+		# removes that bar.
 		dropped, run = 0, 0
-		for m in range(nb - 1, -1, -1):
+		start = nb - 1
+		if last_bar_doomed and nb > 1:
+			start = nb - 2
+			run = 1
+		for m in range(start, -1, -1):
 			seen, missed = self._align_measures[m]
 			if not seen:
 				run += 1
@@ -1907,6 +1932,35 @@ class SlidingTranslator:
 			own = self._align_first_src[len(bounds) - 1]
 			if own:
 				tail_from = min(tail_from, max(own) + 1)
+		# ...and the same quantity is also a FLOOR, for the opposite error. The dropped bar's boundary
+		# says where the tail begins; it does NOT say where the last kept bar ends, and when the two
+		# disagree the kept bar's own matches are the better authority -- those notes were translated,
+		# and the output arm is holding them.
+		#
+		# MEASURED on bfb4cc9a1c. The trim dropped ords 30-31, so tail_from took full[30] = source 164,
+		# while the last kept output bar (ord 29) had matched 161..167 with `seen=7 missed=0`. Source
+		# 164..167 are `#43 #3b #37 #3e` -- real note_on, correctly translated, sitting in the output's
+		# bar 30 -- and the closing line fell in front of them, so the published pair showed 3 source
+		# notes against 7 output notes and the four looked invented. They were not; the source arm was
+		# closed early. The two bars share a boundary because ReuseCost is 0.0 and ord 30 re-matched
+		# source ord 29 already held, which is what made ord 30 droppable in the first place.
+		#
+		# Systematic, not a one-off: over the 38 published pairs the LAST bar runs out/src p50 1.08,
+		# p75 1.44, p90 2.33, max 5.00, against p50 1.00 / p90 1.09 for bars generally, and 9 files sit
+		# at >= 1.5x. Six of those nine had `dropped > 0` (this mechanism); the other three had
+		# `dropped == 0` and are the `last_bar_doomed` case in `trim_align_tail` instead.
+		#
+		# The cap above and this floor cannot fight: the cap only fires when the first dropped bar has NO
+		# evidence, and it clamps to this same `max(own) + 1`, so on that path the two agree exactly.
+		#
+		# Only the dropped case is reachable. With nothing dropped `tail_from` is already
+		# `max(distinct) + 1` over EVERY bar, and the last bar's own matches are a subset of that, so the
+		# floor is a no-op -- stated as a condition rather than left implicit, so the branch is about the
+		# case it is for.
+		if bounds and len(bounds) < len(full):
+			own = self._align_first_src[len(bounds) - 1]
+			if own:
+				tail_from = max(tail_from, max(own) + 1)
 		tail_from = max(tail_from, max(bounds) + 1)
 		# The TERMINAL directive, and the file ends there. `close_final_measure` writes the matching
 		# boundary on the output arm, so both files close the same bar at the same number and neither has
@@ -2093,7 +2147,10 @@ class SlidingTranslator:
 		if self.align_advance:
 			# Everything past `prime_start` was never retired and so never observed; the trim needs it.
 			self.observe_tail(output, prime_start)
-			output, trimmed, failed = self.trim_align_tail(output)
+			# `done` is the only ending that leaves a complete last bar; every other one stopped mid-bar,
+			# so close_final_measure below will delete it. Telling the trim that up front stops it
+			# stopping its walk on a bar that is already leaving -- see `last_bar_doomed`.
+			output, trimmed, failed = self.trim_align_tail(output, last_bar_doomed=not done)
 			# AFTER the trim, never before: trim_align_tail indexes `output` through `_align_eom_at`, and
 			# dropping a token from the front invalidates every one of those absolute indices.
 			output, lead = self.drop_leading_eom(output)

@@ -902,6 +902,42 @@ def check_overgeneration_guards ():
 	if SlidingTranslator(None, tk).align_trim_span_ratio != 0.0:
 		print('  FAIL align_trim_span_ratio must default to off'); ok = False
 
+	# `last_bar_doomed`: a bad bar hidden behind a bar the CALLER is about to delete. This is the
+	# ab509b156f shape -- the walk stopped on the healthy final bar, dropped nothing, and reported the
+	# bad bar as shielded; then close_final_measure(complete=False) deleted the shield and the file ended
+	# on the bad bar. A doomed bar cannot shield anything, so the walk has to start behind it.
+	doomed = [list(range(0, 8)), list(range(8, 16)),
+		[16, 17, None, None, None, None],       # bad: miss ratio 4/6 = 0.67
+		list(range(18, 26))]                    # healthy, and about to be deleted by the caller
+	tr = replay(doomed, align_trim_rate=0.3)
+	if tr.trim_align_tail(list(range(500)))[1] != 0:
+		print('  FAIL default (not doomed) must still stop on the healthy last bar'); ok = False
+	tr = replay(doomed, align_trim_rate=0.3)
+	# 2: the doomed bar itself plus the bad bar behind it, so the file ends on the last HEALTHY bar
+	if tr.trim_align_tail(list(range(500)), last_bar_doomed=True)[1] != 2:
+		print(f'  FAIL doomed last bar must expose the bad bar behind it, got '
+			f'{tr.trim_align_tail(list(range(500)), last_bar_doomed=True)[1]}'); ok = False
+	# it may not invent a drop on a clean file: the caller's own deletion stays the only thing that
+	# removes that bar, so `dropped` is still 0 and `complete` still comes out False.
+	tr = replay(healthy, align_trim_rate=0.3, align_trim_density=2.0, align_trim_span_ratio=4.0)
+	if tr.trim_align_tail(list(range(500)), last_bar_doomed=True)[1] != 0:
+		print('  FAIL doomed flag must not drop bars on a clean run'); ok = False
+
+	# annotate_source floors the closing line at the last KEPT bar's own furthest match. The
+	# bfb4cc9a1c shape: the first dropped bar re-matched source the last kept bar already held, so its
+	# boundary sat BEHIND that bar's reach and the notes in between lost their source counterpart.
+	reach = [list(range(0, 8)), list(range(8, 16)), [16, 17, 18, 19, 20, 21], [18, 19]]
+	tr = replay(reach, align_trim_rate=0.3)
+	lines = [f'note_on #{40 + i} $40' for i in range(22)]
+	tr._align_src_line_of = list(range(22))
+	# kept=3 drops the last bar, whose boundary (18) is behind bar 3's furthest match (21)
+	_ann, st = tr.annotate_source(lines, kept=3)
+	if st['dropped_tail_notes'] != 0:
+		print(f'  FAIL closing line must reach the last kept bar\'s own furthest match, '
+			f'{st["dropped_tail_notes"]} source note(s) dropped'); ok = False
+	if st['covered_notes'] != 22:
+		print(f'  FAIL all 22 source notes must be covered, got {st["covered_notes"]}'); ok = False
+
 	# the stop needs a SUSTAINED collapse: one bad window must not fire it. This stop is online, and a
 	# transient dip is indistinguishable from a real collapse at the moment it fires -- measured, a
 	# recoverable blip's bad run was LONGER than a true collapse's, so the hysteresis is the only
@@ -961,7 +997,8 @@ def check_overgeneration_guards ():
 	print(f'{"ok  " if ok else "FAIL"} over-generation guards: reuse stop needs a sustained collapse '
 		f'and its own longer window to see bar-to-bar repetition, density trim drops the tail past an '
 		f'under-sized bar, the span-less run reaches a mid-file loop, the span ratio catches reuse the '
-		f'miss axis cannot see, all off by default')
+		f'miss axis cannot see, a doomed last bar cannot shield the one behind it, and the closing '
+		f'line reaches the last kept bar; all off by default')
 	return ok
 
 
