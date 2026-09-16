@@ -21,13 +21,19 @@
 #                      Any `date -d` form: "2026-09-16 08:16", "tomorrow 08:16", "+6 hours".
 #   --limit N          stop after N files per worker (smoke tests)
 #   --redo             re-translate even if the outputs already exist
-#   --min-coverage F   quarantine a result that consumed less than F of its source
-#                      lines (default 0.10). The align stop is working as designed on
-#                      out-of-domain files -- one measured case reached 427 of 10,847
-#                      source lines at a 94% miss rate -- but such a result is near
-#                      empty, and publishing it would let --skip-done lock it in
-#                      forever. Quarantined ids go to .work/quarantine/ with their log
-#                      and are RETRIED on the next run. Pass 0 to publish everything.
+#   --min-measures N   quarantine a result with fewer than N measures (default 4). What
+#                      makes a result unusable is its own LENGTH, not what fraction of
+#                      the source it covered: a ratio gate punishes long sources, and
+#                      MEASURED over 30 files quarantined at --min-coverage 0.10, 25
+#                      had 4 or more measures -- a6386f7215 produced 60 usable bars and
+#                      was thrown away for reading 0.026, while 909e22439f lost 53 and
+#                      003d55c09d 32. Meanwhile a 2-bar result off a short source can
+#                      pass a ratio gate comfortably. Quarantined ids go to
+#                      .work/quarantine/ with their log and are RETRIED on the next run.
+#                      Pass 0 to publish everything.
+#   --min-coverage F   DEPRECATED, kept so old command lines still parse: a result that
+#                      consumed less than F of its source lines is quarantined. Off (0)
+#                      by default now; --min-measures is the gate that decides.
 #   --ids FILE         translate ONLY the ids listed in FILE, one per line (bare id or
 #                      filename; blank lines and #comments ignored). Without it every
 #                      file in raw/ is work. An id with no file in raw/ is an error, not
@@ -121,7 +127,10 @@ UNTIL=""
 LIMIT=0
 REDO=0
 LIST_ONLY=0
-MIN_COVERAGE=0.10
+# The gate is the measure COUNT of the result, not its coverage ratio. See the usage block: over the
+# 30 files quarantined by the 0.10 ratio gate, 25 held 4 or more measures and were usable data.
+MIN_MEASURES=4
+MIN_COVERAGE=0
 IDS_FILE=""
 
 while [ $# -gt 0 ]; do
@@ -132,6 +141,7 @@ while [ $# -gt 0 ]; do
 		--limit) LIMIT="$2"; shift 2 ;;
 		--redo) REDO=1; shift ;;
 		--min-coverage) MIN_COVERAGE="$2"; shift 2 ;;
+		--min-measures) MIN_MEASURES="$2"; shift 2 ;;
 		--ids) IDS_FILE="$2"; shift 2 ;;
 		--list-only) LIST_ONLY=1; shift ;;
 		-h|--help) sed -n '2,30p' "$0"; exit 0 ;;
@@ -310,7 +320,20 @@ worker () {
 		fi
 
 		local cover_ok=1 cover_txt=""
-		if [ "$MIN_COVERAGE" != "0" ] && [ -f "$WORK/log.$WID.$id" ]; then
+		# The measure COUNT of the result, read off the result itself rather than off a log line about
+		# how much source the cursor walked. This is the gate; the coverage one below is off by default.
+		# A short result is unusable because it is short -- what fraction of a long source it covered
+		# says nothing about that, and the ratio gate threw away 25 usable files out of the 30 it caught
+		# (a6386f7215: 60 measures, ratio 0.026).
+		if [ "$MIN_MEASURES" != "0" ] && [ -s "$REGULAR/$id.midiseq2.txt.part" ]; then
+			local nbars
+			nbars=$(grep -c '@measure' "$REGULAR/$id.midiseq2.txt.part" 2>/dev/null || echo 0)
+			if [ "${nbars:-0}" -lt "$MIN_MEASURES" ]; then
+				cover_ok=0
+				cover_txt="${nbars:-0} measure(s)"
+			fi
+		fi
+		if [ "$cover_ok" -eq 1 ] && [ "$MIN_COVERAGE" != "0" ] && [ -f "$WORK/log.$WID.$id" ]; then
 			local used total
 			used=$(sed -n 's/.*stopped after \([0-9]*\)\/\([0-9]*\) source lines.*/\1/p' "$WORK/log.$WID.$id" | tail -1)
 			total=$(sed -n 's/.*stopped after \([0-9]*\)\/\([0-9]*\) source lines.*/\2/p' "$WORK/log.$WID.$id" | tail -1)
@@ -330,7 +353,7 @@ worker () {
 			mv -f "$REGULAR/$id.midiseq2.txt.part" "$QUAR/$id.regular.midiseq2.txt" 2>/dev/null
 			mv -f "$ann" "$QUAR/$id.rubato.midiseq2.txt" 2>/dev/null
 			quar_n=$((quar_n+1))
-			echo "[w$WID gpu$GPU] LOWCOVER $id $cover_txt -- quarantined, not published"
+			echo "[w$WID gpu$GPU] TOOSHORT $id $cover_txt -- quarantined, not published"
 			rm -f "$src"
 			if [ "$DEADLINE" -ne 0 ] && [ "$(date +%s)" -ge "$DEADLINE" ]; then
 				echo "[w$WID gpu$GPU] deadline reached, stopping"; break
@@ -392,4 +415,4 @@ echo "=== all workers finished ==="
 echo "rubato : $(ls -1 "$RUBATO" | grep -c 'midiseq2.txt$') files"
 echo "regular: $(ls -1 "$REGULAR" | grep -c 'midiseq2.txt$') files"
 QN=$(ls -1 "$QUAR" 2>/dev/null | grep -c '\.log$')
-[ "$QN" -gt 0 ] && echo "quarantined (low coverage, will retry): $QN -- see $QUAR"
+[ "$QN" -gt 0 ] && echo "quarantined (under $MIN_MEASURES measures, will retry): $QN -- see $QUAR"
