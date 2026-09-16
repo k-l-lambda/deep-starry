@@ -1720,11 +1720,15 @@ class SlidingTranslator:
 					bad_dens = new == 0 or seen / new >= self.align_trim_density
 			# Read ONLY here, on the bar the walk is about to stop at. `bar_span_ratio`'s docstring has
 			# the measurement: its distribution overlaps the healthy one, so it cannot be a general
-			# criterion, but refusing to STOP on such a bar costs one trailing bar per false positive
-			# instead of everything behind a mid-file cut. MEASURED over the 39 published pairs at 4.0:
-			# 12 bars dropped in total, of which a4956a41f6's bar 8 (4.50x) and cd83f973b2's bar 20
-			# (9.00x) are the two this was built for, 685a2ca535 gives up 8 (already a `failed` file), and
-			# the collateral is 1 bar each on 00a114b763 (of 200) and 80b813fe19 (of 49).
+			# criterion, but refusing to STOP on such a bar costs trailing bars per false positive
+			# instead of everything behind a mid-file cut. VERIFIED end to end at 4.0 by re-running the
+			# affected files: a4956a41f6 9 bars -> 8 and cd83f973b2 21 -> 20, the two cases this was
+			# built for. The collateral came out DIFFERENT from what a published-file proxy predicted
+			# (out_notes/src_notes per bar region, which reproduces this ratio exactly on those two
+			# cases): it said 1 bar each on 00a114b763 and 80b813fe19, the run gave 0 and 3. So the proxy
+			# is good enough to choose a threshold and not to predict a per-file cost -- `seen` counts
+			# every generated note in the bar while the proxy counts only what survived into the file,
+			# and the guard drops a RUN once it refuses to stop, so one bad bar can carry several.
 			bad_span = False
 			if self.align_trim_span_ratio and m < len(spanr) and spanr[m] is not None:
 				bad_span = spanr[m] >= self.align_trim_span_ratio
@@ -2977,9 +2981,9 @@ def main ():
 			'measure_boundaries, so reuse cannot inflate it. Consulted ONLY at the stopping bar because '
 			'the distributions overlap (healthy p95 2.00x, p99 4.00x, max 11.00x against flagged bars '
 			'at 1.53x-9.00x): a false positive there gives up one trailing bar, where a mid-file cut '
-			'would discard everything behind it. At R=4.0 over the 39 pairs, 12 bars dropped in total '
-			'-- the two target cases, 8 on an already-failed file, and 1 each on 00a114b763 (of 200) '
-			'and 80b813fe19 (of 49). 0 disables it.')
+			'would discard everything behind it. VERIFIED at R=4.0 by re-running the affected files: '
+			'a4956a41f6 9 bars -> 8 and cd83f973b2 21 -> 20, the two target cases, plus 3 bars of '
+			'collateral on 80b813fe19 (of 50) and none on 00a114b763. 0 disables it.')
 	ap.add_argument('--align-trim-min-notes', type=int, default=4, metavar='N',
 		help='a measure with fewer than N observed notes is too small for a density verdict and is '
 			'passed over by the backward walk rather than ending it (default 4). The LAST measure is '
