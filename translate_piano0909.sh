@@ -80,6 +80,14 @@ TRIM_DENSITY=2.0
 # and not to predict a per-file cost: the in-tool `seen` counts every generated note in the bar while
 # the proxy counts only what survived into the file, and the guard drops a RUN once it refuses to stop.
 TRIM_SPAN_RATIO=4.0
+# Fifth trim axis, and a COUNT where TRIM_RATE is a ratio: a measure more than this many of whose LAST
+# notes have no source of their own is dropped whole, at the same <eom> granularity as every other axis.
+# The ratio provably cannot reach this shape -- e0b22f7573's last bar is 31 correct notes followed by 9
+# sourceless ones, which is miss 0.23 and under TRIM_RATE 0.3 -- while a bar whose misses are SCATTERED
+# reads the same ratio and is a different defect that must be left alone (a4eca4e078: 18 misses over 99
+# notes, trailing run 0). Measured on the ONLINE signal the trim actually reads, every bar the walk was
+# willing to stop at read 0 or 1, against 6-100 on runaway bars, so 3 sits in empty space.
+TRIM_TAIL_UNMATCHED=3
 # Cut at the start of the first run of this many consecutive bars with no source span -- the only
 # trim axis that can act on the MIDDLE of a file. The other two walk backwards and stop at the first
 # healthy bar, so a loop with healthy bars after it is invisible to them. A RUN because a lone empty
@@ -267,6 +275,7 @@ worker () {
 			--align-trim-density $TRIM_DENSITY \
 			--align-trim-spanless-run $TRIM_SPANLESS_RUN \
 			--align-trim-span-ratio $TRIM_SPAN_RATIO \
+			--align-trim-tail-unmatched $TRIM_TAIL_UNMATCHED \
 			--device cuda ) > "$WORK/log.$WID.$id" 2>&1
 		local rc=$?
 
