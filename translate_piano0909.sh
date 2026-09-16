@@ -326,8 +326,15 @@ worker () {
 		# says nothing about that, and the ratio gate threw away 25 usable files out of the 30 it caught
 		# (a6386f7215: 60 measures, ratio 0.026).
 		if [ "$MIN_MEASURES" != "0" ] && [ -s "$REGULAR/$id.midiseq2.txt.part" ]; then
-			local nbars
+			local nbars term
 			nbars=$(grep -c '@measure' "$REGULAR/$id.midiseq2.txt.part" 2>/dev/null || echo 0)
+			# A bare trailing `@measure` is close_final_measure's TERMINATOR: it closes the last bar and
+			# opens nothing, and the tool excludes it from its own count too. Counting it would gate on
+			# "3 bars or more" while reporting 4. VERIFIED against the tool's authoritative
+			# `[annotate] N source @measure directives` on all 87 published pairs: zero mismatches.
+			term=0
+			case "$(tail -n 1 "$REGULAR/$id.midiseq2.txt.part")" in @measure*) term=1 ;; esac
+			nbars=$((nbars - term))
 			if [ "${nbars:-0}" -lt "$MIN_MEASURES" ]; then
 				cover_ok=0
 				cover_txt="${nbars:-0} measure(s)"
