@@ -88,6 +88,14 @@ TRIM_SPAN_RATIO=4.0
 # notes, trailing run 0). Measured on the ONLINE signal the trim actually reads, every bar the walk was
 # willing to stop at read 0 or 1, against 6-100 on runaway bars, so 3 sits in empty space.
 TRIM_TAIL_UNMATCHED=3
+# How many consecutive HEALTHY measures the backward tail walk may jump instead of stopping at the
+# first one. At 0 a single recovered measure shields every bad measure behind it: 000f9c807a read bars
+# 34-36 at miss 0.64 / 0.64 / 0.93, bar 37 recovered to 0.18, the walk stopped there and dropped
+# NOTHING while the trim itself printed [32, 34, 35, 36] as shielded -- 41 of that file's 66 sourceless
+# output notes were in that stretch. Jumped measures are only charged once a bad measure behind them
+# confirms the cut, and two healthy measures in a row still stop the walk. Offline proxy over 49 pairs:
+# N=1 cuts 20 bars over 8 files (worst 16 pct), N=2 cuts 53 over 14 (worst 39 pct).
+TRIM_GAP=1
 # Cut at the start of the first run of this many consecutive bars with no source span -- the only
 # trim axis that can act on the MIDDLE of a file. The other two walk backwards and stop at the first
 # healthy bar, so a loop with healthy bars after it is invisible to them. A RUN because a lone empty
@@ -276,6 +284,7 @@ worker () {
 			--align-trim-spanless-run $TRIM_SPANLESS_RUN \
 			--align-trim-span-ratio $TRIM_SPAN_RATIO \
 			--align-trim-tail-unmatched $TRIM_TAIL_UNMATCHED \
+			--align-trim-gap $TRIM_GAP \
 			--device cuda ) > "$WORK/log.$WID.$id" 2>&1
 		local rc=$?
 
