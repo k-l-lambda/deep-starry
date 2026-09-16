@@ -271,6 +271,7 @@ alloc_wid () {
 # ---- one worker ---------------------------------------------------------------
 worker () {
 	local WID=$1 GPU=$2 SEED=$3
+	local WORKER_PID=$BASHPID
 	local done_n=0 skip_n=0 fail_n=0 quar_n=0 dup_n=0
 	local LIST="$WORK/order.$WID"
 
@@ -315,6 +316,13 @@ sys.stdout.write("\n".join(lines) + "\n")' "$SEED" < "$WORK/todo.all" > "$LIST"
 		# Only ever this worker's OWN leftovers. Never a glob over .part.* -- that would delete a
 		# concurrent worker's in-flight result, which is exactly what the private paths prevent.
 		rm -f "$REGULAR"/*.midiseq2.txt.part."$WID" "$WORK"/*."$WID".midiseq2.txt
+		# Markers are named by id, not by worker, so they are matched by CONTENT: only the ones
+		# holding this worker's pid. A name glob would release ids another worker is translating.
+		local mk
+		for mk in "$WORK"/inflight.*; do
+			[ -f "$mk" ] || continue
+			[ "$(cat "$mk" 2>/dev/null)" = "$WORKER_PID" ] && rm -f "$mk"
+		done
 		rmdir "$WORK/wid.$WID" 2>/dev/null
 	}
 	trap cleanup EXIT
@@ -343,18 +351,43 @@ sys.stdout.write("\n".join(lines) + "\n")' "$SEED" < "$WORK/todo.all" > "$LIST"
 		if [ "$REDO" -eq 0 ] && [ -s "$RUBATO/$id.midiseq2.txt" ] && [ -s "$REGULAR/$id.midiseq2.txt" ]; then
 			skip_n=$((skip_n+1)); continue
 		fi
-		# Another worker is on this id right now: its private temp exists and is being written.
-		# ADVISORY only -- there is no lock, so this is a cheap way to miss most collisions, not a
-		# guarantee. Both failure directions are harmless: a false negative duplicates one file,
-		# and a false positive (the holder died) leaves the id for the next pass or the next run.
-		local inflight=""
-		for other in "$REGULAR/$id.midiseq2.txt.part."*; do
-			[ -e "$other" ] || continue
-			[ "$other" = "$REGULAR/$id.midiseq2.txt.part.$WID" ] && continue
-			inflight="$other"; break
-		done
-		if [ -n "$inflight" ]; then
-			dup_n=$((dup_n+1)); continue
+		# Is another worker on this id right now? ADVISORY, not a lock: it narrows the window that
+		# the shuffle leaves open, and both failure directions are harmless -- a miss duplicates one
+		# file (whose loser the winning `mv` discards), and a false hold leaves the id for a later
+		# pass or run.
+		#
+		# The marker is written when the id is PICKED, not by the translate step. MEASURED why: the
+		# tool calls write_output only after generation completes, so `.part.<wid>` exists for the
+		# last instant of a file and a check against it covers almost none of the work. The smoke
+		# test caught exactly that -- w1 and w0 both translated 00cd4250c0 (22 s and 21 s) because
+		# w0 looked while w1 was 15 s into generating and no .part existed yet.
+		#
+		# The holder's pid is the liveness test, so a killed worker frees its ids with no timeout to
+		# choose -- which matters because per-file cost spans 8 s to 792 s and no timeout separates
+		# "slow" from "dead".
+		# `noclobber` makes the create an atomic test-and-set, so two workers reaching for the same id
+		# cannot both win it; the loser checks whether the holder is still alive and takes the id over
+		# only if it is not. That recovers from a killed worker with no timeout to pick -- which
+		# matters because per-file cost spans 8 s to 792 s, so no timeout separates slow from dead.
+		#
+		# BASHPID, never $$. MEASURED: $$ is the MAIN script's pid in every background worker (all
+		# three of a 3-worker test read 2308613), so a marker written with $$ would name a process
+		# that is alive for the whole run, and every worker would skip every marked id instead of
+		# working on it. It is also captured HERE rather than inside the noclobber subshell, whose
+		# own pid dies with it and would leave the marker instantly stale.
+		local mark="$WORK/inflight.$id" me=$BASHPID
+		if ! ( set -o noclobber; echo "$me" > "$mark" ) 2>/dev/null; then
+			local holder=""
+			holder=$(cat "$mark" 2>/dev/null)
+			if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+				dup_n=$((dup_n+1)); continue
+			fi
+			# The holder is gone. Take the id over, and do it with the same atomic create so two
+			# workers arriving at the same corpse cannot both proceed.
+			rm -f "$mark"
+			if ! ( set -o noclobber; echo "$me" > "$mark" ) 2>/dev/null; then
+				dup_n=$((dup_n+1)); continue
+			fi
 		fi
 
 		local t0=$(date +%s)
@@ -365,10 +398,10 @@ sys.stdout.write("\n".join(lines) + "\n")' "$SEED" < "$WORK/todo.all" > "$LIST"
 		IFS= read -r reply <&$CONV_RD
 		case "$reply" in
 			OK*) : ;;
-			*) echo "[w$WID] CONVFAIL $id ${reply#ERR }"; fail_n=$((fail_n+1)); continue ;;
+			*) echo "[w$WID] CONVFAIL $id ${reply#ERR }"; fail_n=$((fail_n+1)); rm -f "$mark"; continue ;;
 		esac
 		if [ ! -s "$src" ]; then
-			echo "[w$WID] CONVEMPTY $id"; fail_n=$((fail_n+1)); rm -f "$src"; continue
+			echo "[w$WID] CONVEMPTY $id"; fail_n=$((fail_n+1)); rm -f "$src" "$mark"; continue
 		fi
 
 		# --- translate ---
@@ -457,7 +490,7 @@ sys.stdout.write("\n".join(lines) + "\n")' "$SEED" < "$WORK/todo.all" > "$LIST"
 			mv -f "$ann" "$QUAR/$id.rubato.midiseq2.txt" 2>/dev/null
 			quar_n=$((quar_n+1))
 			echo "[w$WID gpu$GPU] TOOSHORT $id $cover_txt -- quarantined, not published"
-			rm -f "$src"
+			rm -f "$src" "$mark"
 			if [ "$DEADLINE" -ne 0 ] && [ "$(date +%s)" -ge "$DEADLINE" ]; then
 				echo "[w$WID gpu$GPU] deadline reached, stopping"; break
 			fi
@@ -483,7 +516,7 @@ sys.stdout.write("\n".join(lines) + "\n")' "$SEED" < "$WORK/todo.all" > "$LIST"
 			echo "[w$WID gpu$GPU] FAIL $id rc=$rc -- see $WORK/log.$WID.$id"
 			rm -f "$part"
 		fi
-		rm -f "$src"
+		rm -f "$src" "$mark"
 
 		# --- deadline, checked after the file is safely published ---
 		if [ "$DEADLINE" -ne 0 ] && [ "$(date +%s)" -ge "$DEADLINE" ]; then
