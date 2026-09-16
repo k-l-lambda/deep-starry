@@ -957,6 +957,40 @@ def check_overgeneration_guards ():
 	if SlidingTranslator(None, tk).align_trim_tail_unmatched != 0:
 		print('  FAIL align_trim_tail_unmatched must default to off'); ok = False
 
+	# The gap tolerance: ONE recovered bar must not shield a collapse behind it. The 000f9c807a shape --
+	# bars 34-36 read miss 0.64 / 0.64 / 0.93, bar 37 recovered to 0.18, the walk stopped there and
+	# dropped NOTHING while the trim itself printed those three as shielded. 41 of that file's 66
+	# sourceless output notes sat in the shielded stretch.
+	#   bars 0-1  healthy
+	#   bars 2-4  bad: miss 4/6 = 0.67
+	#   bar 5     RECOVERED, healthy -- today's walk stops here
+	shielded_run = ([list(range(0, 8)), list(range(8, 16))]
+		+ [[16 + i, 17 + i, None, None, None, None] for i in range(3)]
+		+ [list(range(30, 38))])
+	tr = replay(shielded_run, align_trim_rate=0.3)
+	if tr.trim_align_tail(list(range(500)))[1] != 0:
+		print('  FAIL the default walk was expected to stop at the recovered bar; the case tests nothing')
+		ok = False
+	# with a gap of 1 the walk jumps that bar and reaches the collapse, taking the jumped bar with it
+	tr = replay(shielded_run, align_trim_rate=0.3, align_trim_gap=1)
+	d = tr.trim_align_tail(list(range(500)))[1]
+	if d != 4:
+		print(f'  FAIL gap=1 should drop the 3 bad bars plus the 1 it jumped, dropped {d}'); ok = False
+	# a jump that finds NOTHING behind it must cost nothing: the healthy bars stay put.
+	tr = replay(healthy, align_trim_rate=0.3, align_trim_gap=1)
+	if tr.trim_align_tail(list(range(500)))[1] != 0:
+		print('  FAIL a fruitless jump must not drop the bars it jumped'); ok = False
+	# ...and the tolerance is bounded: two healthy bars in a row still stop a gap of 1, so the reach
+	# cannot run away down the file.
+	two_good = ([list(range(0, 8)), [8, 9, None, None, None, None]]
+		+ [list(range(16, 24)), list(range(24, 32)), list(range(32, 40))])
+	tr = replay(two_good, align_trim_rate=0.3, align_trim_gap=1)
+	if tr.trim_align_tail(list(range(500)))[1] != 0:
+		print('  FAIL gap=1 must not jump TWO consecutive healthy bars'); ok = False
+	# off by default, so every existing command line keeps the stop-at-the-first-healthy-bar behaviour
+	if SlidingTranslator(None, tk).align_trim_gap != 0:
+		print('  FAIL align_trim_gap must default to off'); ok = False
+
 	# `last_bar_doomed`: a bad bar hidden behind a bar the CALLER is about to delete. This is the
 	# ab509b156f shape -- the walk stopped on the healthy final bar, dropped nothing, and reported the
 	# bad bar as shielded; then close_final_measure(complete=False) deleted the shield and the file ended
@@ -1064,7 +1098,8 @@ def check_overgeneration_guards ():
 		f'and its own longer window to see bar-to-bar repetition, density trim drops the tail past an '
 		f'under-sized bar, the span-less run reaches a mid-file loop, the span ratio catches reuse the '
 		f'miss axis cannot see, a doomed last bar cannot shield the one behind it, the tail count '
-		f'catches a surplus run the ratio keeps, and the closing '
+		f'catches a surplus run the ratio keeps, one recovered bar cannot shield a collapse, and the '
+		f'closing '
 		f'line reaches the last kept bar; all off by default')
 	return ok
 

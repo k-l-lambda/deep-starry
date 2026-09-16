@@ -930,7 +930,7 @@ class SlidingTranslator:
 		align_stop_window=0, align_stop_rate=0.6, align_trim_rate=0.0,
 		align_stop_reuse=0.0, align_stop_reuse_window=0, align_trim_density=0.0,
 		align_trim_min_notes=4, align_trim_spanless_run=0, align_trim_span_ratio=0.0,
-		align_trim_tail_unmatched=0):
+		align_trim_tail_unmatched=0, align_trim_gap=0):
 		self.model = model
 		self.tk = tokenizer
 		self.pos_style = pos_style
@@ -1037,6 +1037,13 @@ class SlidingTranslator:
 		# defect. Only the first is the model running past the end of its source. See
 		# `bar_tail_unmatched` for the measured distribution; 0 disables it.
 		self.align_trim_tail_unmatched = max(0, int(align_trim_tail_unmatched))
+		# How many consecutive HEALTHY measures the backward walk may jump over instead of stopping.
+		# 0 is the original behaviour: the walk stops at the first healthy bar, so ONE recovered bar
+		# shields every bad bar behind it. MEASURED on 000f9c807a, which is why this exists: bars 34-36
+		# read miss 0.64 / 0.64 / 0.93 (the last also 14.00x on span), bar 37 recovered to 0.18, and the
+		# walk stopped there -- the trim printed `bad bars SHIELDED behind it (kept): [32, 34, 35, 36]`
+		# and dropped nothing. 41 of the file's 66 sourceless output notes sat in that shielded stretch.
+		self.align_trim_gap = max(0, int(align_trim_gap))
 		self._align_measures = []		# measure ordinal -> [observed, missed]
 		self._align_eom_at = []			# absolute output index of every <eom>, in order
 		# measure ordinal -> every source event index the notes in that measure matched. Collected on the
@@ -1801,7 +1808,7 @@ class SlidingTranslator:
 		# reads its tallies and so cannot stop on it. `dropped` stays 0 until a bar actually fails, so a
 		# clean file is still returned untouched and the caller's own deletion is the only thing that
 		# removes that bar.
-		dropped, run = 0, 0
+		dropped, run, slack = 0, 0, 0
 		start = nb - 1
 		if last_bar_doomed and nb > 1:
 			start = nb - 2
@@ -1846,10 +1853,19 @@ class SlidingTranslator:
 			if self.align_trim_tail_unmatched and m < len(tailu):
 				bad_tail = tailu[m] > self.align_trim_tail_unmatched
 			if bad_miss or bad_dens or bad_span or bad_tail:
-				run += 1
+				# `slack` folds in the healthy bars jumped to reach this one: they are only ever counted
+				# once a bad bar behind them confirms the cut, so a jump that finds nothing costs nothing.
+				run += 1 + slack
+				slack = 0
 				dropped = run
 			else:
-				break
+				# A healthy bar no longer ends the walk outright. `dropped` is not advanced here, so if
+				# the walk breaks or runs out while jumping, these bars stay -- only a bad bar found
+				# BEHIND them pulls them into the drop, which is the whole point: one recovered bar
+				# must not shield a collapse.
+				slack += 1
+				if slack > self.align_trim_gap:
+					break
 		last = nb - 1 - dropped
 		# A mid-file collapse the backward walk cannot see. Both this and the walk above only ever drop
 		# a SUFFIX, so the two compose by taking whichever cuts earlier: the bars after a loop may be
@@ -3168,13 +3184,24 @@ def main ():
 			'it missed OR when it re-matched source an earlier bar already claimed, since ReuseCost is '
 			'0.0 and a re-match books as a clean match online (e0b22f7573 bar 17: the cursor recorded 3 '
 			'missed of 40, the offline lattice judged 9). Read on EVERY bar the walk visits, unlike the '
-			'span ratio, but not because the axis never overlaps the healthy mass -- 9.3% of 1226 measured '
+			'span ratio, but not because the axis never overlaps the healthy mass -- 9.3 pct of 1226 measured '
 			'bars exceed 3. It is safe because the walk only reaches a SUFFIX: over 38 published files '
 			'the highest run on a bar that SURVIVED is exactly 3, while runaway bars read 6 (6a2892abc4 '
 			'bar 29, which the miss ratio passes at 0.20) up to 100. End to end that changed 1 of 38 '
 			'files. Note the limit -- this cannot reach a tail that matched source AHEAD of the bar\'s '
 			'own reach, which is what e0b22f7573 does; the online cursor sees that as progress where the '
 			'offline lattice judges it 9 miss. 0 disables it.')
+	ap.add_argument('--align-trim-gap', type=int, default=0, metavar='N',
+		help='let the backward tail walk jump over up to N consecutive HEALTHY measures instead of '
+			'stopping at the first one, so a single recovered measure cannot shield a collapse behind '
+			'it. MEASURED on 000f9c807a: bars 34-36 read miss 0.64 / 0.64 / 0.93 (the last also 14.00x '
+			'on span), bar 37 recovered to 0.18, the walk stopped there and dropped NOTHING -- the trim '
+			'printed `bad bars SHIELDED behind it (kept): [32, 34, 35, 36]` while 41 of the file\'s 66 '
+			'sourceless output notes sat in that stretch. Jumped measures are charged to the drop only '
+			'once a bad measure behind them confirms it, so a jump that finds nothing costs nothing. '
+			'Cost over 49 published pairs, offline proxy: N=1 cuts 20 bars over 8 files (worst 16 pct of '
+			'one file), N=2 cuts 53 over 14 (worst 39 pct), so N=1 is what the evidence supports. 0 keeps the '
+			'original stop-at-the-first-healthy-bar behaviour.')
 	ap.add_argument('--align-trim-min-notes', type=int, default=4, metavar='N',
 		help='a measure with fewer than N observed notes is too small for a density verdict and is '
 			'passed over by the backward walk rather than ending it (default 4). The LAST measure is '
@@ -3281,6 +3308,7 @@ def main ():
 		align_trim_spanless_run=args.align_trim_spanless_run,
 		align_trim_span_ratio=args.align_trim_span_ratio,
 		align_trim_tail_unmatched=args.align_trim_tail_unmatched,
+		align_trim_gap=args.align_trim_gap,
 		prime_window=args.prime_window, kv_cache=not args.no_kv_cache)
 
 	# The output path has to be settled BEFORE translate runs, because the streaming figures are named
@@ -3366,6 +3394,7 @@ def main ():
 					align_trim_spanless_run=args.align_trim_spanless_run,
 					align_trim_span_ratio=args.align_trim_span_ratio,
 					align_trim_tail_unmatched=args.align_trim_tail_unmatched,
+					align_trim_gap=args.align_trim_gap,
 					generated_notes=len(out_events), source_notes=len(src_events),
 					# prime_notes and cuts are recorded so what a figure DREW is checkable from data,
 					# rather than only by looking at the image: an empty primer or a missing cut is a
