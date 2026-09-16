@@ -929,7 +929,8 @@ class SlidingTranslator:
 		advance_tokens=1, prime_window=2048, kv_cache=True, align_advance=False,
 		align_stop_window=0, align_stop_rate=0.6, align_trim_rate=0.0,
 		align_stop_reuse=0.0, align_stop_reuse_window=0, align_trim_density=0.0,
-		align_trim_min_notes=4, align_trim_spanless_run=0, align_trim_span_ratio=0.0):
+		align_trim_min_notes=4, align_trim_spanless_run=0, align_trim_span_ratio=0.0,
+		align_trim_tail_unmatched=0):
 		self.model = model
 		self.tk = tokenizer
 		self.pos_style = pos_style
@@ -1029,12 +1030,23 @@ class SlidingTranslator:
 		# too small to carry a verdict.
 		self.align_trim_min_notes = max(1, int(align_trim_min_notes))
 		self.align_trim_span_ratio = float(align_trim_span_ratio)
+		# Fourth trim axis, and the only POSITIONAL one: how many notes at the very end of a bar have no
+		# source of their own. The ratio axis cannot express this. 31 correct notes followed by 9 invented
+		# ones is a miss ratio of 0.23, under `align_trim_rate` 0.3, so the ratio keeps the bar -- and a
+		# bar whose 9 misses are spread through 40 notes reads the SAME 0.23 while being a different
+		# defect. Only the first is the model running past the end of its source. See
+		# `bar_tail_unmatched` for the measured distribution; 0 disables it.
+		self.align_trim_tail_unmatched = max(0, int(align_trim_tail_unmatched))
 		self._align_measures = []		# measure ordinal -> [observed, missed]
 		self._align_eom_at = []			# absolute output index of every <eom>, in order
 		# measure ordinal -> every source event index the notes in that measure matched. Collected on the
 		# same walk as the two above so it cannot drift from them; `measure_boundaries` turns it into a
 		# source-side @measure boundary.
 		self._align_first_src = []
+		# Per-bar match sequence IN GENERATION ORDER, misses included as None. `_align_first_src`
+		# keeps only the matches, so it cannot say WHERE in the bar a miss fell -- and the tail criterion
+		# is about position, not count. One int-or-None per generated note.
+		self._align_seq = []
 		self._align_src_line_of = []	# source event index -> its note_on LINE, kept for annotate_source
 		self._align_kept_measures = 0	# measures surviving the trim; the annotation stops there
 		# Safety ceiling on the target-half view. This is separate from the user-facing stride: the model can
@@ -1402,6 +1414,7 @@ class SlidingTranslator:
 		n = len(lead)
 		self._align_first_src = self._align_first_src[n:]
 		self._align_measures = self._align_measures[n:]
+		self._align_seq = self._align_seq[n:]
 		# Absolute output indices, so they move with the tokens that were removed. Only the ones AFTER
 		# the drop region survive; the dropped ones were the leading run itself.
 		self._align_eom_at = [i - n for i in self._align_eom_at if i >= first_note]
@@ -1455,6 +1468,7 @@ class SlidingTranslator:
 			output = output[:first_note] + output[close + 1:]
 			self._align_first_src = self._align_first_src[1:]
 			self._align_measures = self._align_measures[1:]
+			self._align_seq = self._align_seq[1:]
 			# The <eom> marks are absolute output indices. The one at `close` went with the bar; the rest
 			# move back by the token count removed.
 			self._align_eom_at = [i - n for i in self._align_eom_at if i > close]
@@ -1479,6 +1493,7 @@ class SlidingTranslator:
 		while len(self._align_measures) <= m:
 			self._align_measures.append([0, 0])
 			self._align_first_src.append([])
+			self._align_seq.append([])
 		self._align_measures[m][0] += 1
 		if missed:
 			self._align_measures[m][1] += 1
@@ -1488,6 +1503,7 @@ class SlidingTranslator:
 			# stream, so the choice is deferred to `measure_boundaries` and only the evidence is kept
 			# here. Cheap: one int per generated note.
 			self._align_first_src[m].append(src_index)
+		self._align_seq[m].append(src_index)
 		if not self.align_stop_window or self._align_stop_at is not None:
 			return
 		self._align_recent.append(1 if missed else 0)
@@ -1673,6 +1689,50 @@ class SlidingTranslator:
 				start, run = None, 0
 		return None
 
+	def bar_tail_unmatched (self):
+		"""Measure ordinal -> how many notes at the END of that bar have no source of their own.
+
+		The count the trim's ratio axis cannot express. A bar of 31 correct notes followed by 9 invented
+		ones reads a miss ratio of 0.23 -- under `--align-trim-rate` 0.3, so the ratio keeps it -- while a
+		bar whose 9 misses are scattered through 40 notes reads the same 0.23 and is a different defect.
+		Only the first is the model running past its source, and only the first is safe to act on, because
+		the whole bar goes and what goes with it is a tail rather than the bar's substance.
+
+		A note counts as unmatched here when it missed OR when it re-matched source an EARLIER bar already
+		claimed. The second half is what makes this reuse-proof: `AlignConfig['ReuseCost']` is 0.0, so a
+		re-match books a clean match and the online miss count understates the surplus. MEASURED on
+		e0b22f7573 bar 17, where the online cursor recorded 3 missed of 40 while the offline lattice --
+		which penalises reuse -- judged 9. The trailing run is read off `_align_seq`, the per-note match
+		sequence, because position is the whole criterion and `_align_measures` keeps only totals.
+
+		MEASURED on the ONLINE signal, which is the one this reads -- not the offline lattice, and the two
+		do not agree. Over four dumped files, healthy bars sit at 0 (a4eca4e078: 0 on both its bars, its
+		18 misses over 99 notes being spread through the bar rather than piled at its end -- exactly the
+		case a positional criterion must leave alone), while genuinely runaway bars read far above any
+		threshold: bfb4cc9a1c bar 32 at 49/100 and 6a2892abc4 bars 30-37 at 7-20. In between,
+		6a2892abc4 bar 29 reads 6 on a bar the miss ratio passes at 0.20.
+
+		The limit, stated plainly: this cannot reach e0b22f7573's residual, the case that prompted it. Its
+		last kept bar ends `..., 292, 299, None, None, 295, 296, 297, 298, 299, 300, None` -- a trailing
+		run of 1, because those final notes matched source AHEAD of the bar's own earlier reach. Online
+		that is forward progress; the offline lattice judged 9 miss there because in a global optimum
+		those source notes belong to other output notes. No positional criterion over the cursor's own
+		record separates the two, so that residual needs a different mechanism, not a lower threshold.
+		"""
+		out = []
+		claimed = set()
+		for m, seq in enumerate(self._align_seq):
+			run = 0
+			for src in reversed(seq):
+				if src is None or src in claimed:
+					run += 1
+				else:
+					break
+			out.append(run)
+			claimed.update(x for x in seq if x is not None)
+		return out
+
+
 	def trim_align_tail (self, output, last_bar_doomed=False):
 		'''Drop trailing measures that fail on miss ratio, over-generation density, or span ratio.
 
@@ -1711,10 +1771,11 @@ class SlidingTranslator:
 		and has no false-positive mode of its own: the bar it skips was leaving the file regardless.
 		'''
 		if not (self.align_trim_rate or self.align_trim_density or self.align_trim_spanless_run
-				or self.align_trim_span_ratio) or not self._align_measures:
+				or self.align_trim_span_ratio or self.align_trim_tail_unmatched) or not self._align_measures:
 			return output, 0, False
 		density = self.bar_density() if self.align_trim_density else []
 		spanr = self.bar_span_ratio() if self.align_trim_span_ratio else []
+		tailu = self.bar_tail_unmatched() if self.align_trim_tail_unmatched else []
 		nb = len(self._align_measures)
 		# A doomed last bar is skipped rather than judged: `run` starts at 1 so it is still COUNTED in
 		# the drop (the ordinals are contiguous and `last` is derived by subtraction), but the walk never
@@ -1757,7 +1818,16 @@ class SlidingTranslator:
 			bad_span = False
 			if self.align_trim_span_ratio and m < len(spanr) and spanr[m] is not None:
 				bad_span = spanr[m] >= self.align_trim_span_ratio
-			if bad_miss or bad_dens or bad_span:
+			# Unlike span ratio, this one is read on EVERY bar the walk visits, because the healthy mass
+			# sits at 0: across the dumped files every bar the walk was willing to stop at read 0 or 1,
+			# while runaway bars read 6 to 100. A threshold of 3 (strictly greater) therefore sits in
+			# empty space rather than on top of the healthy distribution, which is exactly what
+			# `bar_span_ratio` could not offer -- see `bar_tail_unmatched` for the numbers and for the
+			# case this axis provably cannot reach.
+			bad_tail = False
+			if self.align_trim_tail_unmatched and m < len(tailu):
+				bad_tail = tailu[m] > self.align_trim_tail_unmatched
+			if bad_miss or bad_dens or bad_span or bad_tail:
 				run += 1
 				dropped = run
 			else:
@@ -2165,6 +2235,10 @@ class SlidingTranslator:
 			# `done` is the only ending that leaves a complete last bar; every other one stopped mid-bar,
 			# so close_final_measure below will delete it. Telling the trim that up front stops it
 			# stopping its walk on a bar that is already leaving -- see `last_bar_doomed`.
+			# Read BEFORE drop_leading_eom, which shifts every bar ordinal: the point of reporting this is
+			# to accumulate the online distribution over a corpus run, so it has to be the same array the
+			# trim just read rather than a re-derived one.
+			tail_runs = self.bar_tail_unmatched() if self.align_trim_tail_unmatched else []
 			output, trimmed, failed = self.trim_align_tail(output, last_bar_doomed=not done)
 			# AFTER the trim, never before: trim_align_tail indexes `output` through `_align_eom_at`, and
 			# dropping a token from the front invalidates every one of those absolute indices.
@@ -2183,7 +2257,7 @@ class SlidingTranslator:
 				distinct=len(st['distinct']), reach=self._align_matched + 1,
 				src_events=len(src_events), stop_at=self._align_stop_at,
 				stop_cause=self._align_stop_cause,
-				measures_trimmed=trimmed, failed=failed)
+				measures_trimmed=trimmed, failed=failed, tail_runs=tail_runs)
 		else:
 			stats_align = None
 		stats = dict(steps=step, output_tokens=len(output), source_lines=len(lines),
@@ -2386,6 +2460,14 @@ def report_output (body_lines, stats):
 		if al.get('failed'):
 			print('[align-trim] FAILURE: no measure survived the trim, so the output is a fragment '
 				'and should not be used')
+		# Printed for every run with the axis on, not only when it fires, because the threshold is only
+		# defensible against the distribution of bars it did NOT fire on -- and that distribution is not
+		# recoverable from the published files, the online cursor's record being the thing it measures.
+		tr = al.get('tail_runs') or []
+		if tr:
+			hot = [(m + 1, r) for m, r in enumerate(tr) if r > 0]
+			print(f'[align-tail] trailing unmatched run per measure: {len(tr) - len(hot)} of {len(tr)} '
+				f'bar(s) at 0, nonzero: {hot[:24]}')
 		if al['matched'] and al['distinct'] < al['matched']:
 			print(f'[align-advance] re-use: {al["matched"]} matches over {al["distinct"]} distinct '
 				f'source notes = {al["matched"] / al["distinct"]:.2f}x. ReuseCost is '
@@ -3056,6 +3138,23 @@ def main ():
 			'would discard everything behind it. VERIFIED at R=4.0 by re-running the affected files: '
 			'a4956a41f6 9 bars -> 8 and cd83f973b2 21 -> 20, the two target cases, plus 3 bars of '
 			'collateral on 80b813fe19 (of 50) and none on 00a114b763. 0 disables it.')
+	ap.add_argument('--align-trim-tail-unmatched', type=int, default=0, metavar='N',
+		help='stage 2, fifth axis: drop a trailing measure MORE than N of whose last notes have no '
+			'source of their own -- the count criterion beside the ratio one. The ratio cannot express '
+			'this: e0b22f7573\'s last bar is 31 correct notes followed by 9 with nothing behind them, '
+			'which is a miss ratio of 0.23, comfortably under the 0.3 trim rate, so the bar was kept '
+			'with the surplus in it. A bar whose misses are SCATTERED reads the same 0.23 and is a '
+			'different defect -- a4eca4e078 has 18 misses over 99 notes and a trailing run of 0 -- so '
+			'the criterion is positional, and the position is what makes it safe to act on: what goes '
+			'with the bar is a tail rather than the bar\'s substance. A note counts as unmatched when '
+			'it missed OR when it re-matched source an earlier bar already claimed, since ReuseCost is '
+			'0.0 and a re-match books as a clean match online (e0b22f7573 bar 17: the cursor recorded 3 '
+			'missed of 40, the offline lattice judged 9). Read on EVERY bar the walk visits, unlike the '
+			'span ratio, because the healthy mass sits at 0: across the dumped files every bar the walk '
+			'was willing to stop at read 0 or 1, against 6-100 on runaway bars. Note the limit -- this '
+			'cannot reach a tail that matched source AHEAD of the bar\'s own reach, which is what '
+			'e0b22f7573 does; the online cursor sees that as progress where the offline lattice judges '
+			'it 9 miss. 0 disables it.')
 	ap.add_argument('--align-trim-min-notes', type=int, default=4, metavar='N',
 		help='a measure with fewer than N observed notes is too small for a density verdict and is '
 			'passed over by the backward walk rather than ending it (default 4). The LAST measure is '
@@ -3161,6 +3260,7 @@ def main ():
 		align_trim_min_notes=args.align_trim_min_notes,
 		align_trim_spanless_run=args.align_trim_spanless_run,
 		align_trim_span_ratio=args.align_trim_span_ratio,
+		align_trim_tail_unmatched=args.align_trim_tail_unmatched,
 		prime_window=args.prime_window, kv_cache=not args.no_kv_cache)
 
 	# The output path has to be settled BEFORE translate runs, because the streaming figures are named
@@ -3245,6 +3345,7 @@ def main ():
 					align_trim_min_notes=args.align_trim_min_notes,
 					align_trim_spanless_run=args.align_trim_spanless_run,
 					align_trim_span_ratio=args.align_trim_span_ratio,
+					align_trim_tail_unmatched=args.align_trim_tail_unmatched,
 					generated_notes=len(out_events), source_notes=len(src_events),
 					# prime_notes and cuts are recorded so what a figure DREW is checkable from data,
 					# rather than only by looking at the image: an empty primer or a missing cut is a

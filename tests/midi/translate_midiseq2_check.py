@@ -902,6 +902,61 @@ def check_overgeneration_guards ():
 	if SlidingTranslator(None, tk).align_trim_span_ratio != 0.0:
 		print('  FAIL align_trim_span_ratio must default to off'); ok = False
 
+	# The tail-unmatched axis: a COUNT criterion where the ratio one cannot reach. The e0b22f7573
+	# shape -- a bar of correct notes with a run of sourceless ones piled at its end, whose miss ratio
+	# lands under the trim rate precisely because the correct notes outnumber them.
+	#   bar 2  31 matched notes then 9 misses: ratio 9/40 = 0.225, under 0.3, so the miss axis keeps it
+	surplus = [list(range(0, 8)), list(range(8, 16)),
+		list(range(16, 47)) + [None] * 9]
+	tr = replay(surplus, align_trim_rate=0.3)
+	if tr.trim_align_tail(list(range(500)))[1] != 0:
+		print('  FAIL the miss axis was expected blind to a sub-rate tail run; the case tests nothing')
+		ok = False
+	tr = replay(surplus, align_trim_rate=0.3, align_trim_tail_unmatched=3)
+	runs = tr.bar_tail_unmatched()
+	if runs != [0, 0, 9]:
+		print(f'  FAIL tail runs should be [0, 0, 9], got {runs}'); ok = False
+	if tr.trim_align_tail(list(range(500)))[1] != 1:
+		print(f'  FAIL the tail axis should drop the bar with 9 sourceless notes at its end, dropped '
+			f'{tr.trim_align_tail(list(range(500)))[1]}'); ok = False
+	# SCATTERED misses are a different defect and must not fire, at the same ratio and a higher count.
+	# a4eca4e078 is the measured case: 18 misses over 99 notes, trailing run 0.
+	scattered = [list(range(0, 8)), list(range(8, 16)),
+		[x for i in range(20) for x in ([16 + i] if i % 5 else [None, 16 + i])]]
+	tr = replay(scattered, align_trim_rate=0.3, align_trim_tail_unmatched=3)
+	if tr.bar_tail_unmatched()[2] != 0:
+		print(f'  FAIL scattered misses must read a trailing run of 0, got '
+			f'{tr.bar_tail_unmatched()[2]}'); ok = False
+	if tr.trim_align_tail(list(range(500)))[1] != 0:
+		print('  FAIL the tail axis must not fire on scattered misses'); ok = False
+	# REUSE-PROOF: a tail that re-matches source an earlier bar already claimed books clean matches
+	# online (ReuseCost is 0.0), so the miss tally reads 0 and only the claimed-set test sees it.
+	# Measured on e0b22f7573 bar 17: the cursor recorded 3 missed of 40 where the offline lattice
+	# judged 9, so a plain-miss version of this axis would not have reached the user's threshold.
+	relapse = [list(range(0, 8)), list(range(8, 16)),
+		list(range(16, 24)) + [10, 11, 12, 13, 14]]
+	tr = replay(relapse, align_trim_rate=0.3, align_trim_tail_unmatched=3)
+	if tr._align_measures[2][1] != 0:
+		print(f'  FAIL the reuse case must have ZERO recorded misses, got '
+			f'{tr._align_measures[2][1]}'); ok = False
+	if tr.bar_tail_unmatched()[2] != 5:
+		print(f'  FAIL a re-matched tail must count as unmatched, got '
+			f'{tr.bar_tail_unmatched()[2]}'); ok = False
+	if tr.trim_align_tail(list(range(500)))[1] != 1:
+		print('  FAIL the tail axis should drop a bar whose tail only re-matches earlier source')
+		ok = False
+	# the threshold is STRICTLY greater, so exactly 3 survives -- the user set it at "more than 3"
+	edge = [list(range(0, 8)), list(range(8, 16)), list(range(16, 24)) + [None] * 3]
+	tr = replay(edge, align_trim_rate=0.3, align_trim_tail_unmatched=3)
+	if tr.trim_align_tail(list(range(500)))[1] != 0:
+		print('  FAIL a run of exactly 3 must not fire a threshold of "more than 3"'); ok = False
+	# a clean run is untouched, and the axis is off by default
+	tr = replay(healthy, align_trim_rate=0.3, align_trim_tail_unmatched=3)
+	if tr.trim_align_tail(list(range(500)))[1]:
+		print('  FAIL tail axis fired on a clean run'); ok = False
+	if SlidingTranslator(None, tk).align_trim_tail_unmatched != 0:
+		print('  FAIL align_trim_tail_unmatched must default to off'); ok = False
+
 	# `last_bar_doomed`: a bad bar hidden behind a bar the CALLER is about to delete. This is the
 	# ab509b156f shape -- the walk stopped on the healthy final bar, dropped nothing, and reported the
 	# bad bar as shielded; then close_final_measure(complete=False) deleted the shield and the file ended
@@ -1008,7 +1063,8 @@ def check_overgeneration_guards ():
 	print(f'{"ok  " if ok else "FAIL"} over-generation guards: reuse stop needs a sustained collapse '
 		f'and its own longer window to see bar-to-bar repetition, density trim drops the tail past an '
 		f'under-sized bar, the span-less run reaches a mid-file loop, the span ratio catches reuse the '
-		f'miss axis cannot see, a doomed last bar cannot shield the one behind it, and the closing '
+		f'miss axis cannot see, a doomed last bar cannot shield the one behind it, the tail count '
+		f'catches a surplus run the ratio keeps, and the closing '
 		f'line reaches the last kept bar; all off by default')
 	return ok
 
