@@ -42,7 +42,16 @@
 #
 # Skip-done: a file counts as done when BOTH rubato/ and regular/ hold a non-empty
 # output for it. Partial writes cannot be mistaken for finished ones -- the converter
-# and translate step both write to <path>.part and rename only on success.
+# and translate step both write to <path>.part.<wid> and rename only on success.
+#
+# ADDING A WORKER TO A RUN IN FLIGHT: run this script again with the new GPU. There is no
+# partition to rebalance and no queue to register with -- every worker walks its own seeded
+# shuffle of one shared list and skips what is already published, so a newcomer just starts
+# picking ids nobody has finished. Worker ids are allocated with an atomic mkdir in .work/, so
+# the second invocation cannot collide with the first on an id, and the id keys every private
+# path (fifo, ann. dir, .part) as well as the shuffle seed. Two workers therefore never share a
+# path, and the most a coincidence costs is one duplicated translation whose loser is discarded
+# by the winning `mv`. Do NOT add workers by editing --workers on the running invocation.
 
 set -u
 
@@ -213,21 +222,75 @@ if [ "$LIST_ONLY" -eq 1 ]; then
 fi
 [ "$NTODO" -eq 0 ] && { echo "nothing to do"; exit 0; }
 
-# Deal the work list out round-robin so every worker gets a mix of file sizes;
-# a contiguous split would hand one worker all the big files.
+# ONE shared work list; no partition. Each worker walks its OWN seeded shuffle of it and skips
+# what is already published, so two workers overlap only by coincidence and the run needs no
+# claim protocol, no lock and no central queue -- which is what makes a worker joinable while the
+# run is in flight: it just picks a fresh id and starts shuffling.
+#
+# Why not the round-robin partition this replaces: a static split cannot absorb a NEW worker (its
+# share would have to come out of lists other workers are already reading), and it never balanced
+# anything anyway. Its comment claimed it mixed file sizes, but MEASURED over 85 translated files
+# the correlation between raw byte size and translate seconds is pearson 0.024 (rank 0.307):
+# 254073 B took 9.6 s while 404 B took 20.9 s, because the cost is how many tokens the model
+# generates, not how big the input is. Nothing predicts per-file cost (measured 8.0 s to 250 s
+# here, 792 s over the full corpus), so any pre-assignment is a guess, while pulling from a shared
+# list self-balances: SIMULATED at N=16282 with the measured duration distribution, makespan is
+# within 0.3 pct of ideal at W=4 and 0.7 pct at W=8.
+#
+# The cost is duplicated work, and it is bounded and small: SIMULATED 25 duplicated files at W=4
+# (0.29 pct of GPU time) and 59 at W=8 (0.68 pct). It concentrates at the very end -- 20 of those
+# 25 fall in the last tenth of the run and 13 in the last 1 pct -- because once few ids remain
+# every worker is choosing from the same few. That tail is intrinsic to having no claim step; it
+# costs a bounded number of files, never correctness, because both workers write to their own
+# temp paths and the second `mv` simply wins.
 printf '%s' "$TODO" > "$WORK/todo.all"
-rm -f "$WORK"/todo.w*
-i=0
-while IFS= read -r f; do
-	[ -z "$f" ] && continue
-	echo "$f" >> "$WORK/todo.w$((i % WORKERS))"
-	i=$((i+1))
-done < "$WORK/todo.all"
+
+# ---- worker ids ---------------------------------------------------------------------
+# Ids must be unique across CONCURRENT INVOCATIONS, not just within one, because adding a worker
+# to a run in flight is done by running this script again with the new GPU: the shared list and
+# skip-done already make that safe, and the only thing a second invocation would otherwise break
+# is the id, which every private path and the shuffle seed are keyed on. Reusing id 0 would give
+# the newcomer the same fifo pair, the same ann. dir, the same .part path and -- worst -- the same
+# permutation as the running worker 0, so the two would walk in lockstep and collide on EVERY file.
+#
+# `mkdir` is the allocation: it is atomic on xfs and fails for the loser, so two invocations
+# racing for the same id cannot both win. The directory persists as the record of which ids are
+# taken; it is removed when the worker exits.
+alloc_wid () {
+	local n=0
+	while [ $n -lt 1024 ]; do
+		if mkdir "$WORK/wid.$n" 2>/dev/null; then
+			echo "$n"; return 0
+		fi
+		n=$((n+1))
+	done
+	echo "cannot allocate a worker id: 1024 taken in $WORK" >&2
+	return 1
+}
 
 # ---- one worker ---------------------------------------------------------------
 worker () {
-	local WID=$1 GPU=$2 LIST=$3
-	local done_n=0 skip_n=0 fail_n=0 quar_n=0
+	local WID=$1 GPU=$2 SEED=$3
+	local done_n=0 skip_n=0 fail_n=0 quar_n=0 dup_n=0
+	local LIST="$WORK/order.$WID"
+
+	# The worker's own order: a deterministic shuffle of the shared list, seeded by its id. Two
+	# workers therefore walk the same files in unrelated orders and rarely want the same one at
+	# the same moment.
+	#
+	# python3, not `shuf --random-source` and not awk. Both were tried and MEASURED unusable:
+	#   shuf --random-source=<(yes N)   `yes N` is a repeating byte stream, not a random source,
+	#                    so changing the seed shifts a few bytes. Seeds 0 and 1 put 1612 of 16282
+	#                    ids at the SAME position -- 100x the correlation of independent orders.
+	#   awk srand(seed)  srand(0) and srand(1) produce the IDENTICAL permutation, and an FNV-1a
+	#                    sort key in awk averaged 29 shared positions over 12 seed pairs (worst 59),
+	#                    its avalanche being too weak on inputs that differ in one byte.
+	# random.Random(seed).shuffle averages 0.9 shared positions over the same 12 pairs, which is
+	# the Poisson(1) an independent permutation should give, and runs in 0.04 s against awk's 1.2 s.
+	python3 -c 'import sys, random
+lines = sys.stdin.read().splitlines()
+random.Random(int(sys.argv[1])).shuffle(lines)
+sys.stdout.write("\n".join(lines) + "\n")' "$SEED" < "$WORK/todo.all" > "$LIST"
 	local CONV_IN="$WORK/conv_in.$WID" CONV_OUT="$WORK/conv_out.$WID"
 
 	# Persistent converter: a fifo pair so one ts-node process serves every file
@@ -249,16 +312,49 @@ worker () {
 		exec {CONV_RD}<&- 2>/dev/null
 		kill "$CONV_PID" 2>/dev/null
 		rm -f "$CONV_IN" "$CONV_OUT"
+		# Only ever this worker's OWN leftovers. Never a glob over .part.* -- that would delete a
+		# concurrent worker's in-flight result, which is exactly what the private paths prevent.
+		rm -f "$REGULAR"/*.midiseq2.txt.part."$WID" "$WORK"/*."$WID".midiseq2.txt
+		rmdir "$WORK/wid.$WID" 2>/dev/null
 	}
 	trap cleanup EXIT
 
+	# Two passes over its own order. The first does the work; the second exists for what the first
+	# cannot see -- an id another worker started and then died on, which is unpublished but was
+	# skipped as in-flight by nobody, so only a re-read finds it. A pass that publishes nothing
+	# stops the worker. Without the second pass a worker finishes its permutation and exits while
+	# such an id is still undone, and the run ends short of the corpus.
+	local pass stop_all=0
+	for pass in 1 2; do
+		[ "$stop_all" -eq 1 ] && break
+		local pass_done=$done_n
 	while IFS= read -r f; do
 		[ -z "$f" ] && continue
 		local id=${f%.*}
-		local src="$WORK/$id.midiseq2.txt"
+		# BOTH temps carry the worker id. Without it two workers that pick the same id write the
+		# same paths: `$src` is the converter's output and the translate step's INPUT, so they
+		# corrupt each other's input and the `rm -f "$src"` at the end of one deletes the other's
+		# file mid-run; `.part` is the result, and a -s check on an interleaved write publishes
+		# junk. With the id they collide only in TIME -- both compute the same file, the second
+		# `mv` wins, and the output is still one worker's complete result.
+		local src="$WORK/$id.$WID.midiseq2.txt"
+		local part="$REGULAR/$id.midiseq2.txt.part.$WID"
 
 		if [ "$REDO" -eq 0 ] && [ -s "$RUBATO/$id.midiseq2.txt" ] && [ -s "$REGULAR/$id.midiseq2.txt" ]; then
 			skip_n=$((skip_n+1)); continue
+		fi
+		# Another worker is on this id right now: its private temp exists and is being written.
+		# ADVISORY only -- there is no lock, so this is a cheap way to miss most collisions, not a
+		# guarantee. Both failure directions are harmless: a false negative duplicates one file,
+		# and a false positive (the holder died) leaves the id for the next pass or the next run.
+		local inflight=""
+		for other in "$REGULAR/$id.midiseq2.txt.part."*; do
+			[ -e "$other" ] || continue
+			[ "$other" = "$REGULAR/$id.midiseq2.txt.part.$WID" ] && continue
+			inflight="$other"; break
+		done
+		if [ -n "$inflight" ]; then
+			dup_n=$((dup_n+1)); continue
 		fi
 
 		local t0=$(date +%s)
@@ -283,7 +379,7 @@ worker () {
 		  python3 tools/midi/translateMidiseq2.py \
 			--run "$RUN" \
 			--input "$src" \
-			--output "$REGULAR/$id.midiseq2.txt.part" \
+			--output "$part" \
 			--annotate-source "$WORK/ann.$WID" \
 			--src-window $SRC_WINDOW --prime-window $PRIME_WINDOW --max-steps 0 \
 			--align-advance \
@@ -325,15 +421,15 @@ worker () {
 		# A short result is unusable because it is short -- what fraction of a long source it covered
 		# says nothing about that, and the ratio gate threw away 25 usable files out of the 30 it caught
 		# (a6386f7215: 60 measures, ratio 0.026).
-		if [ "$MIN_MEASURES" != "0" ] && [ -s "$REGULAR/$id.midiseq2.txt.part" ]; then
+		if [ "$MIN_MEASURES" != "0" ] && [ -s "$part" ]; then
 			local nbars term
-			nbars=$(grep -c '@measure' "$REGULAR/$id.midiseq2.txt.part" 2>/dev/null || echo 0)
+			nbars=$(grep -c '@measure' "$part" 2>/dev/null || echo 0)
 			# A bare trailing `@measure` is close_final_measure's TERMINATOR: it closes the last bar and
 			# opens nothing, and the tool excludes it from its own count too. Counting it would gate on
 			# "3 bars or more" while reporting 4. VERIFIED against the tool's authoritative
 			# `[annotate] N source @measure directives` on all 87 published pairs: zero mismatches.
 			term=0
-			case "$(tail -n 1 "$REGULAR/$id.midiseq2.txt.part")" in @measure*) term=1 ;; esac
+			case "$(tail -n 1 "$part")" in @measure*) term=1 ;; esac
 			nbars=$((nbars - term))
 			if [ "${nbars:-0}" -lt "$MIN_MEASURES" ]; then
 				cover_ok=0
@@ -352,12 +448,12 @@ worker () {
 			fi
 		fi
 
-		if [ $rc -eq 0 ] && [ -s "$REGULAR/$id.midiseq2.txt.part" ] && [ -s "$ann" ] && [ "$cover_ok" -eq 0 ]; then
+		if [ $rc -eq 0 ] && [ -s "$part" ] && [ -s "$ann" ] && [ "$cover_ok" -eq 0 ]; then
 			# Reached the model's limit, not an error. Keep the evidence, publish nothing,
 			# so the next run retries instead of trusting a near-empty result.
 			mkdir -p "$QUAR"
 			mv -f "$WORK/log.$WID.$id" "$QUAR/$id.log" 2>/dev/null
-			mv -f "$REGULAR/$id.midiseq2.txt.part" "$QUAR/$id.regular.midiseq2.txt" 2>/dev/null
+			mv -f "$part" "$QUAR/$id.regular.midiseq2.txt" 2>/dev/null
 			mv -f "$ann" "$QUAR/$id.rubato.midiseq2.txt" 2>/dev/null
 			quar_n=$((quar_n+1))
 			echo "[w$WID gpu$GPU] TOOSHORT $id $cover_txt -- quarantined, not published"
@@ -368,10 +464,10 @@ worker () {
 			continue
 		fi
 
-		if [ $rc -eq 0 ] && [ -s "$REGULAR/$id.midiseq2.txt.part" ] && [ -s "$ann" ]; then
+		if [ $rc -eq 0 ] && [ -s "$part" ] && [ -s "$ann" ]; then
 			# Publish both arms only once both exist, so a killed worker never leaves
 			# a regular/ file with no rubato/ counterpart for --skip-done to trust.
-			mv -f "$REGULAR/$id.midiseq2.txt.part" "$REGULAR/$id.midiseq2.txt"
+			mv -f "$part" "$REGULAR/$id.midiseq2.txt"
 			mv -f "$ann" "$RUBATO/$id.midiseq2.txt"
 			done_n=$((done_n+1))
 			local dt=$(( $(date +%s) - t0 ))
@@ -385,34 +481,42 @@ worker () {
 		else
 			fail_n=$((fail_n+1))
 			echo "[w$WID gpu$GPU] FAIL $id rc=$rc -- see $WORK/log.$WID.$id"
-			rm -f "$REGULAR/$id.midiseq2.txt.part"
+			rm -f "$part"
 		fi
 		rm -f "$src"
 
 		# --- deadline, checked after the file is safely published ---
 		if [ "$DEADLINE" -ne 0 ] && [ "$(date +%s)" -ge "$DEADLINE" ]; then
 			echo "[w$WID gpu$GPU] deadline reached, stopping"
+			stop_all=1
 			break
 		fi
 		if [ "$LIMIT" -ne 0 ] && [ "$done_n" -ge "$LIMIT" ]; then
 			echo "[w$WID gpu$GPU] limit $LIMIT reached, stopping"
+			stop_all=1
 			break
 		fi
 	done < "$LIST"
+		# A pass that translated nothing means every id it can see is published (or is being
+		# worked on by someone who will publish it), so another identical pass would only re-read
+		# the list. Stop instead of spinning.
+		[ "$done_n" -eq "$pass_done" ] && break
+	done
 
 	cleanup
 	trap - EXIT
-	echo "[w$WID gpu$GPU] done=$done_n skipped=$skip_n failed=$fail_n quarantined=$quar_n"
+	rm -f "$LIST"
+	echo "[w$WID gpu$GPU] done=$done_n skipped=$skip_n dup=$dup_n failed=$fail_n quarantined=$quar_n"
 }
 
 # ---- launch ------------------------------------------------------------------
 PIDS=""
 for w in $(seq 0 $((WORKERS-1))); do
-	LIST="$WORK/todo.w$w"
-	[ -s "$LIST" ] || continue
+	WID=$(alloc_wid) || exit 3
 	GPU=${GPU_ARR[$((w % ${#GPU_ARR[@]}))]}
-	mkdir -p "$WORK/ann.$w"
-	worker "$w" "$GPU" "$LIST" &
+	mkdir -p "$WORK/ann.$WID"
+	# The worker id IS the shuffle seed, so it decides both the order and every private path.
+	worker "$WID" "$GPU" "$WID" &
 	PIDS="$PIDS $!"
 done
 
