@@ -1,0 +1,286 @@
+# MidiTranslator over piano0909: a decoder-only stack that reads a NOTATED rendering and writes the
+# PERFORMANCE behind it. This is performance rendering (re-humanization), the INVERSE of every other
+# seq2seq2 config in this directory, which all run performance -> score (transcription).
+#
+# Hyperparameters are taken from 196_2's 20260909-midi-translator-nota1m0909-lines360-l16d256, read off
+# that run's own .state.yaml rather than from a config file (its source config is no longer on disk).
+# Model, optimizer, schedule, max_tokens, pos_style and start_jitter are held identical so a loss curve
+# here is comparable to that run's. THREE fields are deliberately different, each measured on this
+# corpus and each justified inline: `mark_mode` (forced), `line_range` (measured), and the trainer keys
+# (one GPU, not two).
+#
+# READ THIS BEFORE READING A CURVE — the direction is inverted with respect to how the corpus was made.
+# translate_piano0909.sh produced the two arms by translating rubato -> regular with the reference
+# checkpoint above:
+#     rubato/<id>.midiseq2.txt    the REAL performance MIDI (+ @measure annotation)  <- ground truth
+#     regular/<id>.midiseq2.txt   the notated arm the model WROTE                    <- model output
+# So this config trains regular -> rubato: the SOURCE is synthetic (a model's output, carrying whatever
+# that model got wrong) and the TARGET is real data. That is a legitimate task and the pairing is
+# aligned bar-for-bar by construction, but it is NOT a clean supervised corpus — an error in the
+# reference checkpoint becomes a permanent feature of this run's input distribution. Do not read a low
+# loss here as "performance rendering works"; read it as "rubato is recoverable from THIS regular arm".
+#
+# SCALE: 85 pairs. This is a SHAKEDOWN config — it exists to prove the direction trains and the feeder
+# is wired right, not to produce a usable model. See the splits and epoch_size blocks for what that
+# costs. The full corpus (5,887 pairs and growing, on 196_2 at /home/claude/datasets/midi/piano0909)
+# has the same file-length distribution, so every measured number below carries over EXCEPT the split
+# arithmetic.
+
+id:     midi/{date}-{filename}
+
+
+imports:
+  - starry.midi.data.seq2seq2
+  - starry.midi.models.midiTranslator
+
+
+# Copies assets/midiseq2Vocab.yaml into the run directory, so the ids a checkpoint's embedding rows
+# stand for travel with the checkpoint. The builder injects vocab_size (582) and eos_id (2) into the
+# model args, so they are not restated below.
+assets:
+  - type: Midiseq2Vocab
+
+
+data:
+  type:                     Seq2Seq2
+  # Absolute on purpose: this corpus is a local sample, not a DATA_DIR-relative shard.
+  #
+  # LOOSE layout (regular/ + rubato/ directories), auto-detected — there is no index.json and no
+  # <XX>.zip here, so `packed` stays unset. 85 names shared between the two arms.
+  root:                     /home/camus/data/midi/piano0909-100
+  # cycle 10, phase 9 -> 77 train / 8 val. MEASURED by running the feeder's own parseFilterStr over the
+  # shared name list, not derived from 85/10.
+  #
+  # VAL IS 8 SAMPLES. That is a smoke check, not a metric. The tune-train-config skill's rule (balance
+  # a train epoch against a val pass) is degenerate at this size — it would prescribe an epoch of a few
+  # steps — so epoch_size is set by checkpoint cadence instead, exactly as
+  # configs/midi-translator-seq2seq2.yaml does on its 99-sample corpus. Do not compare val_loss across
+  # runs, and do not tune against it. Enlarge the corpus first.
+  splits:                   '*0..8/10:9/10'
+  # MEASURED on this workstation's RTX 3090 (24 GB, otherwise idle), fp32 (the single-process trainer
+  # has NO autocast — see the trainer block), real feeder inside the timed region, at THIS config's crop
+  # policy (line_range [120,256], max_tokens 2048), 6 steps after 3 warmup:
+  #
+  #   bs    alloc   reserved   card   step     samples/s   batch T max
+  #    8    5.72G      8.71G    37%  1453ms         5.5          1406
+  #   16   11.03G     17.62G    74%  2695ms         5.9          1374   <- chosen
+  #   24   19.60G     23.15G    98%  4668ms         5.1          1608
+  #   32                                OOM
+  #
+  # 16 is the reference run's value and it is also the right measured choice here, which is why it is
+  # kept: throughput is FLAT across the whole range (5.1-5.9 samples/s), so a larger batch buys no
+  # speed and only spends headroom. bs 24 reserves 98% of the card and bs 32 OOMs outright.
+  #
+  # RESERVED is the safety figure, not allocated. configs/midi-translator-seq2seq2.yaml records a 3090
+  # dying at 63% ALLOCATED because reservations had filled 98% of the card — the same 98% bs 24 sits at
+  # here. Note reserved runs far above allocated in this run (17.62G against 11.03G at bs 16): T varies
+  # per batch, so the allocator keeps blocks for the largest row it has seen. If you need bs 24, set
+  # PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True first — that gap is fragmentation, not live data.
+  #
+  # The T max column is what the FEEDER produced, not the cap: no row above reached max_tokens, so none
+  # of them is the worst case. Probed separately on synthetic batches padded to a FIXED T, which is what
+  # the tune-train-config skill means by a worst-case probe:
+  #
+  #   bs 16  T 2048   alloc 13.52G   reserved 13.97G (59%)   step 3775ms   <- the cap, worst case
+  #   bs 16  T 1716   alloc 11.41G   reserved 12.02G (51%)   step 2907ms
+  #   bs 20  T 2048   alloc 16.85G   reserved 17.39G (73%)   step 4620ms
+  #   bs 24  T 1716   alloc 16.94G   reserved 17.85G (75%)   step 4243ms
+  #
+  # So bs 16 at the 2,048 cap reserves 59% — comfortable, and the reason max_tokens can stay at the
+  # reference's value without being the binding constraint here.
+  #
+  # WORTH KNOWING, because it inverts the usual expectation: the FEEDER-REAL run reserves MORE at bs 16
+  # (17.62G) than the synthetic worst case at the cap does (13.97G), despite never exceeding T 1,374.
+  # A fixed-shape probe reuses one allocation; the real feeder hands the allocator a different T every
+  # batch, and the blocks it keeps for earlier shapes do not fit later ones. The cost of that
+  # fragmentation is larger than the cost of the longest row. Read the 74% row as the operational
+  # number and the 59% row as the shape's own demand — and if headroom ever gets tight, reach for
+  # expandable_segments before reaching for a smaller batch.
+  batch_size:               16
+  args:
+    # Direction: notated -> performance. See the header — this is the inverse of the corpus's own
+    # generation direction, and `regular` is the synthetic arm.
+    source_dir:             regular
+    target_dir:             rubato
+    # MANDATORY HERE, and not a preference. piano0909 files carry NO @tick lines at all (measured: 0
+    # in every file of both arms, against 5-205 @measure lines). In `tick` mode `_File` would then find
+    # ZERO marks, and `_pick_crop` returns (0, 0) for a file with no marks — "the only honest crop is
+    # the whole thing". That degrades SILENTLY, with no warning, and takes five settings down with it:
+    # line_range, p_head, p_tail, start_jitter and max_tokens all stop having any effect, because
+    # max_tokens is enforced by RESAMPLING and every resample returns the same whole-file crop.
+    #
+    # MEASURED in `tick` mode on this corpus in THIS direction, all 85 pairs: 85 of 85 files have zero
+    # marks, T median 4,881 and max 45,040, with 67 of 85 samples over this config's own 2,048 cap.
+    # Attention is O(T^2) and bs 24 already OOMs at T 1,716 on this card (see batch_size), so a 45k row
+    # is not a slow run, it is an immediate OOM.
+    #
+    # So: copying a nota1m config here and leaving `tick` in place produces a run that starts, logs
+    # normally, and dies on memory — or worse, trains on whole files and looks fine.
+    mark_mode:              measure
+    # THE REFERENCE VALUE IS [360, 512] AND IT IS NOT USED HERE. Measured on this corpus,
+    # regular -> rubato, mark_mode measure, 800 crops per row:
+    #
+    #   line_range     head    tail    T med   T p95   T max   marks/crop med
+    #   [360, 512]    0.139   0.639     1538    2037    2438        7
+    #   [240, 420]    0.182   0.444     1386    1954    2043        7
+    #   [180, 360]    0.181   0.364     1120    1758    2045        6
+    #   [120, 256]    0.180   0.273      783    1284    1716        5   <- chosen
+    #   [ 96, 192]    0.191   0.215      626     979    1300        4
+    #
+    # p_tail declares 0.15. At the reference's [360, 512] the REALIZED tail rate is 0.639 — the crop
+    # modes have collapsed, and two thirds of every batch is a piece-ending. The cause is file length,
+    # not corpus size: these files run 105-8,822 lines with a median of 877 and 27 bars (~32 lines a
+    # bar), so a 360-512 line window is 11-16 bars out of 27 and any interior start past the halfway
+    # mark grows to EOF. nota1m's files are long enough that the same cap left room; piano0909's are
+    # not. The full 5,887-pair corpus has the same length distribution, so this holds there too.
+    #
+    # Why it matters beyond bookkeeping: 75 of these 85 pairs do NOT end on `end_of_track` — they were
+    # trimmed, and `close_final_measure` closed them with a bare `@measure N` that `_encode` turns into
+    # an ordinary <eom>. An EOF-pinned crop on such a file teaches "a piece ends at an arbitrary bar
+    # line". `_pick_crop` now degrades a tail ROLL to middle on exactly those files (9d4e0b9), but that
+    # gate cannot catch an INCIDENTAL tail — a middle crop that simply grew to EOF — and at [360, 512]
+    # incidental is nearly all of it. Shrinking the window is what actually restores the distinction.
+    #
+    # [120, 256] is the closest row to the declared 0.15/0.15 that still spans ~5 bars. The cost is
+    # T median 783 against the reference's ~1,850, i.e. this run sees shorter context; that is the
+    # honest trade at this file length and it is stated rather than hidden.
+    line_range:             [120, 256]
+    # Probability of a crop pinned to the start / end of the piece. Both kept at the reference's 0.15.
+    #
+    # p_tail does NOT come out at 0.15 here and cannot: `tail` is a GEOMETRIC property (z >= len(marks))
+    # reported by describe(), not the roll's outcome, so a middle crop that grows to EOF counts too.
+    # MEASURED 0.273 over the corpus at the chosen line_range, of which the roll contributes NOTHING on
+    # the 75 trimmed files. Verified directly on one of them (0005949333, 19 marks): the tail rate is
+    # 0.257 at p_tail 0.15 and 0.257 at p_tail 0.0 — the roll's contribution is exactly +0.000, so all
+    # of it is incidental growth. On a file that DOES end on the terminator (003d38a173, 103 marks) the
+    # roll is honoured and the rate is 0.165, i.e. p_tail as declared.
+    p_head:                 0.15
+    p_tail:                 0.15
+    # Source half carries no <eom>: it is a plain content-token stream. Target always does.
+    source_eom:             false
+    # Cap on the ASSEMBLED sequence, enforced by resampling the crop — truncating would cut a boundary
+    # off its mark and destroy the alignment this feeder exists to provide. Reference value, kept.
+    #
+    # At the chosen line_range it is slack (T max 1,716 measured over 800 crops), which is deliberate:
+    # it is a guard against the long tail of an 8,822-line file, not a shaping parameter. At the
+    # reference's [360, 512] it would have been ACTIVE and still not sufficient — 2% of crops came out
+    # over 2,048 even after 8 resamples (max 2,364), because a single bar can exceed the cap on its own
+    # and the feeder then keeps the shortest attempt rather than truncating.
+    max_tokens:             2048
+    resample_tries:         8
+    # RoPE convention: source <= -2 counting down its own file axis, <sep> = -1, target >= 0 counting up
+    # its own file axis. Reference value. 'sep' is one arithmetic run, so RoPE sees it as identical to
+    # 'flat'; it buys readability, not behaviour. ('absolute' is the one that changes what the model
+    # sees — not used here, to stay comparable to the reference.)
+    pos_style:              sep
+    # Std dev IN LINES of a normal offset on the source crop's start, for crops that do not begin at
+    # the piece's start. Closes a train/inference mismatch: every crop here starts exactly ON a mark
+    # line, but a sliding window over a production file starts mid-measure.
+    #
+    # KNOWN DEFECT, carried over knowingly from the reference so the two runs stay comparable: the
+    # offset is applied in LINES and marks sit on directive lines that `_encode` discards, so a +1
+    # offset can produce a token-IDENTICAL crop while `skip` still drops that crop's first bar from
+    # supervision. At start_jitter 2 the reference measured 43% of interior crops unchanged against 76%
+    # of draws reporting nonzero. Fixing it changes what start_jitter MEANS everywhere, so it is not
+    # done here.
+    start_jitter:           2
+  args_variant:
+    # Val takes a deterministic crop per sample — still a mix of head/tail/middle, but the same one
+    # every epoch, so the metric moves only when the model does.
+    1:
+      random_crop:          false
+
+
+model:
+  # Held IDENTICAL to 20260909-...-lines360-l16d256. 17.08M params (deep-and-narrow: 16 x 256, head_dim
+  # 64, d_inner = 4 * d_model = 1024). Nothing here is tuned for this corpus — that is the point, so a
+  # curve is attributable to the data and the direction rather than to the architecture.
+  type:                     MidiTranslator
+  args:
+    # vocab_size (582) and eos_id (2) come from the pinned midiseq2Vocab.yaml via `assets:` above; a
+    # value here disagreeing with the pinned file raises at creation rather than being used silently.
+    backbone:               llama
+    d_model:                256
+    n_layer:                16
+    n_head:                 4
+    d_inner:                ~
+    num_key_value_heads:    ~
+    # Rotary position budget. 4096 covers max_tokens 2048 with room to spare; max_tokens is the real
+    # guard, since a longer T OOMs before it runs out of positions.
+    max_seq_len:            4096
+    dropout:                0.1
+    tie_embedding:          false
+
+
+trainer:
+  device:                   cuda
+  # SINGULAR — this is train.py (starry/utils/trainer.py), NOT trainDist.py. That is the one structural
+  # departure from the reference, and it is forced by hardware: trainerQuantitative runs PROC_COUNT=2
+  # (rank 0 trains, rank 1 validates) and picks its card as `cuda:rank % gpus`, so it wants two cards.
+  # This workstation has one 3090. Porting to trainDist means renaming this key to `epochs` (plural) or
+  # it KeyErrors, and adding back `val_batch_size` / `epoch_duration`.
+  #
+  # Two consequences of the single-process trainer, both load-bearing for the numbers above:
+  #   - NO AUTOCAST. trainer.py has no autocast block, so the reference's `dtype: bfloat16` is a
+  #     trainerQuantitative-only key and is deliberately absent here. The memory table is fp32.
+  #   - Validation runs IN-LINE at the end of each epoch (trainer.py:127), stalling training for its
+  #     duration. At 8 val samples that is free; on the full corpus it will not be.
+  epoch:                    1000
+  # 100 steps at bs 16 = 4.5 min an epoch at the measured 2,695 ms step. Set by CHECKPOINT CADENCE, not
+  # by val balance — with 8 val samples the balance rule is degenerate (see splits). The reference's
+  # 8,000 is not used:
+  #
+  #   epoch_size   steps   min/epoch   passes over the 77-pair train split
+  #        1,600     100        4.5      20.8   <- chosen
+  #        3,200     200        9.0      41.6
+  #        8,000     500       22.5     103.9   reference value
+  #
+  # The val pass is 8 samples = ONE forward-only batch, i.e. under a single train step, so it is free at
+  # any of these and does not gate the cadence.
+  #
+  # Be clear-eyed about what an "epoch" means at this scale: 1,600 samples over a 77-pair train split
+  # is ~21 passes over the corpus PER EPOCH. Every sample is seen many times before the first
+  # checkpoint, so train loss will fall fast and mean little. That is inherent to 85 files, not a
+  # setting to fix.
+  epoch_size:               1600
+  # x-axis in cumulative samples, so curves stay comparable after epoch_size / batch_size changes.
+  report_step_unit:         examples
+  save_mode:                best
+  moniter:
+    field:                  loss
+    mode:                   min
+
+
+optim:
+  # No `lr` here on purpose: the scheduler sets param_group['lr'] every step, so an `lr` in args would
+  # be silently overwritten.
+  type:                     AdamW
+  args:
+    betas:                  [0.9, 0.98]
+    eps:                    1.e-9
+    weight_decay:           0.01
+  scheduler:
+    type:                   InvSqrt
+    args:
+      lr_mul:               0.1
+      # KEPT AT THE REFERENCE'S 2000, which fixes peak lr = lr_mul * d_model^-0.5 * n_warmup^-0.5 =
+      # 0.1 * 256^-0.5 * 2000^-0.5 = 1.40e-4, identical to that run.
+      #
+      # By the reference's own rule — scale warmup by PASSES OVER DATA — this is far too long here:
+      # 2,000 steps is 32,000 samples, ~415 passes over a 77-pair split, and 20 epochs at the
+      # epoch_size above. It is kept anyway because the question this config asks is whether the
+      # INVERTED DIRECTION learns under a known-good schedule; changing lr at the same time would
+      # confound that. If you want a shorter warmup, note that 400 steps (the smoke config's value)
+      # raises peak lr to 3.13e-4, 2.2x the reference, which is a real divergence risk on 85 files.
+      n_warmup_steps:       2000
+      # Overwritten from model.args.d_model by _copy_fileds below, so it cannot drift from the model.
+      # The value here is a placeholder for readability. It matters: a stale 512 here would give a peak
+      # lr of 9.9e-5 instead of 1.40e-4, 29% low, with nothing raised.
+      d_model:              256
+
+
+# Derived fields, applied before the model is built. The InvSqrt peak lr is
+# lr_mul * d_model^-0.5 * n_warmup^-0.5, so the scheduler's d_model must be the model's or the whole lr
+# schedule is wrong by a factor of sqrt(ratio) with no error raised.
+_copy_fileds:
+- [optim.scheduler.args.d_model, model.args.d_model]
