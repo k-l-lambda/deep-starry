@@ -33,6 +33,11 @@ exception is the target's `@measure`, which becomes a single `<eom>` so the deco
 boundaries (skipped for `@measure 1`, which marks the start of the piece rather than a boundary
 within it). `source_eom` mirrors that on the source half if wanted.
 
+Crops are drawn as `head` / `tail` / `middle` by `p_head` / `p_tail` (the remainder). A `tail` roll
+degrades to `middle` on a file that does NOT end on `end_of_track`, since there is no real ending there
+to show — see `_pick_crop`. So the realized tail rate is at most `p_tail`, and 0 on a corpus whose
+files were all trimmed.
+
 `start_jitter` (default 0 = off) is an augmentation: for crops that do NOT begin at the piece's start, it
 offsets the source crop's first line by round(gauss(0, start_jitter)). Every crop otherwise begins exactly
 ON a mark line, which inference cannot reproduce — a sliding window over a production file has no
@@ -371,6 +376,10 @@ class _File:
 	unique in general: the irregular arm has 730 duplicate (measure, tick) keys across 15 files (the
 	perturbation can move two events onto the same score tick). `_align` relies on that list.
 
+	`ends_on_terminator` says whether the file's last non-blank line is `end_of_track`, i.e. whether it
+	closes on midiseq2's real terminator rather than on `close_final_measure`'s bare `@measure N`. A
+	tail crop is only meaningful on such a file — see `_pick_crop`.
+
 	`token_before[k]` is how many CONTENT tokens precede line k in the whole file — the prefix sum
 	`pos_style='absolute'` needs to place a crop on the file's own token axis. Directive lines
 	contribute 0, matching _encode, so this counts exactly the tokens _encode would emit for the whole
@@ -384,6 +393,14 @@ class _File:
 		self.lines_of: Dict[MarkKey, List[int]] = {}
 		# len(lines) + 1 entries, so token_before[len(lines)] is the file's total token count.
 		self.token_before: List[int] = [0] * (len(self.lines) + 1)
+		# Scanned backwards over blank lines rather than read off lines[-1]: a trailing newline leaves
+		# no empty element, but a file written with a blank final line does, and that must not read as
+		# "no terminator".
+		self.ends_on_terminator: bool = False
+		for line in reversed(self.lines):
+			if line.strip():
+				self.ends_on_terminator = line.strip() == 'end_of_track'
+				break
 		# The measure number is tracked as parse state in BOTH modes: in 'tick' mode an @measure line
 		# is not itself a mark, but it still tells us which measure the following @tick values are in
 		# (a bare tick repeats every bar and would collide across the piece).
@@ -889,12 +906,28 @@ class Seq2Seq2 (Dataset):
 			return 0
 		return round(rng.gauss(0, self.start_jitter))
 
-	def _pick_crop (self, source: _File, rng: random.Random) -> Tuple[int, int]:
+	def _pick_crop (self, source: _File, rng: random.Random,
+		target: Optional[_File] = None) -> Tuple[int, int]:
 		'''Choose (a, z) — the source mark range. Grows by WHOLE marks, so a boundary can never land
 		mid-measure; that is what makes the target lookup a key lookup instead of a search.
 
 		The line cap is drawn per crop from `line_range` (a fixed value collapses to itself), off the
 		SAME rng as the mode and the start so a deterministic crop stays deterministic.
+
+		A `tail` roll DEGRADES TO `middle` unless both arms end on `end_of_track`. The point of a tail
+		crop is to show the model a real ending, and most of this corpus has none: `close_final_measure`
+		closes a trimmed run with a bare `@measure N`, which `_encode` turns into an ordinary `<eom>`
+		(measured on piano0909-100: 75 of 85 pairs end that way on both arms, and only 8 end on the
+		terminator on both). Pinning z to EOF on such a file teaches "a piece ends at an arbitrary bar
+		line", which is exactly what the tail mode was meant to avoid. The degraded crop is still a
+		valid sample, just interior.
+
+		Both arms are required rather than the target alone, though on this corpus the target's ending
+		implies the source's (only-target-ends is 0 of 85, only-source 2) — the target is what carries
+		supervision, and the source has to hold the music that justifies it.
+
+		The roll is drawn BEFORE the test, so the degradation does not change the rng draw order and a
+		deterministic crop stays reproducible whether or not it degrades.
 		'''
 		count = len(source.marks)
 		if count == 0:
@@ -911,6 +944,10 @@ class Seq2Seq2 (Dataset):
 		elif roll < self.p_head + self.p_tail:
 			mode = 'tail'
 		else:
+			mode = 'middle'
+
+		if mode == 'tail' and not (source.ends_on_terminator
+				and (target is None or target.ends_on_terminator)):
 			mode = 'middle'
 
 		if mode == 'tail':
@@ -1155,7 +1192,7 @@ class Seq2Seq2 (Dataset):
 		# Keeping only the ids would leave the ranges describing whichever attempt happened to be last.
 		best: Optional[Tuple[List[int], int, List[int], int, int, Tuple[int, int], int]] = None
 		for attempt in range(max(1, self.resample_tries)):
-			a, z = self._pick_crop(source, rng)
+			a, z = self._pick_crop(source, rng, target)
 			# Drawn per attempt and carried with the crop, so the reported source_range is the one the
 			# ids were actually built from rather than a re-draw.
 			jitter = self._pick_jitter(a, rng)

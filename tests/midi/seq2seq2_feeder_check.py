@@ -17,6 +17,7 @@ tensor plumbing:
   6. head/tail rate — the configured p_head/p_tail actually come out
   7. determinism    — random_crop=False repeats exactly; splits are disjoint and stable
   8. collateBatch   — shapes, padding, target_mask covering exactly the post-<sep> region
+  6b. tail degrade  — a tail roll falls back to middle unless both arms end on `end_of_track`
   8b. describe()    — same crop as __getitem__; one <eom> per measure it names (the vis relies on it)
   9. length table   — median/p95/p99/max of T per pairing and line cap, so a config can be sized
  10. line_range    — the per-crop cap varies, honours both ends, and stays deterministic
@@ -220,9 +221,15 @@ def check_head_tail (dataset, samples, rng):
 		f'{dataset.p_head:.2f}/{dataset.p_tail:.2f})')
 	index = dataset.indices[0]
 	source = _get_file(dataset.source, dataset.arm_source, dataset.names[index], dataset.mark_mode)
+	target = _get_file(dataset.source, dataset.arm_target, dataset.names[index], dataset.mark_mode)
+	# Passed through as production does: a tail roll degrades on a file with no terminator, and every
+	# file in this corpus has one, so the rate must still land on p_tail. Check 6b covers the other side.
+	check('both arms of the sampled file end on end_of_track',
+		source.ends_on_terminator and target.ends_on_terminator,
+		f'source {source.ends_on_terminator} target {target.ends_on_terminator}')
 	head = tail = 0
 	for _ in range(samples):
-		a, z = dataset._pick_crop(source, rng)
+		a, z = dataset._pick_crop(source, rng, target)
 		if a <= 0:
 			head += 1
 		if z >= len(source.marks):
@@ -233,6 +240,65 @@ def check_head_tail (dataset, samples, rng):
 	# plus that slack; 0.05 absolute is comfortably inside it for a corpus this size.
 	check('head rate near p_head', abs(p_head - dataset.p_head) < 0.05, f'{p_head:.3f}')
 	check('tail rate near p_tail', abs(p_tail - dataset.p_tail) < 0.05, f'{p_tail:.3f}')
+
+
+def check_tail_degrades (dataset, samples, rng):
+	'''6b. A tail roll must degrade to middle when an arm does not end on `end_of_track`.
+
+	The tail mode exists to show the model a real ending. A file closed by `close_final_measure`'s bare
+	`@measure N` has none -- that line becomes an ordinary `<eom>` -- so pinning z to EOF there would
+	teach that a piece ends at an arbitrary bar line. Asserted by STUBBING the flag rather than by
+	finding such a file, so the check does not depend on which corpus is on disk.
+	'''
+	print(f'\n== 6b. a tail roll degrades without a terminator ({samples} draws)')
+	index = dataset.indices[0]
+	name = dataset.names[index]
+	source = _get_file(dataset.source, dataset.arm_source, name, dataset.mark_mode)
+	target = _get_file(dataset.source, dataset.arm_target, name, dataset.mark_mode)
+	if not source.marks:
+		print('  skipped: the sampled file has no marks in this mode')
+		return
+
+	def rate (src_ends, tgt_ends):
+		src_was, tgt_was = source.ends_on_terminator, target.ends_on_terminator
+		source.ends_on_terminator, target.ends_on_terminator = src_ends, tgt_ends
+		try:
+			seed = random.Random(20260917)
+			hit = sum(1 for _ in range(samples)
+				if dataset._pick_crop(source, seed, target)[1] >= len(source.marks))
+			return hit / samples
+		finally:
+			source.ends_on_terminator, target.ends_on_terminator = src_was, tgt_was
+
+	both = rate(True, True)
+	neither = rate(False, False)
+	src_only = rate(True, False)
+	tgt_only = rate(False, True)
+	print(f'  tail rate -- both {both:.3f}  neither {neither:.3f}  '
+		f'source only {src_only:.3f}  target only {tgt_only:.3f}')
+	# Not 0: a middle draw can still grow to EOF by chance. What matters is that it drops to the
+	# incidental rate, i.e. well below the p_tail the roll asked for.
+	floor = both - dataset.p_tail / 2
+	check('tail survives when both arms end on the terminator', both > dataset.p_tail * 0.8, f'{both:.3f}')
+	check('tail degrades when neither arm does', neither < floor, f'{neither:.3f} vs both {both:.3f}')
+	check('tail degrades when only the source does', src_only < floor, f'{src_only:.3f}')
+	check('tail degrades when only the target does', tgt_only < floor, f'{tgt_only:.3f}')
+	# The roll is drawn before the test, so degrading must not shift the rng stream.
+	a_seed, b_seed = random.Random(4), random.Random(4)
+	source.ends_on_terminator = target.ends_on_terminator = False
+	try:
+		degraded = [dataset._pick_crop(source, a_seed, target) for _ in range(40)]
+	finally:
+		source.ends_on_terminator = target.ends_on_terminator = True
+	kept = [dataset._pick_crop(source, b_seed, target) for _ in range(40)]
+	differ = sum(1 for x, y in zip(degraded, kept) if x != y)
+	check('degrading changes only the crops that rolled tail', 0 < differ < 40, f'{differ}/40 differ')
+
+	# The flag itself, read off the text.
+	blank = _get_file.__globals__['_File']('note_on #3c $40\nend_of_track\n\n', dataset.mark_mode)
+	bare = _get_file.__globals__['_File']('note_on #3c $40\n@measure 7\n', dataset.mark_mode)
+	check('ends_on_terminator ignores a trailing blank line', blank.ends_on_terminator)
+	check('ends_on_terminator is False on a bare @measure close', not bare.ends_on_terminator)
 
 
 def check_determinism (root, source_dir, target_dir):
@@ -659,6 +725,7 @@ def main ():
 				check_vocab(dataset)
 			check_crops(dataset, args.samples, rng)
 			check_head_tail(dataset, 2000, rng)
+			check_tail_degrades(dataset, 2000, rng)
 			check_collate(dataset)
 			check_describe(dataset)
 
