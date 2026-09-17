@@ -44,6 +44,16 @@ ON a mark line, which inference cannot reproduce — a sliding window over a pro
 @measure/@tick to land on and starts mid-measure (see tools/midi/translateMidiseq2.py). The target stays
 mark-aligned; only the source's leading context moves.
 
+`transposition_sigma` (default 0 = off) is the other augmentation: a per-sample semitone offset,
+round(gauss(0, transposition_sigma)), applied to the `#XX` pitch of every note_on/note_off in BOTH
+halves. One draw per sample is what keeps the pair correspondent — a per-half draw would put the two
+arms in different keys. It runs on the assembled ids, so it changes no token count and therefore leaves
+the crop, the alignment and the position ids exactly as they were; `control_change` and `program_change`
+carry a `#XX` of their own (a controller and a program number) and are left alone. A pitch pushed past
+`#01`/`#7f` folds back by whole octaves rather than clamping, keeping the pitch class and landing on the
+nearest representable octave. Not defined in mixed Lilylet mode, where the score arm spells pitch as note
+names under a key.
+
 Unlike its siblings in this package (seq2CondPatchy, seq2CondSplitPatchy) this feeder reads TEXT at
 runtime instead of a packed `.pt`, so a change of crop policy needs no re-pack. Note the consequence
 for `splits`: the filter is POSITIONAL (`i % cycle in phases`), so the file list must be sorted
@@ -535,6 +545,7 @@ class Seq2Seq2 (Dataset):
 		source_dir='midi-seq2-score', target_dir='midi-seq2', mark_mode='measure',
 		line_range=(20, 256), p_head=0.15, p_tail=0.15, source_eom=False,
 		max_tokens=0, resample_tries=8, align_retries=4, start_jitter=0.0,
+		transposition_sigma=0.0,
 		random_crop=None, seed=0, vocab_path=None, pos_style='flat', pack='flat',
 		packed=None, max_cached_files=0, source_format='midiseq2',
 		target_format='midiseq2', measures_path=None, **_):
@@ -607,6 +618,13 @@ class Seq2Seq2 (Dataset):
 		if start_jitter < 0:
 			raise ValueError(f'start_jitter must be >= 0, got {start_jitter!r}')
 		self.start_jitter = float(start_jitter)
+		# Augmentation: std dev (in SEMITONES) of a normal pitch offset applied to the whole sample.
+		# 0 = off. Drawn once per sample and rounded to an integer, so source and target shift by the
+		# SAME amount -- a per-half draw would break the very correspondence this feeder exists to
+		# provide. See `_transpose_ids` for the walk and the out-of-range rule.
+		if transposition_sigma < 0:
+			raise ValueError(f'transposition_sigma must be >= 0, got {transposition_sigma!r}')
+		self.transposition_sigma = float(transposition_sigma)
 		# Deterministic crops for val: default follows the split's shuffle flag (as m3distill does),
 		# so train augments and val is reproducible epoch to epoch.
 		self.random_crop = shuffle if random_crop is None else random_crop
@@ -619,6 +637,10 @@ class Seq2Seq2 (Dataset):
 				raise ValueError('mixed Lilylet alignment requires mark_mode="measure"')
 			if start_jitter:
 				raise ValueError('start_jitter is not defined for mixed Lilylet alignment')
+			if transposition_sigma:
+				# The Lilylet arm spells pitch as note names under a key, not as a `#XX` byte, so a
+				# semitone offset applied to the midi arm alone would desynchronise the pair.
+				raise ValueError('transposition_sigma is not defined for mixed Lilylet alignment')
 			if pos_style == 'absolute':
 				raise ValueError('pos_style="absolute" is not defined across mixed token axes')
 			from .unifiedSeq2Tokenizer import UnifiedSeq2Tokenizer
@@ -631,6 +653,7 @@ class Seq2Seq2 (Dataset):
 			self.lilylet_tokenizer = LilyletTokenizer(lilylet_asset)
 		else:
 			self.tokenizer = Midiseq2Tokenizer(vocab_path) if vocab_path else Midiseq2Tokenizer()
+			self._init_transposition()
 
 		if self.mixed:
 			self._init_mixed(root, source_dir, target_dir, measures_path)
@@ -819,6 +842,7 @@ class Seq2Seq2 (Dataset):
 		sep = len(source_ids)
 		return dict(name=sample_id, source=midi if self.source_format == 'midiseq2' else lyl,
 			target=midi if self.target_format == 'midiseq2' else lyl, a=a, z=z, jitter=0, skip=0,
+			transpose=0,
 			source_range=source_range, target_range=target_range, ids=ids, sep=sep,
 			positions=self._mixed_positions(len(source_ids), len(target_ids)), head=head,
 			tail=z >= (len(lyl) if self.source_format == 'lilylet' else len(mapping)),
@@ -1038,6 +1062,101 @@ class Seq2Seq2 (Dataset):
 			return None
 		return start, end
 
+	# --- transposition --------------------------------------------------------------------
+
+	def _init_transposition (self) -> None:
+		'''Precompute what `_transpose_ids` needs: the pitch-token id block, and the ids that open
+		and close a note event.
+
+		Pitch tokens are `#01`..`#7f` and their ids are CONTIGUOUS in the vocab (asserted below), so a
+		semitone offset is a plain integer offset on the id. That is the whole reason transposition can
+		run on ids rather than on text: no re-tokenisation, no re-encoding, and the crop, the alignment
+		and the positions are all untouched by it.
+		'''
+		lookup = self.tokenizer.id_by_token
+		pitches = sorted((int(t[1:], 16), i) for t, i in lookup.items()
+			if len(t) > 1 and t[0] == '#')
+		if not pitches:
+			raise RuntimeError('no `#XX` pitch tokens in the vocab; transposition cannot be defined')
+		self._pitch_lo, self._pitch_hi = pitches[0][0], pitches[-1][0]
+		base = pitches[0][1]
+		assert [i for _, i in pitches] == list(range(base, base + len(pitches))), \
+			'pitch token ids are not contiguous; _transpose_ids maps a pitch by id arithmetic'
+		assert [p for p, _ in pitches] == list(range(self._pitch_lo, self._pitch_hi + 1)), \
+			'pitch values are not contiguous; _transpose_ids maps a pitch by id arithmetic'
+		# id == _pitch_base + pitch.
+		self._pitch_base = base - self._pitch_lo
+		self._pitch_ids = frozenset(range(base, base + len(pitches)))
+		# Only note_on/note_off pitches move. control_change and program_change carry a `#XX` too --
+		# a controller number and a program number, neither of them a pitch (measured on this corpus:
+		# 10,545 control_change and 16 program_change `#XX` tokens against 195,059 note ones). Shifting
+		# those would silently rewrite sustain-pedal and instrument-select messages.
+		self._note_ids = frozenset(i for t, i in lookup.items() if t in ('note_on', 'note_off'))
+		# What ends a note event, so a stray `#XX` further downstream is never taken for its pitch.
+		# Everything that is not a note argument: any other keyword, any elapse run, any wrapper.
+		args = frozenset(i for t, i in lookup.items()
+			if len(t) > 1 and t[0] in ('#', '$', 'C') and not t.startswith('<'))
+		self._note_closers = frozenset(range(self.tokenizer.vocab_size)) - args - self._note_ids
+
+	def _pick_transposition (self, index: int) -> int:
+		'''Semitone offset for one sample, or 0 when the option is off.
+
+		Drawn from its OWN rng stream, not the crop rng. Sharing the crop's would make the draw consume
+		state ahead of `_pick_crop`, so switching transposition on would silently serve a DIFFERENT crop
+		for every sample — measured on test202608, 99/99 deterministic crops changed shape. Pitch and
+		window are orthogonal choices and have to stay that way, or a val split stops being comparable
+		across a change that only meant to transpose it.
+
+		The stream is seeded per index (with a distinct salt from the crop seed) when crops are
+		deterministic, so val transposes reproducibly; a shuffled train split draws globally and varies
+		per epoch, which is the point of an augmentation.
+		'''
+		if not self.transposition_sigma:
+			return 0
+		rng = random if self.random_crop else random.Random(self.seed ^ (index * 2246822519) ^ 0x5eed)
+		return int(round(rng.gauss(0, self.transposition_sigma)))
+
+	def _fold_pitch (self, pitch: int) -> int:
+		'''Bring a transposed pitch back inside the vocab range by whole octaves.
+
+		A large offset can push a pitch off either end of `#01`..`#7f`. Clamping to the edge would
+		change the note's pitch CLASS and put a wrong interval into the sample; adding or subtracting
+		12 keeps the class and lands on the nearest representable octave of the same note. Loops
+		rather than folding once, since an offset may exceed an octave.
+		'''
+		while pitch < self._pitch_lo:
+			pitch += 12
+		while pitch > self._pitch_hi:
+			pitch -= 12
+		return pitch
+
+	def _transpose_ids (self, ids: List[int], offset: int) -> List[int]:
+		'''Shift every note_on/note_off pitch token in `ids` by `offset` semitones.
+
+		Walks the stream tracking whether a note keyword is open, because the pitch token is NOT
+		reliably adjacent to it: 4.6% of note events in this corpus carry an explicit channel first
+		(`note_on C1 #3c $50`, C0 being omitted). A bare `#` is not enough on its own either -- see
+		`_note_ids` for the two non-note keywords that also own one.
+
+		Returns a new list; length, order and every non-pitch id are unchanged, which is what lets this
+		run after `_assemble` without disturbing `sep` or the position ids.
+		'''
+		if not offset:
+			return ids
+		out = list(ids)
+		armed = False
+		for i, tid in enumerate(out):
+			if tid in self._note_ids:
+				armed = True
+			elif armed and tid in self._pitch_ids:
+				out[i] = self._pitch_base + self._fold_pitch(tid - self._pitch_base + offset)
+				# One pitch per note event; disarm so a later `#XX` under another keyword is safe even
+				# if that keyword somehow fails to close the event.
+				armed = False
+			elif tid in self._note_closers:
+				armed = False
+		return out
+
 	# --- token assembly -------------------------------------------------------------------
 
 	def _encode (self, lines: Sequence[str], eom: bool, base: int = 0) -> Tuple[List[int], List[int]]:
@@ -1180,6 +1299,11 @@ class Seq2Seq2 (Dataset):
 		it emits no <eom>).
 
 		`source_range` already has the jitter applied, so it is the range the ids were built from.
+
+		`transpose` is the sample's semitone offset (0 unless transposition_sigma is on). It has been
+		applied to `ids` ONLY -- the returned `source`/`target` _File objects are the shared cache
+		entries and still hold the original pitches, so re-encoding `source_range` from them does NOT
+		reproduce `ids`.
 		'''
 		name = self.names[index]
 		source = _get_file(self.source, self.arm_source, name, self.mark_mode)
@@ -1187,6 +1311,10 @@ class Seq2Seq2 (Dataset):
 		# A deterministic crop still varies BY SAMPLE (so val covers head/tail/middle) but not by
 		# epoch; seeding on the index is what gives both.
 		rng = random if self.random_crop else random.Random(self.seed ^ (index * 2654435761))
+		# From its own stream (see `_pick_transposition`), so it perturbs neither the crop nor the jitter,
+		# and applied AFTER the winner is chosen: a semitone offset changes no token count, so it cannot
+		# affect which attempt wins on length either.
+		transpose = self._pick_transposition(index)
 
 		# The crop that wins is kept WHOLE — ids together with the (a, z, align) that produced them.
 		# Keeping only the ids would leave the ranges describing whichever attempt happened to be last.
@@ -1237,7 +1365,10 @@ class Seq2Seq2 (Dataset):
 		# Where supervision starts INSIDE the target half (0 = all of it). Nonzero only when this crop's
 		# SAMPLED offset is nonzero — a crop that drew 0 is mark-aligned and keeps full supervision.
 		skip = self._supervise_from(ids[sep + 1:], jitter)
+		# Both halves at once, from the one offset -- that is what keeps the pair correspondent.
+		ids = self._transpose_ids(ids, transpose)
 		return dict(name=name, source=source, target=target, a=a, z=z, jitter=jitter, skip=skip,
+			transpose=transpose,
 			source_range=(s_start, s_end), target_range=(t_start, t_end),
 			ids=ids, sep=sep, positions=positions, head=a <= 0, tail=z >= len(source.marks),
 			pos_bos_on_sep=self.pos_style == 'absolute' and a <= 0 and positions[sep + 1] == -1,

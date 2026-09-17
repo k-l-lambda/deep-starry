@@ -22,6 +22,7 @@ tensor plumbing:
   9. length table   — median/p95/p99/max of T per pairing and line cap, so a config can be sized
  10. line_range    — the per-crop cap varies, honours both ends, and stays deterministic
  11. pos_style     — flat/sep/absolute: ids unchanged, <sep> anchoring, sign separation, pad run
+ 13. transposition — one offset per sample, both halves shift together, only `#XX` pitches move
 '''
 
 import argparse
@@ -612,6 +613,134 @@ def length_table (root, samples, rng):
 				f'{lengths[-1]:7d}')
 
 
+def check_transposition (root, source_dir, target_dir):
+	'''13. transposition_sigma: one offset per sample, applied to both halves, structure untouched.
+
+	The property that matters is CORRESPONDENCE: the source and target must move by the same number of
+	semitones, or the pair no longer describes the same music and the supervision is a lie. So the walk
+	below re-derives each half's note pitches independently of the feeder and compares the two shifts.
+
+	Also checked: nothing but a note pitch moves (control_change and program_change carry a `#XX` of
+	their own), the token count and positions are unchanged (transposition runs on assembled ids), and
+	an out-of-range pitch folds by an octave rather than clamping — clamping would change the pitch
+	class and put a wrong interval into the sample.
+	'''
+	print('\n== 13. transposition_sigma augmentation')
+	kw = dict(mark_mode='tick', line_range=[20, 256], split='0/1', random_crop=False)
+	off = feeder(root, source_dir, target_dir, **kw)
+	check('default is off', off.transposition_sigma == 0.0, str(off.transposition_sigma))
+
+	explicit = feeder(root, source_dir, target_dir, transposition_sigma=0.0, **kw)
+	same = all(off.describe(i)['ids'] == explicit.describe(i)['ids'] for i in off.indices)
+	check('sigma=0 is bit-identical to the default', same)
+	check('the default reports transpose 0',
+		all(off.describe(i)['transpose'] == 0 for i in off.indices))
+
+	vocab = off.tokenizer.tokens
+
+	def note_pitches (ids):
+		'''(keyword, pitch) per note event, plus the non-note `#XX` tokens — walked here rather than
+		read off the feeder, so a bug in _transpose_ids cannot hide behind its own helper.'''
+		notes, others, current = [], [], None
+		for tid in ids:
+			token = vocab[tid]
+			if token in ('note_on', 'note_off', 'control_change', 'program_change'):
+				current = token
+			elif token.startswith('#'):
+				pitch = int(token[1:], 16)
+				(notes if current in ('note_on', 'note_off') else others).append((current, pitch))
+				current = None
+			elif not (len(token) > 1 and token[0] in ('$', 'C')):
+				current = None
+		return notes, others
+
+	lo, hi = off._pitch_lo, off._pitch_hi
+
+	def expect (pitch, offset):
+		want = pitch + offset
+		while want < lo:
+			want += 12
+		while want > hi:
+			want -= 12
+		return want
+
+	# --- a fixed offset, applied directly: the mechanism, independent of the draw ---------------
+	moved_bad = other_bad = struct_bad = 0
+	for index in off.indices:
+		case = off.describe(index)
+		before, others0 = note_pitches(case['ids'])
+		for offset in (-25, -12, -7, -1, 1, 5, 12, 24):
+			shifted = off._transpose_ids(case['ids'], offset)
+			after, others1 = note_pitches(shifted)
+			if others0 != others1:
+				other_bad += 1
+			if len(shifted) != len(case['ids']) or not all(
+					vocab[case['ids'][i]].startswith('#')
+					for i, (a, b) in enumerate(zip(case['ids'], shifted)) if a != b):
+				struct_bad += 1
+			moved_bad += sum(1 for (_, a), (_, b) in zip(before, after) if b != expect(a, offset))
+	check('every note pitch moves by the offset', moved_bad == 0, f'{moved_bad} wrong')
+	check('a non-note `#XX` never moves', other_bad == 0, f'{other_bad} bad')
+	check('only pitch tokens differ, and the length is unchanged', struct_bad == 0, f'{struct_bad} bad')
+
+	# folding: an offset past the vocab edge keeps the pitch CLASS and stays in range
+	class_bad = range_bad = 0
+	for index in off.indices[:8]:
+		before, _ = note_pitches(off.describe(index)['ids'])
+		for offset in (-60, -40, 40, 60):
+			after, _ = note_pitches(off._transpose_ids(off.describe(index)['ids'], offset))
+			for (_, a), (_, b) in zip(before, after):
+				if (b - a - offset) % 12:
+					class_bad += 1
+				if not lo <= b <= hi:
+					range_bad += 1
+	check('a folded pitch keeps its pitch class', class_bad == 0, f'{class_bad} bad')
+	check('a folded pitch stays in the vocab range', range_bad == 0, f'{range_bad} out of range')
+
+	# --- the option end to end ------------------------------------------------------------------
+	sigma = 4.0
+	on = feeder(root, source_dir, target_dir, transposition_sigma=sigma, **kw)
+	offsets, pair_bad, shape_bad = [], 0, 0
+	for index in on.indices:
+		plain, moved = off.describe(index), on.describe(index)
+		offsets.append(moved['transpose'])
+		if (plain['sep'], plain['positions'], len(plain['ids'])) != \
+				(moved['sep'], moved['positions'], len(moved['ids'])):
+			shape_bad += 1
+		src0, _ = note_pitches(plain['ids'][:plain['sep']])
+		tgt0, _ = note_pitches(plain['ids'][plain['sep'] + 1:])
+		src1, _ = note_pitches(moved['ids'][:moved['sep']])
+		tgt1, _ = note_pitches(moved['ids'][moved['sep'] + 1:])
+		shifts_src = {b - a for (_, a), (_, b) in zip(src0, src1)}
+		shifts_tgt = {b - a for (_, a), (_, b) in zip(tgt0, tgt1)}
+		# One offset for the whole sample, so each half shows a single shift and the two agree.
+		# Empty when a half holds no notes at all, which is not a failure.
+		if shifts_src - {moved['transpose']} or shifts_tgt - {moved['transpose']} \
+				or (src0 and tgt0 and shifts_src != shifts_tgt):
+			pair_bad += 1
+	check('<sep>, positions and length are untouched', shape_bad == 0, f'{shape_bad} bad')
+	check('source and target shift by the SAME offset', pair_bad == 0, f'{pair_bad} bad')
+	check('offsets are actually applied', sum(1 for o in offsets if o) > len(offsets) * 0.5,
+		f'{sum(1 for o in offsets if o)}/{len(offsets)} nonzero')
+	check('every offset is an integer', all(isinstance(o, int) for o in offsets))
+	mean, spread = statistics.mean(offsets), statistics.pstdev(offsets)
+	check('offsets center on no transposition', abs(mean) < sigma * 0.5, f'mean {mean:+.2f}')
+	check('offset spread matches the requested sigma', abs(spread - sigma) < sigma * 0.5,
+		f'std {spread:.2f} vs {sigma}')
+	print(f'  offsets: n {len(offsets)} mean {mean:+.2f} std {spread:.2f} '
+		f'range [{min(offsets)}, {max(offsets)}]')
+
+	again = feeder(root, source_dir, target_dir, transposition_sigma=sigma, **kw)
+	check('a deterministic crop transposes the same way twice',
+		all(again.describe(i)['ids'] == on.describe(i)['ids'] for i in on.indices))
+
+	try:
+		feeder(root, source_dir, target_dir, transposition_sigma=-1.0, **kw)
+		check('a negative sigma is rejected', False, 'no error')
+	except ValueError:
+		check('a negative sigma is rejected', True)
+
+
 def check_pos_style (root, source_dir, target_dir, samples):
 	'''11. The three pos_style conventions.
 
@@ -733,6 +862,7 @@ def main ():
 	check_line_range(args.root, *PAIRINGS[2], args.samples, rng)
 	check_pos_style(args.root, *PAIRINGS[0], args.samples)
 	check_start_jitter(args.root, *PAIRINGS[2])
+	check_transposition(args.root, *PAIRINGS[2])
 	length_table(args.root, 200, rng)
 
 	print(f'\n{"=" * 78}')
