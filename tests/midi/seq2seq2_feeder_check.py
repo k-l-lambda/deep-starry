@@ -22,7 +22,8 @@ tensor plumbing:
   9. length table   — median/p95/p99/max of T per pairing and line cap, so a config can be sized
  10. line_range    — the per-crop cap varies, honours both ends, and stays deterministic
  11. pos_style     — flat/sep/absolute: ids unchanged, <sep> anchoring, sign separation, pad run
- 13. transposition — one offset per sample, both halves shift together, only `#XX` pitches move
+ 13. transposition — one offset per sample; pitches on ids, key signatures around the circle of
+                     fifths on text; both halves shift together and the 'absolute' axis is corrected
 '''
 
 import argparse
@@ -36,6 +37,7 @@ import torch
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 
 from starry.midi.data.seq2seq2 import Seq2Seq2, _get_file	# noqa: E402
+import starry.midi.data.seq2seq2 as S					# noqa: E402  (the key-signature helpers)
 
 
 DEFAULT_ROOT = '/home/camus/data/midi/test202608'
@@ -614,16 +616,26 @@ def length_table (root, samples, rng):
 
 
 def check_transposition (root, source_dir, target_dir):
-	'''13. transposition_sigma: one offset per sample, applied to both halves, structure untouched.
+	'''13. transposition_sigma: one offset per sample, applied to both halves, nothing else disturbed.
 
-	The property that matters is CORRESPONDENCE: the source and target must move by the same number of
-	semitones, or the pair no longer describes the same music and the supervision is a lie. So the walk
-	below re-derives each half's note pitches independently of the feeder and compares the two shifts.
+	The property that matters is CORRESPONDENCE: source and target must move by the same number of
+	semitones, or the pair no longer describes the same music and the supervision is a lie. So the walks
+	below re-derive each half's note pitches and key signatures independently of the feeder and compare
+	the two shifts.
 
-	Also checked: nothing but a note pitch moves (control_change and program_change carry a `#XX` of
-	their own), the token count and positions are unchanged (transposition runs on assembled ids), and
-	an out-of-range pitch folds by an octave rather than clamping — clamping would change the pitch
-	class and put a wrong interval into the sample.
+	The augmentation moves two things in two places, and they are checked separately because they have
+	different invariants:
+
+	  note pitches    on the assembled ids. Length CANNOT change, so `_transpose_ids` is checked to
+	                  leave every non-pitch id and the sequence length exactly as they were. A
+	                  `control_change`/`program_change` `#XX` is a controller or program number, not a
+	                  pitch, and must not move. Out of range folds by octaves, not by clamping —
+	                  clamping would change the pitch class and put a wrong interval in the sample.
+	  key signatures  on the text, walking the circle of fifths. Length CAN change, because `sf` is a
+	                  signed byte in minimal hex (one nibble token when non-negative, two when
+	                  negative). So the check is not that the length is fixed but that it changed by
+	                  exactly the key-signature width delta, that positions stayed one-for-one with
+	                  ids, and that the 'absolute' axis was corrected for it.
 	'''
 	print('\n== 13. transposition_sigma augmentation')
 	kw = dict(mark_mode='tick', line_range=[20, 256], split='0/1', random_crop=False)
@@ -654,6 +666,22 @@ def check_transposition (root, source_dir, target_dir):
 				current = None
 		return notes, others
 
+	def key_signatures (ids):
+		'''(sf, mi tokens) per key_signature in an id stream, re-read from the tokens.'''
+		tokens = [vocab[i] for i in ids]
+		out = []
+		for i, token in enumerate(tokens):
+			if token != 'key_signature':
+				continue
+			j, nibbles = i + 1, []
+			while j < len(tokens) and tokens[j] != '_':
+				nibbles.append(tokens[j])
+				j += 1
+			if nibbles and j < len(tokens):
+				out.append((S._decode_sf(nibbles), tokens[j + 1:j + 2]))
+		return out
+
+	# --- the pitch mechanism, at a fixed offset -------------------------------------------------
 	lo, hi = off._pitch_lo, off._pitch_hi
 
 	def expect (pitch, offset):
@@ -664,7 +692,6 @@ def check_transposition (root, source_dir, target_dir):
 			want -= 12
 		return want
 
-	# --- a fixed offset, applied directly: the mechanism, independent of the draw ---------------
 	moved_bad = other_bad = struct_bad = 0
 	for index in off.indices:
 		case = off.describe(index)
@@ -681,9 +708,8 @@ def check_transposition (root, source_dir, target_dir):
 			moved_bad += sum(1 for (_, a), (_, b) in zip(before, after) if b != expect(a, offset))
 	check('every note pitch moves by the offset', moved_bad == 0, f'{moved_bad} wrong')
 	check('a non-note `#XX` never moves', other_bad == 0, f'{other_bad} bad')
-	check('only pitch tokens differ, and the length is unchanged', struct_bad == 0, f'{struct_bad} bad')
+	check('_transpose_ids changes only pitch ids, never the length', struct_bad == 0, f'{struct_bad} bad')
 
-	# folding: an offset past the vocab edge keeps the pitch CLASS and stays in range
 	class_bad = range_bad = 0
 	for index in off.indices[:8]:
 		before, _ = note_pitches(off.describe(index)['ids'])
@@ -697,29 +723,79 @@ def check_transposition (root, source_dir, target_dir):
 	check('a folded pitch keeps its pitch class', class_bad == 0, f'{class_bad} bad')
 	check('a folded pitch stays in the vocab range', range_bad == 0, f'{range_bad} out of range')
 
+	# --- the key-signature cycle ----------------------------------------------------------------
+	cycle = list(S.KEY_SIGNATURE_CYCLE)
+	check('the cycle is the circle of fifths, one semitone per place',
+		all(S._fold_key(cycle[i] + 7) == cycle[(i + 1) % 12] for i in range(12)), str(cycle))
+	check('the cycle covers exactly [-5, 6]', sorted(cycle) == list(range(-5, 7)))
+	check('twelve semitones return every key to itself',
+		all(S._fold_key(sf + 7 * 12) == sf for sf in cycle))
+	check('the three enharmonic spellings fold as specified',
+		(S._fold_key(7), S._fold_key(-7), S._fold_key(-6)) == (-5, 5, 6),
+		f'7->{S._fold_key(7)} -7->{S._fold_key(-7)} -6->{S._fold_key(-6)}')
+	check('the sf codec round-trips [-7, 7]',
+		all(S._decode_sf(S._encode_sf(sf)) == sf for sf in range(-7, 8)))
+	# the width change is the whole reason this runs on text rather than on ids
+	widths = {sf: len(S._encode_sf(sf)) for sf in range(-6, 8)}
+	check('a negative sf takes two nibble tokens and a non-negative one takes one',
+		all(w == (2 if sf < 0 else 1) for sf, w in widths.items()), str(widths))
+
 	# --- the option end to end ------------------------------------------------------------------
 	sigma = 4.0
 	on = feeder(root, source_dir, target_dir, transposition_sigma=sigma, **kw)
-	offsets, pair_bad, shape_bad = [], 0, 0
+	offsets, pair_bad, key_bad, key_range_bad, mode_bad = [], 0, 0, 0, 0
+	shape_bad, len_bad, moved_keys = 0, 0, 0
 	for index in on.indices:
 		plain, moved = off.describe(index), on.describe(index)
-		offsets.append(moved['transpose'])
-		if (plain['sep'], plain['positions'], len(plain['ids'])) != \
-				(moved['sep'], moved['positions'], len(moved['ids'])):
+		offset = moved['transpose']
+		offsets.append(offset)
+
+		# positions stay one-for-one with ids, and <sep> still points at <sep>
+		if len(moved['positions']) != len(moved['ids']) \
+				or moved['ids'][moved['sep']] != on.tokenizer.sep_id:
 			shape_bad += 1
+
+		# the length may change, but by EXACTLY the key-signature width delta
+		delta = (on._key_delta(moved['source'], offset, plain['source_range'][1])
+			- on._key_delta(moved['source'], offset, plain['source_range'][0])
+			+ on._key_delta(moved['target'], offset, plain['target_range'][1])
+			- on._key_delta(moved['target'], offset, plain['target_range'][0]))
+		if len(moved['ids']) - len(plain['ids']) != delta:
+			len_bad += 1
+
+		# pitches: both halves by the same offset
 		src0, _ = note_pitches(plain['ids'][:plain['sep']])
 		tgt0, _ = note_pitches(plain['ids'][plain['sep'] + 1:])
 		src1, _ = note_pitches(moved['ids'][:moved['sep']])
 		tgt1, _ = note_pitches(moved['ids'][moved['sep'] + 1:])
 		shifts_src = {b - a for (_, a), (_, b) in zip(src0, src1)}
 		shifts_tgt = {b - a for (_, a), (_, b) in zip(tgt0, tgt1)}
-		# One offset for the whole sample, so each half shows a single shift and the two agree.
-		# Empty when a half holds no notes at all, which is not a failure.
-		if shifts_src - {moved['transpose']} or shifts_tgt - {moved['transpose']} \
+		if shifts_src - {offset} or shifts_tgt - {offset} \
 				or (src0 and tgt0 and shifts_src != shifts_tgt):
 			pair_bad += 1
-	check('<sep>, positions and length are untouched', shape_bad == 0, f'{shape_bad} bad')
-	check('source and target shift by the SAME offset', pair_bad == 0, f'{pair_bad} bad')
+
+		# key signatures: the cycle, the range, and the untouched mode flag
+		keys0, keys1 = key_signatures(plain['ids']), key_signatures(moved['ids'])
+		if len(keys0) != len(keys1):
+			key_bad += 1
+			continue
+		if offset and keys0 != keys1:
+			moved_keys += 1
+		for (sf0, mi0), (sf1, mi1) in zip(keys0, keys1):
+			if sf1 != S._fold_key(sf0 + 7 * offset):
+				key_bad += 1
+			if offset and not -5 <= sf1 <= 6:
+				key_range_bad += 1
+			if mi0 != mi1:
+				mode_bad += 1
+
+	check('<sep> and the position/id lengths stay consistent', shape_bad == 0, f'{shape_bad} bad')
+	check('the length changes by exactly the key-signature width delta', len_bad == 0, f'{len_bad} bad')
+	check('source and target pitches shift by the SAME offset', pair_bad == 0, f'{pair_bad} bad')
+	check('every key signature walks the cycle', key_bad == 0, f'{key_bad} bad')
+	check('a transposed key signature lands in [-5, 6]', key_range_bad == 0, f'{key_range_bad} bad')
+	check('the major/minor flag is never touched', mode_bad == 0, f'{mode_bad} bad')
+	check('key signatures are actually moved', moved_keys > 0, f'{moved_keys} crops')
 	check('offsets are actually applied', sum(1 for o in offsets if o) > len(offsets) * 0.5,
 		f'{sum(1 for o in offsets if o)}/{len(offsets)} nonzero')
 	check('every offset is an integer', all(isinstance(o, int) for o in offsets))
@@ -729,6 +805,27 @@ def check_transposition (root, source_dir, target_dir):
 		f'std {spread:.2f} vs {sigma}')
 	print(f'  offsets: n {len(offsets)} mean {mean:+.2f} std {spread:.2f} '
 		f'range [{min(offsets)}, {max(offsets)}]')
+
+	# --- the 'absolute' axis survives the width change ------------------------------------------
+	# 'absolute' places the source half against the END of its file, so a key signature that changed
+	# width has to be corrected for or every crop sits a token off. A tail crop is where that shows:
+	# its last source token is the file's last, which must land on exactly -2.
+	abs_on = feeder(root, source_dir, target_dir, transposition_sigma=sigma,
+		**dict(kw, pos_style='absolute'))
+	tails = [i for i in abs_on.indices if abs_on.describe(i)['tail']]
+	anchored = sign_bad = 0
+	for index in abs_on.indices:
+		case = abs_on.describe(index)
+		src = case['positions'][:case['sep']]
+		tgt = case['positions'][case['sep'] + 1:]
+		if (src and max(src) > -2) or (tgt and min(tgt) < -1) \
+				or any(b - a != 1 for a, b in zip(src, src[1:])):
+			sign_bad += 1
+		if case['tail'] and case['sep'] and case['positions'][case['sep'] - 1] == -2:
+			anchored += 1
+	check("'absolute' keeps the halves apart and each half contiguous", sign_bad == 0, f'{sign_bad} bad')
+	check("'absolute' tail crops still land on -2", tails and anchored == len(tails),
+		f'{anchored}/{len(tails)}')
 
 	again = feeder(root, source_dir, target_dir, transposition_sigma=sigma, **kw)
 	check('a deterministic crop transposes the same way twice',

@@ -45,14 +45,25 @@ ON a mark line, which inference cannot reproduce — a sliding window over a pro
 mark-aligned; only the source's leading context moves.
 
 `transposition_sigma` (default 0 = off) is the other augmentation: a per-sample semitone offset,
-round(gauss(0, transposition_sigma)), applied to the `#XX` pitch of every note_on/note_off in BOTH
-halves. One draw per sample is what keeps the pair correspondent — a per-half draw would put the two
-arms in different keys. It runs on the assembled ids, so it changes no token count and therefore leaves
-the crop, the alignment and the position ids exactly as they were; `control_change` and `program_change`
-carry a `#XX` of their own (a controller and a program number) and are left alone. A pitch pushed past
-`#01`/`#7f` folds back by whole octaves rather than clamping, keeping the pitch class and landing on the
-nearest representable octave. Not defined in mixed Lilylet mode, where the score arm spells pitch as note
-names under a key.
+round(gauss(0, transposition_sigma)), applied to BOTH halves. One draw per sample is what keeps the pair
+correspondent — a per-half draw would put the two arms in different keys. It moves two things, in two
+different places, because they have different costs:
+
+  note pitches    the `#XX` of every note_on/note_off, on the assembled IDS (`_transpose_ids`). Pitch
+                  token ids are contiguous, so this is an integer offset on the id: no re-tokenisation,
+                  and no token count can change. `control_change` and `program_change` carry a `#XX` of
+                  their own (a controller and a program number) and are left alone. A pitch pushed past
+                  `#01`/`#7f` folds back by whole octaves rather than clamping, which keeps its pitch
+                  class and lands on the nearest representable octave.
+  key signatures  the `sf` accidental count, on the TEXT before encoding (`_transpose_key_signature`),
+                  walked around the circle of fifths: +7 accidentals mod 12 per semitone, folded into
+                  [-5, 6] so 7 reads as -5, -7 as 5 and -6 as 6. It has to be text, not ids: `sf` is a
+                  signed byte in minimal hex, one nibble token when non-negative and two when negative,
+                  so crossing zero changes the token count. `_key_delta` then corrects the `absolute`
+                  position axis for that width change — on piano0909-100 every crop carries a key
+                  signature and every one can change width, so it is the common case, not an edge one.
+
+Not defined in mixed Lilylet mode, where the score arm spells pitch as note names under a key.
 
 Unlike its siblings in this package (seq2CondPatchy, seq2CondSplitPatchy) this feeder reads TEXT at
 runtime instead of a packed `.pt`, so a change of crop policy needs no re-pack. Note the consequence
@@ -395,6 +406,12 @@ class _File:
 	contribute 0, matching _encode, so this counts exactly the tokens _encode would emit for the whole
 	file. It is a prefix sum rather than a per-crop rescan because describe() is called once per sample
 	per epoch, and files run to 76k tokens.
+
+	`key_signatures` is [(line_index, sf, width)] for every `key_signature` line — the accidental count
+	and how many nibble tokens it was written with. Transposition needs both: `sf` to walk the circle of
+	fifths, and `width` because the new value may not take the same number of tokens, which shifts every
+	token index after it on the file's own axis. Collected here, on the one pass that already visits
+	every line, so `_key_delta` can correct that axis without a rescan.
 	'''
 
 	def __init__ (self, text: str, mark_mode: str):
@@ -407,6 +424,8 @@ class _File:
 		# no empty element, but a file written with a blank final line does, and that must not read as
 		# "no terminator".
 		self.ends_on_terminator: bool = False
+		# [(line_index, sf, nibble_width)] — see `_key_delta` and `_transpose_key_signature`.
+		self.key_signatures: List[Tuple[int, int, int]] = []
 		for line in reversed(self.lines):
 			if line.strip():
 				self.ends_on_terminator = line.strip() == 'end_of_track'
@@ -430,6 +449,11 @@ class _File:
 			else:
 				# Content: every whitespace-separated token becomes one id in _encode.
 				self.token_before[index + 1] = self.token_before[index] + len(line.split())
+				if line.startswith('key_signature'):
+					field = _key_signature_field(line)
+					if field is not None:
+						self.key_signatures.append(
+							(index, _decode_sf(field[0]), len(field[0])))
 				continue
 			# A mark line is a directive, so it contributes no content token either.
 			self.token_before[index + 1] = self.token_before[index]
@@ -480,6 +504,62 @@ def _get_file (source, arm: str, name: str, mark_mode: str) -> _File:
 	else:
 		_FILE_CACHE.move_to_end(key)
 	return parsed
+
+
+# --- key signature ------------------------------------------------------------------------
+#
+# The circle of fifths, as the accidental count `sf` of each key a semitone apart:
+#
+#     [1, -4, 3, -2, 5, 0, -5, 2, -3, 4, -1, 6]
+#
+# Transposing up one semitone advances one place along it, which is +7 accidentals modulo 12. So
+# `sf` under a `offset`-semitone transposition is `_fold_key(sf + 7 * offset)`, and the cycle above is
+# exactly the fixed point of that walk. `_fold_key` lands it in [-5, 6], which is what makes 7 read as
+# -5, -7 as 5 and -6 as 6 -- the three enharmonic spellings a naive sum can produce.
+KEY_SIGNATURE_CYCLE = (1, -4, 3, -2, 5, 0, -5, 2, -3, 4, -1, 6)
+
+
+def _fold_key (sf: int) -> int:
+	'''Accidental count -> its enharmonic equivalent in [-5, 6].
+
+	The range is not symmetric because the cycle is 12 long and has to be half-open somewhere; [-5, 6]
+	is the choice that keeps every value the corpus actually writes (-4..7 here) reachable, and it makes
+	the three exceptional spellings fall out of the arithmetic rather than needing to be special-cased:
+	7 -> -5 (C# major spelled Db), -7 -> 5 (Cb -> B) and -6 -> 6 (Gb -> F#).
+	'''
+	return (sf + 5) % 12 - 5
+
+
+def _decode_sf (nibbles: Sequence[str]) -> int:
+	'''midiseq2 nibble run -> signed accidental count.
+
+	`sf` is a SIGNED byte written as a minimal hex-nibble run, so a negative value takes two nibbles in
+	two's complement and a non-negative one takes a single nibble: `f b` is -5 and `7` is 7. That is why
+	transposing a key signature can change the token count, and why it has to be done on text rather
+	than on ids like the pitches are.
+	'''
+	value = int(''.join(nibbles), 16)
+	return value - 0x100 if len(nibbles) > 1 and value >= 0x80 else value
+
+
+def _encode_sf (sf: int) -> List[str]:
+	'''Signed accidental count -> minimal hex-nibble run, matching what the TS grammar emits.'''
+	return list(format(sf & 0xff, 'x'))
+
+
+def _key_signature_field (line: str) -> Optional[Tuple[List[str], int]]:
+	'''Split a `key_signature` line into (sf nibbles, index of the `_` that ends them).
+
+	None when the line does not carry the expected `<sf...> _ <mi...>` shape, so a form this parser was
+	not written for is left untouched rather than rewritten into something worse.
+	'''
+	fields = line.split()
+	if len(fields) < 3 or fields[0] != 'key_signature' or '_' not in fields:
+		return None
+	sep = fields.index('_')
+	if sep < 2:
+		return None
+	return fields[1:sep], sep
 
 
 def _is_directive (line: str) -> bool:
@@ -621,7 +701,8 @@ class Seq2Seq2 (Dataset):
 		# Augmentation: std dev (in SEMITONES) of a normal pitch offset applied to the whole sample.
 		# 0 = off. Drawn once per sample and rounded to an integer, so source and target shift by the
 		# SAME amount -- a per-half draw would break the very correspondence this feeder exists to
-		# provide. See `_transpose_ids` for the walk and the out-of-range rule.
+		# provide. Moves note pitches (`_transpose_ids`) and key signatures
+		# (`_transpose_key_signature`); see the module docstring for why those happen in two places.
 		if transposition_sigma < 0:
 			raise ValueError(f'transposition_sigma must be >= 0, got {transposition_sigma!r}')
 		self.transposition_sigma = float(transposition_sigma)
@@ -1157,6 +1238,59 @@ class Seq2Seq2 (Dataset):
 				armed = False
 		return out
 
+	def _transpose_key_signature (self, lines: Sequence[str], offset: int) -> Sequence[str]:
+		'''Rewrite every `key_signature` line in `lines` for an `offset`-semitone transposition.
+
+		Done on TEXT, unlike the pitches, and not by choice: `sf` is a signed byte in minimal hex, so it
+		takes one nibble token when non-negative and two when negative. A transposition that crosses zero
+		therefore changes the token count, which `_encode` has to see when it builds the sequence and the
+		token index together. Rewriting ids afterwards could not — the position array would already be
+		the wrong length.
+
+		The `mi` (major/minor) field is left alone: transposing a major key gives a major key, and the
+		accidental count moves the same way for both modes.
+
+		Returns `lines` itself when there is nothing to do, so the common path allocates nothing.
+		'''
+		if not offset:
+			return lines
+		out = None
+		for i, line in enumerate(lines):
+			if not line.startswith('key_signature'):
+				continue
+			field = _key_signature_field(line)
+			if field is None:
+				continue
+			nibbles, sep = field
+			fields = line.split()
+			moved = _encode_sf(_fold_key(_decode_sf(nibbles) + 7 * offset))
+			if moved == nibbles:
+				continue
+			if out is None:
+				out = list(lines)
+			out[i] = ' '.join(fields[:1] + moved + fields[sep:])
+		return lines if out is None else out
+
+	def _key_delta (self, file: _File, offset: int, upto: Optional[int] = None) -> int:
+		'''How many tokens transposition adds to (or removes from) `file` before line `upto`.
+
+		The correction `pos_style='absolute'` needs. That style places a crop on its FILE's token axis,
+		read off the `token_before` prefix sum — which was built from the untransposed text, so every
+		`key_signature` whose width changed shifts each index after it. Measured on piano0909-100, every
+		crop contains a key signature and every one can change width, so this is the common case rather
+		than an edge one: leaving it out would put a systematic one-token skew on the axis.
+
+		`upto=None` covers the whole file, which is what the source's `-total - 1` mapping needs.
+		'''
+		if not offset or not file.key_signatures:
+			return 0
+		delta = 0
+		for line, sf, width in file.key_signatures:
+			if upto is not None and line >= upto:
+				break
+			delta += len(_encode_sf(_fold_key(sf + 7 * offset))) - width
+		return delta
+
 	# --- token assembly -------------------------------------------------------------------
 
 	def _encode (self, lines: Sequence[str], eom: bool, base: int = 0) -> Tuple[List[int], List[int]]:
@@ -1194,7 +1328,8 @@ class Seq2Seq2 (Dataset):
 		return ids, index
 
 	def _positions (self, source: _File, target: _File, src_index: Sequence[int],
-		tgt_index: Sequence[int], head: bool, n_source: int, n_target: int) -> List[int]:
+		tgt_index: Sequence[int], head: bool, n_source: int, n_target: int,
+		total_src: Optional[int] = None) -> List[int]:
 		'''Position ids for the assembled sequence, per `pos_style`. Length is n_source + 1 + n_target
 		(the +1 being <sep>), so it lines up with the ids one-for-one.
 
@@ -1230,7 +1365,11 @@ class Seq2Seq2 (Dataset):
 		#         further right.
 		# source: the file's LAST token is -2, so an index p maps to p - L - 1 (L = the file's total
 		#         token count) and an earlier crop sits further left.
-		total_src = source.token_before[len(source.lines)]
+		# The file's own total, or the transposed one when a key signature changed width (see
+		# `_key_delta`) — the source half is placed relative to the END of the file, so its total has to
+		# be the total of the same text the indices were counted on.
+		if total_src is None:
+			total_src = source.token_before[len(source.lines)]
 		src_pos = [p - total_src - 1 for p in src_index]
 		tgt_pos = list(tgt_index)
 
@@ -1250,8 +1389,13 @@ class Seq2Seq2 (Dataset):
 		return src_pos + [-1] + tgt_pos
 
 	def _assemble (self, source: _File, target: _File, a: int, z: int,
-		align: Tuple[int, int], jitter: int = 0) -> Tuple[List[int], int, List[int]]:
-		'''Build the joined id sequence, the index of its <sep>, and the position ids.'''
+		align: Tuple[int, int], jitter: int = 0,
+		transpose: int = 0) -> Tuple[List[int], int, List[int]]:
+		'''Build the joined id sequence, the index of its <sep>, and the position ids.
+
+		`transpose` is applied HERE for key signatures only, because it can change their token count and
+		`_encode` has to count the tokens it actually emits. The note pitches are transposed on the
+		finished ids instead (see `_transpose_ids`), where no length can change.'''
 		s_start, s_end = self._bounds(source, a, z, jitter)
 		t_start, t_end = align
 		# <bos> reflects the SOURCE crop reaching the START of the piece, and appears on both halves —
@@ -1270,14 +1414,19 @@ class Seq2Seq2 (Dataset):
 		def wrap (ids: List[int]) -> List[int]:
 			return ([self.tokenizer.bos_id] if head else []) + ids
 
+		# Each base is the file's prefix sum plus what transposition changed BEFORE this crop, so the
+		# crop still lands where it belongs on the file's token axis under 'absolute'.
 		src_body, src_index = self._encode(
-			source.lines[s_start:s_end], self.source_eom, source.token_before[s_start])
+			self._transpose_key_signature(source.lines[s_start:s_end], transpose),
+			self.source_eom, source.token_before[s_start] + self._key_delta(source, transpose, s_start))
 		tgt_body, tgt_index = self._encode(
-			target.lines[t_start:t_end], True, target.token_before[t_start])
+			self._transpose_key_signature(target.lines[t_start:t_end], transpose),
+			True, target.token_before[t_start] + self._key_delta(target, transpose, t_start))
 		source_ids = wrap(src_body)
 		target_ids = wrap(tgt_body) + [self.tokenizer.eos_id]
 		positions = self._positions(source, target, src_index, tgt_index, head,
-			len(source_ids), len(target_ids))
+			len(source_ids), len(target_ids),
+			total_src=source.token_before[len(source.lines)] + self._key_delta(source, transpose))
 		return source_ids + [self.tokenizer.sep_id] + target_ids, len(source_ids), positions
 
 	# --- item -----------------------------------------------------------------------------
@@ -1302,8 +1451,8 @@ class Seq2Seq2 (Dataset):
 
 		`transpose` is the sample's semitone offset (0 unless transposition_sigma is on). It has been
 		applied to `ids` ONLY -- the returned `source`/`target` _File objects are the shared cache
-		entries and still hold the original pitches, so re-encoding `source_range` from them does NOT
-		reproduce `ids`.
+		entries and still hold the original pitches and key signatures, so re-encoding `source_range`
+		from them does NOT reproduce `ids`.
 		'''
 		name = self.names[index]
 		source = _get_file(self.source, self.arm_source, name, self.mark_mode)
@@ -1342,7 +1491,7 @@ class Seq2Seq2 (Dataset):
 			# drawn for an interior crop cannot survive onto a head one and shift <bos> off line 0.
 			if a == 0:
 				jitter = 0
-			ids, sep, positions = self._assemble(source, target, a, z, align, jitter)
+			ids, sep, positions = self._assemble(source, target, a, z, align, jitter, transpose)
 			# A jittered crop drops its first bar from supervision (see _supervise_from), which needs an
 			# <eom> to mark where the bar ends. 26% of target halves have none — a crop can sit inside a
 			# single bar — and excluding "up to the first <eom>" would then exclude everything and leave
@@ -1350,7 +1499,7 @@ class Seq2Seq2 (Dataset):
 			# crop reverts to mark-aligned, which is always a valid sample.
 			if jitter and self.tokenizer.eom_id not in ids[sep + 1:]:
 				jitter = 0
-				ids, sep, positions = self._assemble(source, target, a, z, align, jitter)
+				ids, sep, positions = self._assemble(source, target, a, z, align, jitter, transpose)
 			if best is None or len(ids) < len(best[0]):
 				best = (ids, sep, positions, a, z, align, jitter)
 			if not self.max_tokens or len(ids) <= self.max_tokens:
