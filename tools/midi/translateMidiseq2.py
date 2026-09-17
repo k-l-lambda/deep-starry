@@ -2507,6 +2507,39 @@ def compose_output (body_lines, fallback_header):
 	return head + ['@measure 1'] + rest
 
 
+def reconcile_terminators (out_lines, src_lines):
+	"""Stop the output arm claiming an ending the source arm does not have. -> (lines, changed).
+
+	`close_final_measure` and `annotate_source` each decide their own last line, and that
+	independence is deliberate -- a trimmed run whose source was nonetheless consumed to the last
+	line legitimately ends on `@measure` here and on `end_of_track` there. MEASURED over 5801
+	published piano0909 pairs: 224 in that direction, and it is correct.
+
+	The INVERSE is not. `end_of_track` on the output arm asserts the piece is over, so a pair whose
+	source arm ends on `@measure N` says the source still had music the output claims to have
+	finished. MEASURED at 9 of 5801, and every one traced to the same shape: the model emitted a
+	terminator, `annotate_source` then dropped a source tail (`33406005b8`: furthest 1553/1611, 17
+	notes past the closing bar line) or the align stop had already cut the run (`43975e4b3a`:
+	stopped after 2795/35231 source lines). Either way the terminator was never earned.
+
+	So it is removed and the bar closed the way every other trimmed run closes it: a bare
+	`@measure N` that opens nothing. The bar COUNT does not move -- `end_of_track` was closing the
+	last bar and the directive now closes it instead, and neither is counted -- so the annotation
+	already computed against that count stays valid and needs no recomputation.
+
+	Runs on the composed TEXT of both arms, after both are known, because that is the first point
+	where either arm can see the other's decision.
+	"""
+	if not out_lines or not src_lines:
+		return out_lines, False
+	if out_lines[-1] != 'end_of_track' or src_lines[-1] == 'end_of_track':
+		return out_lines, False
+	kept = out_lines[:-1]
+	# The count of `@measure` directives IS the last bar's number, so the next one closes it.
+	nth = sum(1 for l in kept if l.startswith('@measure')) + 1
+	return kept + [f'@measure {nth}'], True
+
+
 def write_output (path, lines):
 	os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 	with open(path, 'w', encoding='utf-8') as f:
@@ -3423,21 +3456,32 @@ def main ():
 			'leaving both arms unwritten and exiting non-zero')
 		return 3
 
-	write_output(out_path, final)
-	print(f'[done] {out_path}')
-
+	# The source arm is annotated BEFORE the output arm is written, so the two endings can be
+	# reconciled: the output must not claim an ending the source does not have. Only the ORDER
+	# changed -- annotate_source reads `_align_kept_measures`, which close_final_measure has already
+	# settled inside translate(), so it sees exactly what it saw when it ran after the write.
+	ann = ann_stats = ann_path = None
 	if args.annotate_source:
 		if not args.align_advance:
 			print('[warn] --annotate-source needs --align-advance; no correspondence was computed')
 		else:
 			ann, ann_stats = translator.annotate_source(lines, translator._align_kept_measures)
 			ann_path = os.path.join(args.annotate_source, os.path.basename(args.input))
-			write_output(ann_path, ann)
-			print(f'[annotate] {ann_stats["bars"]} source @measure directives '
-				f'({ann_stats["empty_bars"]} bar(s) with no source note of their own), '
-				f'{ann_stats["covered_notes"]}/{ann_stats["src_notes"]} source note_on inside them, '
-				f'{ann_stats["dropped_tail_notes"]} dropped past the closing bar line')
-			print(f'[annotate] {ann_path}')
+			final, reconciled = reconcile_terminators(final, ann)
+			if reconciled:
+				print('[warn] the output ended on end_of_track but the annotated source does not; '
+					'the terminator was not earned and the last bar is closed with a directive')
+
+	write_output(out_path, final)
+	print(f'[done] {out_path}')
+
+	if ann is not None:
+		write_output(ann_path, ann)
+		print(f'[annotate] {ann_stats["bars"]} source @measure directives '
+			f'({ann_stats["empty_bars"]} bar(s) with no source note of their own), '
+			f'{ann_stats["covered_notes"]}/{ann_stats["src_notes"]} source note_on inside them, '
+			f'{ann_stats["dropped_tail_notes"]} dropped past the closing bar line')
+		print(f'[annotate] {ann_path}')
 
 	if inspector is not None:
 		pairs, out_events, src_events, windows = inspector.resolve_all(output_ids)
