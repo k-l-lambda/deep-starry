@@ -47,7 +47,7 @@ data:
   #
   # LOOSE layout (regular/ + rubato/ directories), auto-detected — there is no index.json and no
   # <XX>.zip here, so `packed` stays unset. 85 names shared between the two arms.
-  root:                     /home/camus/data/midi/piano0909-100
+  root:                     piano0909-100
   # cycle 10, phase 9 -> 77 train / 8 val. MEASURED by running the feeder's own parseFilterStr over the
   # shared name list, not derived from 85/10.
   #
@@ -201,7 +201,7 @@ model:
     # value here disagreeing with the pinned file raises at creation rather than being used silently.
     backbone:               llama
     d_model:                256
-    n_layer:                16
+    n_layer:                4
     n_head:                 4
     d_inner:                ~
     num_key_value_heads:    ~
