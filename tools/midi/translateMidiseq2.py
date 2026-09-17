@@ -1388,6 +1388,39 @@ class SlidingTranslator:
 		return output[:at[-1] + 1], len(at)
 
 
+	def strip_stray_terminators (self, output):
+		"""Drop every `end_of_track` that is not the last token. -> (output, n).
+
+		`end_of_track` is the corpus's own terminator and every corpus file carries exactly one, at the
+		end. One in the MIDDLE of a published file teaches the next model that the terminator does not
+		terminate -- the corpus would be asserting the opposite of its own invariant.
+
+		The in-loop stop above catches the common case (terminator honoured, tail dropped) and can only
+		act when the source window has reached the end of the file. This catches what it cannot see: a
+		terminator the model emitted EARLY, while source was still coming, which the guard correctly
+		refused to end the run on. MEASURED on piano0909: 32 such strays before 0.80 of the file, one as
+		early as line 3 of 317. They are hallucinated, not structural.
+
+		Runs LAST, after `close_final_measure`, and that ordering is the reason it needs no index fixup:
+		`_align_eom_at` holds absolute output indices and every consumer of it (`trim_align_tail`,
+		`record_align_quality`) has already run. Removing a token here would invalidate those indices if
+		it ran earlier -- the same trap `drop_leading_eom` documents.
+
+		The bar count is untouched by construction: `end_of_track` is not `<eom>`, so no boundary moves
+		and `close_final_measure`'s count still stands. A FINAL terminator is kept -- that one is the
+		invariant, and `close_final_measure` already decided not to write a directive after it.
+		"""
+		eot = self.tk.id_by_token.get('end_of_track')
+		if eot is None or not output:
+			return output, 0
+		last = len(output) - 1
+		stray = [i for i, tid in enumerate(output) if tid == eot and i != last]
+		if not stray:
+			return output, 0
+		kill = set(stray)
+		return [tid for i, tid in enumerate(output) if i not in kill], len(stray)
+
+
 	def drop_leading_eom (self, output):
 		"""Drop every `<eom>` before the first note, so bar 1 is the bar the music starts in. -> (output, n).
 
@@ -2176,6 +2209,7 @@ class SlidingTranslator:
 				self._align_src_line_of = src_line_of
 		forced = 0			# steps whose first token was <eos> before the mask removed it
 		done = False
+		dropped_after_eot = 0	# tokens generated past a terminator this run honoured
 		start_time = time.time()
 
 		while cursor < len(lines):
@@ -2209,6 +2243,32 @@ class SlidingTranslator:
 			# testing for an empty step -- it is keyed on the model HAVING WANTED <eos> instead. Without
 			# this the end-of-piece stop would be unreachable and every finished run would grind to EOF
 			# emitting whatever the mask forced out of it.
+			# Honour a terminator the model wrote in THIS step, and drop whatever it wrote after it.
+			# `finished` cannot see this case: it tests `output[-8:]`, and the step that produces
+			# `end_of_track` usually keeps generating past it, so by the time the next step's
+			# `eos_forced` asks, the terminator has been pushed out of that 8-token window. MEASURED on
+			# the piano0909 run: 485 of 5505 published outputs carried a non-final `end_of_track`, 447
+			# of them in the last 5% of the file, and 394 went on to emit a SECOND one -- the run
+			# rediscovering an ending it had already reached. The forced tail between the two is 6
+			# tokens at the median but 31 at p90 and 6356 at worst, so no fixed window closes this;
+			# the step's own ids do.
+			#
+			# Guarded on `eot in src_ids`, exactly as `finished` is: the source window carries the
+			# terminator only once it reaches the end of the file, so a spurious mid-piece
+			# `end_of_track` cannot end a run that still has source left. What the guard cannot catch
+			# is a terminator emitted in an EARLIER step, before the cursor got there -- `finished`
+			# stays below for that, and `strip_stray_terminators` cleans what neither stops.
+			eot_id = self.tk.id_by_token.get('end_of_track')
+			if eot_id is not None and eot_id in src_ids and eot_id in new_ids:
+				# Cut AFTER the first terminator of this step. Everything past it was generated on a
+				# primer that already ended the piece -- out of distribution by construction, and the
+				# junk the two-terminator files were made of.
+				keep = out_base + new_ids.index(eot_id) + 1
+				if keep < len(output):
+					dropped_after_eot = len(output) - keep
+					del output[keep:]
+				done = True
+				break
 			if eos_forced:
 				if self.finished(output, src_ids):
 					done = True
@@ -2283,6 +2343,8 @@ class SlidingTranslator:
 			# `trimmed > 0 or done`: both leave a COMPLETE last bar, so the boundary is appended. Every
 			# other ending (stop, max_token, an exhausted window) stopped mid-bar, so that bar is dropped.
 			output, kept_bars = self.close_final_measure(output, complete=(trimmed > 0 or done))
+			# LAST, so no absolute output index survives it -- see the docstring.
+			output, strays = self.strip_stray_terminators(output)
 			# Counted by close_final_measure, which excludes the terminator it just wrote: a dropped
 			# measure has no source bar either, so the annotation must stop where the file does.
 			self._align_kept_measures = kept_bars
@@ -2294,8 +2356,10 @@ class SlidingTranslator:
 				measures_trimmed=trimmed, failed=failed, tail_runs=tail_runs)
 		else:
 			stats_align = None
+			output, strays = self.strip_stray_terminators(output)
 		stats = dict(steps=step, output_tokens=len(output), source_lines=len(lines),
 			consumed_lines=cursor, stalls=stalls, eos_forced=forced, done=done,
+			dropped_after_eot=dropped_after_eot, stray_terminators=strays,
 			align=stats_align,
 			elapsed=time.time() - start_time,
 			# decode_* covers only time inside generate(), so a cached-vs-uncached comparison is not
@@ -2468,6 +2532,14 @@ def report_output (body_lines, stats):
 	if stats['stalls']:
 		print(f'[warn] {stats["stalls"]} step(s) wanted <eos> mid-piece and were overridden by the '
 			f'first-token mask')
+	# Reported, not silent: both are the model having ended the piece somewhere the loop had to
+	# overrule or clean up, and a corpus run wants the online distribution of that.
+	if stats.get('dropped_after_eot'):
+		print(f'[eot] honoured the terminator this run emitted and dropped '
+			f'{stats["dropped_after_eot"]} token(s) generated after it')
+	if stats.get('stray_terminators'):
+		print(f'[warn] {stats["stray_terminators"]} stray end_of_track removed from mid-file; the '
+			f'model ended the piece early and was correctly overruled')
 	if stats.get('eos_forced'):
 		# Includes the final end-of-piece step, which is legitimate; stalls counts only the mid-piece
 		# ones. The gap between the two numbers is how many overrides were the run ending normally.
