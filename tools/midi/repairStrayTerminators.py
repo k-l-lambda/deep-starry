@@ -50,10 +50,11 @@ import shutil
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-# The SAME function the tool now applies before writing, not a second implementation of the rule:
-# a repair that disagreed with the generator would put the corpus in a third state neither
-# intended.
-from translateMidiseq2 import reconcile_terminators
+# The SAME function the tool applies before writing, not a second implementation of the rule: a
+# repair that disagreed with the generator would put the corpus in a third state neither intended.
+# From midiseq2Text rather than translateMidiseq2 so this stays runnable under a plain python3 --
+# importing the tool pulled in torch and the whole model stack.
+from midiseq2Text import reconcile_terminators
 
 
 def read_body (path):
