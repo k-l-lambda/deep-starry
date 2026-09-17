@@ -1291,6 +1291,43 @@ class Seq2Seq2 (Dataset):
 			delta += len(_encode_sf(_fold_key(sf + 7 * offset))) - width
 		return delta
 
+	def transpose_lines (self, lines: Sequence[str], offset: int) -> List[str]:
+		'''Text lines -> the same lines transposed by `offset` semitones, key signatures included.
+
+		The TEXT form of what a crop's ids carry. It exists for callers outside the training loop: a
+		decode harness has to hand the model the same source the crop was built from, and reading that
+		source off disk gives the ORIGINAL key while the target half was trained transposed — one key in,
+		another scored, and a perfect overfit reads as a total miss.
+
+		Reuses both transposition paths rather than restating them — key signatures through
+		`_transpose_key_signature`, pitches by encoding each line, running `_transpose_ids` over it and
+		substituting only the ids that moved. A second implementation of the pitch walk is exactly the
+		kind of thing that drifts from the feeder and then disagrees with it silently.
+
+		Line by line is safe because no note event spans a line break in this format: over 1.55M corpus
+		lines, none starts with a bare `#XX` and none carries more than one keyword. Non-pitch tokens
+		keep their original spelling, so a token that is off-vocab passes through untouched instead of
+		coming back as `<unknown>`.
+		'''
+		if not offset:
+			return list(lines)
+		lookup = self.tokenizer.id_by_token
+		unknown = self.tokenizer.unknown_id
+		out: List[str] = []
+		for line in self._transpose_key_signature(lines, offset):
+			if not line or line[0] == '@' or not line.strip():
+				out.append(line)
+				continue
+			tokens = line.split()
+			ids = [lookup.get(t, unknown) for t in tokens]
+			moved = self._transpose_ids(ids, offset)
+			if moved == ids:
+				out.append(line)
+				continue
+			out.append(' '.join(self.tokenizer.tokens[m] if m != o else t
+				for t, o, m in zip(tokens, ids, moved)))
+		return out
+
 	# --- token assembly -------------------------------------------------------------------
 
 	def _encode (self, lines: Sequence[str], eom: bool, base: int = 0) -> Tuple[List[int], List[int]]:
