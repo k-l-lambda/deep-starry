@@ -75,6 +75,10 @@ Two on-disk layouts, chosen by `packed` (None = auto-detect, so existing configs
     loose    <root>/<arm>/<name>          one file per sample per arm — what the corpus is built as
     packed   <root>/<XX>.zip              one archive per SHARD, holding <arm>/<name> for both arms,
                                           where XX is the first two characters of the name
+    packed   <root>/<NAME>.zip            ONE archive holding every sample, for a corpus small enough
+             + index.json                 that sharding buys nothing. The manifest declares
+                                          `shard_chars: 0` and names the single archive, which is what
+                                          tells the reader to stop deriving the archive from the name.
 
 The packed form exists because midiseq2 is repetitive text: measured compression is 0.067 (score arm)
 and 0.144 (irregular), taking nota1m's 124 G of loose files to ~15 G, and it replaces ~1.5M inodes with
@@ -232,10 +236,17 @@ class _DirSource:
 
 
 class _ZipSource:
-	'''The sharded-archive layout: `<root>/<XX>.zip`, each holding `<arm>/<name>` for one shard.
+	'''The archive layout: `<root>/<XX>.zip`, each holding `<arm>/<name>` for one shard.
 
 	A shard is the first `SHARD_CHARS` characters of the name, so a sample's archive is computable from
 	its name alone — no index is needed to route a read, only to enumerate.
+
+	A SINGLE-ARCHIVE corpus is the same layout with one bucket: the manifest sets `shard_chars: 0` and
+	its `shards` map holds exactly one key, the archive's stem, so every read routes there and the name
+	no longer determines the file. Sharding exists to keep one archive's central directory small and to
+	cap the fd count; below a few tens of thousands of samples neither binds, and one file is simpler to
+	move between hosts. `shard_chars` is read from the manifest rather than assumed, so a corpus packed
+	either way is served by this one class and old manifests (which carry 2) are unaffected.
 
 	Both arms live in the SAME shard archive. That keeps a pair in one file (one open handle serves
 	both halves of a sample) at the cost of having to rewrite a shard to regenerate one arm.
@@ -258,6 +269,17 @@ class _ZipSource:
 		self.key = ('zip', self.root)
 		self._handles: 'OrderedDict[Tuple[int, str], zipfile.ZipFile]' = OrderedDict()
 		self._manifest = self._load_manifest()
+		# Routing. `shard_chars` 0 means one archive for the whole corpus, named by the manifest's only
+		# `shards` key; anything else keeps the derive-from-the-name rule. Read from the manifest so the
+		# packer decides the layout and the feeder never has to guess it from a directory listing.
+		self._single: Optional[str] = None
+		if self._manifest is not None and self._manifest.get('shard_chars') == 0:
+			keys = list(self._manifest['shards'])
+			if len(keys) != 1:
+				raise ValueError(
+					f'{self.MANIFEST} declares shard_chars 0 but names {len(keys)} archives; a '
+					'single-archive corpus must hold exactly one')
+			self._single = keys[0]
 
 	@classmethod
 	def detect (cls, root: str) -> bool:
@@ -269,7 +291,7 @@ class _ZipSource:
 		return any(n.endswith('.zip') and len(n) == cls.SHARD_CHARS + 4 for n in os.listdir(root))
 
 	def shard_of (self, name: str) -> str:
-		return name[:self.SHARD_CHARS]
+		return self._single if self._single is not None else name[:self.SHARD_CHARS]
 
 	def _load_manifest (self) -> Optional[Dict[str, Any]]:
 		'''The manifest is JSON, not YAML, and deliberately so.

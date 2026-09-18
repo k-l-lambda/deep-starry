@@ -72,11 +72,20 @@ def check_manifest (zip_root):
 	total = sum(len(v) for v in manifest['shards'].values())
 	check('sample count matches the shard lists', manifest['samples'] == total,
 		f'{manifest["samples"]} vs {total}')
-	# the shard key must actually be the name's prefix, or read routing goes to the wrong archive
-	bad = [(s, n) for s, names in manifest['shards'].items() for n in names
-		if n[:manifest['shard_chars']] != s]
-	check('every name sits in the shard its prefix names', not bad, f'{len(bad)} misfiled')
-	print(f'  {len(manifest["shards"])} shards, {total} samples, arms {manifest["arms"]}')
+	# Routing. shard_chars 0 is the single-archive contract: the name no longer picks the archive, so
+	# the prefix rule below does not apply and what must hold instead is that there is exactly ONE
+	# archive to route to. Slicing by 0 yields '' for every name, which would "pass" the prefix check
+	# vacuously against a shard key that is never '' -- i.e. it would report every name misfiled.
+	if manifest.get('shard_chars') == 0:
+		check('single-archive manifest names exactly one archive', len(manifest['shards']) == 1,
+			f'{len(manifest["shards"])} archives')
+		print(f'  single archive {next(iter(manifest["shards"]), None)}.zip, '
+			f'{total} samples, arms {manifest["arms"]}')
+	else:
+		bad = [(s, n) for s, names in manifest['shards'].items() for n in names
+			if n[:manifest['shard_chars']] != s]
+		check('every name sits in the shard its prefix names', not bad, f'{len(bad)} misfiled')
+		print(f'  {len(manifest["shards"])} shards, {total} samples, arms {manifest["arms"]}')
 	return manifest
 
 

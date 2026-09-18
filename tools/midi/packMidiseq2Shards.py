@@ -1,7 +1,12 @@
-'''Pack a loose midiseq2 corpus into per-shard zip archives for the Seq2Seq2 feeder.
+'''Pack a loose midiseq2 corpus into zip archives for the Seq2Seq2 feeder.
 
     <root>/<arm>/<id>.midiseq2.txt          ->      <out>/<XX>.zip   holding <arm>/<id>.midiseq2.txt
                                                     <out>/index.json
+
+`--single NAME` writes ONE archive instead, `<out>/<NAME>.zip`, and records `shard_chars: 0` in the
+manifest so the feeder routes every read there rather than deriving the archive from the sample's name.
+Sharding buys two things — a small central directory per archive and a bounded fd count — and neither
+binds below a few tens of thousands of samples, where one file is easier to move between hosts.
 
 A shard is the first two characters of the filename, so a sample's archive is computable from its name
 alone and the feeder needs the manifest only to enumerate. BOTH arms go into the same shard archive,
@@ -53,8 +58,10 @@ def shard_of (name):
 	return name[:SHARD_CHARS]
 
 
-def scan (root, arms):
+def scan (root, arms, single=None):
 	'''Group the arms' shared basenames by shard. Returns (shards, stats).
+
+	`single` collapses that grouping to ONE bucket under that name — the whole corpus in one archive.
 
 	Enumeration is one listdir per arm — the expensive part of the whole tool at 1.5M files, and the
 	reason the feeder wants an archive in the first place.
@@ -70,7 +77,7 @@ def scan (root, arms):
 	shared = set.intersection(*listings.values())
 	shards = defaultdict(list)
 	for name in shared:
-		shards[shard_of(name)].append(name)
+		shards[single if single is not None else shard_of(name)].append(name)
 	for names in shards.values():
 		names.sort()
 
@@ -110,7 +117,7 @@ def pack_shard (job):
 		size=os.path.getsize(path), seconds=time.time() - t0)
 
 
-def write_manifest (out, arms, shards):
+def write_manifest (out, arms, shards, shard_chars=SHARD_CHARS):
 	'''The manifest the feeder enumerates from.
 
 	JSON, not YAML, deliberately: every other packed dataset here ships index.yaml, but yaml.safe_load
@@ -131,7 +138,9 @@ def write_manifest (out, arms, shards):
 		shard = entry[:-4]
 		if shard in shards:
 			present[shard] = shards[shard]
-	manifest = dict(arms=list(arms), shard_chars=SHARD_CHARS, shards=present,
+	# shard_chars 0 is the single-archive contract the feeder reads: it stops deriving the archive from
+	# the sample's name and routes every read to the one key below. See _ZipSource in seq2seq2.py.
+	manifest = dict(arms=list(arms), shard_chars=shard_chars, shards=present,
 		samples=sum(len(v) for v in present.values()))
 	path = os.path.join(out, MANIFEST)
 	with open(path, 'w', encoding='utf-8') as f:
@@ -151,6 +160,13 @@ def main ():
 			'configs use from the directory the corpus was built in (e.g. pack a staging '
 			'midi-seq2-irregular2/ and publish it as midi-seq2-irregular). Defaults to --arms.')
 	ap.add_argument('--out', required=True, help='destination dir for <XX>.zip + index.json')
+	ap.add_argument('--single', metavar='NAME', default=None,
+		help='pack the WHOLE corpus into one <NAME>.zip instead of one archive per shard, and record '
+			'shard_chars 0 in the manifest so the feeder routes every read to it. Use below a few tens '
+			'of thousands of samples, where neither reason for sharding binds: a small central '
+			'directory and a capped fd count. Single-threaded by construction (one archive, one '
+			'writer), so --workers is ignored, and NOT resumable per shard — an existing archive is '
+			'skipped whole unless --force.')
 	ap.add_argument('--only', nargs='+', default=None,
 		help='pack just these shards (e.g. --only 00 01) — for subset tests')
 	ap.add_argument('--workers', type=int, default=4,
@@ -168,12 +184,22 @@ def main ():
 		raise SystemExit(f'--publish-as names must be distinct, got {published}')
 	publish = dict(zip(args.arms, published))
 
+	if args.single and args.only:
+		raise SystemExit('--single packs one archive, so --only (a shard subset) is meaningless with it')
+	if args.single and args.single.endswith('.zip'):
+		# The stem is what goes in the manifest and what the reader opens as f'{stem}.zip'; taking
+		# '.zip' here would produce foo.zip.zip on disk and a manifest key that does not match it.
+		args.single = args.single[:-4]
+
 	print(f'[scan] {args.root}')
-	shards, stats = scan(args.root, args.arms)
+	shards, stats = scan(args.root, args.arms, single=args.single)
 	for arm, name in publish.items():
 		if arm != name:
 			print(f'  publishing {arm} as {name}')
-	print(f'  shared basenames: {stats["shared"]} across {len(shards)} shards')
+	if args.single:
+		print(f'  shared basenames: {stats["shared"]} in a single archive {args.single}.zip')
+	else:
+		print(f'  shared basenames: {stats["shared"]} across {len(shards)} shards')
 	for arm in args.arms:
 		only = stats[f'{arm}_only']
 		if only:
@@ -214,12 +240,15 @@ def main ():
 
 	# PUBLISHED names, not source directory names: the manifest's `arms` is what tells a reader which
 	# entry prefixes the archives actually contain, so recording the staging names would misdescribe them.
-	manifest, path = write_manifest(args.out, published, all_shards)
+	manifest, path = write_manifest(args.out, published, all_shards,
+		shard_chars=0 if args.single else SHARD_CHARS)
 	raw = sum(r['raw'] for r in results)
 	size = sum(r['size'] for r in results)
 	packed = sum(1 for r in results if not r['skipped'])
+	where = (f'a single archive {args.single}.zip' if args.single
+		else f'{len(manifest["shards"])} shards')
 	print(f'\n[done] {packed} packed, {len(results) - packed} skipped, '
-		f'{manifest["samples"]} samples in {len(manifest["shards"])} shards, {time.time() - t0:.0f}s')
+		f'{manifest["samples"]} samples in {where}, {time.time() - t0:.0f}s')
 	if raw:
 		print(f'  {raw/1e9:.2f} G raw -> {size/1e9:.2f} G ({size/raw:.3f})')
 	print(f'  manifest: {path}')
