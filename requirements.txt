@@ -21,3 +21,4 @@ datasets
 typer
 jinja2
 pandas
+setproctitle==1.3.7

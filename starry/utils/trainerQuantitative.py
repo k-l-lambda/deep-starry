@@ -30,6 +30,19 @@ class Trainer:
 
 	@staticmethod
 	def run (rank, config, data_dir, init_file, backend='nccl'):
+		# Rename the process before CUDA initialises. `nvidia-smi` reads its process_name from
+		# /proc/<pid>/cmdline via NVML, so the spawned ranks -- the only procs that hold GPU memory --
+		# otherwise show the absolute `sys.executable`, e.g. `.../deep-starry/venv/bin/python3` for all
+		# of them, indistinguishable from each other and from any other venv job on the node. Setting
+		# PATH and invoking a bare `python3` cannot fix this: it renames only the PARENT, which holds no
+		# memory and never appears in the table. NVML truncates from the LEFT, so the run name and role
+		# go at the END where they survive. Guarded: a missing setproctitle must not stop training.
+		try:
+			import setproctitle
+			setproctitle.setproctitle(f'{os.path.basename(config.dir)}[{"TR" if rank == Trainer.TRAINER_RANK else "VA"}]')
+		except ImportError:
+			pass
+
 		logging.basicConfig(format='%(asctime)s	%(levelname)s	%(message)s', datefmt='%Y%m%d %H:%M:%S', level=logging.INFO,
 			force=True, handlers=[
 				logging.StreamHandler(sys.stdout),
