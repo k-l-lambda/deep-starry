@@ -537,59 +537,76 @@ def check_start_jitter (root, source_dir, target_dir):
 
 
 def check_jitter_supervision (on, off):
-	'''12b. The unsupervised head: an offset crop cannot be asked to produce its first bar.
+	'''12b. The unsupervised head: an offset crop cannot be asked to produce what it cannot see.
 
-	A crop whose source start moved is missing the head of its first bar, so that bar's target tokens
-	are not derivable from the context — supervising them teaches invention. `skip` drops them, up to
-	and including the <eom> that CLOSES that bar. Note that is the SECOND <eom> of an interior crop: the
-	half opens on its own boundary mark, which ends nothing (see Seq2Seq2._bar_end). What must hold: skip
-	is keyed on the SAMPLED offset AND ITS SIGN (a crop that drew 0, or drew negative and so saw MORE than
-	the aligned window, keeps full supervision), it lands just past the first bar, it leaves real music
+	A crop whose source start moved FORWARD past real content is missing the head of its first measure, so
+	that much of the target is not derivable — supervising it teaches invention. `skip` drops it, sized to
+	the fraction of the measure that went missing.
+
+	What must hold: skip is keyed on the MEASURED loss and not on the offset (a negative offset sees more
+	than the aligned window; a positive one can cross nothing but directive lines, which _encode discards),
+	it is monotone in that loss and bounded by the target's first bar, it always leaves real music
 	supervised, and collateBatch honours it.
 	'''
-	print('\n== 12b. jitter drops the target\'s first bar from supervision')
+	print('\n== 12b. an offset crop drops only what it actually lost')
 	t = on.tokenizer
-	ok_key = ok_pos = ok_nonempty = True
-	skips, jittered = [], 0		# `jittered` counts the POSITIVE offsets, the only ones that skip
+	ok_key = ok_bound = ok_nonempty = ok_mono = True
+	skips, lossy = [], 0
 	for index in on.indices:
 		case = on.describe(index)
-		target_ids, skip, jitter = case['ids'][case['sep'] + 1:], case['skip'], case['jitter']
-		# keyed on the sampled offset AND its sign: a negative offset moves the source start EARLIER, so
-		# its window is a superset of the aligned one and nothing is lost (see Seq2Seq2._supervise_from)
-		if bool(skip) != (jitter > 0):
+		target_ids, skip, lost = case['ids'][case['sep'] + 1:], case['skip'], case['lost']
+		# a negative offset, or a positive one that only crossed directives, must lose nothing
+		if case['jitter'] <= 0 and lost != 0:
 			ok_key = False
-		if jitter > 0:
-			jittered += 1
+		# skip is nonzero exactly when something was lost
+		if bool(skip) != bool(lost):
+			ok_key = False
+		if lost:
+			lossy += 1
 			skips.append(skip)
-			# One past the bar-CLOSING <eom>, so that boundary token is unsupervised too. Recomputed
-			# here from the ids rather than read back from the feeder: an interior crop opens on its own
-			# <eom>, and scanning from index 0 would land on that and assert skip == 1 (the bug fixed in
-			# _bar_end), so the expectation has to skip the opening mark the same way.
+			# bounded by the first bar: the head's own opening <eom> does not close it, so the bar ends
+			# at the SECOND <eom> of an interior crop (Seq2Seq2._bar_end). No closing <eom> -> the whole
+			# half stands in for the bar.
 			opening = 1 if target_ids[:1] == [t.eom_id] else 0
-			if skip != target_ids.index(t.eom_id, opening) + 1:
-				ok_pos = False
-			# describe() cancels the jitter unless >= 2 tokens survive the skip, so a nonzero skip always
-			# leaves <eos> AND at least one token of music supervised
+			try:
+				span = target_ids.index(t.eom_id, opening) + 1
+			except ValueError:
+				span = len(target_ids)
+			if skip > span:
+				ok_bound = False
+			# at least one token of music plus the closing <eos> stay supervised
 			if skip > len(target_ids) - 2:
 				ok_nonempty = False
-	check('skip is nonzero exactly when the sampled offset is POSITIVE', ok_key)
-	check('skip lands one past the first bar\'s closing <eom>', ok_pos)
+	check('skip is nonzero exactly when source tokens were LOST', ok_key)
+	check('skip never exceeds the target\'s first bar', ok_bound)
 	check('skip always leaves music supervised, not just <eos>', ok_nonempty)
-	check('a positive-offset crop is present to check', jittered > 0, f'{jittered} positive')
+	check('a crop that lost something is present to check', lossy > 0, f'{lossy} lossy')
 	if skips:
 		print(f'  skip: n {len(skips)} median {statistics.median(skips):.0f} '
 			f'range [{min(skips)}, {max(skips)}]')
 
-	# every jittered crop keeps a bar-closing <eom> in its target half, because describe() drops the
-	# jitter rather than the supervision when it does not. Measured 26% of halves carry no <eom> at all.
-	cancelled = sum(1 for i in on.indices
-		if not on.describe(i)['jitter'] and not off.describe(i)['head'])
-	print(f'  {cancelled} interior crops ended at offset 0 (drew 0, or the jitter was cancelled '
-		'for want of an <eom>)')
+	# monotone in the loss: a bigger std loses more, so it must not skip less in aggregate
+	rates = []
+	for std in (2.0, 16.0):
+		ds = feeder(on.source.root, on.arm_source, on.arm_target, mark_mode=on.mark_mode,
+			line_range=[20, 256], split='0/1', random_crop=False, start_jitter=std)
+		tot = sum(c['skip'] for c in (ds.describe(i) for i in ds.indices))
+		rates.append(tot)
+	if rates[1] < rates[0]:
+		ok_mono = False
+	check('a larger offset std skips more, not less', ok_mono, f'{rates[0]} -> {rates[1]} tokens')
 
-	# and the mask the model actually sees
-	items = [on._item(i) for i in on.indices[:8]]
-	batch = on.collateBatch(items)
+	# how much supervision the whole policy costs, so a regression in either direction is visible
+	tot = sup = 0
+	for index in on.indices:
+		case = on.describe(index)
+		half = len(case['ids']) - case['sep'] - 1
+		tot += half
+		sup += half - case['skip']
+	print(f'  supervised {sup}/{tot} target tokens ({sup / tot:.4f})')
+
+	batch = on.collateBatch([on[i] for i in range(min(8, len(on)))])
+	items = [on[i] for i in range(min(8, len(on)))]
 	ok_mask = True
 	for row, (ids, sep, _, skip) in enumerate(items):
 		mask = batch['target_mask'][row]
@@ -597,10 +614,8 @@ def check_jitter_supervision (on, off):
 				or not mask[sep + 1 + skip:len(ids)].all():
 			ok_mask = False
 	check('collateBatch starts the mask at sep + 1 + skip', ok_mask)
-	print(f'  supervised fractions: ' + ' '.join(
-		f'{int(batch["target_mask"][r].sum()) / (len(i[0]) - i[1] - 1):.2f}'
-		for r, i in enumerate(items)))
-
+	print('  supervised fractions: ' + ' '.join(
+		f'{(len(ids) - sep - 1 - skip) / (len(ids) - sep - 1):.2f}' for ids, sep, _, skip in items))
 
 def length_table (root, samples, rng):
 	'''9. What T actually comes out at, per pairing and line cap — attention is O(T^2), so the p99

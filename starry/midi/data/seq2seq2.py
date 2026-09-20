@@ -42,9 +42,10 @@ files were all trimmed.
 offsets the source crop's first line by round(gauss(0, start_jitter)). Every crop otherwise begins exactly
 ON a mark line, which inference cannot reproduce — a sliding window over a production file has no
 @measure/@tick to land on and starts mid-measure (see tools/midi/translateMidiseq2.py). The target stays
-mark-aligned; only the source's leading context moves. The draw is symmetric, so the offset's SIGN decides
-whether anything was lost: forward eats into the first measure, backward merely adds the previous measure's
-tail. Only the forward case drops supervision (see `_supervise_from`).
+mark-aligned; only the source's leading context moves. Whether anything was LOST is a separate question
+from whether the offset was nonzero: a backward offset merely adds the previous measure's tail, and even a
+forward one can step over nothing but directive lines, which `_encode` discards. Supervision is dropped on
+the measured loss, not on the offset (see `_supervise_from`).
 
 `transposition_sigma` (default 0 = off) is the other augmentation: a per-sample semitone offset,
 round(gauss(0, transposition_sigma)), applied to BOTH halves. One draw per sample is what keeps the pair
@@ -121,12 +122,12 @@ Batch contract, `pack: flat`:
 	input_ids    LongTensor [B, T]   source ++ <sep> ++ target, right-padded with <pad>
 	masks        LongTensor [B, T]   1 = real token
 	target_mask  LongTensor [B, T]   1 = a supervised target position (strictly after <sep>). A crop
-	                                 whose sampled start offset was POSITIVE (start_jitter) also drops
-	                                 the target's first bar, up to and including the <eom> that CLOSES
-	                                 it: the source is missing the head of that bar, so it is not
-	                                 derivable from the context. An offset <= 0 keeps the whole target
-	                                 half -- a negative one moves the source start EARLIER and so
-	                                 loses nothing (see _supervise_from)
+	                                 whose offset actually REMOVED source tokens (start_jitter) also
+	                                 drops the head of the target's first bar, in proportion to the
+	                                 fraction of the first measure the source lost: that part is not
+	                                 derivable from the context. 0 when the offset removed nothing --
+	                                 a negative offset, or a positive one that only stepped over
+	                                 directive lines (see _supervise_from)
 	sep_index    LongTensor [B]      position of <sep> in each row
 	position_ids LongTensor [B, T]   RoPE positions per pos_style; the pad tail CONTINUES each row's
 	                                 run rather than taking a constant, so a padded row stays
@@ -949,7 +950,7 @@ class Seq2Seq2 (Dataset):
 		sep = len(source_ids)
 		return dict(name=sample_id, source=midi if self.source_format == 'midiseq2' else lyl,
 			target=midi if self.target_format == 'midiseq2' else lyl, a=a, z=z, jitter=0, skip=0,
-			transpose=0,
+			lost=0, transpose=0,
 			source_range=source_range, target_range=target_range, ids=ids, sep=sep,
 			positions=self._mixed_positions(len(source_ids), len(target_ids)), head=head,
 			tail=z >= (len(lyl) if self.source_format == 'lilylet' else len(mapping)),
@@ -1020,39 +1021,51 @@ class Seq2Seq2 (Dataset):
 		except ValueError:
 			return None
 
-	def _supervise_from (self, target_ids: List[int], jitter: int) -> int:
+	def _supervise_from (self, target_ids: List[int], lost: int, measure_tokens: int) -> int:
 		'''Index into the TARGET half where supervision starts. 0 = supervise all of it.
 
-		A source crop whose start moved FORWARD loses the head of its first measure, so the target's first
-		bar is no longer derivable from what the model can see — supervising it would train the model to
-		invent the part that was cropped away. Everything after that bar's closing <eom> is still fully
-		covered, so that is where supervision begins. The closing <eom> itself is excluded too: it marks
-		the end of the bar we are refusing to supervise.
+		A source crop whose start moved FORWARD loses the head of its first measure. Those target tokens
+		are no longer derivable from what the model can see, and supervising them would train it to invent
+		the part that was cropped away. At inference the same region is never generated cold either — each
+		sliding step assembles `src_window <sep> prime` and the target half OPENS with carried-over output
+		(see tools/midi/translateMidiseq2.py) — so leaving it in the ids but out of the loss is exactly the
+		condition the model meets in production.
 
-		Keyed on the SAMPLED offset AND ITS SIGN, not on the `start_jitter` setting.
+		Keyed on `lost`: how many source CONTENT tokens the offset actually removed, which is
+		`token_before[jittered_start] - token_before[aligned_start]`, exact and O(1). That replaces the
+		earlier test on the offset itself, which was a proxy wrong in two directions:
 
-		`_pick_jitter` draws a symmetric normal, and `_bounds` adds it to the start, so a NEGATIVE offset
-		moves the source start EARLIER — the window becomes a strict SUPERSET of the mark-aligned one,
-		carrying the tail of the previous measure on top of everything the aligned crop had. Nothing is
-		lost, the first bar stays fully derivable, and the augmentation still does its job (the first line
-		the model sees is mid-measure). So a negative offset keeps FULL supervision; only a positive one,
-		which actually eats into the first measure's head, gives up its first bar. Half the draws are
-		negative, so this is most of the difference: skipping on them threw away 39% of the skipped tokens
-		for nothing.
+		  * A NEGATIVE offset moves the start EARLIER, so the window is a strict superset of the aligned
+		    one and `lost` comes out <= 0. Nothing was cropped away, the first bar stays derivable, and the
+		    augmentation still does its job (the first line the model sees is mid-measure).
+		  * A POSITIVE offset can still remove NOTHING, because the offset is counted in LINES and
+		    `_encode` discards directive lines. Measured on piano0909 at start_jitter 2: 54.5% of
+		    positive-offset crops have a token-IDENTICAL source half. Keying on the offset skipped a whole
+		    bar for those, and that alone was 54% of all skipped tokens.
 
-		An offset of exactly 0 likewise keeps full supervision — the draw is normal about 0, so a crop can
-		come out mark-aligned even with jitter enabled (~27% of them at std 8, since the offset is rounded
-		to a whole line).
+		`measure_tokens` is the first measure's own token count on the source side, so `lost /
+		measure_tokens` is the FRACTION of that measure the model cannot see. The skip takes the same
+		fraction of the target's first bar, rounded up, rather than the whole bar: at start_jitter 2 the
+		median loss is 6 tokens out of a 34-line measure, and taking all ~117 tokens of the target bar for
+		that was a ~50x overcorrection. The fraction is an estimate — the two arms agree on a measure's
+		music but not on its line count (1.7% match, median ratio 1.478), so no exact token correspondence
+		exists inside a bar — but it is monotone in the loss and bounded by the bar, which the flat
+		whole-bar rule was not.
 
-		Returns 0 for offsets <= 0 and, defensively, when the half has no closing <eom> to skip to. The
-		latter cannot arise from a positive offset: describe() cancels the offset for exactly those crops,
-		because excluding the first bar would otherwise exclude the entire target and leave the sample with
-		an empty mask.
+		Clamped so at least two target tokens stay supervised: one carrying music plus the closing <eos>.
+		A crop that is one bar long would otherwise supervise nothing but <eos>, which teaches only "stop
+		at once", and a target half with no closing <eom> at all (26% of them) would otherwise be skipped
+		entirely and leave an empty mask — a nan loss. The clamp is why describe() no longer has to cancel
+		the offset to keep such a crop valid.
 		'''
-		if jitter <= 0:
+		if lost <= 0 or measure_tokens <= 0:
 			return 0
 		end = self._bar_end(target_ids)
-		return 0 if end is None else end + 1
+		# No closing <eom>: the crop sits inside one bar, so the whole half stands in for that bar.
+		span = len(target_ids) if end is None else end + 1
+		# Ceiling, so a loss of even one token always costs at least one token of supervision.
+		skip = -(-span * min(lost, measure_tokens) // measure_tokens)
+		return max(0, min(skip, len(target_ids) - 2))
 
 	def _pick_jitter (self, a: int, rng: random.Random) -> int:
 		'''Normal offset (in lines) for the source crop's start. 0 for head crops and when disabled.
@@ -1534,7 +1547,10 @@ class Seq2Seq2 (Dataset):
 		than re-deriving it outside keeps the two from drifting apart.
 
 		Keys: name, source, target (_File), a, z (source mark range), jitter (the start offset in lines,
-		0 unless start_jitter is on), source_range, target_range (line slices), ids, sep, head, tail,
+		0 unless start_jitter is on), lost (source CONTENT tokens the offset actually removed, which is
+		0 for a negative offset and for a positive one that only crossed directive lines), skip (leading
+		TARGET tokens left unsupervised, sized off `lost` — see _supervise_from), source_range,
+		target_range (line slices), ids, sep, head, tail,
 		source_measures, target_measures — the latter two being [(line_index, measure_number)] for every
 		@measure line inside that half's range, @measure 1 included (it is a real bar number even though
 		it emits no <eom>).
@@ -1584,24 +1600,6 @@ class Seq2Seq2 (Dataset):
 			if a == 0:
 				jitter = 0
 			ids, sep, positions = self._assemble(source, target, a, z, align, jitter, transpose)
-			# A crop whose offset moved the source start FORWARD drops its first bar from supervision (see
-			# _supervise_from), which needs the <eom> that CLOSES that bar — the half's own opening mark
-			# ends nothing. Only a positive offset does this, so only it can be short of the structure to
-			# do it; a negative offset sees MORE than the aligned window and is always a valid crop.
-			#
-			# Two ways the structure falls short, both leaving a sample not worth training on. The half
-			# may hold no closing <eom> at all (26% of them — a crop can sit inside a single bar), and
-			# excluding the first bar would then exclude everything and leave an empty mask (a nan loss).
-			# Or the first bar may BE the whole crop, leaving <eos> as the only supervised token, which
-			# teaches nothing but "stop at once". Drop the JITTER instead of the supervision in both
-			# cases: the crop reverts to mark-aligned, which is always a valid sample.
-			if jitter > 0:
-				target_ids = ids[sep + 1:]
-				bar_end = self._bar_end(target_ids)
-				# >= 2 supervised tokens left, so at least one carries music rather than just <eos>.
-				if bar_end is None or len(target_ids) - (bar_end + 1) < 2:
-					jitter = 0
-					ids, sep, positions = self._assemble(source, target, a, z, align, jitter, transpose)
 			if best is None or len(ids) < len(best[0]):
 				best = (ids, sep, positions, a, z, align, jitter)
 			if not self.max_tokens or len(ids) <= self.max_tokens:
@@ -1613,14 +1611,21 @@ class Seq2Seq2 (Dataset):
 		t_start, t_end = align
 		# <bos> can share <sep>'s position id under 'absolute' (see _positions); reported rather than
 		# hidden, since it is the one place two tokens coincide.
-		# Where supervision starts INSIDE the target half (0 = all of it). Nonzero only when this crop's
-		# SAMPLED offset is POSITIVE — a crop that drew 0 is mark-aligned, and one that drew negative saw
-		# more than the aligned window, so both keep full supervision.
-		skip = self._supervise_from(ids[sep + 1:], jitter)
+		# How many source CONTENT tokens the offset actually cost, and the first measure's own token
+		# count. Both off `token_before`, which counts exactly what _encode emits (directive lines
+		# contribute 0) — so `lost` is 0 for a negative offset AND for a positive one that only stepped
+		# over directives. `a == 0` is the head condition and never carries an offset.
+		aligned_start = source.marks[a][0] if 0 < a < len(source.marks) else s_start
+		lost = max(0, source.token_before[s_start] - source.token_before[aligned_start])
+		measure_end = source.marks[a + 1][0] if a + 1 < len(source.marks) else s_end
+		measure_tokens = max(0, source.token_before[measure_end] - source.token_before[aligned_start])
+		# Where supervision starts INSIDE the target half (0 = all of it), sized to the fraction of the
+		# first measure the model cannot see.
+		skip = self._supervise_from(ids[sep + 1:], lost, measure_tokens)
 		# Both halves at once, from the one offset -- that is what keeps the pair correspondent.
 		ids = self._transpose_ids(ids, transpose)
 		return dict(name=name, source=source, target=target, a=a, z=z, jitter=jitter, skip=skip,
-			transpose=transpose,
+			lost=lost, transpose=transpose,
 			source_range=(s_start, s_end), target_range=(t_start, t_end),
 			ids=ids, sep=sep, positions=positions, head=a <= 0, tail=z >= len(source.marks),
 			pos_bos_on_sep=self.pos_style == 'absolute' and a <= 0 and positions[sep + 1] == -1,
@@ -1629,7 +1634,8 @@ class Seq2Seq2 (Dataset):
 
 	def _item (self, index: int) -> Tuple[torch.Tensor, int, torch.Tensor, int]:
 		'''(ids, sep, positions, skip). `skip` is how many leading TARGET tokens go unsupervised —
-		0 for every unjittered crop, so the tuple's first three elements are unchanged.'''
+		0 whenever the crop's offset removed no source token, which is every unjittered crop and most
+		jittered ones, so the tuple's first three elements are unchanged.'''
 		case = self.describe(index)
 		return (torch.tensor(case['ids'], dtype=torch.long), case['sep'],
 			torch.tensor(case['positions'], dtype=torch.long), case['skip'])
@@ -1729,11 +1735,11 @@ class Seq2Seq2 (Dataset):
 		# recorded sep index rather than by searching for the id, so a <sep> that ever appeared inside
 		# a half could not be mistaken for the boundary.
 		#
-		# `skip` moves that start further right for a crop whose sampled start offset was POSITIVE: its
-		# source is missing the head of its first bar, so the target's first bar is not derivable from
-		# what the model sees and supervising it would teach invention. It is 0 for every mark-aligned
-		# crop (all of them when start_jitter is off) and for every NEGATIVE offset, which moves the
-		# source start earlier and so loses nothing -- see _supervise_from.
+		# `skip` moves that start further right for a crop whose offset actually removed source tokens:
+		# that much of its first bar is not derivable from what the model sees, and supervising it would
+		# teach invention. It is 0 for every mark-aligned crop (all of them when start_jitter is off),
+		# for every negative offset, and for a positive offset that only stepped over directive lines --
+		# see _supervise_from.
 		target_mask = torch.zeros_like(input_ids)
 		for row, (ids, sep, _, skip) in enumerate(batch):
 			target_mask[row, sep + 1 + skip:len(ids)] = 1
