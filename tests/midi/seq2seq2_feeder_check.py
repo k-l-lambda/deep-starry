@@ -541,40 +541,47 @@ def check_jitter_supervision (on, off):
 
 	A crop whose source start moved is missing the head of its first bar, so that bar's target tokens
 	are not derivable from the context — supervising them teaches invention. `skip` drops them, up to
-	and including the first <eom>. What must hold: skip is keyed on the SAMPLED offset (a crop that drew
-	exactly 0 keeps full supervision), it lands just past the first <eom>, it never empties the mask,
-	and collateBatch honours it.
+	and including the <eom> that CLOSES that bar. Note that is the SECOND <eom> of an interior crop: the
+	half opens on its own boundary mark, which ends nothing (see Seq2Seq2._bar_end). What must hold: skip
+	is keyed on the SAMPLED offset AND ITS SIGN (a crop that drew 0, or drew negative and so saw MORE than
+	the aligned window, keeps full supervision), it lands just past the first bar, it leaves real music
+	supervised, and collateBatch honours it.
 	'''
 	print('\n== 12b. jitter drops the target\'s first bar from supervision')
 	t = on.tokenizer
 	ok_key = ok_pos = ok_nonempty = True
-	skips, jittered = [], 0
+	skips, jittered = [], 0		# `jittered` counts the POSITIVE offsets, the only ones that skip
 	for index in on.indices:
 		case = on.describe(index)
 		target_ids, skip, jitter = case['ids'][case['sep'] + 1:], case['skip'], case['jitter']
-		# keyed on the sampled offset, not on the start_jitter setting
-		if bool(skip) != bool(jitter):
+		# keyed on the sampled offset AND its sign: a negative offset moves the source start EARLIER, so
+		# its window is a superset of the aligned one and nothing is lost (see Seq2Seq2._supervise_from)
+		if bool(skip) != (jitter > 0):
 			ok_key = False
-		if jitter:
+		if jitter > 0:
 			jittered += 1
 			skips.append(skip)
-			# exactly one past the first <eom>, so the boundary token itself is unsupervised too
-			if skip != target_ids.index(t.eom_id) + 1:
+			# One past the bar-CLOSING <eom>, so that boundary token is unsupervised too. Recomputed
+			# here from the ids rather than read back from the feeder: an interior crop opens on its own
+			# <eom>, and scanning from index 0 would land on that and assert skip == 1 (the bug fixed in
+			# _bar_end), so the expectation has to skip the opening mark the same way.
+			opening = 1 if target_ids[:1] == [t.eom_id] else 0
+			if skip != target_ids.index(t.eom_id, opening) + 1:
 				ok_pos = False
-			# describe() cancels the jitter when the half has no <eom>, so a nonzero skip can never
-			# consume the whole target half
-			if skip >= len(target_ids):
+			# describe() cancels the jitter unless >= 2 tokens survive the skip, so a nonzero skip always
+			# leaves <eos> AND at least one token of music supervised
+			if skip > len(target_ids) - 2:
 				ok_nonempty = False
-	check('skip is nonzero exactly when the sampled offset is', ok_key)
-	check('skip lands one past the first <eom>', ok_pos)
-	check('skip never consumes the whole target half', ok_nonempty)
-	check('an offset crop is present to check', jittered > 0, f'{jittered} jittered')
+	check('skip is nonzero exactly when the sampled offset is POSITIVE', ok_key)
+	check('skip lands one past the first bar\'s closing <eom>', ok_pos)
+	check('skip always leaves music supervised, not just <eos>', ok_nonempty)
+	check('a positive-offset crop is present to check', jittered > 0, f'{jittered} positive')
 	if skips:
 		print(f'  skip: n {len(skips)} median {statistics.median(skips):.0f} '
 			f'range [{min(skips)}, {max(skips)}]')
 
-	# every jittered crop keeps an <eom> in its target half, because describe() drops the jitter rather
-	# than the supervision when it does not. Measured 26% of halves on this corpus carry no <eom>.
+	# every jittered crop keeps a bar-closing <eom> in its target half, because describe() drops the
+	# jitter rather than the supervision when it does not. Measured 26% of halves carry no <eom> at all.
 	cancelled = sum(1 for i in on.indices
 		if not on.describe(i)['jitter'] and not off.describe(i)['head'])
 	print(f'  {cancelled} interior crops ended at offset 0 (drew 0, or the jitter was cancelled '
