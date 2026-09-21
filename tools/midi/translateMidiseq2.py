@@ -3164,12 +3164,157 @@ def plot_attention (pairs, windows, prefix, threshold, subtitle=''):
 	return paths
 
 
+def translate_file (args, model, tokenizer, config, data_args, pos_style, model_type,
+		checkpoint, in_path, out_arg, ann_dir):
+	'''Translate ONE file with loaded model. -> rc (0 ok, 3 trim-fail).
+	
+	Lifted from main() so batch mode can reuse one model load. MEASURED: 5.8s per-process startup
+	(1.5s torch + 3.9s asset registry 4523 modules + 0.8s checkpoint + ~1s CUDA teardown) against
+	13.8s median translate = 30% overhead. Warm per-file: 12.53s wall vs 12.52s internal, i.e.
+	nothing measurable carries over. Fresh Translator per call keeps align/trim state isolated.
+	'''
+	with open(in_path, 'r', encoding='utf-8') as f:
+		lines = f.read().splitlines()
+	# Refuse a source in the wrong language before spending any GPU time on it. encode_lines maps an
+	# unknown token to <unknown> rather than raising, so MidiText (piano0909/segs, 53.1% unknown when
+	# MEASURED) would otherwise translate to completion off a source the model cannot read.
+	unknown_rate = assert_midiseq2(lines, in_path, tokenizer)
+	print(f'[in]  {os.path.basename(in_path)}: {len(lines)} lines, '
+		f'pos_style {pos_style}, src_window {args.src_window}, max_token {args.max_token}'
+		f'{"" if unknown_rate == 0 else f", {unknown_rate:.2%} unknown tokens"}')
+
+	Translator = SlidingEncDecTranslator if model_type == 'MidiTranslatorEncDec' else SlidingTranslator
+	translator = Translator(model, tokenizer, pos_style=pos_style,
+		src_window=args.src_window, max_token=args.max_token, device=args.device,
+		prime=not args.no_prime, temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
+		source_eom=bool(data_args.get('source_eom')), advance_tokens=args.advance_tokens,
+		align_advance=args.align_advance, align_stop_window=args.align_stop_window,
+		align_stop_rate=args.align_stop_rate, align_trim_rate=args.align_trim_rate,
+		align_stop_reuse=args.align_stop_reuse,
+		align_stop_reuse_window=args.align_stop_reuse_window, align_trim_density=args.align_trim_density,
+		align_trim_min_notes=args.align_trim_min_notes,
+		align_trim_spanless_run=args.align_trim_spanless_run,
+		align_trim_span_ratio=args.align_trim_span_ratio,
+		align_trim_tail_unmatched=args.align_trim_tail_unmatched,
+		align_trim_gap=args.align_trim_gap,
+		prime_window=args.prime_window, kv_cache=not args.no_kv_cache)
+
+	# The output path has to be settled BEFORE translate runs, because the streaming figures are named
+	# from it and are written while the loop is still going.
+	out_path = out_arg or os.path.join(REPO_ROOT, 'tests', 'output', 'translate_midiseq2',
+		os.path.basename(in_path))
+	plot_prefix = args.inspect_plot or os.path.splitext(out_path)[0] + '.attn'
+
+	inspector = None
+	if args.inspect:
+		inspector = AttentionInspector(model, tokenizer, translator.keywords, lines,
+			bool(data_args.get('source_eom')), args.device, reduce=args.inspect_reduce,
+			query=args.inspect_query, threshold=args.inspect_threshold, top_k=args.inspect_top_k,
+			plot_prefix=None if args.inspect_plot_at_end else plot_prefix)
+		print(f'[attn] inspecting: reduce {args.inspect_reduce}, query {args.inspect_query}, '
+			f'threshold {args.inspect_threshold}, top-k {args.inspect_top_k or "all"}, '
+			f'figures {"at end" if args.inspect_plot_at_end else "per step, as generated"}')
+
+	output_ids, stats = translator.translate(lines, verbose=args.verbose, max_steps=args.max_steps,
+		inspector=inspector)
+	body = render_lines(output_ids, tokenizer, translator.keywords)
+	final = compose_output(body, source_header(lines))
+	report_output(final, stats)
+
+	# The trim's own verdict, ACTED ON rather than only printed. `trim_align_tail` returns failed=True
+	# when no measure survived, and its docstring says the caller is expected to declare the file a
+	# failure -- but until now line 2239's print was the flag's only consumer, so the run wrote both arms
+	# and exited 0. MEASURED on 685a2ca535: the trim reported `dropped=9 failed=True, 9 -> 0 measures`,
+	# then `close_final_measure(complete=True)` closed the very 9 bars it had just condemned and the file
+	# was published, scoring recall 0.0050 (2 of 201 generated notes matched, 2 distinct source notes
+	# reached, the model looping one bar 7 times). Nothing downstream could tell: rc was 0 and both files
+	# were non-empty, which is exactly what a good run looks like.
+	#
+	# Returning BEFORE the write, so a caller that keys on rc (translate_piano0909.sh already has a FAIL
+	# branch that removes the .part and keeps the log) needs no change and cannot publish a fragment. The
+	# diagnosis is not lost: report_output above has already printed the [align-trim] FAILURE line and the
+	# whole align report into the log.
+	if stats.get('align') and stats['align'].get('failed'):
+		print('[fail] no measure survived the trim, so there is nothing to write; '
+			'leaving both arms unwritten and exiting non-zero')
+		return 3
+
+	# The source arm is annotated BEFORE the output arm is written, so the two endings can be
+	# reconciled: the output must not claim an ending the source does not have. Only the ORDER
+	# changed -- annotate_source reads `_align_kept_measures`, which close_final_measure has already
+	# settled inside translate(), so it sees exactly what it saw when it ran after the write.
+	ann = ann_stats = ann_path = None
+	if ann_dir:
+		if not args.align_advance:
+			print('[warn] --annotate-source needs --align-advance; no correspondence was computed')
+		else:
+			ann, ann_stats = translator.annotate_source(lines, translator._align_kept_measures)
+			ann_path = os.path.join(ann_dir, os.path.basename(in_path))
+			final, reconciled = reconcile_terminators(final, ann)
+			if reconciled:
+				print('[warn] the output ended on end_of_track but the annotated source does not; '
+					'the terminator was not earned and the last bar is closed with a directive')
+
+	write_output(out_path, final)
+	print(f'[done] {out_path}')
+
+	if ann is not None:
+		write_output(ann_path, ann)
+		print(f'[annotate] {ann_stats["bars"]} source @measure directives '
+			f'({ann_stats["empty_bars"]} bar(s) with no source note of their own), '
+			f'{ann_stats["covered_notes"]}/{ann_stats["src_notes"]} source note_on inside them, '
+			f'{ann_stats["dropped_tail_notes"]} dropped past the closing bar line')
+		print(f'[annotate] {ann_path}')
+
+	if inspector is not None:
+		pairs, out_events, src_events, windows = inspector.resolve_all(output_ids)
+		by_step = {}
+		for p in pairs:
+			by_step.setdefault(p['step'], []).append(p)
+		if args.inspect_plot_at_end:
+			plot_attention(pairs, windows, plot_prefix, args.inspect_threshold,
+				subtitle=f'  ({args.inspect_reduce} over layers/heads, {args.inspect_query} row)')
+		else:
+			print(f'[attn] {len(inspector.plot_paths)} step figure(s) already written during the run: '
+				f'{plot_prefix}.stepNNN.png')
+		report_spans(windows, by_step, threshold=args.inspect_threshold)
+		report_attention(pairs, out_events, src_events, threshold=args.inspect_threshold)
+		if args.inspect_json:
+			with open(args.inspect_json, 'w', encoding='utf-8') as f:
+				json.dump(dict(input=in_path, checkpoint=checkpoint,
+					reduce=args.inspect_reduce, query=args.inspect_query,
+					threshold=args.inspect_threshold, top_k=args.inspect_top_k,
+					src_window=args.src_window, advance_tokens=args.advance_tokens, prime_window=args.prime_window,
+					align_advance=args.align_advance, align_stop_window=args.align_stop_window,
+					align_stop_rate=args.align_stop_rate, align_trim_rate=args.align_trim_rate,
+					align_stop_reuse=args.align_stop_reuse,
+					align_stop_reuse_window=args.align_stop_reuse_window, align_trim_density=args.align_trim_density,
+					align_trim_min_notes=args.align_trim_min_notes,
+					align_trim_spanless_run=args.align_trim_spanless_run,
+					align_trim_span_ratio=args.align_trim_span_ratio,
+					align_trim_tail_unmatched=args.align_trim_tail_unmatched,
+					align_trim_gap=args.align_trim_gap,
+					generated_notes=len(out_events), source_notes=len(src_events),
+					# prime_notes and cuts are recorded so what a figure DREW is checkable from data,
+					# rather than only by looking at the image: an empty primer or a missing cut is a
+					# figure quietly short of a mark, and that should be visible here.
+					steps={str(s): dict(lines=w['lines'],
+							src_notes=len(w['src']), out_notes=len(w['out']),
+							prime_notes=len(w.get('prime') or []),
+							eoms=list(w.get('eoms') or []),
+							cuts=w.get('cuts') or {})
+						for s, w in sorted(windows.items())},
+					links=pairs), f, indent=2)
+			print(f'[attn] wrote {args.inspect_json}')
+	return 0
+
 def main ():
 	ap = argparse.ArgumentParser(description='Translate a whole midiseq2 file with MidiTranslator or MidiTranslatorEncDec.')
 	ap.add_argument('--run', default=DEFAULT_RUN, help='training run dir (.state.yaml + checkpoint)')
 	ap.add_argument('--checkpoint', default=None,
 		help="checkpoint path (default: config['best'], then best.chkpt, then latest.chkpt)")
-	ap.add_argument('--input', required=True, help='source .midiseq2.txt')
+	ap.add_argument('--input', default=None, help='source .midiseq2.txt (single-file mode)')
+	ap.add_argument('--input-list', default=None, help='TSV: input/output/log/skip-if columns (batch mode)')
 	ap.add_argument('--output', default=None, help='destination .midiseq2.txt')
 	ap.add_argument('--max-token', type=int, default=2048,
 		help='total-T ceiling; pass the training max_tokens (default 2048)')
@@ -3334,6 +3479,11 @@ def main ():
 			'streaming is the default so a long run can be watched rather than waited out')
 	ap.add_argument('--inspect-json', default=None, help='dump the full ranking as JSON')
 	args = ap.parse_args()
+	if not args.input and not args.input_list:
+		ap.error('either --input or --input-list is required')
+	if args.input and args.input_list:
+		ap.error('--input and --input-list are mutually exclusive')
+
 
 	if args.threads:
 		torch.set_num_threads(args.threads)
@@ -3367,135 +3517,41 @@ def main ():
 	if vocab_path:
 		print(f'[vocab] {vocab_path} ({tokenizer.vocab_size} tokens)')
 
-	with open(args.input, 'r', encoding='utf-8') as f:
-		lines = f.read().splitlines()
-	print(f'[in]  {os.path.basename(args.input)}: {len(lines)} lines, '
-		f'pos_style {pos_style}, src_window {args.src_window}, max_token {args.max_token}')
-
-	Translator = SlidingEncDecTranslator if model_type == 'MidiTranslatorEncDec' else SlidingTranslator
-	translator = Translator(model, tokenizer, pos_style=pos_style,
-		src_window=args.src_window, max_token=args.max_token, device=args.device,
-		prime=not args.no_prime, temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
-		source_eom=bool(data_args.get('source_eom')), advance_tokens=args.advance_tokens,
-		align_advance=args.align_advance, align_stop_window=args.align_stop_window,
-		align_stop_rate=args.align_stop_rate, align_trim_rate=args.align_trim_rate,
-		align_stop_reuse=args.align_stop_reuse,
-		align_stop_reuse_window=args.align_stop_reuse_window, align_trim_density=args.align_trim_density,
-		align_trim_min_notes=args.align_trim_min_notes,
-		align_trim_spanless_run=args.align_trim_spanless_run,
-		align_trim_span_ratio=args.align_trim_span_ratio,
-		align_trim_tail_unmatched=args.align_trim_tail_unmatched,
-		align_trim_gap=args.align_trim_gap,
-		prime_window=args.prime_window, kv_cache=not args.no_kv_cache)
-
-	# The output path has to be settled BEFORE translate runs, because the streaming figures are named
-	# from it and are written while the loop is still going.
-	out_path = args.output or os.path.join(REPO_ROOT, 'tests', 'output', 'translate_midiseq2',
-		os.path.basename(args.input))
-	plot_prefix = args.inspect_plot or os.path.splitext(out_path)[0] + '.attn'
-
-	inspector = None
-	if args.inspect:
-		inspector = AttentionInspector(model, tokenizer, translator.keywords, lines,
-			bool(data_args.get('source_eom')), args.device, reduce=args.inspect_reduce,
-			query=args.inspect_query, threshold=args.inspect_threshold, top_k=args.inspect_top_k,
-			plot_prefix=None if args.inspect_plot_at_end else plot_prefix)
-		print(f'[attn] inspecting: reduce {args.inspect_reduce}, query {args.inspect_query}, '
-			f'threshold {args.inspect_threshold}, top-k {args.inspect_top_k or "all"}, '
-			f'figures {"at end" if args.inspect_plot_at_end else "per step, as generated"}')
-
-	output_ids, stats = translator.translate(lines, verbose=args.verbose, max_steps=args.max_steps,
-		inspector=inspector)
-	body = render_lines(output_ids, tokenizer, translator.keywords)
-	final = compose_output(body, source_header(lines))
-	report_output(final, stats)
-
-	# The trim's own verdict, ACTED ON rather than only printed. `trim_align_tail` returns failed=True
-	# when no measure survived, and its docstring says the caller is expected to declare the file a
-	# failure -- but until now line 2239's print was the flag's only consumer, so the run wrote both arms
-	# and exited 0. MEASURED on 685a2ca535: the trim reported `dropped=9 failed=True, 9 -> 0 measures`,
-	# then `close_final_measure(complete=True)` closed the very 9 bars it had just condemned and the file
-	# was published, scoring recall 0.0050 (2 of 201 generated notes matched, 2 distinct source notes
-	# reached, the model looping one bar 7 times). Nothing downstream could tell: rc was 0 and both files
-	# were non-empty, which is exactly what a good run looks like.
-	#
-	# Returning BEFORE the write, so a caller that keys on rc (translate_piano0909.sh already has a FAIL
-	# branch that removes the .part and keeps the log) needs no change and cannot publish a fragment. The
-	# diagnosis is not lost: report_output above has already printed the [align-trim] FAILURE line and the
-	# whole align report into the log.
-	if stats.get('align') and stats['align'].get('failed'):
-		print('[fail] no measure survived the trim, so there is nothing to write; '
-			'leaving both arms unwritten and exiting non-zero')
-		return 3
-
-	# The source arm is annotated BEFORE the output arm is written, so the two endings can be
-	# reconciled: the output must not claim an ending the source does not have. Only the ORDER
-	# changed -- annotate_source reads `_align_kept_measures`, which close_final_measure has already
-	# settled inside translate(), so it sees exactly what it saw when it ran after the write.
-	ann = ann_stats = ann_path = None
-	if args.annotate_source:
-		if not args.align_advance:
-			print('[warn] --annotate-source needs --align-advance; no correspondence was computed')
-		else:
-			ann, ann_stats = translator.annotate_source(lines, translator._align_kept_measures)
-			ann_path = os.path.join(args.annotate_source, os.path.basename(args.input))
-			final, reconciled = reconcile_terminators(final, ann)
-			if reconciled:
-				print('[warn] the output ended on end_of_track but the annotated source does not; '
-					'the terminator was not earned and the last bar is closed with a directive')
-
-	write_output(out_path, final)
-	print(f'[done] {out_path}')
-
-	if ann is not None:
-		write_output(ann_path, ann)
-		print(f'[annotate] {ann_stats["bars"]} source @measure directives '
-			f'({ann_stats["empty_bars"]} bar(s) with no source note of their own), '
-			f'{ann_stats["covered_notes"]}/{ann_stats["src_notes"]} source note_on inside them, '
-			f'{ann_stats["dropped_tail_notes"]} dropped past the closing bar line')
-		print(f'[annotate] {ann_path}')
-
-	if inspector is not None:
-		pairs, out_events, src_events, windows = inspector.resolve_all(output_ids)
-		by_step = {}
-		for p in pairs:
-			by_step.setdefault(p['step'], []).append(p)
-		if args.inspect_plot_at_end:
-			plot_attention(pairs, windows, plot_prefix, args.inspect_threshold,
-				subtitle=f'  ({args.inspect_reduce} over layers/heads, {args.inspect_query} row)')
-		else:
-			print(f'[attn] {len(inspector.plot_paths)} step figure(s) already written during the run: '
-				f'{plot_prefix}.stepNNN.png')
-		report_spans(windows, by_step, threshold=args.inspect_threshold)
-		report_attention(pairs, out_events, src_events, threshold=args.inspect_threshold)
-		if args.inspect_json:
-			with open(args.inspect_json, 'w', encoding='utf-8') as f:
-				json.dump(dict(input=args.input, checkpoint=checkpoint,
-					reduce=args.inspect_reduce, query=args.inspect_query,
-					threshold=args.inspect_threshold, top_k=args.inspect_top_k,
-					src_window=args.src_window, advance_tokens=args.advance_tokens, prime_window=args.prime_window,
-					align_advance=args.align_advance, align_stop_window=args.align_stop_window,
-					align_stop_rate=args.align_stop_rate, align_trim_rate=args.align_trim_rate,
-					align_stop_reuse=args.align_stop_reuse,
-					align_stop_reuse_window=args.align_stop_reuse_window, align_trim_density=args.align_trim_density,
-					align_trim_min_notes=args.align_trim_min_notes,
-					align_trim_spanless_run=args.align_trim_spanless_run,
-					align_trim_span_ratio=args.align_trim_span_ratio,
-					align_trim_tail_unmatched=args.align_trim_tail_unmatched,
-					align_trim_gap=args.align_trim_gap,
-					generated_notes=len(out_events), source_notes=len(src_events),
-					# prime_notes and cuts are recorded so what a figure DREW is checkable from data,
-					# rather than only by looking at the image: an empty primer or a missing cut is a
-					# figure quietly short of a mark, and that should be visible here.
-					steps={str(s): dict(lines=w['lines'],
-							src_notes=len(w['src']), out_notes=len(w['out']),
-							prime_notes=len(w.get('prime') or []),
-							eoms=list(w.get('eoms') or []),
-							cuts=w.get('cuts') or {})
-						for s, w in sorted(windows.items())},
-					links=pairs), f, indent=2)
-			print(f'[attn] wrote {args.inspect_json}')
-	return 0
+	if args.input_list:
+		# Batch mode
+		with open(args.input_list, 'r', encoding='utf-8') as f:
+			rows = [line.rstrip('\n').split('\t') for line in f if line.strip()]
+		for row in rows:
+			if len(row) < 3:
+				print(f'[skip] {row}: need >=3 columns', file=sys.stderr)
+				continue
+			in_path, out_arg, log_path = row[0], row[1], row[2]
+			skip_ifs = row[3:] if len(row) > 3 else []
+			if skip_ifs and all(os.path.exists(p) and os.path.getsize(p) > 0 for p in skip_ifs):
+				print(f'[skip] {os.path.basename(in_path)}: all skip-if exist', file=sys.stderr)
+				continue
+			os.makedirs(os.path.dirname(log_path) or '.', exist_ok=True)
+			with open(log_path, 'w', encoding='utf-8') as log:
+				old_stdout, old_stderr = sys.stdout, sys.stderr
+				sys.stdout = sys.stderr = log
+				try:
+					ann_dir = args.annotate_source if args.annotate_source else None
+					rc = translate_file(args, model, tokenizer, config, data_args, pos_style,
+						model_type, checkpoint, in_path, out_arg, ann_dir)
+					if rc != 0:
+						print(f'[fail] rc={rc}', file=old_stderr)
+				except Exception as e:
+					print(f'[exception] {e}', file=old_stderr)
+					import traceback
+					traceback.print_exc(file=log)
+				finally:
+					sys.stdout, sys.stderr = old_stdout, old_stderr
+		return 0
+	else:
+		# Single-file mode
+		ann_dir = args.annotate_source if args.annotate_source else None
+		return translate_file(args, model, tokenizer, config, data_args, pos_style,
+			model_type, checkpoint, args.input, args.output, ann_dir)
 
 
 if __name__ == '__main__':
