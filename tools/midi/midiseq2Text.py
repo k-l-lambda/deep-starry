@@ -37,3 +37,49 @@ def reconcile_terminators (out_lines, src_lines):
 	# The count of `@measure` directives IS the last bar's number, so the next one closes it.
 	nth = sum(1 for l in kept if l.startswith('@measure')) + 1
 	return kept + [f'@measure {nth}'], True
+
+
+def assert_midiseq2 (lines, path, tokenizer, threshold=0.2):
+	"""Fail loudly when `lines` are not midiseq2. -> the unknown-token fraction.
+
+	Both translate tools take `--input <file>.midiseq2.txt` and hand it straight to `encode_lines`,
+	which resolves every token with `lookup.get(token, unknown)`. That default is right for a stray
+	token inside real midiseq2 and WRONG for a whole file in the wrong language: MidiText -- what
+	`tools/midiToTextSegments.ts` writes, and what piano0909/segs holds -- shares the event keywords
+	(`note_on`, `set_tempo`) but writes the fields as raw hex words rather than midiseq2's `#26 $34`
+	pitch/velocity and `E040` elapse tokens. MEASURED on a real segment against the 582-token
+	midiseq2 vocabulary: 5222 of 9835 tokens (53.1%) resolve to <unknown>, and NOTHING raises. The
+	run completes, burns its GPU time and publishes a file built from a source the model could not
+	read.
+
+	So the check is the unknown RATE, not a filename or a header sniff. A `.txt` suffix says nothing
+	(both languages use it), and a header sniff would pass a file whose first two lines happen to be
+	`ticks_per_beat`/`format_type` -- which MidiText's are. The rate separates the two languages by
+	two orders of magnitude, so any threshold in between works; 0.2 is set well above real
+	midiseq2's own rate and far below MidiText's.
+
+	The fix for a MidiText input is to CONVERT it first (midiToSeq2Server.ts with kind `text`, which
+	is what translate_piano0909.sh --source segs does), not to relax this.
+	"""
+	lookup, unknown = tokenizer.id_by_token, tokenizer.unknown_id
+	total = miss = 0
+	examples = []
+	for line in lines:
+		if line.startswith('@'):		# directives are control, never looked up
+			continue
+		for token in line.split():
+			total += 1
+			if lookup.get(token, unknown) == unknown:
+				miss += 1
+				if len(examples) < 8:
+					examples.append(token)
+	if not total:
+		raise ValueError(f'{path}: no tokens to translate')
+	rate = miss / total
+	if rate >= threshold:
+		raise ValueError(
+			f'{path}: {miss}/{total} tokens ({rate:.1%}) are outside the midiseq2 vocabulary, '
+			f'e.g. {examples}. This looks like MidiText rather than midiseq2 -- convert it first '
+			f'(midiToSeq2Server.ts, kind `text`; translate_piano0909.sh --source segs does this), '
+			f'because encode_lines would silently map every one of them to <unknown>.')
+	return rate
