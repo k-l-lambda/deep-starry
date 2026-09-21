@@ -3337,7 +3337,7 @@ def main ():
 			'N=16 rate 0.6 on 30 files: whole-file shift_f1 0.6901 -> 0.7227, 6 win / 2 lose.')
 	ap.add_argument('--align-stop-rate', type=float, default=0.6, metavar='R',
 		help='miss ratio over the --align-stop-window that ends the run (default 0.6).')
-	ap.add_argument('--align-stop-reuse', type=float, default=0.0, metavar='R',
+	ap.add_argument('--align-stop-reuse', type=float, default=0.34, metavar='R',
 		help='stage 1, second axis: end the run when distinct/matched source notes over the '
 			'--align-stop-window falls below R for a full window of consecutive windows. Catches '
 			'OVER-GENERATION, which the miss ratio cannot see at all -- with ReuseCost 0.0, pouring '
@@ -3346,7 +3346,7 @@ def main ():
 			'reach 0.25; R=0.34 fires on the 2.29x-reuse file at bar 4/12 with 0 false positives. '
 			'Deliberately conservative -- this stop is online, and a transient blip is indistinguishable '
 			'from a real collapse at the moment it fires, so the tail trim carries the rest.')
-	ap.add_argument('--align-stop-reuse-window', type=int, default=0, metavar='N',
+	ap.add_argument('--align-stop-reuse-window', type=int, default=48, metavar='N',
 		help='window for the reuse axis only, in observed note_on. 0 = use --align-stop-window. Set it '
 			'LONGER than that window: the two axes measure opposite shapes of failure. A miss collapse '
 			'is local (measured: a 7-miss burst reads 0.625 over 16 notes and 0.500 over 24, so a wider '
@@ -3357,7 +3357,7 @@ def main ():
 			'longest sub-threshold run in the repeat against the worst run anywhere healthy: 32 -> 0 vs '
 			'2, 40 -> 0 vs 0, 48 -> 20 vs 0, 64 -> 15 vs 0. N=48 is where the window first spans the '
 			'~3 repetitions the threshold needs, with no healthy window sub-threshold at all.')
-	ap.add_argument('--align-trim-density', type=float, default=0.0, metavar='D',
+	ap.add_argument('--align-trim-density', type=float, default=2.0, metavar='D',
 		help='stage 2, second axis: drop trailing measures generating >= D notes per unit of NEW '
 			'source they claim. This is the over-generation the miss-ratio trim is blind to. 0 disables '
 			'it. Measured at D=2.0 on 20 files it catches 4 of the 5 known-bad tails (the 5th is '
