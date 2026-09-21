@@ -62,6 +62,7 @@ from translateMidiseq2 import (DEFAULT_RUN, SlidingTranslator, SlidingEncDecTran
 	resolve_checkpoint, resolve_tokenizer, load_model, render_lines, compose_output, write_output,
 	report_output, source_header, encode_lines, note_on_events, keyword_tokens, is_elapse)
 from starry.utils.config import Configuration
+from tools.midi.midiseq2Text import assert_midiseq2
 
 
 class BeamMixin:
@@ -1337,8 +1338,13 @@ def main ():
 
 	with open(args.input, 'r', encoding='utf-8') as f:
 		lines = f.read().splitlines()
+	# Refuse a source in the wrong language before spending any GPU time on it. encode_lines maps an
+	# unknown token to <unknown> rather than raising, so MidiText (piano0909/segs, 53.1% unknown when
+	# MEASURED) would otherwise translate to completion off a source the model cannot read.
+	unknown_rate = assert_midiseq2(lines, args.input, tokenizer)
 	print(f'[in]  {os.path.basename(args.input)}: {len(lines)} lines, '
-		f'pos_style {pos_style}, src_window {args.src_window}, max_token {args.max_token}')
+		f'pos_style {pos_style}, src_window {args.src_window}, max_token {args.max_token}'
+		f'{"" if unknown_rate == 0 else f", {unknown_rate:.2%} unknown tokens"}')
 
 	# --inspect N means "one window, N positions": the cap applies to GENERATION, not just to what is
 	# recorded, so an inspection run costs N positions instead of generating a whole file to keep a
