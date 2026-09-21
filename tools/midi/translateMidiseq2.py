@@ -171,7 +171,7 @@ from starry.midi.models.midiTranslatorEncDec import EncDecKVDecoder
 # Pure-text, and deliberately in its own module: repairStrayTerminators.py applies the SAME rule to
 # already-published files, and importing it from here dragged torch and the whole model stack into a
 # tool that only rewrites lines (ModuleNotFoundError on a box whose plain python3 has no torch).
-from tools.midi.midiseq2Text import reconcile_terminators
+from tools.midi.midiseq2Text import reconcile_terminators, assert_midiseq2
 
 
 DEFAULT_RUN = '/home/claude/training/midi/20260812-midi-translator-nota1m00-sep-l8d512'
