@@ -935,7 +935,8 @@ class SlidingTranslator:
 		align_stop_window=0, align_stop_rate=0.6, align_trim_rate=0.0,
 		align_stop_reuse=0.0, align_stop_reuse_window=0, align_trim_density=0.0,
 		align_trim_min_notes=4, align_trim_spanless_run=0, align_trim_span_ratio=0.0,
-		align_trim_tail_unmatched=0, align_trim_gap=0):
+		align_trim_tail_unmatched=0, align_trim_gap=0, align_trim_tail_run=0,
+		align_fail_miss=0.0):
 		self.model = model
 		self.tk = tokenizer
 		self.pos_style = pos_style
@@ -1049,6 +1050,17 @@ class SlidingTranslator:
 		# walk stopped there -- the trim printed `bad bars SHIELDED behind it (kept): [32, 34, 35, 36]`
 		# and dropped nothing. 41 of the file's 66 sourceless output notes sat in that shielded stretch.
 		self.align_trim_gap = max(0, int(align_trim_gap))
+		# Run length for the FORWARD scan of the same tail-unmatched signal, the only mid-file reach it
+		# has. Separate from the backward walk's threshold because reachability differs -- see
+		# `first_tail_unmatched_run`. 0 disables it.
+		self.align_trim_tail_run = max(0, int(align_trim_tail_run))
+		# Whole-file miss ratio above which the file is declared a failure outright. Every other miss
+		# guard is LOCAL: `--align-stop-rate` reads a sliding window, `--align-trim-rate` one bar at a
+		# time, so a file that misses steadily everywhere passes both and publishes. MEASURED on
+		# piano0909 1933ebb544: 45 missed of 145 generated note_on = 0.31 whole-file, no single window or
+		# bar bad enough to condemn it, 5 measures survived (over `MIN_MEASURES=4`) holding 8 of 300
+		# source note_on, published at recall 0.3571. 0 disables it.
+		self.align_fail_miss = max(0.0, float(align_fail_miss))
 		self._align_measures = []		# measure ordinal -> [observed, missed]
 		self._align_eom_at = []			# absolute output index of every <eom>, in order
 		# measure ordinal -> every source event index the notes in that measure matched. Collected on the
@@ -1797,6 +1809,55 @@ class SlidingTranslator:
 		return out
 
 
+	def first_tail_unmatched_run (self):
+		"""Bar ordinal where the earliest run of tail-unmatched bars starts, or None. -> int | None
+
+		The mid-file counterpart to `bar_tail_unmatched`, whose own docstring names this failure mode and
+		concedes it: "the walk only ever visits a SUFFIX, so a mid-file spike is unreachable unless every
+		bar behind it already failed -- 0042ec118a bar 10 of 25 reads 7 and that file was trimmed by
+		nothing at all."
+
+		MEASURED on piano0909 8819710c2c (sep1033 e1033, 2026-09-21), the file this was built for. Its
+		per-bar trailing-unmatched runs are, from bar 9, `6 7 0 6 10 6 0 0 0 0 0`: the model loses its
+		source at bar 9 and recovers at bar 15, and bars 15-19 are clean. The backward walk starts at bar
+		19, spends its whole `--align-trim-gap` budget of 1 on bars 19 and 18, and breaks having read
+		nothing -- five healthy bars are a thicker wall than the gap can cross. The miss axis independently
+		cut bars 14-20 and stopped ON bar 13, whose run is 10, so the published file ENDED on the worst bar
+		in the file. Recall 0.5147; cutting at bar 9 is what the shape asks for.
+
+		Same structure as `first_spanless_run` and for the same reason: a forward scan is the only way to
+		see a defect that healthy bars sit behind, and the caller composes the two by taking whichever
+		cuts earlier. The threshold is `--align-trim-tail-unmatched`, shared with the backward walk, but
+		the RUN LENGTH is its own parameter (`--align-trim-tail-run`) because reachability differs: the
+		walk visits a suffix, where the measured ceiling on a surviving bar is exactly 3, while a forward
+		scan can land anywhere and 9.3% of all 1226 measured bars exceed that threshold. A single bar over
+		it is therefore NOT evidence mid-file -- 0042ec118a bar 10 reads 7 with healthy bars either side
+		and that file wants no cut at all.
+
+		Bar 1 is excluded, as in `first_spanless_run`: its boundary is asserted at source 0 rather than
+		measured, so a tail run there says the model restated the opening, which
+		`drop_restated_leading_bar` handles.
+
+		NOT yet measured over a corpus. The run-length default is 0 (off) for that reason, and the one
+		file it is known to fix is the one it was read off -- see the axis's own end-to-end blast radius
+		in `bar_tail_unmatched` for what that measurement has to look like before this can be a default.
+		"""
+		if not (self.align_trim_tail_run and self.align_trim_tail_unmatched):
+			return None
+		tailu = self.bar_tail_unmatched()
+		start, run = None, 0
+		for m in range(1, len(tailu)):
+			if tailu[m] > self.align_trim_tail_unmatched:
+				if run == 0:
+					start = m
+				run += 1
+				if run >= self.align_trim_tail_run:
+					return start
+			else:
+				start, run = None, 0
+		return None
+
+
 	def trim_align_tail (self, output, last_bar_doomed=False):
 		'''Drop trailing measures that fail on miss ratio, over-generation density, or span ratio.
 
@@ -1835,7 +1896,8 @@ class SlidingTranslator:
 		and has no false-positive mode of its own: the bar it skips was leaving the file regardless.
 		'''
 		if not (self.align_trim_rate or self.align_trim_density or self.align_trim_spanless_run
-				or self.align_trim_span_ratio or self.align_trim_tail_unmatched) or not self._align_measures:
+				or self.align_trim_span_ratio or self.align_trim_tail_unmatched
+				or self.align_trim_tail_run) or not self._align_measures:
 			return output, 0, False
 		density = self.bar_density() if self.align_trim_density else []
 		spanr = self.bar_span_ratio() if self.align_trim_span_ratio else []
@@ -1912,6 +1974,12 @@ class SlidingTranslator:
 		spanless = self.first_spanless_run()
 		if spanless is not None and spanless - 1 < last:
 			last = spanless - 1
+			dropped = nb - 1 - last
+		# The other mid-file axis, composed the same way: whichever cut lands earlier wins. See
+		# `first_tail_unmatched_run` for why the backward walk provably cannot reach the shape it finds.
+		tailrun = self.first_tail_unmatched_run()
+		if tailrun is not None and tailrun - 1 < last:
+			last = tailrun - 1
 			dropped = nb - 1 - last
 		if last < 0:
 			return output, dropped, True
@@ -2359,6 +2427,13 @@ class SlidingTranslator:
 				src_events=len(src_events), stop_at=self._align_stop_at,
 				stop_cause=self._align_stop_cause,
 				measures_trimmed=trimmed, failed=failed, tail_runs=tail_runs)
+			# Read on `observed`, the same denominator the [align-advance] line prints, so the log's
+			# arithmetic is the verdict's arithmetic. Only when the axis is on AND something was observed:
+			# a run that generated no note_on has no ratio, and 0/0 must not read as a failure.
+			if self.align_fail_miss and st['observed']:
+				ratio = st['missed'] / st['observed']
+				if ratio > self.align_fail_miss:
+					stats_align['fail_miss'] = (ratio, self.align_fail_miss)
 		else:
 			stats_align = None
 			output, strays = self.strip_stray_terminators(output)
@@ -2571,6 +2646,9 @@ def report_output (body_lines, stats):
 		if al.get('failed'):
 			print('[align-trim] FAILURE: no measure survived the trim, so the output is a fragment '
 				'and should not be used')
+		if al.get('fail_miss'):
+			print(f'[align-fail] whole-file miss ratio {al["fail_miss"][0]:.4f} exceeds '
+				f'{al["fail_miss"][1]:.4f}; every local guard passed it, so the file is condemned here')
 		# Printed for every run with the axis on, not only when it fires, because the threshold is only
 		# defensible against the distribution of bars it did NOT fire on -- and that distribution is not
 		# recoverable from the published files, the online cursor's record being the thing it measures.
@@ -3197,6 +3275,8 @@ def translate_file (args, model, tokenizer, config, data_args, pos_style, model_
 		align_trim_span_ratio=args.align_trim_span_ratio,
 		align_trim_tail_unmatched=args.align_trim_tail_unmatched,
 		align_trim_gap=args.align_trim_gap,
+		align_trim_tail_run=args.align_trim_tail_run,
+		align_fail_miss=args.align_fail_miss,
 		prime_window=args.prime_window, kv_cache=not args.no_kv_cache)
 
 	# The output path has to be settled BEFORE translate runs, because the streaming figures are named
@@ -3238,6 +3318,17 @@ def translate_file (args, model, tokenizer, config, data_args, pos_style, model_
 		print('[fail] no measure survived the trim, so there is nothing to write; '
 			'leaving both arms unwritten and exiting non-zero')
 		return 3
+
+	# The whole-file axis, and the reason it is not a trim: there is no suffix to remove. A file that
+	# misses steadily everywhere has no healthy prefix to keep -- MEASURED on 1933ebb544, whose 0.31 miss
+	# ratio sat under BOTH local thresholds (no 16-note window reached --align-stop-rate 0.3, no bar
+	# reached --align-trim-rate 0.3) and whose 5 surviving measures held 8 of 300 source note_on. Read
+	# after the trim, on the same counters report_output printed, so the log shows the arithmetic.
+	if stats.get('align') and stats['align'].get('fail_miss'):
+		ratio, limit = stats['align']['fail_miss']
+		print(f'[fail] whole-file miss ratio {ratio:.4f} exceeds {limit:.4f}; '
+			'leaving both arms unwritten and exiting non-zero')
+		return 4
 
 	# The source arm is annotated BEFORE the output arm is written, so the two endings can be
 	# reconciled: the output must not claim an ending the source does not have. Only the ORDER
@@ -3294,6 +3385,8 @@ def translate_file (args, model, tokenizer, config, data_args, pos_style, model_
 					align_trim_span_ratio=args.align_trim_span_ratio,
 					align_trim_tail_unmatched=args.align_trim_tail_unmatched,
 					align_trim_gap=args.align_trim_gap,
+					align_trim_tail_run=args.align_trim_tail_run,
+					align_fail_miss=args.align_fail_miss,
 					generated_notes=len(out_events), source_notes=len(src_events),
 					# prime_notes and cuts are recorded so what a figure DREW is checkable from data,
 					# rather than only by looking at the image: an empty primer or a missing cut is a
@@ -3429,6 +3522,25 @@ def main ():
 			'passed over by the backward walk rather than ending it (default 4). The LAST measure is '
 			'where generation was cut, so it is routinely under-sized; treating it as a wall silently '
 			'defeated the whole trim on a file whose tail was 8/1 8/1 8/1 8/1 2/0.')
+	ap.add_argument('--align-trim-tail-run', type=int, default=0, metavar='N',
+		help='stage 2, fourth axis, and the second that can act on the MIDDLE of a file: cut at the start '
+			'of the first run of N or more consecutive bars whose trailing-unmatched count exceeds '
+			'--align-trim-tail-unmatched. That axis alone is read by the BACKWARD walk, which provably '
+			'cannot reach a mid-file spike -- measured on 8819710c2c, whose runs from bar 9 are 6 7 0 6 '
+			'10 6 then five clean bars: the walk spends its whole --align-trim-gap budget on bars 19 and '
+			'18 and breaks, while the miss axis cut bars 14-20 and stopped ON bar 13, run 10, so the file '
+			'ended on its worst bar at recall 0.5147. Needs --align-trim-tail-unmatched. 0 disables it. '
+			'NOT corpus-measured: one file, the one it was read off, so it is off by default.')
+	ap.add_argument('--align-fail-miss', type=float, default=0.0, metavar='R',
+		help='declare the whole FILE a failure (exit 4, neither arm written) when its miss ratio over all '
+			'generated note_on exceeds R. Every other miss guard is local -- --align-stop-rate reads a '
+			'sliding window, --align-trim-rate one bar -- so a file that misses steadily everywhere '
+			'passes both: measured on 1933ebb544, 45 of 145 = 0.31 whole-file with no window or bar bad '
+			'enough to condemn it, 5 measures surviving MIN_MEASURES=4 while holding 8 of 300 source '
+			'note_on, published at recall 0.3571. There is no suffix to trim on this shape, which is why '
+			'it is a verdict and not an axis. 0 disables it. CAUTION at 0.2 on the 10-file piano0909 '
+			'batch it also condemns a71da38ca9 at 0.2409, which scores recall 0.8361 / precision 0.9107 '
+			'-- the healthy and bad distributions overlap on this axis, so pick it against a corpus.')
 	ap.add_argument('--align-trim-rate', type=float, default=0.0, metavar='R',
 		help='stage 2, the tail trim: after the run, drop trailing measures whose OWN miss ratio '
 			'exceeds R, so the output ends on a complete measure. 0 disables it. Needs '
@@ -3518,19 +3630,37 @@ def main ():
 		print(f'[vocab] {vocab_path} ({tokenizer.vocab_size} tokens)')
 
 	if args.input_list:
-		# Batch mode
+		# Batch mode: one loaded model over many files, because process startup is 5.8s (1.5s torch,
+		# 3.9s the asset registry importing 4523 modules, 0.8s weights, ~1.0s CUDA teardown) against a
+		# 13.8s median translate -- a file-per-process run spends ~30% of its GPU hours loading.
+		#
+		# The caller stays in charge of every per-file decision it made before. This loop does NOT
+		# rename, quarantine or record anything: it prints one machine-readable [result] line per row
+		# and leaves the verdict to the caller, so an existing dispatcher keeps its own rc semantics,
+		# .part handling and coverage gate. rc is per ROW, not per process.
 		with open(args.input_list, 'r', encoding='utf-8') as f:
 			rows = [line.rstrip('\n').split('\t') for line in f if line.strip()]
+		out_stream = sys.stdout
+		n_ok = n_skip = n_fail = 0
 		for row in rows:
 			if len(row) < 3:
-				print(f'[skip] {row}: need >=3 columns', file=sys.stderr)
+				print(f'[result] - rc=2 malformed', file=out_stream, flush=True)
+				n_fail += 1
 				continue
 			in_path, out_arg, log_path = row[0], row[1], row[2]
 			skip_ifs = row[3:] if len(row) > 3 else []
-			if skip_ifs and all(os.path.exists(p) and os.path.getsize(p) > 0 for p in skip_ifs):
-				print(f'[skip] {os.path.basename(in_path)}: all skip-if exist', file=sys.stderr)
+			stem = os.path.basename(in_path)
+			# Read HERE rather than when the list was built: the caller's dispatch may be a shared
+			# work list with no claim protocol (translate_piano0909.sh), where another worker can
+			# publish a row's target while this batch is still walking towards it. Checking lazily is
+			# what keeps a big batch from re-doing work that landed in the meantime -- freezing the
+			# decision at build time would widen the duplicate window from one file to a whole batch.
+			if skip_ifs and all(os.path.exists(q) and os.path.getsize(q) > 0 for q in skip_ifs):
+				print(f'[result] {stem} rc=0 skipped', file=out_stream, flush=True)
+				n_skip += 1
 				continue
 			os.makedirs(os.path.dirname(log_path) or '.', exist_ok=True)
+			rc = 1
 			with open(log_path, 'w', encoding='utf-8') as log:
 				old_stdout, old_stderr = sys.stdout, sys.stderr
 				sys.stdout = sys.stderr = log
@@ -3538,14 +3668,24 @@ def main ():
 					ann_dir = args.annotate_source if args.annotate_source else None
 					rc = translate_file(args, model, tokenizer, config, data_args, pos_style,
 						model_type, checkpoint, in_path, out_arg, ann_dir)
-					if rc != 0:
-						print(f'[fail] rc={rc}', file=old_stderr)
-				except Exception as e:
-					print(f'[exception] {e}', file=old_stderr)
+				except Exception:
+					# One file's crash must not take the batch down: the remaining rows are still
+					# worth their already-paid model load, and the traceback goes to that file's own
+					# log where a per-file dispatcher already looks.
 					import traceback
 					traceback.print_exc(file=log)
+					rc = 1
 				finally:
 					sys.stdout, sys.stderr = old_stdout, old_stderr
+			print(f'[result] {stem} rc={rc}', file=out_stream, flush=True)
+			if rc == 0:
+				n_ok += 1
+			else:
+				n_fail += 1
+		print(f'[batch] {len(rows)} row(s): {n_ok} ok, {n_skip} skipped, {n_fail} failed',
+			file=out_stream, flush=True)
+		# 0 whenever the batch RAN. A row's verdict is on its own [result] line; making the process
+		# rc a summary would force the caller to re-parse the log to tell one bad file from a bad run.
 		return 0
 	else:
 		# Single-file mode
