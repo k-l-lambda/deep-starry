@@ -3335,8 +3335,8 @@ def main ():
 			'the same AlignState the advance builds). A window rather than the current measure is '
 			'used because measures are uneven -- median 15 note_on but 4%% carry <= 5. Measured at '
 			'N=16 rate 0.6 on 30 files: whole-file shift_f1 0.6901 -> 0.7227, 6 win / 2 lose.')
-	ap.add_argument('--align-stop-rate', type=float, default=0.6, metavar='R',
-		help='miss ratio over the --align-stop-window that ends the run (default 0.6).')
+	ap.add_argument('--align-stop-rate', type=float, default=0.3, metavar='R',
+		help='miss ratio over the --align-stop-window that ends the run (default 0.3).')
 	ap.add_argument('--align-stop-reuse', type=float, default=0.34, metavar='R',
 		help='stage 1, second axis: end the run when distinct/matched source notes over the '
 			'--align-stop-window falls below R for a full window of consecutive windows. Catches '
