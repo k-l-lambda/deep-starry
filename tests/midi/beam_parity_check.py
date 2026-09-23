@@ -32,7 +32,7 @@ from starry.midi.data.seq2CondPachifier import Midiseq2Tokenizer
 from starry.midi.align import (soft_indices, elapse_value, elapse_class, stage_admits,
 	STAGE_BIG, STAGE_LOW, Config as AlignConfig)
 from translateMidiseq2 import keyword_tokens, is_elapse, SlidingTranslator
-from translateMidiseq2Beam import (AlignAdjudicator, BeamInspector, BeamTranslator,
+from translateMidiseq2BeamLegacy import (AlignAdjudicator, BeamInspector, BeamTranslator,
 	LineageTracker, path_align_loss)
 
 
