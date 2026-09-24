@@ -1,14 +1,17 @@
 """Translate irregular MIDI with an additive, cached beam search.
 
-The search shares window advancement with translateMidiseq2.py. It ranks log
+The search shares the sliding loop with translateMidiseq2.py. It ranks log
 probability minus a bounded optional per-note alignment penalty. Structural tokens
 remain normal candidates; --beam 1 uses greedy generation. Inspection records the
 search without changing its candidates or budget. --legacy reproduces the old
 align-first translator and its command-line options.
 
-Default auto mode compares an independent greedy output with the LM beam using
-completion and input-pitch fidelity. Only a rejected beam triggers an alignment
-retry; greedy remains the fallback. Score-reference labels are never consulted.
+Default auto mode uses only beam candidates, never a greedy fallback. An incomplete
+primary may trigger one soft-alignment retry. Only an unstopped, complete retry
+with acceptable input fidelity replaces it; otherwise the truncated primary and
+its failure status are preserved. Score-reference labels are never consulted.
+Online quality control runs after each selected generation window. Optional
+--align-advance uses confirmed retired-output matches to move the source cursor.
 """
 
 import argparse
@@ -46,7 +49,7 @@ def main():
     ap.add_argument('--beam', type=int, default=4)
     ap.add_argument('--branch-k', type=int, default=4)
     ap.add_argument('--rank', choices=['auto', 'lm', 'align'], default='auto',
-                    help='auto: LM beam, soft-alignment rescue on guard rejection, then greedy fallback')
+                    help='auto: beam-only; retry incomplete primary, otherwise preserve its partial result')
     ap.add_argument('--alignment-weight', type=float, default=0.5,
                     help='nonnegative event penalty weight; zero is pure LM search')
     ap.add_argument('--length-alpha', type=float, default=0.7)
@@ -60,9 +63,19 @@ def main():
     ap.add_argument('--no-prime', action='store_true')
     ap.add_argument('--no-kv-cache', action='store_true')
     ap.add_argument('--no-guard', action='store_true',
-                    help='disable the independent greedy check and alignment rescue')
+                    help='disable alignment retry; never enables greedy fallback')
     ap.add_argument('--align-advance', action='store_true',
-                    help='use the same retired-output alignment as the greedy translator')
+                    help='advance source using confirmed matches of retired output; hold on uncertainty')
+    ap.add_argument('--no-quality-stop', action='store_true',
+                    help='disable online quality stopping (alignment-stall protection stays active)')
+    ap.add_argument('--quality-window', type=int, default=32,
+                    help='notes per nonoverlapping quality block')
+    ap.add_argument('--quality-patience', type=int, default=2,
+                    help='consecutive bad blocks required to stop; at least 2')
+    ap.add_argument('--quality-miss-rate', type=float, default=.8)
+    ap.add_argument('--quality-fresh-rate', type=float, default=.25,
+                    help='minimum fraction of reliable matches that use new source notes')
+    ap.add_argument('--align-stall-windows', type=int, default=3)
     ap.add_argument('--inspect', action='store_true', help='record all search positions; no budget change')
     ap.add_argument('--inspect-json')
     ap.add_argument('--threads', type=int, default=0)
@@ -78,6 +91,9 @@ def main():
             ap.error(f'--{key.replace("_", "-")} must be finite and nonnegative')
     if args.src_window < 1 or args.max_token < 2 or args.prime_window < 0 or args.max_steps < 0:
         ap.error('invalid window or generation budget')
+    if (args.quality_window < 8 or args.quality_patience < 2 or args.align_stall_windows < 1
+            or not .5 <= args.quality_miss_rate <= 1 or not 0 <= args.quality_fresh_rate <= .5):
+        ap.error('invalid online quality/advancement thresholds')
     if args.threads:
         torch.set_num_threads(args.threads)
     torch.manual_seed(args.seed)
@@ -109,21 +125,27 @@ def main():
                      alignment_weight=weight, length_alpha=args.length_alpha,
                      logprob_margin=args.logprob_margin, guard=not args.no_guard,
                      rescue_alignment_weight=rescue_weight,
+                     quality_stop=not args.no_quality_stop, quality_window=args.quality_window,
+                     quality_patience=args.quality_patience, quality_miss_rate=args.quality_miss_rate,
+                     quality_fresh_rate=args.quality_fresh_rate, align_stall_windows=args.align_stall_windows,
                      inspect=args.inspect or bool(args.inspect_json))
     print(f'[search] additive beam={args.beam}, rank={args.rank}, alignment_weight={weight:g}, '
           f'length_alpha={args.length_alpha:g}, margin={args.logprob_margin:g}; '
-          f'shared greedy window advancement; checkpoint={checkpoint}')
+          f'align_advance={args.align_advance}, quality_stop={not args.no_quality_stop}; '
+          f'checkpoint={checkpoint}')
     ids, stats = translator.translate(lines, max_steps=args.max_steps, verbose=args.verbose)
     body = render_lines(ids, tokenizer, translator.keywords)
     out_path = args.output or os.path.join(REPO_ROOT, 'tests', 'output', 'translate_midiseq2',
                                          os.path.splitext(os.path.basename(args.input))[0] + '.beam.txt')
     write_output(out_path, compose_output(body, source_header(lines)))
     report_output(body, stats)
+    for label, candidate_stats in [('beam', translator.candidate_stats), ('rescue', translator.rescue_stats)]:
+        if candidate_stats and candidate_stats.get('early_stop'):
+            print(f'[{label} early-stop] {candidate_stats["early_stop"]}')
     if 'guard' in stats:
         guard = stats['guard']
         print(f'[guard] selected {guard["selected"]}; reason={guard["reason"]}; '
-              f'input pitch F1 greedy={guard["greedy_source_f1"]:.4f}, '
-              f'beam={guard["beam_source_f1"]:.4f}; total {stats["elapsed"]:.1f}s')
+              f'partial={guard["partial"]}; total {stats["elapsed"]:.1f}s')
     print(f'[out] wrote {out_path}; end_of_track={stats["done"]}')
     if translator.inspect:
         path = args.inspect_json or os.path.splitext(out_path)[0] + '.search.json'
@@ -131,6 +153,8 @@ def main():
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(dict(format='sequence-beam-v2', args=vars(args), checkpoint=checkpoint,
                            vocab=vocab, stats=stats, search=translator.search_report,
+                           candidate_stats=translator.candidate_stats,
+                           greedy_stats=translator.greedy_stats, rescue_stats=translator.rescue_stats,
                            windows=translator.search_windows,
                            rescue_search=translator.rescue_search_report,
                            rescue_windows=translator.rescue_windows), f)

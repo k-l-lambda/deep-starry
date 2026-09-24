@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, replace
 from collections import Counter
+from bisect import bisect_right
 import math
 import time
 
@@ -11,29 +12,32 @@ import torch.nn.functional as F
 from starry.midi.align import AlignState, soft_delta, soft_indices
 from starry.midi.beam import BranchState
 from starry.midi.sequenceBeam import sequence_beam
+from starry.midi.translationControl import TranslationControl
 from translateMidiseq2 import (SlidingTranslator, SlidingEncDecTranslator,
-                             encode_lines, note_on_events)
+                             encode_lines, note_on_events, line_token_offsets)
 
 
-def choose_candidate(source, greedy, beam, greedy_done, beam_done, margin=0.05):
-    """Conservative whole-file selection using input pitches, never score labels.
+def choose_candidate(source, beam, rescue, beam_done, rescue_done, margin=0.05,
+                     beam_stopped=False, rescue_stopped=False):
+    """Only a complete, unstopped beam retry may replace the primary beam.
 
-    A greedy candidate is generated independently, so a bad beam primer cannot
-    contaminate its fallback. Small source/target differences are expected under
-    augmentation; only a five-point loss of source pitch F1 triggers that guard.
-    Completion is checked separately from pitch overlap.
+    A truncated primary is a valid partial result, never a reason to return an
+    unprotected greedy stream. Input-pitch fidelity is a secondary guard, not
+    evidence that a stopped candidate is complete.
     """
     source = Counter(source)
     def fidelity(pitches):
         pitches = Counter(pitches)
         size = sum(source.values()) + sum(pitches.values())
         return 2.0 * sum((source & pitches).values()) / size if size else 1.0
-    gs, bs = fidelity(greedy), fidelity(beam)
-    reason = ('completion' if greedy_done and not beam_done else
-              'source_fidelity' if bs < gs - margin else None)
-    return dict(selected='greedy' if reason else 'beam', reason=reason,
-                greedy_source_f1=gs, beam_source_f1=bs, margin=margin,
-                greedy_done=greedy_done, beam_done=beam_done)
+    bs, rs = fidelity(beam), fidelity(rescue)
+    reason = ('primary_complete' if beam_done and not beam_stopped else
+              'rescue_early_stop' if rescue_stopped else
+              'rescue_incomplete' if not rescue_done else
+              'source_fidelity' if rs < bs - margin else None)
+    return dict(selected='beam' if reason else 'alignment', reason=reason,
+                beam_source_f1=bs, rescue_source_f1=rs, margin=margin,
+                beam_done=beam_done, rescue_done=rescue_done)
 
 
 @dataclass(frozen=True)
@@ -84,13 +88,15 @@ def advance_event(state, token, keywords):
 
 
 class SequenceBeamMixin:
-    """Only generation changes. Primer/source advancement remains the greedy code."""
+    """Shared sliding loop, with optional committed-output quality/source control."""
 
     def __init__(self, *args, beam_size=4, branch_k=4, alignment_weight=0.0,
                  length_alpha=0.7, logprob_margin=2.0, inspect=False, guard=True,
-                 rescue_alignment_weight=0.5, **kwargs):
-        self._baseline_args = args
-        self._baseline_kwargs = dict(kwargs)
+                 rescue_alignment_weight=0.5, align_advance=False, quality_stop=True,
+                 quality_window=32, quality_patience=2, quality_miss_rate=.8,
+                 quality_fresh_rate=.25, align_stall_windows=3, **kwargs):
+        self._translator_args = args
+        self._translator_kwargs = dict(kwargs)
         super().__init__(*args, **kwargs)
         if beam_size < 1 or branch_k < 1:
             raise ValueError('beam_size and branch_k must be positive')
@@ -110,6 +116,57 @@ class SequenceBeamMixin:
         self.search_report = []
         self.search_windows = []
         self.event_root = None
+        # Each beam attempt has its own quality controller and window history.
+        self.control_align_advance = align_advance
+        self.control_options = dict(quality=quality_stop, window=quality_window,
+                                    patience=quality_patience, miss_rate=quality_miss_rate,
+                                    fresh_rate=quality_fresh_rate, stall_windows=align_stall_windows)
+        TranslationControl([], [], **self.control_options)  # validate before inference
+        self.control = None
+
+    def check_generated_output(self, output, out_base, src_ids):
+        if self.control is None:
+            return None
+        # The shared loop will discard tokens after an honored end_of_track.
+        # Such tokens must not accuse an otherwise valid output of bad quality.
+        eot = self.tk.id_by_token.get('end_of_track')
+        end = len(output)
+        if eot in src_ids and eot in output[out_base:]:
+            end = out_base + output[out_base:].index(eot) + 1
+        self._control_boundary = max((i + 1 for i in range(out_base, end)
+                                      if output[i] == self.tk.eom_id),
+                                     default=self._control_boundary)
+        events, self._control_tick, self._control_walk = note_on_events(
+            output[out_base:end], self.tk, self.keywords, tick0=self._control_tick,
+            state=self._control_walk, index0=out_base)
+        for event in events:
+            self.control.observe(event)
+            if self.control.stop:
+                # Keep complete bars only; never synthesize a successful EOT.
+                cut = max((i + 1 for i, tid in enumerate(output[:event['pitch_index']])
+                           if tid == self.tk.eom_id), default=0)
+                self.control.stop.update(cut=cut, generated_tokens=len(output),
+                                         detection='window_end')
+                return dict(self.control.stop)
+        return None
+
+    def advance_window_source(self, lines, cursor, rolled, src_events, src_line_of,
+                              index0, next_cursor):
+        if not self.control_align_advance or self.control is None:
+            return super().advance_window_source(lines, cursor, rolled, src_events,
+                                                  src_line_of, index0, next_cursor)
+        # Windows containing only metadata/rests have no note correspondence to
+        # preserve. Consuming them is safe; zero TARGET onsets alone is not.
+        visible_notes = any(cursor <= line < next_cursor for line in self.control.source_lines)
+        new_cursor, stop = self.control.advance(cursor, index0 + len(rolled), next_cursor)
+        if not visible_notes:
+            self.control.stalls = self.control.stall_notes = self.control.empty_steps = 0
+            self.control.steps[-1].update(after=max(cursor, next_cursor), mode='non_note_source')
+            return max(cursor, next_cursor), None
+        if stop:
+            stop['cut'] = self._control_boundary
+            self.control.stop = stop
+        return new_cursor, stop
 
     def translate(self, lines, **kwargs):
         # A translator can be reused for files: no lineage from the preceding one
@@ -117,6 +174,10 @@ class SequenceBeamMixin:
         self.search_report = []
         self.search_windows = []
         self.event_root = None
+        self.control = None
+        self._control_tick, self._control_walk = 0, None
+        self._control_boundary = 0
+        self.decode_seconds, self.decode_tokens = 0., 0
         self.greedy_output = None
         self.candidate_output = None
         self.greedy_stats = None
@@ -126,9 +187,14 @@ class SequenceBeamMixin:
         self.rescue_search_report = []
         self.rescue_windows = []
         started = time.monotonic()
-        if self.beam_size > 1 and self.guard:
-            baseline = self.greedy_class(*self._baseline_args, **self._baseline_kwargs)
-            self.greedy_output, self.greedy_stats = baseline.translate(lines, **kwargs)
+        if self.control_align_advance or self.control_options['quality']:
+            ids = encode_lines(lines, self.tk, self.source_eom)
+            events, _, _ = note_on_events(ids, self.tk, self.keywords)
+            offsets = line_token_offsets(lines, self.tk, self.source_eom)
+            source_lines = [bisect_right(offsets, e['pitch_index']) - 1 for e in events]
+            for event, si in zip(events, soft_indices([e['onset'] for e in events])):
+                event['softIndex'] = si
+            self.control = TranslationControl(events, source_lines, **self.control_options)
         if self.beam_size > 1 and self.alignment_weight:
             ids = encode_lines(lines, self.tk, self.source_eom)
             events, _, _ = note_on_events(ids, self.tk, self.keywords)
@@ -136,39 +202,50 @@ class SequenceBeamMixin:
                 event['softIndex'] = si
             self.event_root = EventState(AlignState(events, seed_offset=0.0))
         output, stats = super().translate(lines, **kwargs)
+        if self.control is not None:
+            stats['control'] = self.control.report()
         if self.beam_size > 1:
             stats['kv_cache'] = bool(self.search_report) and all(r['kv_cache'] for r in self.search_report)
         self.candidate_output, self.candidate_stats = output, dict(stats)
-        if self.greedy_output is not None:
-            def pitches(ids):
-                events, _, _ = note_on_events(ids, self.tk, self.keywords)
-                return [e['pitch'] for e in events]
-            decision = choose_candidate(pitches(encode_lines(lines, self.tk, self.source_eom)),
-                                        pitches(self.greedy_output), pitches(output),
-                                        self.greedy_stats['done'], stats['done'])
-            if decision['selected'] == 'greedy':
-                output, stats = self.greedy_output, dict(self.greedy_stats)
-                if self.rescue_alignment_weight and not self.alignment_weight:
-                    rescue = type(self)(*self._baseline_args, **self._baseline_kwargs,
-                                        beam_size=self.beam_size, branch_k=self.branch_k,
-                                        alignment_weight=self.rescue_alignment_weight,
-                                        length_alpha=self.length_alpha, logprob_margin=self.logprob_margin,
-                                        inspect=self.inspect, guard=False, rescue_alignment_weight=0.)
-                    self.rescue_output, self.rescue_stats = rescue.translate(lines, **kwargs)
-                    self.rescue_search_report = rescue.search_report
-                    self.rescue_windows = rescue.search_windows
-                    rescue_decision = choose_candidate(
-                        pitches(encode_lines(lines, self.tk, self.source_eom)),
-                        pitches(self.greedy_output), pitches(self.rescue_output),
-                        self.greedy_stats['done'], self.rescue_stats['done'])
-                    decision['rescue'] = rescue_decision
-                    if rescue_decision['selected'] == 'beam':
-                        output, stats = self.rescue_output, dict(self.rescue_stats)
-                        decision['selected'] = 'alignment'
-            decision.update(greedy_seconds=self.greedy_stats['elapsed'],
-                            beam_seconds=self.candidate_stats['elapsed'])
-            if self.rescue_stats is not None:
+        if self.beam_size > 1:
+            primary_reason = ('early_stop' if stats.get('early_stop') else
+                              'incomplete' if not stats['done'] else None)
+            decision = dict(selected='beam', reason=primary_reason,
+                            policy='beam_only', beam_seconds=self.candidate_stats['elapsed'])
+            if (primary_reason and self.guard and self.rescue_alignment_weight
+                    and not self.alignment_weight):
+                rescue = type(self)(*self._translator_args, **self._translator_kwargs,
+                                    beam_size=self.beam_size, branch_k=self.branch_k,
+                                    alignment_weight=self.rescue_alignment_weight,
+                                    length_alpha=self.length_alpha, logprob_margin=self.logprob_margin,
+                                    inspect=self.inspect, guard=False, rescue_alignment_weight=0.,
+                                    align_advance=self.control_align_advance,
+                                    quality_stop=self.control_options['quality'],
+                                    quality_window=self.control_options['window'],
+                                    quality_patience=self.control_options['patience'],
+                                    quality_miss_rate=self.control_options['miss_rate'],
+                                    quality_fresh_rate=self.control_options['fresh_rate'],
+                                    align_stall_windows=self.control_options['stall_windows'])
+                self.rescue_output, self.rescue_stats = rescue.translate(lines, **kwargs)
+                self.rescue_search_report = rescue.search_report
+                self.rescue_windows = rescue.search_windows
+                def pitches(ids):
+                    events, _, _ = note_on_events(ids, self.tk, self.keywords)
+                    return [e['pitch'] for e in events]
+                retry = choose_candidate(
+                    pitches(encode_lines(lines, self.tk, self.source_eom)),
+                    pitches(output), pitches(self.rescue_output),
+                    stats['done'], self.rescue_stats['done'],
+                    beam_stopped=bool(stats.get('early_stop')),
+                    rescue_stopped=bool(self.rescue_stats.get('early_stop')))
+                decision['rescue'] = retry
                 decision['rescue_seconds'] = self.rescue_stats['elapsed']
+                if retry['selected'] == 'alignment':
+                    output, stats = self.rescue_output, dict(self.rescue_stats)
+                    decision['selected'] = 'alignment'
+            # Copy: aggregate timing/selection must not mutate candidate stats.
+            stats = dict(stats)
+            decision['partial'] = not stats['done'] or bool(stats.get('early_stop'))
             stats['guard'] = decision
             stats['elapsed'] = time.monotonic() - started
         return output, stats
@@ -222,8 +299,6 @@ class SequenceBeamMixin:
 class SequenceBeamTranslator(SequenceBeamMixin, SlidingTranslator):
     """Decoder-only beam with batched cache selection, including sibling copies."""
 
-    greedy_class = SlidingTranslator
-
     def make_step(self, prefix, prefix_positions, n_source, positions):
         cached = self.kv_cache and self.max_token <= self.model.max_seq_len
         self._beam_cache = cached
@@ -265,8 +340,6 @@ class SequenceBeamTranslator(SequenceBeamMixin, SlidingTranslator):
 
 class SequenceBeamEncDecTranslator(SequenceBeamMixin, SlidingEncDecTranslator):
     """Encoder is shared; decoder recomputation is the reference implementation."""
-
-    greedy_class = SlidingEncDecTranslator
 
     def make_step(self, prefix, prefix_positions, n_source, positions):
         self._beam_cache = False

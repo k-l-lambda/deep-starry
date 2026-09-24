@@ -2242,6 +2242,23 @@ class SlidingTranslator:
 
 	# --- whole file ----------------------------------------------------------------------
 
+	def check_generated_output (self, output, out_base, src_ids):
+		'''Optional online controller. Return a stop dict, optionally with a cut index.'''
+		return None
+
+	def advance_window_source (self, lines, cursor, rolled, src_events, src_line_of,
+		index0, next_cursor):
+		'''Default window policy; specialized translators can avoid forced source skips.'''
+		before = cursor
+		if self.align_advance:
+			cursor = self.advance_source_by_align(lines, cursor, rolled, src_events, src_line_of,
+				index0=index0)
+		else:
+			cursor = self.advance_source_by_onsets(lines, cursor, count_note_on(rolled, self.tk))
+		if cursor <= before:
+			cursor = min(next_cursor, len(lines)) if next_cursor > before else before + 1
+		return cursor, None
+
 	def translate (self, lines, verbose=False, max_steps=0, inspector=None):
 		'''Slide across `lines`, returning (output_ids, stats).
 
@@ -2282,6 +2299,7 @@ class SlidingTranslator:
 				self._align_src_line_of = src_line_of
 		forced = 0			# steps whose first token was <eos> before the mask removed it
 		done = False
+		early_stop = None
 		dropped_after_eot = 0	# tokens generated past a terminator this run honoured
 		start_time = time.time()
 
@@ -2305,6 +2323,12 @@ class SlidingTranslator:
 				next_position=(target_base + len(prime_ids) if self.pos_style == 'absolute' else None))
 			out_base = len(output)		# before the extend: maps a new_ids offset onto the output stream
 			output.extend(new_ids)
+			early_stop = self.check_generated_output(output, out_base, src_ids)
+			if early_stop is not None:
+				if 'cut' in early_stop:
+					del output[early_stop['cut']:]
+				step += 1
+				break
 			step_prime_start = prime_start
 			forced += eos_forced
 			# An immediate <eos> is the RIGHT answer once the piece is over: the source window ends in
@@ -2359,14 +2383,8 @@ class SlidingTranslator:
 			retired_eom += sum(1 for token in rolled if token == self.tk.eom_id)
 			onsets = count_note_on(rolled, self.tk)
 			src_before = cursor
-			if self.align_advance:
-				cursor = self.advance_source_by_align(lines, cursor, rolled, src_events, src_line_of,
-					index0=before)
-			else:
-				cursor = self.advance_source_by_onsets(lines, cursor, onsets)
-			# a step that consumed no source line would repeat the same window forever
-			if cursor <= src_before:
-				cursor = min(next_cursor, len(lines)) if next_cursor > src_before else src_before + 1
+			cursor, early_stop = self.advance_window_source(lines, cursor, rolled, src_events,
+				src_line_of, before, next_cursor)
 
 			if inspector is not None:
 				# Observed after the advance, not before it: the figure marks where the NEXT window cuts,
@@ -2377,6 +2395,12 @@ class SlidingTranslator:
 					next_cursor_real=cursor, next_prime_start=prime_start,
 					next_position=(target_base + len(prime_ids)
 						if self.pos_style == 'absolute' else None))
+
+			if early_stop is not None:
+				if 'cut' in early_stop:
+					del output[early_stop['cut']:]
+				step += 1
+				break
 
 			if self._align_stop_at is not None:
 				# Stage 1 fired. The step that fired is kept whole: the trim is what cleans its tail,
@@ -2447,6 +2471,8 @@ class SlidingTranslator:
 			kv_cache=self.kv_cache, decode_seconds=self.decode_seconds,
 			decode_tokens=self.decode_tokens,
 			ms_per_token=(1000 * self.decode_seconds / self.decode_tokens) if self.decode_tokens else 0.0)
+		if early_stop is not None:
+			stats['early_stop'] = early_stop
 		return output, stats
 
 

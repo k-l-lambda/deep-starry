@@ -203,56 +203,82 @@ class TranslatorTests(unittest.TestCase):
         self.assertAlmostEqual(partial['onset_f1'], 2 / 3)
         self.assertEqual(partial['notes_ref'], 2)
 
-    def test_guard_tolerates_noise_and_rejects_gross_source_divergence(self):
+    def test_retry_requires_completion_and_fidelity(self):
         source = [60, 62] * 50
-        good = source[:-1]
-        small_difference = source[:-2]
-        self.assertEqual(choose_candidate(source, good, small_difference, True, True)['selected'], 'beam')
-        bad = choose_candidate(source, good, [60] * 300, True, True)
-        self.assertEqual(bad['selected'], 'greedy')
-        self.assertEqual(bad['reason'], 'source_fidelity')
+        for done, stopped, candidate, expected in [
+            (True, False, source[:-2], 'alignment'),
+            (False, False, source, 'beam'),
+            (True, True, source, 'beam'),
+            (True, False, [60] * 300, 'beam'),
+        ]:
+            with self.subTest(done=done, stopped=stopped):
+                decision = choose_candidate(source, source[:-1], candidate, False, done,
+                                            beam_stopped=True, rescue_stopped=stopped)
+                self.assertEqual(decision['selected'], expected)
 
-    def test_guard_uses_an_independent_greedy_translation(self):
+    def test_partial_beam_is_preserved_without_greedy_execution(self):
         tr = SequenceBeamTranslator(None, self.tk, rescue_alignment_weight=0.)
-        good = [self.tk.id_by_token[t] for t in ['note_on', '#3c', '$50', 'end_of_track']]
-        bad = [self.tk.id_by_token[t] for t in ['note_on', '#3e', '$50']]
+        partial = [self.tk.id_by_token[t] for t in ['note_on', '#3c', '$50', '<eom>']]
         calls = []
         def translate(instance, lines, **kwargs):
+            self.assertIs(instance, tr)  # An independent greedy call would fail.
             calls.append(instance)
-            greedy = type(instance) is SlidingTranslator
-            return (good if greedy else bad), dict(done=greedy, elapsed=.1, kv_cache=False)
+            return partial, dict(done=False, elapsed=.1, kv_cache=False,
+                                 early_stop={'reason': 'quality_reuse', 'cut': len(partial)})
         with patch.object(SlidingTranslator, 'translate', translate):
             output, stats = tr.translate(['note_on #3c $50', 'end_of_track'])
-        self.assertEqual(len(calls), 2)
-        self.assertIsNot(calls[0], tr)
-        self.assertEqual(output, good)
-        self.assertEqual(stats['guard']['reason'], 'completion')
-        self.assertTrue(stats['done'])
-        self.assertEqual(tr.candidate_output, bad)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(output, partial)
+        self.assertIsNone(tr.greedy_output)
+        self.assertIsNone(tr.greedy_stats)
+        self.assertFalse(stats['done'])
+        self.assertTrue(stats['guard']['partial'])
+        self.assertEqual(stats['guard']['selected'], 'beam')
+        self.assertEqual(stats['early_stop']['reason'], 'quality_reuse')
+        self.assertNotIn('guard', tr.candidate_stats)
+        self.assertEqual(tr.candidate_stats['elapsed'], .1)
 
     def test_alignment_rescue_is_conditional_and_cannot_recurse(self):
         good = [self.tk.id_by_token[t] for t in ['note_on', '#3c', '$50', 'end_of_track']]
-        bad = [self.tk.id_by_token[t] for t in ['note_on', '#3e', '$50']]
+        partial = good[:-1]
         for primary_ok, rescue_ok in [(True, True), (False, True), (False, False)]:
             with self.subTest(primary_ok=primary_ok, rescue_ok=rescue_ok):
-                tr = SequenceBeamTranslator(None, self.tk)
+                tr = SequenceBeamTranslator(None, self.tk, align_advance=True, quality_window=16)
                 calls = []
                 def translate(instance, lines, **kwargs):
+                    self.assertIsInstance(instance, SequenceBeamTranslator)
                     calls.append(instance)
-                    is_greedy = type(instance) is SlidingTranslator
-                    is_rescue = not is_greedy and instance.alignment_weight > 0
-                    ok = is_greedy or (rescue_ok if is_rescue else primary_ok)
-                    return (good if ok else bad), dict(done=ok, elapsed=.1, kv_cache=False)
+                    ok = rescue_ok if instance.alignment_weight > 0 else primary_ok
+                    stats = dict(done=ok, elapsed=.1, kv_cache=False)
+                    if not ok:
+                        stats['early_stop'] = {'reason': 'alignment_stall'}
+                    return (good if ok else partial), stats
                 with patch.object(SlidingTranslator, 'translate', translate):
                     output, stats = tr.translate(['note_on #3c $50', 'end_of_track'])
-                self.assertEqual(output, good)
-                self.assertEqual(len(calls), 2 if primary_ok else 3)
+                self.assertEqual(output, good if primary_ok or rescue_ok else partial)
+                self.assertEqual(len(calls), 1 if primary_ok else 2)
                 self.assertEqual(stats['guard']['selected'],
-                                 'beam' if primary_ok else 'alignment' if rescue_ok else 'greedy')
+                                 'alignment' if not primary_ok and rescue_ok else 'beam')
+                self.assertEqual(stats['guard']['partial'], not (primary_ok or rescue_ok))
+                self.assertIsNone(tr.greedy_output)
                 if not primary_ok:
-                    self.assertFalse(calls[2].guard)
-                    self.assertEqual(calls[2].rescue_alignment_weight, 0.)
-                    self.assertIsNot(calls[2], tr)
+                    self.assertFalse(calls[1].guard)
+                    self.assertEqual(calls[1].rescue_alignment_weight, 0.)
+                    self.assertTrue(calls[1].control_align_advance)
+                    self.assertEqual(calls[1].control_options['window'], 16)
+                    self.assertIsNot(calls[1], tr)
+                if not primary_ok and not rescue_ok:
+                    self.assertEqual(stats['early_stop']['reason'], 'alignment_stall')
+
+    def test_raw_mode_never_runs_retry_or_greedy(self):
+        tr = SequenceBeamTranslator(None, self.tk, guard=False)
+        with patch.object(SlidingTranslator, 'translate', return_value=([],
+                          dict(done=False, elapsed=.1, kv_cache=False))) as translate:
+            output, stats = tr.translate(['end_of_track'])
+        self.assertEqual(translate.call_count, 1)
+        self.assertEqual(output, [])
+        self.assertTrue(stats['guard']['partial'])
+        self.assertEqual(stats['guard']['selected'], 'beam')
 
 
 if __name__ == '__main__':

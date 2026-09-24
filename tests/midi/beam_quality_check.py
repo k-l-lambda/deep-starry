@@ -88,6 +88,7 @@ def main():
     ap.add_argument('--max-steps', type=int, default=16)
     ap.add_argument('--align-advance', action='store_true')
     ap.add_argument('--no-guard', action='store_true')
+    ap.add_argument('--no-quality-stop', action='store_true')
     ap.add_argument('--threads', type=int, default=2)
     ap.add_argument('--device', default='cpu')
     args = ap.parse_args()
@@ -104,7 +105,7 @@ def main():
         ap.error('no corpus pairs, or selected index outside corpus')
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    code = ['starry/midi/sequenceBeam.py', 'starry/midi/align.py',
+    code = ['starry/midi/sequenceBeam.py', 'starry/midi/align.py', 'starry/midi/translationControl.py',
             'tools/midi/sequenceBeamTranslator.py', 'tools/midi/translateMidiseq2.py',
             'tests/midi/beam_quality_check.py', 'tests/midi/translate_accuracy_check.py']
     meta = dict(args=vars(args), checkpoint_sha256=digest(args.checkpoint),
@@ -138,6 +139,7 @@ def main():
                 options.update(beam_size=args.beam, alignment_weight=(args.alignment_weight
                                if args.mode == 'align' else 0.), length_alpha=args.length_alpha,
                                logprob_margin=args.logprob_margin, guard=not args.no_guard,
+                               quality_stop=not args.no_quality_stop,
                                rescue_alignment_weight=(args.alignment_weight if args.mode == 'auto' else 0.))
             translator = cls(model, tokenizer, **options)
             start = time.monotonic()
@@ -147,18 +149,13 @@ def main():
             row.update(index=i, file=name, seconds=time.monotonic() - start, stats=stats)
             if args.mode != 'greedy':
                 row['search'] = translator.search_report
-                if translator.greedy_output is not None:
-                    for label, output_ids, output_stats in [
-                        ('greedy', translator.greedy_output, translator.greedy_stats),
-                        ('candidate', translator.candidate_output, translator.candidate_stats)]:
-                        candidate_body = T.render_lines(output_ids, tokenizer, translator.keywords)
-                        row[label] = dict(score_output(candidate_body, reference, args.grid), stats=output_stats)
-                        (out / (name + '.' + label)).write_text('\n'.join(candidate_body) + '\n')
-                    if translator.rescue_output is not None:
-                        rescue_body = T.render_lines(translator.rescue_output, tokenizer, translator.keywords)
-                        row['rescue'] = dict(score_output(rescue_body, reference, args.grid),
-                                            stats=translator.rescue_stats)
-                        (out / (name + '.rescue')).write_text('\n'.join(rescue_body) + '\n')
+                streams = [('candidate', translator.candidate_output, translator.candidate_stats)]
+                if translator.rescue_output is not None:
+                    streams.append(('rescue', translator.rescue_output, translator.rescue_stats))
+                for label, output_ids, output_stats in streams:
+                    candidate_body = T.render_lines(output_ids, tokenizer, translator.keywords)
+                    row[label] = dict(score_output(candidate_body, reference, args.grid), stats=output_stats)
+                    (out / (name + '.' + label)).write_text('\n'.join(candidate_body) + '\n')
             result_path.write_text(json.dumps(row, indent=2))
             (out / name).write_text('\n'.join(body) + '\n')
         rows.append(row)
