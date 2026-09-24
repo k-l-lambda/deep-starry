@@ -58,10 +58,17 @@ def shard_of (name):
 	return name[:SHARD_CHARS]
 
 
-def scan (root, arms, single=None):
+def scan (root, arms, single=None, exclude=None):
 	'''Group the arms' shared basenames by shard. Returns (shards, stats).
 
 	`single` collapses that grouping to ONE bucket under that name — the whole corpus in one archive.
+
+	`exclude` drops basenames BEFORE sharding, so an excluded sample never enters an archive. Dropping
+	at pack time rather than filtering the manifest afterwards is deliberate: a manifest-only filter
+	leaves the entries in the zip, unreferenced, and the next reader to enumerate the archive instead
+	of the manifest silently gets them back. (piano0909-packed-m is exactly that shape — a symlinked
+	archive with 3 names removed from its manifest only — because its archive was root-owned and could
+	not be rebuilt. When the archive IS being built, exclude here.)
 
 	Enumeration is one listdir per arm — the expensive part of the whole tool at 1.5M files, and the
 	reason the feeder wants an archive in the first place.
@@ -75,6 +82,14 @@ def scan (root, arms, single=None):
 		print(f'  {arm}: {len(listings[arm])} files')
 
 	shared = set.intersection(*listings.values())
+	# Kept for the unpaired counts below, which must be measured against the INTERSECTION rather than
+	# against what survived exclusion -- otherwise every excluded sample is also reported as
+	# `<arm>-only`, i.e. as an unpaired file, which is a different defect entirely.
+	paired = shared
+	dropped = set()
+	if exclude:
+		dropped = shared & exclude
+		shared = shared - exclude
 	shards = defaultdict(list)
 	for name in shared:
 		shards[single if single is not None else shard_of(name)].append(name)
@@ -83,10 +98,15 @@ def scan (root, arms, single=None):
 
 	stats = {arm: len(names) for arm, names in listings.items()}
 	stats['shared'] = len(shared)
+	stats['excluded'] = len(dropped)
+	# Requested-but-absent is reported, not tolerated silently: an exclude list that matches nothing
+	# is almost always a naming mismatch (id vs id.midiseq2.txt, or a stale list from another corpus),
+	# and silently packing everything would look like success.
+	stats['exclude_unmatched'] = len(exclude - dropped) if exclude else 0
 	# Unpaired counts are worth printing rather than silently dropping: on nota1m the 43k
 	# irregular-only files are the samples whose measure mapping the score arm rejected.
 	for arm, names in listings.items():
-		stats[f'{arm}_only'] = len(names - shared)
+		stats[f'{arm}_only'] = len(names - paired)
 	return dict(shards), stats
 
 
@@ -169,6 +189,16 @@ def main ():
 			'skipped whole unless --force.')
 	ap.add_argument('--only', nargs='+', default=None,
 		help='pack just these shards (e.g. --only 00 01) — for subset tests')
+	ap.add_argument('--exclude-list', metavar='FILE', default=None,
+		help='drop these samples from the pack. One per line, as a bare id or a full basename '
+			'(`55a60acf4e` and `55a60acf4e.midiseq2.txt` both work); blank lines and #comments are '
+			'ignored. Excluded BEFORE sharding, so nothing excluded reaches an archive — unlike a '
+			'manifest-only filter, which leaves the entries in the zip for whoever enumerates it '
+			'directly. Use for samples that are individually harmful rather than merely unpaired: on '
+			'piano0909 the 4 files whose TARGET arm has zero @measure marks, which make _align fall '
+			'back to the whole piece and blow T to 27871 against a max_tokens of 2048.')
+	ap.add_argument('--exclude-suffix', default='.midiseq2.txt', metavar='SUFFIX',
+		help='suffix appended to a bare id in --exclude-list (default .midiseq2.txt)')
 	ap.add_argument('--workers', type=int, default=4,
 		help='shards packed in parallel (default 4; measured ~16 s/shard single-threaded, so raise it '
 			'only when the box is idle)')
@@ -191,8 +221,30 @@ def main ():
 		# '.zip' here would produce foo.zip.zip on disk and a manifest key that does not match it.
 		args.single = args.single[:-4]
 
+	exclude = None
+	if args.exclude_list:
+		if not os.path.isfile(args.exclude_list):
+			raise SystemExit(f'--exclude-list: no such file: {args.exclude_list}')
+		exclude = set()
+		with open(args.exclude_list, 'r', encoding='utf-8') as f:
+			for line in f:
+				line = line.strip()
+				if not line or line.startswith('#'):
+					continue
+				exclude.add(line if line.endswith(args.exclude_suffix) else line + args.exclude_suffix)
+		if not exclude:
+			raise SystemExit(f'--exclude-list {args.exclude_list} holds no names')
+		print(f'[exclude] {len(exclude)} name(s) from {args.exclude_list}')
+
 	print(f'[scan] {args.root}')
-	shards, stats = scan(args.root, args.arms, single=args.single)
+	shards, stats = scan(args.root, args.arms, single=args.single, exclude=exclude)
+	if exclude:
+		print(f'  excluded: {stats["excluded"]} of {len(exclude)} requested')
+		if stats['exclude_unmatched']:
+			# Not fatal: a list shared across corpora legitimately names samples absent from this one.
+			# But it is printed loudly, because the usual cause is a naming mismatch that silently
+			# excludes nothing at all.
+			print(f'  WARNING: {stats["exclude_unmatched"]} excluded name(s) matched no packed sample')
 	for arm, name in publish.items():
 		if arm != name:
 			print(f'  publishing {arm} as {name}')
