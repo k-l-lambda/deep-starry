@@ -10,8 +10,9 @@ each source vocabulary is appended:
 	0..15		canonical controls + reserve — <pad> <bos> <eos> <unknown> <mask> <sep> <eom>, then
 				<reserved_7>..<reserved_15>. Both modalities use these same ids, so a mixed sample has
 				exactly one embedding per control rather than one per (control, modality) pair.
-	16..263		Lilylet source-local ids 8..255
-	264..1093	midiseq2 source-local ids 8..837
+	16..263		Lilylet source-local ids 8..255 (248 ids)
+	264..837	midiseq2 source-local ids 8..581 (574 ids; the asset is 582 since its unreachable
+				arg3/arg4 high halves were dropped)
 
 Equal content STRINGS across modalities (digits, 'a'..'f', '-', '_') stay distinct ids: the blocks are
 disjoint and there is deliberately no global string lookup, only modality-scoped ones.
