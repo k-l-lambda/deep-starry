@@ -41,9 +41,13 @@ data:
     align_retries:          4
     start_jitter:           0
     pos_style:              sep
+    # Per-line drop probability for the Lilylet `%` style comments, carried as unsupervised context
+    # ahead of the target. Dropout keeps the model usable without them.
+    style_dropout:          0.3
   args_variant:
     1:
       random_crop:          false
+      style_dropout:        0
 
 model:
   type:                     MidiTranslator

@@ -11,7 +11,8 @@ window covering the same music in the TARGET file, and emits ONE flat id sequenc
 with a mask over the target half. The two wrappers do NOT play the same role:
 
     <bos>  conditional and symmetric — on both halves iff the crop reaches the START of the piece,
-           so the model can tell an opening from an interior fragment.
+           so the model can tell an opening from an interior fragment. (A mixed-mode Lilylet
+           target is the one exception: it carries none, see below.)
     <eos>  unconditional, target only — it terminates the GENERATED half and nothing else. The source
            is a read-only condition whose extent is plain to see, so an <eos> there marks nothing new;
            and on the target it has to mean "this crop is finished" rather than "the piece ended",
@@ -67,6 +68,24 @@ different places, because they have different costs:
                   signature and every one can change width, so it is the common case, not an edge one.
 
 Not defined in mixed Lilylet mode, where the score arm spells pitch as note names under a key.
+
+Mixed Lilylet mode carries the Lilylet file's STYLE comments — the leading `%<style>` prompt lines
+(period / composer / instrumentation) — at the front of the Lilylet half on every crop, closed by a
+blank line as in the file itself:
+
+    midiseq2 -> Lilylet    <bos>? midi...  <sep>  %style\n... \n lilylet... <eos>
+    Lilylet -> midiseq2    <bos>? %style\n... \n lilylet...  <sep>  <bos>? midi... <eos>
+
+The blank line is the boundary; no <bos> is placed between style and body. A Lilylet TARGET therefore
+carries no <bos> at all — the head condition is told by the source half's <bos>, which is present on
+exactly the same crops. On a Lilylet SOURCE the <bos> leads the whole half, style included.
+
+The style block is context only. On a Lilylet target, `skip` equals its token count including the
+blank line, so the first label is the first body token, predicted from that blank line (or from
+<sep> when every style line was dropped and no block exists). `style_dropout` drops each line
+independently (see `_pick_style`), since whoever calls the model may know only some of these facts, or
+none. The `[field "..."]` metadata lines ([staves], [instrument-*], [measures]) are NOT carried: they
+describe engraving layout, which says nothing about the music the body has to spell.
 
 Unlike its siblings in this package (seq2CondPatchy, seq2CondSplitPatchy) this feeder reads TEXT at
 runtime instead of a packed `.pt`, so a change of crop policy needs no re-pack. Note the consequence
@@ -127,8 +146,9 @@ Batch contract, `pack: flat`:
 	                                 fraction of the first measure the source lost: that part is not
 	                                 derivable from the context. 0 when the offset removed nothing --
 	                                 a negative offset, or a positive one that only stepped over
-	                                 directive lines (see _supervise_from)
-	sep_index    LongTensor [B]      position of <sep> in each row
+	                                 directive lines (see _supervise_from). In mixed mode a Lilylet
+	                                 target's leading style block is left out the same way
+sep_index    LongTensor [B]      position of <sep> in each row
 	position_ids LongTensor [B, T]   RoPE positions per pos_style; the pad tail CONTINUES each row's
 	                                 run rather than taking a constant, so a padded row stays
 	                                 numerically identical to its unpadded self
@@ -652,7 +672,7 @@ class Seq2Seq2 (Dataset):
 		source_dir='midi-seq2-score', target_dir='midi-seq2', mark_mode='measure',
 		line_range=(20, 256), p_head=0.15, p_tail=0.15, source_eom=False,
 		max_tokens=0, resample_tries=8, align_retries=4, start_jitter=0.0,
-		transposition_sigma=0.0,
+		transposition_sigma=0.0, style_dropout=0.0,
 		random_crop=None, seed=0, vocab_path=None, pos_style='flat', pack='flat',
 		packed=None, max_cached_files=0, source_format='midiseq2',
 		target_format='midiseq2', measures_path=None, **_):
@@ -733,6 +753,13 @@ class Seq2Seq2 (Dataset):
 		if transposition_sigma < 0:
 			raise ValueError(f'transposition_sigma must be >= 0, got {transposition_sigma!r}')
 		self.transposition_sigma = float(transposition_sigma)
+		# Augmentation, mixed mode only: per-line probability of dropping a Lilylet `%<style>` comment.
+		# 0 = keep every line, 1 = never show one. See `_pick_style`.
+		if not 0 <= style_dropout <= 1:
+			raise ValueError(f'style_dropout must be in [0, 1], got {style_dropout!r}')
+		if style_dropout and self.source_format == self.target_format:
+			raise ValueError('style_dropout applies to a Lilylet arm; this run has none')
+		self.style_dropout = float(style_dropout)
 		# Deterministic crops for val: default follows the split's shuffle flag (as m3distill does),
 		# so train augments and val is reproducible epoch to epoch.
 		self.random_crop = shuffle if random_crop is None else random_crop
@@ -848,17 +875,48 @@ class Seq2Seq2 (Dataset):
 		if not self.names:
 			raise RuntimeError(f'no valid Lilylet/midiseq2 pairs between {lyl_dir!r} and {midi_dir!r}')
 
-	def _mixed_lilylet_measures (self, sample_id: str) -> List[str]:
+	def _mixed_lilylet_document (self, sample_id: str) -> Tuple[List[str], List[str]]:
+		'''(style comment lines, body measures) of one Lilylet file.
+
+		`split_lilylet_document` separates a leading metadata block holding two kinds of line. Only the
+		`%<style>` prompt comments (period / composer / instrumentation) are kept, for `_pick_style`,
+		which carries them as unsupervised context. The `[field "..."]` lines ([staves],
+		[instrument-*], [measures]) are engraving layout, of no use for writing the music, and are
+		discarded. Neither kind is a score measure, so neither enters alignment.
+		'''
 		from ...lilylet.data.patchifier import split_lilylet_document, split_measures
 		with open(self._lyl_files[sample_id], 'r', encoding='utf-8') as f:
-			# Header and style metadata are not score measures and must not enter alignment.
-			_, body_lines = split_lilylet_document(f.read())
+			metadata, body_lines = split_lilylet_document(f.read())
+		style = [line for line in metadata if line.startswith('%')]
 		measures = split_measures(body_lines)
 		maximum = max(self._measure_maps[sample_id])
 		if len(measures) < maximum:
 			raise ValueError(f'{sample_id}: measures.json references source measure {maximum}, '
 				f'but the Lilylet body has only {len(measures)} measures')
-		return measures
+		return style, measures
+
+	def _pick_style (self, index: int, lines: Sequence[str]) -> List[int]:
+		'''Unified ids of the `%<style>` lines that survive `style_dropout`.
+
+		Each line is dropped independently, as LilyletPatchy's `prompt_dropout` drops them: a caller
+		with only a performance to translate may know the period but not the composer, or nothing.
+
+		Drawn from its OWN rng stream, for the reason `_pick_transposition` gives: sharing the crop rng
+		would make switching dropout on serve a different crop for every sample. Seeded per index when
+		crops are deterministic, so val drops the same lines every epoch.
+
+		Drawn once per SAMPLE, before `_describe_mixed`'s resample loop. That loop keeps the shortest
+		attempt when every one overshoots max_tokens, so a per-attempt draw would select for samples
+		that happened to lose their style lines.
+		'''
+		if self.style_dropout > 0:
+			rng = random if self.random_crop else random.Random(self.seed ^ (index * 3266489917) ^ 0x4ead)
+			lines = [line for line in lines if rng.random() >= self.style_dropout]
+		# Each line keeps its own '\n' (split_lilylet_document appends it); one more '\n' makes the blank
+		# line that separates the block from the body, as in the file. That blank line is the whole
+		# boundary — split_lilylet_document strips every blank line from the body, so '\n\n' occurs
+		# nowhere else in a Lilylet half. No lines, no block, and no blank line either.
+		return self._mixed_encode_lilylet(''.join(lines) + '\n') if lines else []
 
 	def _mixed_midi (self, sample_id: str) -> _File:
 		with open(self._midi_files[sample_id], 'r', encoding='utf-8') as f:
@@ -918,10 +976,9 @@ class Seq2Seq2 (Dataset):
 			return list(range(n_source + 1 + n_target))
 		return list(range(-(n_source + 1), n_target))
 
-	def _describe_mixed_once (self, index: int, rng: random.Random) -> Optional[Dict[str, Any]]:
+	def _describe_mixed_once (self, index: int, rng: random.Random, lyl: List[str], midi: _File,
+		style: List[int]) -> Optional[Dict[str, Any]]:
 		sample_id = self.names[index]
-		lyl = self._mixed_lilylet_measures(sample_id)
-		midi = self._mixed_midi(sample_id)
 		mapping = self._measure_maps[sample_id]
 		if self.source_format == 'lilylet':
 			a, z = self._mixed_pick(len(lyl), rng)
@@ -944,13 +1001,27 @@ class Seq2Seq2 (Dataset):
 			source_range, target_range = (a, z), (min(source_numbers) - 1, max(source_numbers))
 		# The wrappers are modality-neutral under the merged layout: one <bos>/<eos>/<sep> for both
 		# arms. Which modality a half holds is read off its CONTENT id range, not off its controls.
-		source_ids = ([self.tokenizer.bos_id] if head else []) + source_body
-		target_ids = ([self.tokenizer.bos_id] if head else []) + target_body + [self.tokenizer.eos_id]
+		#
+		# The style block leads the Lilylet half on EVERY crop, head or not: it describes the whole
+		# piece, so it is as true of an interior window as of the opening. Its closing blank line is
+		# the boundary with the body; no <bos> goes between them. So a Lilylet target has no <bos>
+		# (the source's, on the same crops, tells the head condition), while a Lilylet source keeps
+		# its <bos> at the very front, ahead of the style. On a Lilylet target the block is context,
+		# not a prediction: `skip` covers exactly its tokens, so the first label is the first body token.
+		bos = [self.tokenizer.bos_id] if head else []
+		if self.source_format == 'lilylet':
+			source_ids = bos + style + source_body
+			target_ids = bos + target_body + [self.tokenizer.eos_id]
+			target_style = []
+		else:
+			source_ids = bos + source_body
+			target_ids = style + target_body + [self.tokenizer.eos_id]
+			target_style = style
 		ids = source_ids + [self.tokenizer.sep_id] + target_ids
 		sep = len(source_ids)
 		return dict(name=sample_id, source=midi if self.source_format == 'midiseq2' else lyl,
-			target=midi if self.target_format == 'midiseq2' else lyl, a=a, z=z, jitter=0, skip=0,
-			lost=0, transpose=0,
+			target=midi if self.target_format == 'midiseq2' else lyl, a=a, z=z, jitter=0,
+			skip=len(target_style), style=len(style), lost=0, transpose=0,
 			source_range=source_range, target_range=target_range, ids=ids, sep=sep,
 			positions=self._mixed_positions(len(source_ids), len(target_ids)), head=head,
 			tail=z >= (len(lyl) if self.source_format == 'lilylet' else len(mapping)),
@@ -959,9 +1030,15 @@ class Seq2Seq2 (Dataset):
 
 	def _describe_mixed (self, index: int) -> Dict[str, Any]:
 		rng = random if self.random_crop else random.Random(self.seed ^ (index * 2654435761))
+		sample_id = self.names[index]
+		# Read once per sample rather than once per attempt; the style draw has to precede the loop
+		# anyway (see `_pick_style`).
+		style_lines, lyl = self._mixed_lilylet_document(sample_id)
+		midi = self._mixed_midi(sample_id)
+		style = self._pick_style(index, style_lines)
 		best = None
 		for _ in range(max(1, self.resample_tries)):
-			case = self._describe_mixed_once(index, rng)
+			case = self._describe_mixed_once(index, rng, lyl, midi, style)
 			if case is None:
 				# The selected Lilylet bars do not occur in the expanded MIDI mapping.
 				continue
@@ -1635,7 +1712,8 @@ class Seq2Seq2 (Dataset):
 	def _item (self, index: int) -> Tuple[torch.Tensor, int, torch.Tensor, int]:
 		'''(ids, sep, positions, skip). `skip` is how many leading TARGET tokens go unsupervised —
 		0 whenever the crop's offset removed no source token, which is every unjittered crop and most
-		jittered ones, so the tuple's first three elements are unchanged.'''
+		jittered ones, so the tuple's first three elements are unchanged. In mixed mode it is instead
+		the length of a Lilylet target's style block.'''
 		case = self.describe(index)
 		return (torch.tensor(case['ids'], dtype=torch.long), case['sep'],
 			torch.tensor(case['positions'], dtype=torch.long), case['skip'])

@@ -54,13 +54,13 @@ def write_fixture (root, metadata=None):
 	write_unified_vocab(os.path.join(root, 'vocab.json'))
 
 
-def feeder (root, source_format='midiseq2', line_range=(6, 6)):
+def feeder (root, source_format='midiseq2', line_range=(6, 6), **kwargs):
 	return Seq2Seq2(root, '0/1',
 		source_dir='midi' if source_format == 'midiseq2' else 'lyl',
 		target_dir='lyl' if source_format == 'midiseq2' else 'midi',
 		source_format=source_format, target_format='lilylet' if source_format == 'midiseq2' else 'midiseq2',
 		measures_path='metadata/measures.json', vocab_path=os.path.join(root, 'vocab.json'),
-		line_range=line_range, p_head=1, p_tail=0, random_crop=False, pos_style='sep')
+		line_range=line_range, p_head=1, p_tail=0, random_crop=False, pos_style='sep', **kwargs)
 
 
 def raises (error, function):
@@ -80,6 +80,23 @@ def is_lilylet (tok, ids):
 def is_midi (tok, ids):
 	lo, size = tok.midiseq2_offset, tok.blocks['midiseq2']['size']
 	return bool(ids) and all(i < 16 or lo <= i < lo + size for i in ids)
+
+
+def case_ids_after (case, header):
+	'''The target half of `case` past its `header` tokens.'''
+	return case['ids'][case['sep'] + 1 + header:]
+
+
+def is_subsequence_of_lines (kept, lines_ids):
+	'''True when `kept` is some in-order selection of whole encoded lines.'''
+	def match (i, j):
+		if i == len(kept):
+			return True
+		if j == len(lines_ids):
+			return False
+		line = lines_ids[j]
+		return (kept[i:i + len(line)] == line and match(i + len(line), j + 1)) or match(i, j + 1)
+	return match(0, 0)
 
 
 def rewrite_metadata (root, metadata):
@@ -116,23 +133,40 @@ def main ():
 		assert forward._mixed_midi_text(midi, [1])[:2] == ['ticks_per_beat 1 e 0', 'format_type 1']
 		assert all(not line.startswith(('ticks_per_beat', 'format_type'))
 			for line in forward._mixed_midi_text(midi, [2]))
-		assert case['ids'][case['sep'] + 1] == tok.bos_id
+		# The Lilylet target opens with its style comments closed by a blank line, and then the body:
+		# no <bos> between them, and none anywhere in a Lilylet target. `skip` covers the block with
+		# its blank line, so the first label is the first body token. [field] lines are not carried.
+		header_lines, _ = forward._mixed_lilylet_document('s1')
+		assert header_lines == ['%Classical\n', '%Test, Anon\n', '%Keyboard\n']
+		header = forward._mixed_encode_lilylet(''.join(header_lines) + '\n')
+		newline = tok.lilylet_id(10)
+		assert header[-2:] == [newline, newline]
+		assert header and case['style'] == len(header) and case['skip'] == len(header)
+		assert case['ids'][case['sep'] + 1:case['sep'] + 1 + len(header)] == header
+		assert tok.bos_id not in case['ids'][case['sep'] + 1:]
+		measures = forward._mixed_lilylet_document('s1')[1]
+		assert case['ids'][case['sep'] + 1 + len(header):-1] == forward._mixed_encode_lilylet(
+			''.join(measures[m - 1] for m in case['target_measures']))
 		assert len(case['positions']) == len(case['ids'])
 
 		reverse = feeder(root, source_format='lilylet', line_range=(2, 2))
 		case = reverse.describe(0)
 		assert case['source_measures'] == [1, 2]
 		assert case['target_measures'] == [1, 2, 3, 4]
-		assert is_lilylet(tok, case['ids'][1:case['sep']])
+		assert is_lilylet(tok, case['ids'][:case['sep']])
 		assert is_midi(tok, case['ids'][case['sep'] + 2:-1])
-		# Same shared wrappers in the reverse direction — the target EOS is not modality-specific.
-		assert (case['ids'][0], case['ids'][case['sep'] + 1]) == (tok.bos_id, tok.bos_id)
+		# On a Lilylet SOURCE the head <bos> leads the whole half, then the style block with its blank
+		# line, then the body. Nothing is skipped: the source is never supervised.
+		assert case['ids'][0] == tok.bos_id and case['ids'][1:1 + len(header)] == header
+		assert case['skip'] == 0
+		# The midiseq2 target keeps its conditional <bos>; the target EOS is not modality-specific.
+		assert case['ids'][case['sep'] + 1] == tok.bos_id
 		assert case['ids'][-1] == tok.eos_id
 		assert tok.eom_id in case['ids'][case['sep'] + 1:]
 
 		# Lilylet ids are byte VALUES before remapping, so a newline or an ASCII digit must not leak
 		# through as a raw local id.
-		lyl_body = ''.join(reverse._mixed_lilylet_measures('s1')[:2])
+		lyl_body = ''.join(reverse._mixed_lilylet_document('s1')[1][:2])
 		local_ids = reverse.lilylet_tokenizer.encode(lyl_body)
 		assert reverse._mixed_encode_lilylet(lyl_body) == [tok.lilylet_id(i) for i in local_ids]
 		assert 10 in local_ids and tok.lilylet_id(10) == 18
@@ -151,8 +185,34 @@ def main ():
 		batch = forward.collateBatch([forward[0], forward[0]])
 		assert set(batch) == {'input_ids', 'masks', 'target_mask', 'sep_index', 'position_ids'}
 		for row, sep in enumerate(batch['sep_index'].tolist()):
-			assert not batch['target_mask'][row, :sep + 1].any()
-			assert int(batch['target_mask'][row].sum()) == int(batch['masks'][row].sum()) - sep - 1
+			# Neither the source nor the target's style block (blank line included) is ever a label;
+			# the first label is the first body token, predicted from that blank line.
+			assert not batch['target_mask'][row, :sep + 1 + len(header)].any()
+			assert batch['target_mask'][row, sep + 1 + len(header)] == 1
+			assert batch['input_ids'][row, sep + len(header)] == newline
+			assert int(batch['target_mask'][row].sum()) == \
+				int(batch['masks'][row].sum()) - sep - 1 - len(header)
+
+		# style_dropout 1 drops every line: no block and no blank line, the body right after <sep>.
+		bare = feeder(root, style_dropout=1).describe(0)
+		assert bare['style'] == 0 and bare['skip'] == 0
+		assert bare['ids'][bare['sep'] + 1] != newline
+		assert bare['ids'][bare['sep'] + 1:] == case_ids_after(forward.describe(0), len(header))
+
+		# Partial dropout keeps whole lines, in order, and is reproducible for a deterministic split.
+		lines_ids = [forward._mixed_encode_lilylet(line) for line in header_lines]
+		partial = feeder(root, style_dropout=0.5)
+		first = partial.describe(0)
+		assert partial.describe(0)['ids'] == first['ids']
+		kept = first['ids'][first['sep'] + 1:first['sep'] + 1 + first['style']]
+		# Whole lines in order, then the one blank line (absent only when nothing was kept).
+		assert not kept or kept[-1] == newline
+		assert is_subsequence_of_lines(kept[:-1], lines_ids)
+		assert first['skip'] == first['style']
+		# ...and dropping style lines never moves the crop: the dropout stream is not the crop stream.
+		assert first['target_measures'] == forward.describe(0)['target_measures']
+
+		assert raises(ValueError, lambda: feeder(root, style_dropout=1.5))
 
 		bad = record([1, 2, 1, 2, 3, 4])
 		bad['repeat_aligned'] = False
