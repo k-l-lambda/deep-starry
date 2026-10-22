@@ -35,9 +35,20 @@ assembled sequence exceeds `max_tokens`, whole units are trimmed — from the en
 tail crop so the real ending survives — down to a minimum of one unit. Unlike Seq2Seq2 nothing has to be
 resampled, because interleaving makes a unit boundary a clean cut point.
 
-Not supported (all refused at construction): packed archives, tick marks, start_jitter, transposition,
-'sep'/'absolute' positions and the encoder-decoder 'split' pack — each either needs a single source half
-or is undefined over a Lilylet arm.
+Two on-disk layouts, chosen by `packed` (None = auto-detect, as in Seq2Seq2):
+
+    loose    <root>/<source_dir>/**, <root>/<target_dir>/** and <root>/metadata/measures.json — the
+             mixed Seq2Seq2 layout (test202608).
+    packed   <root>/<XX>.zip + index.json, built by tools/midi/packInterleavedLilylet.py. Each shard
+             archive holds `<midi arm>/<id>.midiseq2.txt`, `<lyl arm>/<id>.lyl` and
+             `measures/<id>.json` (the played -> Lilylet source_measure list). The manifest's `layout`
+             is 'interleaved' and its shard lists hold bare sample ids. Every pair was validated at
+             pack time, so nothing is re-validated at init and no map is held in memory: a sample's map
+             is read with its files. `source_dir` / `target_dir` are entry prefixes here, as in Seq2Seq2.
+
+Not supported (all refused at construction): tick marks, start_jitter, transposition, 'sep'/'absolute'
+positions and the encoder-decoder 'split' pack — each either needs a single source half or is undefined
+over a Lilylet arm.
 
 Batch contract:
 	input_ids    LongTensor [B, T]   the interleaved sequence, right-padded with <pad>
@@ -49,6 +60,7 @@ Loss convention is Seq2Seq2's: compare `logits[:, i - 1]` against `input_ids[:, 
 target_mask is 1, so MidiTranslator / MidiTranslatorLoss consume this batch unchanged.
 '''
 
+import json
 import os
 import random
 from typing import Any, Dict, List, Optional, Tuple
@@ -58,7 +70,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 from ...utils.parsers import parseFilterStr
 from ...utils.registry import register_dataset
-from .seq2seq2 import Seq2Seq2, _format, _line_range
+from .seq2seq2 import Seq2Seq2, _ZipSource, _format, _line_range, _shard_interleave
 
 
 @register_dataset
@@ -69,6 +81,10 @@ class InterleavedSeq2 (Seq2Seq2):
 	(`_init_mixed`), Lilylet document splitting, style dropout, MIDI measure slicing and the unified-vocab
 	encoders — but NOT its constructor or crop/assembly path, which are built around one source half.
 	'''
+
+	# Packed layout: the per-sample measure-map entry prefix, and each format's file suffix.
+	MEASURES_ARM = 'measures'
+	SUFFIX = {'lilylet': '.lyl', 'midiseq2': '.midiseq2.txt'}
 
 	def __init__ (self, root, split, device='cpu', shuffle=False,
 		source_format='midiseq2', target_format='lilylet', source_dir='midi-seq2', target_dir='lyl',
@@ -99,8 +115,6 @@ class InterleavedSeq2 (Seq2Seq2):
 			raise ValueError('InterleavedSeq2 units are played measures; mark_mode must be "measure"')
 		if start_jitter or transposition_sigma:
 			raise ValueError('start_jitter and transposition_sigma are not defined over a Lilylet arm')
-		if packed:
-			raise ValueError('packed archives are supported only for midiseq2 -> midiseq2')
 		# In MEASURES (units), as in Seq2Seq2's mixed mode.
 		self.line_range = _line_range(line_range)
 		self.p_head = p_head
@@ -119,15 +133,55 @@ class InterleavedSeq2 (Seq2Seq2):
 			raise ValueError('InterleavedSeq2 requires a run-local unified vocab_path')
 		self.tokenizer = UnifiedSeq2Tokenizer(vocab_path)
 		self.lilylet_tokenizer = LilyletTokenizer(self._lilylet_asset())
-		self._init_mixed(root, source_dir, target_dir, measures_path)
+		self.packed = _ZipSource.detect(root) if packed is None else bool(packed)
+		self._last_map: Tuple[Optional[str], List[int]] = (None, [])
+		if self.packed:
+			self._init_packed(root, source_dir, target_dir)
+		else:
+			self._init_mixed(root, source_dir, target_dir, measures_path)
 
 		phases, cycle = parseFilterStr(split)
 		self.indices = [i for i in range(len(self.names)) if i % cycle in phases]
 		if self.shuffle:
 			# Once and seeded, for the reason Seq2Seq2.__init__ gives: `__iter__` never runs under the
-			# DataLoader, and the order must agree across ranks and a resume. Loose files only, so there
-			# is no shard locality to protect.
-			random.Random(self.seed).shuffle(self.indices)
+			# DataLoader, and the order must agree across ranks and a resume. Shard-aware when packed, for
+			# the read locality `_shard_interleave` describes.
+			rng = random.Random(self.seed)
+			if self.packed:
+				self.indices = _shard_interleave(self.indices,
+					lambda i: self.source.shard_of(self.names[i]), rng, self.SHUFFLE_WINDOW)
+			else:
+				rng.shuffle(self.indices)
+
+	def _init_packed (self, root: str, source_dir: str, target_dir: str) -> None:
+		'''Open a packTool archive set. Names come from the manifest alone; see the module docstring.'''
+		self.source = _ZipSource(root)
+		manifest = self.source._manifest
+		if manifest is None or manifest.get('layout') != 'interleaved':
+			raise ValueError(f'{root!r} is not an interleaved Lilylet package (index.json layout != '
+				'"interleaved"); build one with tools/midi/packInterleavedLilylet.py')
+		self._arms = {self.source_format: source_dir, self.target_format: target_dir}
+		missing = [arm for arm in (source_dir, target_dir, self.MEASURES_ARM) if arm not in manifest['arms']]
+		if missing:
+			# Checked here because a wrong prefix would otherwise surface only as a KeyError on the first read.
+			raise ValueError(f'arms {missing} not in the package; it holds {manifest["arms"]}')
+		self.names = sorted(self.source.names(None))
+		if not self.names:
+			raise RuntimeError(f'no samples in {self.source.describe()}')
+
+	def _mixed_mapping (self, sample_id: str) -> List[int]:
+		if not self.packed:
+			return super()._mixed_mapping(sample_id)
+		# One describe() asks for the same map three times; keep the last one rather than re-read it.
+		if self._last_map[0] != sample_id:
+			self._last_map = (sample_id,
+				json.loads(self.source.read(self.MEASURES_ARM, sample_id + '.json')))
+		return self._last_map[1]
+
+	def _mixed_text (self, kind: str, sample_id: str) -> str:
+		if not self.packed:
+			return super()._mixed_text(kind, sample_id)
+		return self.source.read(self._arms[kind], sample_id + self.SUFFIX[kind])
 
 	@staticmethod
 	def _lilylet_asset () -> str:
@@ -189,7 +243,7 @@ class InterleavedSeq2 (Seq2Seq2):
 		'''
 		rng = random if self.random_crop else random.Random(self.seed ^ (index * 2654435761))
 		sample_id = self.names[index]
-		mapping = self._measure_maps[sample_id]
+		mapping = self._mixed_mapping(sample_id)
 		style_lines, lyl = self._mixed_lilylet_document(sample_id)
 		midi = self._mixed_midi(sample_id)
 		style = self._pick_style(index, style_lines)

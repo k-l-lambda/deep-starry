@@ -875,6 +875,17 @@ class Seq2Seq2 (Dataset):
 		if not self.names:
 			raise RuntimeError(f'no valid Lilylet/midiseq2 pairs between {lyl_dir!r} and {midi_dir!r}')
 
+	def _mixed_mapping (self, sample_id: str) -> List[int]:
+		'''Played measure -> Lilylet source measure, for one pair. A hook, so a packed corpus can read the
+		map per sample rather than hold every pair's map in memory (see interleavedSeq2).'''
+		return self._measure_maps[sample_id]
+
+	def _mixed_text (self, kind: str, sample_id: str) -> str:
+		'''Raw text of one pair's 'lilylet' or 'midiseq2' file. The same kind of hook, for the files.'''
+		path = (self._lyl_files if kind == 'lilylet' else self._midi_files)[sample_id]
+		with open(path, 'r', encoding='utf-8') as f:
+			return f.read()
+
 	def _mixed_lilylet_document (self, sample_id: str) -> Tuple[List[str], List[str]]:
 		'''(style comment lines, body measures) of one Lilylet file.
 
@@ -885,11 +896,10 @@ class Seq2Seq2 (Dataset):
 		discarded. Neither kind is a score measure, so neither enters alignment.
 		'''
 		from ...lilylet.data.patchifier import split_lilylet_document, split_measures
-		with open(self._lyl_files[sample_id], 'r', encoding='utf-8') as f:
-			metadata, body_lines = split_lilylet_document(f.read())
+		metadata, body_lines = split_lilylet_document(self._mixed_text('lilylet', sample_id))
 		style = [line for line in metadata if line.startswith('%')]
 		measures = split_measures(body_lines)
-		maximum = max(self._measure_maps[sample_id])
+		maximum = max(self._mixed_mapping(sample_id))
 		if len(measures) < maximum:
 			raise ValueError(f'{sample_id}: measures.json references source measure {maximum}, '
 				f'but the Lilylet body has only {len(measures)} measures')
@@ -919,10 +929,9 @@ class Seq2Seq2 (Dataset):
 		return self._mixed_encode_lilylet(''.join(lines) + '\n') if lines else []
 
 	def _mixed_midi (self, sample_id: str) -> _File:
-		with open(self._midi_files[sample_id], 'r', encoding='utf-8') as f:
-			parsed = _File(f.read(), 'measure')
+		parsed = _File(self._mixed_text('midiseq2', sample_id), 'measure')
 		keys = [key for _, key in parsed.marks]
-		expected = list(range(1, len(self._measure_maps[sample_id]) + 1))
+		expected = list(range(1, len(self._mixed_mapping(sample_id)) + 1))
 		if keys != expected:
 			raise ValueError(f'{sample_id}: MIDI @measure marks do not match measures.json played indices')
 		return parsed
@@ -979,7 +988,7 @@ class Seq2Seq2 (Dataset):
 	def _describe_mixed_once (self, index: int, rng: random.Random, lyl: List[str], midi: _File,
 		style: List[int]) -> Optional[Dict[str, Any]]:
 		sample_id = self.names[index]
-		mapping = self._measure_maps[sample_id]
+		mapping = self._mixed_mapping(sample_id)
 		if self.source_format == 'lilylet':
 			a, z = self._mixed_pick(len(lyl), rng)
 			source_numbers = list(range(a + 1, z + 1))
