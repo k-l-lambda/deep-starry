@@ -33,7 +33,9 @@ Crops are drawn in units as `head` / `tail` / `middle` by `p_head` / `p_tail`, w
 drawn uniformly from `line_range` (which counts MEASURES here, as in Seq2Seq2's mixed mode). When the
 assembled sequence exceeds `max_tokens`, whole units are trimmed — from the end, or from the front for a
 tail crop so the real ending survives — down to a minimum of one unit. Unlike Seq2Seq2 nothing has to be
-resampled, because interleaving makes a unit boundary a clean cut point.
+resampled, because interleaving makes a unit boundary a clean cut point. The one exception is a single
+unit over the bound by itself: that crop is redrawn, and truncated as a last resort, so `max_tokens` is a
+hard bound on every row (see `describe`).
 
 Two on-disk layouts, chosen by `packed` (None = auto-detect, as in Seq2Seq2):
 
@@ -90,7 +92,7 @@ class InterleavedSeq2 (Seq2Seq2):
 		source_format='midiseq2', target_format='lilylet', source_dir='midi-seq2', target_dir='lyl',
 		measures_path=None, vocab_path=None, line_range=(4, 16), p_head=0.15, p_tail=0.15,
 		max_tokens=0, style_dropout=0.0, random_crop=None, seed=0, pos_style='flat', pack='flat',
-		mark_mode='measure', start_jitter=0, transposition_sigma=0, packed=None, **_):
+		resample_tries=8, mark_mode='measure', start_jitter=0, transposition_sigma=0, packed=None, **_):
 		# Dataset.__init__ only: Seq2Seq2's constructor sets up a single-half pipeline this class replaces.
 		super(Seq2Seq2, self).__init__()
 		self.device = device
@@ -120,6 +122,7 @@ class InterleavedSeq2 (Seq2Seq2):
 		self.p_head = p_head
 		self.p_tail = p_tail
 		self.max_tokens = max_tokens
+		self.resample_tries = resample_tries
 		if not 0 <= style_dropout <= 1:
 			raise ValueError(f'style_dropout must be in [0, 1], got {style_dropout!r}')
 		self.style_dropout = float(style_dropout)
@@ -236,10 +239,19 @@ class InterleavedSeq2 (Seq2Seq2):
 		'''The whole crop decision for one sample, ids and supervision included.
 
 		Keys: name, a, z (played-measure range a+1..z after trimming), mode, trimmed (units dropped for
-		max_tokens), head, tail, style (style-block token count), played (played measure numbers),
-		source_measures (the Lilylet measure of each unit), ids, target_mask (0/1 per id), units
-		([(start, sep, end)] id indices of each unit: src at start..sep-1, <sep> at sep, tar..<eom> at
-		sep+1..end-1).
+		max_tokens), attempts (crops drawn, see below), truncated (ids cut by the last-resort cap), head,
+		tail, style (style-block token count), played (played measure numbers), source_measures (the
+		Lilylet measure of each unit), ids, target_mask (0/1 per id), units ([(start, sep, end)] id indices
+		of each COMPLETE unit: src at start..sep-1, <sep> at sep, tar..<eom> at sep+1..end-1).
+
+		`max_tokens` is a HARD bound on the row. Unit trimming stops at one unit, and one unit can exceed
+		the bound on its own — measured on nota1m, 0.061% of units cost over 2048 tokens and the longest
+		8,076. Such a unit survives trimming whenever it opens the crop, and one such row pads its whole
+		batch to its length: that OOMed the first nota1m run at epoch 2 (21.6 G allocated against a 10.8 G
+		worst case at 2048). So a crop still over the bound after trimming is REDRAWN, up to
+		`resample_tries` times off the same rng (a deterministic crop stays deterministic); if every draw
+		fails, the last one is truncated to `max_tokens` and reported in `truncated`. The cut unit keeps its
+		supervised prefix but loses its <eom>, and is left out of `units`.
 		'''
 		rng = random if self.random_crop else random.Random(self.seed ^ (index * 2654435761))
 		sample_id = self.names[index]
@@ -247,19 +259,23 @@ class InterleavedSeq2 (Seq2Seq2):
 		style_lines, lyl = self._mixed_lilylet_document(sample_id)
 		midi = self._mixed_midi(sample_id)
 		style = self._pick_style(index, style_lines)
-
 		count = len(mapping)
-		a, z, mode = self._pick_units(count, rng)
-		units = [self._encode_unit(n, lyl, midi, mapping) for n in range(a + 1, z + 1)]
-		# <bos> may be lost to a front trim, so `fixed` counts it only when it could survive; a head crop
-		# trims from the back and keeps it.
-		from_front = mode == 'tail' and a > 0
-		dropped = self._trim(units, len(style) + (1 if a == 0 else 0), from_front)
-		if dropped:
-			if from_front:
-				units, a = units[dropped:], a + dropped
-			else:
-				units, z = units[:-dropped], z - dropped
+
+		for attempt in range(1, max(1, self.resample_tries) + 1):
+			a, z, mode = self._pick_units(count, rng)
+			units = [self._encode_unit(n, lyl, midi, mapping) for n in range(a + 1, z + 1)]
+			# <bos> may be lost to a front trim, so `fixed` counts it only when it could survive; a head
+			# crop trims from the back and keeps it.
+			from_front = mode == 'tail' and a > 0
+			dropped = self._trim(units, len(style) + (1 if a == 0 else 0), from_front)
+			if dropped:
+				if from_front:
+					units, a = units[dropped:], a + dropped
+				else:
+					units, z = units[:-dropped], z - dropped
+			cost = (1 if a == 0 else 0) + len(style) + sum(len(src) + len(tgt) + 2 for src, tgt in units)
+			if not self.max_tokens or cost <= self.max_tokens:
+				break
 
 		head = a == 0
 		ids: List[int] = [self.tokenizer.bos_id] if head else []
@@ -275,10 +291,16 @@ class InterleavedSeq2 (Seq2Seq2):
 			mask += [1] * (len(tgt) + 1)
 			spans.append((start, sep, len(ids)))
 
+		truncated = 0
+		if self.max_tokens and len(ids) > self.max_tokens:
+			truncated = len(ids) - self.max_tokens
+			ids, mask = ids[:self.max_tokens], mask[:self.max_tokens]
+			spans = [span for span in spans if span[2] <= self.max_tokens]
+
 		played = list(range(a + 1, z + 1))
-		return dict(name=sample_id, a=a, z=z, mode=mode, trimmed=dropped, head=head, tail=z >= count,
-			style=len(style), played=played, source_measures=[mapping[n - 1] for n in played],
-			ids=ids, target_mask=mask, units=spans)
+		return dict(name=sample_id, a=a, z=z, mode=mode, trimmed=dropped, attempts=attempt,
+			truncated=truncated, head=head, tail=z >= count, style=len(style), played=played,
+			source_measures=[mapping[n - 1] for n in played], ids=ids, target_mask=mask, units=spans)
 
 	def _item (self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
 		case = self.describe(index)

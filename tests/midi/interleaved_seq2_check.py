@@ -99,9 +99,16 @@ def main ():
 		cut = feeder(root, line_range=(4, 4), p_head=0, p_tail=1, style_dropout=1,
 			max_tokens=len(whole['ids']) - 1).describe(0)
 		assert cut['played'] == whole['played'][1:] and cut['tail']
-		# Never below one unit.
-		one = feeder(root, max_tokens=1).describe(0)
-		assert len(one['units']) == 1 and one['played'] == [1]
+		# Never below one unit; a crop still over the bound is redrawn, then truncated as a last resort.
+		one = feeder(root, max_tokens=1, resample_tries=3).describe(0)
+		assert one['played'] == [1] and one['attempts'] == 3
+		# Every draw keeps unit 1 alone (bos + style + unit 1), then the cap cuts it to one id.
+		assert one['ids'] == case['ids'][:1] and one['truncated'] == case['units'][0][2] - 1
+		assert one['units'] == [] and one['target_mask'] == [0]
+		bound = feeder(root, max_tokens=60, resample_tries=3)
+		capped = bound.describe(0)
+		assert len(capped['ids']) <= 60 and len(capped['target_mask']) == len(capped['ids'])
+		assert all(e <= 60 for _, _, e in capped['units'])
 
 		# style_dropout 1: no block, the first unit right after <bos>.
 		bare = feeder(root, style_dropout=1).describe(0)
