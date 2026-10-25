@@ -37,6 +37,12 @@ resampled, because interleaving makes a unit boundary a clean cut point. The one
 unit over the bound by itself: that crop is redrawn, and truncated as a last resort, so `max_tokens` is a
 hard bound on every row (see `describe`).
 
+`boundary_jitter_mean` / `boundary_jitter_std` (default +4 / 6, midiseq2 source only) move every bar line
+the crop touches by round(gauss(mean, std)) source content lines, so a unit may end with the next bar's
+first lines or lose its own last ones -- what inference hands the model, since its bar lines come from a
+regular-model run rather than from `@measure` (see `_jitter_cuts`). The Lilylet targets do not move.
+Set both to 0 for exact training cuts, as a val arm should.
+
 Two on-disk layouts, chosen by `packed` (None = auto-detect, as in Seq2Seq2):
 
     loose    <root>/<source_dir>/**, <root>/<target_dir>/** and <root>/metadata/measures.json — the
@@ -87,12 +93,15 @@ class InterleavedSeq2 (Seq2Seq2):
 	# Packed layout: the per-sample measure-map entry prefix, and each format's file suffix.
 	MEASURES_ARM = 'measures'
 	SUFFIX = {'lilylet': '.lyl', 'midiseq2': '.midiseq2.txt'}
+	# (mean, std) of the bar-boundary jitter, in content lines, for a midiseq2 source. See `_jitter_cuts`.
+	DEFAULT_BOUNDARY_JITTER = (4.0, 6.0)
 
 	def __init__ (self, root, split, device='cpu', shuffle=False,
 		source_format='midiseq2', target_format='lilylet', source_dir='midi-seq2', target_dir='lyl',
 		measures_path=None, vocab_path=None, line_range=(4, 16), p_head=0.15, p_tail=0.15,
 		max_tokens=0, style_dropout=0.0, random_crop=None, seed=0, pos_style='flat', pack='flat',
-		resample_tries=8, mark_mode='measure', start_jitter=0, transposition_sigma=0, packed=None, **_):
+		resample_tries=8, boundary_jitter_mean=None, boundary_jitter_std=None, mark_mode='measure',
+		start_jitter=0, transposition_sigma=0, packed=None, **_):
 		# Dataset.__init__ only: Seq2Seq2's constructor sets up a single-half pipeline this class replaces.
 		super(Seq2Seq2, self).__init__()
 		self.device = device
@@ -129,6 +138,19 @@ class InterleavedSeq2 (Seq2Seq2):
 		self.random_crop = shuffle if random_crop is None else random_crop
 		self.seed = seed
 		self._split = split
+		# Bar-boundary jitter, in source CONTENT lines (see `_jitter_cuts`). It models stage 1's error at
+		# inference, so it exists only where the midiseq2 arm is the SOURCE: jittering a midiseq2 TARGET
+		# would teach the model to write a bar that does not end at its bar line.
+		midi_source = self.source_format == 'midiseq2'
+		mean = (self.DEFAULT_BOUNDARY_JITTER[0] if midi_source else 0.0) if boundary_jitter_mean is None \
+			else float(boundary_jitter_mean)
+		std = (self.DEFAULT_BOUNDARY_JITTER[1] if midi_source else 0.0) if boundary_jitter_std is None \
+			else float(boundary_jitter_std)
+		if std < 0:
+			raise ValueError(f'boundary_jitter_std must be >= 0, got {boundary_jitter_std!r}')
+		if (mean or std) and not midi_source:
+			raise ValueError('boundary jitter applies to a midiseq2 SOURCE; this run has a midiseq2 target')
+		self.boundary_jitter_mean, self.boundary_jitter_std = mean, std
 
 		from .unifiedSeq2Tokenizer import UnifiedSeq2Tokenizer
 		from ...lilylet.data.patchifier import LilyletTokenizer
@@ -227,11 +249,66 @@ class InterleavedSeq2 (Seq2Seq2):
 			dropped += 1
 		return dropped
 
+	# --- boundary jitter ------------------------------------------------------------------
+
+	@staticmethod
+	def _bar_content (midi) -> Tuple[List[str], List[int]]:
+		'''A parsed midiseq2 file -> (content lines, start of each played bar in them, plus the end).
+
+		Content lines are what a unit encodes: every line but `@measure` / `@tick` and blanks. Bar n
+		opens at its `@measure` line, except bar 1, which owns the file header from line 0 -- the same
+		cut `_mixed_midi_text` makes, so a slice [starts[n-1], starts[n]) encodes exactly bar n's unit.
+		'''
+		content, before = [], []
+		for line in midi.lines:
+			before.append(len(content))
+			if line.strip() and not line.startswith(('@measure', '@tick')):
+				content.append(line)
+		starts = [0] + [before[midi.marks[n][0]] for n in range(1, len(midi.marks))] + [len(content)]
+		return content, starts
+
+	def _jitter_cuts (self, starts: List[int], a: int, z: int, index: int) -> Tuple[List[int], List[Optional[int]], int]:
+		'''The source cuts of played bars a+1..z, each bar line moved by round(gauss(mean, std)) lines.
+
+		-> (cuts, applied shift per cut or None where the cut is fixed, how many shifts were clamped).
+
+		Why: at inference the bar lines come from stage 1 (translateMidiseq2ToLilylet), which places them
+		off by whole source lines -- measured on I-YIgmEZ0ss against its GT segmentation, 11/21 exact and
+		the rest -19..+58 lines -- while training cut every unit exactly at `@measure`. A positive shift
+		moves the bar line LATER, so the bar before it ends with the next bar's first lines.
+
+		A cut shared by two bars moves once, so no line is lost or duplicated. The file's first and last
+		line never move (nothing exists past them). Shifted cuts are clamped to keep the order
+		non-decreasing; a clamp can empty a unit, which inference also produces (stage 1 reports empty
+		bars). The targets are untouched: the jitter is a SOURCE perturbation only.
+
+		Drawn from its own stream, seeded per index on a deterministic arm, so turning jitter on never
+		changes the crop -- the same reason `_pick_transposition` gives.
+		'''
+		base = starts[a:z + 1]
+		if not (self.boundary_jitter_mean or self.boundary_jitter_std):
+			return list(base), [0] * len(base), 0
+		rng = random if self.random_crop else random.Random(self.seed ^ (index * 40503) ^ 0xb0d)
+		last = starts[-1]
+		cuts, shifts, clamped = [], [], 0
+		for cut in base:
+			if cut == 0 or cut == last:
+				cuts.append(cut); shifts.append(None)
+				continue
+			want = cut + int(round(rng.gauss(self.boundary_jitter_mean, self.boundary_jitter_std)))
+			got = min(max(want, cuts[-1] if cuts else 0, 0), last)
+			clamped += got != want
+			cuts.append(got); shifts.append(got - cut)
+		return cuts, shifts, clamped
+
 	# --- item -----------------------------------------------------------------------------
 
 	def _encode_unit (self, played: int, lyl: List[str], midi, mapping: List[int]) -> Tuple[List[int], List[int]]:
-		'''(source ids, target ids) of one played measure, both without wrappers.'''
+		'''(source ids, target ids) of one played measure, both without wrappers, cut exactly at its bar.'''
 		midi_ids = self._mixed_encode_midi(self._mixed_midi_text(midi, [played]), False)
+		return self._pair(midi_ids, played, lyl, mapping)
+
+	def _pair (self, midi_ids: List[int], played: int, lyl: List[str], mapping: List[int]) -> Tuple[List[int], List[int]]:
 		lyl_ids = self._mixed_encode_lilylet(lyl[mapping[played - 1] - 1])
 		return (lyl_ids, midi_ids) if self.source_format == 'lilylet' else (midi_ids, lyl_ids)
 
@@ -242,7 +319,10 @@ class InterleavedSeq2 (Seq2Seq2):
 		max_tokens), attempts (crops drawn, see below), truncated (ids cut by the last-resort cap), head,
 		tail, style (style-block token count), played (played measure numbers), source_measures (the
 		Lilylet measure of each unit), ids, target_mask (0/1 per id), units ([(start, sep, end)] id indices
-		of each COMPLETE unit: src at start..sep-1, <sep> at sep, tar..<eom> at sep+1..end-1).
+		of each COMPLETE unit: src at start..sep-1, <sep> at sep, tar..<eom> at sep+1..end-1),
+		source_cuts (the units' edges in `_bar_content` lines, len(played) + 1), boundary_shift (lines each
+		edge moved, None where it cannot move), boundary_clamped (shifts the order clamp cut short, over
+		the crop as drawn, i.e. before any trim).
 
 		`max_tokens` is a HARD bound on the row. Unit trimming stops at one unit, and one unit can exceed
 		the bound on its own — measured on nota1m, 0.061% of units cost over 2048 tokens and the longest
@@ -260,19 +340,24 @@ class InterleavedSeq2 (Seq2Seq2):
 		midi = self._mixed_midi(sample_id)
 		style = self._pick_style(index, style_lines)
 		count = len(mapping)
+		content, starts = self._bar_content(midi)
 
 		for attempt in range(1, max(1, self.resample_tries) + 1):
 			a, z, mode = self._pick_units(count, rng)
-			units = [self._encode_unit(n, lyl, midi, mapping) for n in range(a + 1, z + 1)]
+			# Cut BEFORE trimming, so a trim drops whole jittered units and the surviving edges keep the
+			# shift they were drawn with -- the trim cannot re-place a bar line.
+			cuts, shifts, clamped = self._jitter_cuts(starts, a, z, index)
+			units = [self._pair(self._mixed_encode_midi(content[cuts[i]:cuts[i + 1]], False), n, lyl, mapping)
+				for i, n in enumerate(range(a + 1, z + 1))]
 			# <bos> may be lost to a front trim, so `fixed` counts it only when it could survive; a head
 			# crop trims from the back and keeps it.
 			from_front = mode == 'tail' and a > 0
 			dropped = self._trim(units, len(style) + (1 if a == 0 else 0), from_front)
 			if dropped:
 				if from_front:
-					units, a = units[dropped:], a + dropped
+					units, a, cuts, shifts = units[dropped:], a + dropped, cuts[dropped:], shifts[dropped:]
 				else:
-					units, z = units[:-dropped], z - dropped
+					units, z, cuts, shifts = units[:-dropped], z - dropped, cuts[:-dropped], shifts[:-dropped]
 			cost = (1 if a == 0 else 0) + len(style) + sum(len(src) + len(tgt) + 2 for src, tgt in units)
 			if not self.max_tokens or cost <= self.max_tokens:
 				break
@@ -300,7 +385,8 @@ class InterleavedSeq2 (Seq2Seq2):
 		played = list(range(a + 1, z + 1))
 		return dict(name=sample_id, a=a, z=z, mode=mode, trimmed=dropped, attempts=attempt,
 			truncated=truncated, head=head, tail=z >= count, style=len(style), played=played,
-			source_measures=[mapping[n - 1] for n in played], ids=ids, target_mask=mask, units=spans)
+			source_measures=[mapping[n - 1] for n in played], ids=ids, target_mask=mask, units=spans,
+			source_cuts=cuts, boundary_shift=shifts, boundary_clamped=clamped)
 
 	def _item (self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
 		case = self.describe(index)

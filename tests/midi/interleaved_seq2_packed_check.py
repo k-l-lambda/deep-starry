@@ -6,7 +6,9 @@ Builds, in a temp dir, the inputs tools/midi/packInterleavedLilylet.py expects f
 `lyl/<XX>/<YY>/<id>.lyl`, and `measures-<XX>.json`. Runs the packer, then asserts:
 
   * the packed corpus holds exactly the pairs the loose feeder accepts (rejects counted by reason);
-  * describe() agrees field for field on every sample, both directions, val (deterministic) crops;
+  * describe() agrees field for field on every sample, both directions, val (deterministic) crops --
+    with the default bar-boundary jitter ON in the midiseq2 -> lilylet direction, so the jittered cut
+    is layout-independent too;
   * collated batches are tensor-identical.
 
 Usage: python tests/midi/interleaved_seq2_packed_check.py [--root DIR]

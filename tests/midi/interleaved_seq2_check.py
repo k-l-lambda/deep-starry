@@ -13,7 +13,8 @@ from mixed_seq2seq2_check import write_fixture, is_lilylet, is_midi, raises  # n
 
 
 def feeder (root, source_format='midiseq2', line_range=(6, 6), **kwargs):
-	kwargs = dict(dict(p_head=1, p_tail=0, random_crop=False), **kwargs)
+	# Exact cuts unless a test asks for jitter: the layout checks compare units against _encode_unit.
+	kwargs = dict(dict(p_head=1, p_tail=0, random_crop=False, boundary_jitter_mean=0, boundary_jitter_std=0), **kwargs)
 	return InterleavedSeq2(root, '0/1',
 		source_dir='midi' if source_format == 'midiseq2' else 'lyl',
 		target_dir='lyl' if source_format == 'midiseq2' else 'midi',
@@ -130,6 +131,33 @@ def main ():
 			assert raises(ValueError, lambda: feeder(root, **bad)), bad
 		assert raises(ValueError, lambda: InterleavedSeq2(root, '0/1', source_format='midiseq2',
 			target_format='midiseq2', vocab_path=os.path.join(root, 'vocab.json')))
+		# Bar-boundary jitter: conservation (no source line lost or duplicated), fixed file edges, untouched
+		# targets, crop independence, and the direction / sign guards.
+		for seed in range(30):
+			clean = feeder(root, line_range=(2, 6), p_head=0, p_tail=0, seed=seed)
+			jit = feeder(root, line_range=(2, 6), p_head=0, p_tail=0, seed=seed,
+				boundary_jitter_mean=1, boundary_jitter_std=3)
+			c, j = clean.describe(0), jit.describe(0)
+			assert (c['a'], c['z'], c['played']) == (j['a'], j['z'], j['played']), 'jitter moved the crop'
+			assert [c['ids'][s + 1:e] for _, s, e in c['units']] == [j['ids'][s + 1:e] for _, s, e in j['units']]
+			content, starts = jit._bar_content(jit._mixed_midi(j['name']))
+			cuts = j['source_cuts']
+			assert cuts == sorted(cuts) and len(cuts) == len(j['played']) + 1
+			assert c['source_cuts'] == starts[c['a']:c['z'] + 1]
+			assert [0 if x is None else x for x in j['boundary_shift']] == [x - y for x, y in zip(cuts, starts[j['a']:j['z'] + 1])]
+			srcs = [j['ids'][a:s] for a, s, _ in j['units']]
+			assert sum(srcs, []) == jit._mixed_encode_midi(content[cuts[0]:cuts[-1]], False), 'a source line was lost or duplicated'
+			# The file's first and last line never move: a crop from bar 1 starts at line 0, one to the end
+			# ends at the last content line.
+			if j['a'] == 0:
+				assert cuts[0] == 0, 'the file start moved'
+			if j['z'] == len(starts) - 1:
+				assert cuts[-1] == starts[-1], 'the file end moved'
+			assert jit.describe(0) == j, 'a deterministic arm must jitter the same way every call'
+		assert raises(ValueError, lambda: feeder(root, boundary_jitter_std=-1))
+		assert raises(ValueError, lambda: feeder(root, source_format='lilylet', boundary_jitter_mean=4, boundary_jitter_std=6))
+		assert feeder(root, source_format='lilylet', boundary_jitter_mean=None, boundary_jitter_std=None).boundary_jitter_std == 0
+		assert feeder(root, boundary_jitter_mean=None, boundary_jitter_std=None).boundary_jitter_std == 6
 		print('interleaved_seq2_check: OK')
 	finally:
 		shutil.rmtree(root)

@@ -32,10 +32,16 @@ data:
     # Over-long crops drop whole units (from the back; from the front on a tail crop).
     max_tokens:             2048
     style_dropout:          0.3
+    # Stage-1 bar-line error at inference: each bar line the crop touches moves round(gauss(4, 6)) source
+    # content lines (+ = later). Off on val, which measures the exact-cut condition.
+    boundary_jitter_mean:   4
+    boundary_jitter_std:    6
   args_variant:
     1:
       random_crop:          false
       style_dropout:        0
+      boundary_jitter_mean: 0
+      boundary_jitter_std:  0
 
 model:
   type:                     MidiTranslator
