@@ -1212,6 +1212,7 @@ class SlidingTranslator:
 				logits = logits.clone()
 				forced = bool(logits.argmax().item() == self.tk.eos_id)
 				logits[self.tk.eos_id] = float('-inf')
+			logits = self.constrain_logits(logits, out)
 			nxt = (int(logits.argmax().item()) if not temperature
 				else sample_next(logits, temperature=temperature, top_k=top_k, top_p=top_p))
 			if nxt == self.tk.eos_id:
@@ -1224,6 +1225,12 @@ class SlidingTranslator:
 		self.decode_seconds += time.time() - start_time
 		self.decode_tokens += len(out)
 		return out, forced
+
+	def constrain_logits (self, logits, out):
+		'''Hook for a subclass that forces tokens: `logits` predict the token after `out`, this window's
+		output so far. The identity here; translateMidiseq2ToLilylet's MeterTranslator uses it to pin
+		the `time_signature` fields.'''
+		return logits
 
 	# --- advancing -----------------------------------------------------------------------
 
